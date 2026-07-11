@@ -120,17 +120,16 @@ its templates; the quiet-ply rule from material claims applies here too.
   [chess-reviews-from-youtube](https://www.kaggle.com/datasets/huberthamelin/chess-reviews-from-youtube)
   dataset could also be phrase-mined to make the templates sound more human
   without any model at all.
-- **Formalize e2e tests** — the desktop shell now has real e2e in CI
-  (`.github/workflows/tauri-e2e.yml`: tauri-driver on Linux drives the app,
-  asserts native analysis reaches the UI; skipped on macOS where no driver
-  exists — `npm run test:e2e:tauri`). Still to do: port the web Playwright
-  verification scripts (engine flow, practice loop, game review, layout)
-  into `@playwright/test` in-repo and run them in CI too.
 - **Release-build blank window on Linux** — the release binary's embedded-
   asset webview stalls at about:blank on ubuntu runners (debug + devUrl works
   fine, macOS unaffected); investigate before shipping Linux bundles.
 
 ## Design notes / known quirks
+
+- Testing layout: vitest = `src/**/*.test.ts` (pure logic; 31 tests),
+  `e2e/` = @playwright/test against the built bundle (6 tests; local Chrome
+  via `npm run test:e2e`, chromium in CI), `npm run test:rust` = bridge unit
+  tests, tauri e2e = Linux CI only (no macOS WebDriver backend).
 
 - Practice pass = the attempt labels **good or better** (win-chance loss
   < 5%, the good/inaccuracy boundary) so the ✓/✗ can never contradict the
