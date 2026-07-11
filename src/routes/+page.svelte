@@ -406,9 +406,15 @@
 		const playedPoint = pass
 			? explainGoodMove(ref.fen, uci, isBest ? ref.bestPv : [uci, ...refutationPv], mate)
 			: undefined;
+		attemptGrade = buildAttemptGrade(ref, move.san, uci, evalPawns, mate, depth, drop, {
+			playedIssue: explanation.playedIssue,
+			bestPoint: explanation.bestPoint,
+			playedPoint
+		});
 		attempt = {
 			san: move.san,
 			pass,
+			label: attemptGrade.label,
 			drop,
 			evalPawns,
 			mate,
@@ -418,11 +424,6 @@
 			bestPoint: explanation.bestPoint,
 			playedPoint
 		};
-		attemptGrade = buildAttemptGrade(ref, move.san, uci, evalPawns, mate, depth, drop, {
-			playedIssue: explanation.playedIssue,
-			bestPoint: explanation.bestPoint,
-			playedPoint
-		});
 		// only the stored puzzle counts toward spaced repetition, not line continuations
 		if (lineDepth === 0) practiceItems = recordResult(practiceItems, currentItem.id, pass);
 	}

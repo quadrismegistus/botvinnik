@@ -102,12 +102,12 @@
 			{:else if lineDepth > 0}
 				<span class="summary">
 					Continuing the line (move +{lineDepth}) — find a strong move
-					<span class="hint">(within 10% of the engine's best here)</span>
+					<span class="hint">(pass: lose under 10% win chance vs the engine's best)</span>
 				</span>
 			{:else}
 				<span class="summary">
 					<strong>{sideToMove(current.fen)}</strong> to move — find a strong move
-					<span class="hint">(within 10% of best · you lost {current.drop.toFixed(0)}% here with {current.playedSan})</span>
+					<span class="hint">(pass: lose under 10% win chance · you lost {current.drop.toFixed(0)}% here with {current.playedSan})</span>
 				</span>
 			{/if}
 			<button onclick={onexit}>Exit practice</button>
@@ -128,14 +128,23 @@
 			{:else if attempt}
 				<div class="result" class:pass={attempt.pass} class:fail={!attempt.pass}>
 					{#if attempt.pass}
-						✓ <strong>{attempt.san}</strong> ({fmtEval(attempt.evalPawns, attempt.mate)}) — good, within
-						{attempt.drop <= 0 ? 0 : attempt.drop.toFixed(0)}% of best.
+						✓ <strong>{attempt.san}</strong> ({fmtEval(attempt.evalPawns, attempt.mate)})
+						{#if attempt.label}<span class="chip {attempt.label}">{attempt.label}</span>{/if}
+						{#if attempt.label === 'best'}
+							— the engine's move.
+						{:else if attempt.drop <= 0}
+							— as strong as the engine's best here.
+						{:else}
+							— costs {attempt.drop < 1 ? '<1' : attempt.drop.toFixed(0)}% win chance, inside the
+							10% pass margin.
+						{/if}
 						{#if attempt.playedPoint}
 							{attempt.playedPoint}
 						{/if}
 					{:else}
-						✗ <strong>{attempt.san}</strong> ({fmtEval(attempt.evalPawns, attempt.mate)}) — drops
-						{attempt.drop.toFixed(0)}%.
+						✗ <strong>{attempt.san}</strong> ({fmtEval(attempt.evalPawns, attempt.mate)})
+						{#if attempt.label}<span class="chip {attempt.label}">{attempt.label}</span>{/if}
+						— drops {attempt.drop.toFixed(0)}% win chance.
 						{#if attempt.playedIssue}
 							{attempt.playedIssue}
 						{:else if attempt.refutationSan}
@@ -285,6 +294,21 @@
 	.refutation {
 		color: var(--color-lose);
 	}
+	.chip {
+		padding: 1px 7px;
+		border-radius: 9px;
+		font-size: 10px;
+		color: #fff;
+		white-space: nowrap;
+	}
+	.chip.brilliant { background: #1baca6; }
+	.chip.great { background: #5b8bb0; }
+	.chip.best { background: #81b64c; }
+	.chip.excellent { background: #81b64c; opacity: 0.75; }
+	.chip.good { background: #95b776; opacity: 0.7; }
+	.chip.inaccuracy { background: #f0c15c; color: #333; }
+	.chip.mistake { background: #e6912c; }
+	.chip.blunder { background: #ca3431; }
 	.actions {
 		margin-left: auto;
 		display: flex;

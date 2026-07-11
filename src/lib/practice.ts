@@ -1,9 +1,12 @@
 // Practice list: positions where a mistake was played, stored in localStorage,
 // scheduled with simple Leitner boxes.
 
+import type { MoveLabel } from './engine/insights';
+
 export interface AttemptResult {
 	san: string;
 	pass: boolean;
+	label?: MoveLabel; // same classification the insight card shows
 	drop: number;
 	evalPawns: number | null;
 	mate: number | null;
