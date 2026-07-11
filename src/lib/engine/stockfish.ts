@@ -1,3 +1,4 @@
+import { base } from '$app/paths';
 import { getCached, putCached } from './analysisCache';
 
 export const MULTIPV = 5;
@@ -40,7 +41,7 @@ let currentMoves: Map<number, EngineMove> = new Map();
 function ensureWorker(): Worker {
 	if (worker) return worker;
 	console.log('[stockfish] Creating worker...');
-	worker = new Worker('/wasm/stockfish.js');
+	worker = new Worker(`${base}/wasm/stockfish.js`);
 	worker.onmessage = (e) => handleMessage(e.data);
 	worker.onerror = (e) => {
 		console.error('[stockfish] Worker error, restarting:', e.message, e);

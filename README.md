@@ -24,6 +24,12 @@ npm run dev
 
 `npm run check` type-checks. Playwright (against installed Chrome) is used for end-to-end verification scripts.
 
+## Static build / deploy
+
+The app is fully client-side, so `npm run build` (adapter-static) emits a plain HTML/JS bundle in `build/` that runs on any static file host — `npx serve build` works; `file://` does not (workers and fetch need HTTP).
+
+Pushes to `main` deploy to GitHub Pages via `.github/workflows/pages.yml`, which builds with `BASE_PATH=/botvinnik` for the project-site URL. All asset URLs go through SvelteKit's `base`, so builds without `BASE_PATH` serve from the domain root.
+
 ## Commentary data
 
 `static/commentary.json` is derived from the CC BY-NC [chess-reviews-from-youtube](https://www.kaggle.com/datasets/huberthamelin/chess-reviews-from-youtube) dataset (non-commercial use only). To regenerate, download the dataset to `data/kaggle.huberthamelin.chess-reviews-from-youtube/` and run:
