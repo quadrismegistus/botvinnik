@@ -198,6 +198,170 @@ function forkPoint(fenBefore: string, uci: string) {
 	return `${m.san} forks the ${targets.join(' and the ')}.`;
 }
 
+// ---- ray machinery for the slider motifs (pin / skewer / discovered) ----
+
+type Dir = [number, number];
+const BISHOP_DIRS: Dir[] = [
+	[1, 1],
+	[1, -1],
+	[-1, 1],
+	[-1, -1]
+];
+const ROOK_DIRS: Dir[] = [
+	[1, 0],
+	[-1, 0],
+	[0, 1],
+	[0, -1]
+];
+
+function sliderDirs(type: string): Dir[] | null {
+	if (type === 'b') return BISHOP_DIRS;
+	if (type === 'r') return ROOK_DIRS;
+	if (type === 'q') return [...BISHOP_DIRS, ...ROOK_DIRS];
+	return null;
+}
+
+function toSquare(file: number, rank: number): Square | null {
+	if (file < 0 || file > 7 || rank < 0 || rank > 7) return null;
+	return (String.fromCharCode(97 + file) + (rank + 1)) as Square;
+}
+
+function* raySquares(from: Square, dir: Dir): Generator<Square> {
+	let file = from.charCodeAt(0) - 97;
+	let rank = Number(from[1]) - 1;
+	for (;;) {
+		file += dir[0];
+		rank += dir[1];
+		const s = toSquare(file, rank);
+		if (!s) return;
+		yield s;
+	}
+}
+
+// After playing `uci` with a slider: does it pin or skewer along some ray?
+// Pin: first enemy piece on the ray shields the king or a MORE valuable piece.
+// Skewer: the king (or queen) is hit first and must expose the piece behind.
+// Geometry only — both claims are verifiable facts about the position.
+export function pinOrSkewerPoint(fenBefore: string, uci: string): string | undefined {
+	const c = new Chess(fenBefore);
+	const m = apply(c, uci);
+	if (!m) return undefined;
+	const dirs = sliderDirs(m.piece);
+	if (!dirs) return undefined;
+
+	for (const dir of dirs) {
+		let first: { sq: Square; type: string } | null = null;
+		for (const s of raySquares(m.to as Square, dir)) {
+			const p = c.get(s);
+			if (!p) continue;
+			if (p.color === m.color) break; // own piece blocks the ray
+			if (!first) {
+				first = { sq: s, type: p.type };
+				continue;
+			}
+			// second enemy piece on the same ray
+			if (first.type === 'k') {
+				// check with a piece behind the king: a skewer
+				if (VAL[p.type] >= 3) {
+					return `${m.san} skewers the king on ${first.sq} against the ${NAME[p.type]} on ${s}.`;
+				}
+			} else if (p.type === 'k') {
+				return `${m.san} pins the ${NAME[first.type]} on ${first.sq} against the king.`;
+			} else if (VAL[p.type] > VAL[first.type]) {
+				return `${m.san} pins the ${NAME[first.type]} on ${first.sq} against the ${NAME[p.type]} on ${s}.`;
+			} else if (first.type === 'q' && VAL[m.piece] < 9 && VAL[p.type] >= 3) {
+				// a queen skewered by a CHEAPER slider must give up the piece behind
+				return `${m.san} skewers the queen on ${first.sq} against the ${NAME[p.type]} on ${s}.`;
+			}
+			break; // ray resolved either way
+		}
+	}
+	return undefined;
+}
+
+// Moving `uci` uncovers a friendly slider's attack through the vacated square —
+// discovered check, or a discovered attack on a valuable piece.
+export function discoveredPoint(fenBefore: string, uci: string): string | undefined {
+	const c = new Chess(fenBefore);
+	const m = apply(c, uci);
+	if (!m || m.flags.includes('k') || m.flags.includes('q')) return undefined; // not for castling
+
+	for (const row of c.board()) {
+		for (const cell of row) {
+			if (!cell || cell.color !== m.color || cell.square === m.to) continue;
+			const dirs = sliderDirs(cell.type);
+			if (!dirs) continue;
+			for (const dir of dirs) {
+				let passedFrom = false;
+				for (const s of raySquares(cell.square as Square, dir)) {
+					if (s === m.from) {
+						passedFrom = true;
+						continue; // vacated — the whole point
+					}
+					const p = c.get(s);
+					if (!p) continue;
+					if (!passedFrom) break; // blocked before the vacated square
+					if (p.color !== m.color && p.type === 'k') {
+						return `${m.san} discovers check from the ${NAME[cell.type]} on ${cell.square}.`;
+					}
+					if (p.color !== m.color && VAL[p.type] >= 3 && VAL[p.type] > VAL[cell.type]) {
+						return `${m.san} uncovers the ${NAME[cell.type]} on ${cell.square}'s attack on the ${NAME[p.type]} on ${s}.`;
+					}
+					break;
+				}
+			}
+		}
+	}
+	return undefined;
+}
+
+// After `uci`, an enemy piece is attacked by something cheaper and has no safe
+// square: every escape is guarded (by a cheaper piece, or undefended into a
+// capture), and no escape grabs equal-or-better material.
+export function trappedPoint(fenBefore: string, uci: string): string | undefined {
+	const c = new Chess(fenBefore);
+	const m = apply(c, uci);
+	if (!m) return undefined;
+	const us = m.color;
+	const minAttackerVal = (sq: Square, by: Color): number => {
+		const vals = c.attackers(sq, by).map((a) => VAL[c.get(a)?.type ?? 'k']);
+		return vals.length ? Math.min(...vals) : Infinity;
+	};
+
+	// most valuable first — "traps the queen" beats "traps the knight"
+	const candidates: { sq: Square; type: string }[] = [];
+	for (const row of c.board()) {
+		for (const cell of row) {
+			if (cell && cell.color !== us && VAL[cell.type] >= 3 && cell.type !== 'k') {
+				candidates.push({ sq: cell.square as Square, type: cell.type });
+			}
+		}
+	}
+	candidates.sort((a, b) => VAL[b.type] - VAL[a.type]);
+
+	for (const x of candidates) {
+		if (minAttackerVal(x.sq, us) >= VAL[x.type]) continue; // no cheap attacker: not forced
+		const escapes = c.moves({ square: x.sq, verbose: true });
+		const allUnsafe = escapes.every((e) => {
+			const grabbed = c.get(e.to as Square);
+			if (grabbed && grabbed.color === us && VAL[grabbed.type] >= VAL[x.type]) {
+				return false; // escapes with equal-or-better material — not trapped
+			}
+			const attackerVal = minAttackerVal(e.to as Square, us);
+			if (attackerVal === Infinity) return false; // a genuinely safe square
+			if (attackerVal < VAL[x.type]) return true; // guarded by something cheaper
+			// guarded by equal/greater value: only unsafe if nothing recaptures
+			const them: Color = us === 'w' ? 'b' : 'w';
+			const defenders = c.attackers(e.to as Square, them).filter((d) => d !== x.sq);
+			return defenders.length === 0;
+		});
+		if (allUnsafe) {
+			return `${m.san} traps the ${NAME[x.type]} on ${x.sq} — it has no safe square.`;
+		}
+	}
+	return undefined;
+}
+
 // Best move simply captures an undefended piece
 function freeCapturePoint(fenBefore: string, uci: string) {
 	const c = new Chess(fenBefore);
@@ -271,7 +435,12 @@ export function explainMove(input: {
 				? `${bestSan} was immediate checkmate.`
 				: `${bestSan} forces mate in ${bestMate}.`;
 	} else {
-		out.bestPoint = forkPoint(fenBefore, bestUci) ?? freeCapturePoint(fenBefore, bestUci);
+		out.bestPoint =
+			forkPoint(fenBefore, bestUci) ??
+			freeCapturePoint(fenBefore, bestUci) ??
+			pinOrSkewerPoint(fenBefore, bestUci) ??
+			discoveredPoint(fenBefore, bestUci) ??
+			trappedPoint(fenBefore, bestUci);
 		if (!out.bestPoint && bestPv.length > 1) {
 			const { net, plies } = quietMaterialOverLine(fenBefore, bestPv.slice(0, 9));
 			if (net >= 2) {
@@ -304,7 +473,12 @@ export function explainGoodMove(
 			evidence: evidence(12)
 		};
 	}
-	const point = forkPoint(fenBefore, playedUci) ?? freeCapturePoint(fenBefore, playedUci);
+	const point =
+		forkPoint(fenBefore, playedUci) ??
+		freeCapturePoint(fenBefore, playedUci) ??
+		pinOrSkewerPoint(fenBefore, playedUci) ??
+		discoveredPoint(fenBefore, playedUci) ??
+		trappedPoint(fenBefore, playedUci);
 	if (point) return { text: point, evidence: evidence(1) };
 	if (playedPv.length > 1) {
 		const { net, plies } = quietMaterialOverLine(fenBefore, playedPv.slice(0, 9));

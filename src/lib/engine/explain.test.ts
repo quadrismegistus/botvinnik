@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { explainGoodMove, explainMove, materialOverLine, summarizeLine } from './explain';
+import {
+	discoveredPoint,
+	explainGoodMove,
+	explainMove,
+	materialOverLine,
+	pinOrSkewerPoint,
+	summarizeLine,
+	trappedPoint
+} from './explain';
 
 const START = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
 
@@ -53,6 +61,90 @@ describe('summarizeLine', () => {
 		// line ends right after white wins Q for R — the recapture may lie beyond
 		const fen = '3r4/8/8/3q3k/8/8/8/K2R4 w - - 0 1';
 		expect(summarizeLine(fen, ['d1d5', 'd8d5'])).toBeUndefined();
+	});
+});
+
+describe('pinOrSkewerPoint', () => {
+	it('detects the classic Bg5 pin against the queen', () => {
+		// 1.d4 Nf6 2.c4 e6 3.Nc3 d5 and now 4.Bg5
+		const fen = 'rnbqkb1r/ppp2ppp/4pn2/3p4/2PP4/2N5/PP2PPPP/R1BQKBNR w KQkq - 0 4';
+		expect(pinOrSkewerPoint(fen, 'c1g5')).toBe(
+			'Bg5 pins the knight on f6 against the queen on d8.'
+		);
+	});
+
+	it('does not call a blocked ray a pin', () => {
+		// Bb5 hits the c6 knight, but d7 still holds a PAWN — nothing valuable shielded
+		const fen = 'r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 0 3';
+		expect(pinOrSkewerPoint(fen, 'f1b5')).toBeUndefined();
+	});
+
+	it('does not call a bare check a pin or skewer', () => {
+		// Bb2 hits the king with nothing behind it
+		const fen = '7k/8/8/8/8/8/8/B3K3 w - - 0 1';
+		expect(pinOrSkewerPoint(fen, 'a1b2')).toBeUndefined();
+	});
+
+	it('does not pin against an equal-valued piece', () => {
+		// knight shields only another knight
+		const fen = '8/6n1/5n2/8/8/8/k7/B6K w - - 0 1';
+		expect(pinOrSkewerPoint(fen, 'a1b2')).toBeUndefined();
+	});
+
+	it('detects a check-skewer winning the piece behind the king', () => {
+		const fen = '8/8/8/1qk5/8/8/8/4K2R w K - 0 1';
+		expect(pinOrSkewerPoint(fen, 'h1h5')).toBe(
+			'Rh5+ skewers the king on c5 against the queen on b5.'
+		);
+	});
+
+	it('does not skewer when only a pawn hides behind the king', () => {
+		const fen = '8/8/8/1pk5/8/8/8/4K2R w K - 0 1';
+		expect(pinOrSkewerPoint(fen, 'h1h5')).toBeUndefined();
+	});
+});
+
+describe('discoveredPoint', () => {
+	it('detects a discovered check', () => {
+		const fen = '3k4/8/8/8/3N4/8/8/3R3K w - - 0 1';
+		expect(discoveredPoint(fen, 'd4e6')).toBe('Ne6+ discovers check from the rook on d1.');
+	});
+
+	it('stays silent when the mover still blocks the ray', () => {
+		// the rook slides up its own file — the line to the king never opens
+		const fen = '3k4/8/8/8/3R4/8/8/3R3K w - - 0 1';
+		expect(discoveredPoint(fen, 'd4d6')).toBeUndefined();
+	});
+
+	it('detects a discovered attack on the queen', () => {
+		const fen = '3q3k/8/8/8/3B4/8/8/3R3K w - - 0 1';
+		expect(discoveredPoint(fen, 'd4b6')).toBe(
+			"Bb6 uncovers the rook on d1's attack on the queen on d8."
+		);
+	});
+});
+
+describe('trappedPoint', () => {
+	it('detects the classic trapped bishop', () => {
+		// b6 attacks Ba7; b8 is covered by the rook, Bxb6 runs into axb6.
+		// (Ne8 blocks the back rank so the rook is not already checking, and is
+		// itself correctly NOT a trap candidate — its attacker is not cheaper.)
+		const fen = 'R3n1k1/b7/8/PP6/8/8/8/6K1 w - - 0 1';
+		expect(trappedPoint(fen, 'b5b6')).toBe(
+			'b6 traps the bishop on a7 — it has no safe square.'
+		);
+	});
+
+	it('stays silent when an escape square is defended', () => {
+		// black Rc8 defends b8: Bb8 survives, so nothing is trapped
+		const fen = 'R1r3k1/b7/8/PP6/8/8/8/6K1 w - - 0 1';
+		expect(trappedPoint(fen, 'b5b6')).toBeUndefined();
+	});
+
+	it('stays silent when a genuinely safe square exists', () => {
+		// no rook on a8: b8 is free
+		const fen = '6k1/b7/8/PP6/8/8/8/6K1 w - - 0 1';
+		expect(trappedPoint(fen, 'b5b6')).toBeUndefined();
 	});
 });
 
