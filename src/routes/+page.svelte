@@ -87,7 +87,9 @@
 	const insightBlack = $derived(moveHistory.findLast((g) => g.color === 'b') ?? null);
 
 	// practice list + mode
-	const PASS_DROP = 10; // attempts within this of best count as solved
+	// pass = the move labels "good" or better — under 5% win-chance loss, the
+	// same boundary where the insight chip turns to "inaccuracy"
+	const PASS_DROP = 5;
 	const THRESHOLD_KEY = 'botvinnik-collect-threshold';
 	let collectThreshold = $state(15); // win% drop that makes a move practice-worthy
 	let practiceItems: PracticeItem[] = $state([]);
@@ -388,7 +390,7 @@
 			}
 		}
 		const drop = ref.wcBest - winChance(evalPawns, mate);
-		const pass = drop <= PASS_DROP;
+		const pass = drop < PASS_DROP; // strict: drop = 5 is already an inaccuracy
 		const isBest = uci === ref.bestUci;
 		const explanation = pass
 			? {}

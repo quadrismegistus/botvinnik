@@ -102,12 +102,12 @@
 			{:else if lineDepth > 0}
 				<span class="summary">
 					Continuing the line (move +{lineDepth}) — find a strong move
-					<span class="hint">(pass: lose under 10% win chance vs the engine's best)</span>
+					<span class="hint">(pass: a good move or better — under 5% win-chance loss)</span>
 				</span>
 			{:else}
 				<span class="summary">
 					<strong>{sideToMove(current.fen)}</strong> to move — find a strong move
-					<span class="hint">(pass: lose under 10% win chance · you lost {current.drop.toFixed(0)}% here with {current.playedSan})</span>
+					<span class="hint">(pass: a good move or better · you lost {current.drop.toFixed(0)}% here with {current.playedSan})</span>
 				</span>
 			{/if}
 			<button onclick={onexit}>Exit practice</button>
@@ -135,8 +135,7 @@
 						{:else if attempt.drop <= 0}
 							— as strong as the engine's best here.
 						{:else}
-							— costs {attempt.drop < 1 ? '<1' : attempt.drop.toFixed(0)}% win chance, inside the
-							10% pass margin.
+							— costs {attempt.drop < 1 ? '<1' : attempt.drop.toFixed(0)}% win chance.
 						{/if}
 						{#if attempt.playedPoint}
 							{attempt.playedPoint}
