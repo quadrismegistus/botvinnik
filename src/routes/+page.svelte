@@ -424,15 +424,16 @@
 					isBest: false
 				});
 		const refutationUci = refutationPv[0] ?? null;
-		const playedPoint = pass
+		const goodPoint = pass
 			? explainGoodMove(ref.fen, uci, isBest ? ref.bestPv : [uci, ...refutationPv], mate)
 			: undefined;
+		const evidence = explanation.evidence ?? goodPoint?.evidence;
 		attemptGrade = buildAttemptGrade(ref, move.san, uci, evalPawns, mate, depth, drop, {
 			playedIssue: explanation.playedIssue,
 			bestPoint: explanation.bestPoint,
-			playedPoint,
+			playedPoint: goodPoint?.text,
 			lineStory: explanation.lineStory,
-			evidence: explanation.evidence
+			evidence
 		});
 		attempt = {
 			san: move.san,
@@ -445,9 +446,9 @@
 			refutationSan: !pass && refutationUci ? getSan(game.fen, refutationUci) : null,
 			playedIssue: explanation.playedIssue,
 			bestPoint: explanation.bestPoint,
-			playedPoint,
+			playedPoint: goodPoint?.text,
 			lineStory: explanation.lineStory,
-			evidence: explanation.evidence
+			evidence
 		};
 		// only the stored puzzle counts toward spaced repetition, not line continuations
 		if (lineDepth === 0) practiceItems = recordResult(practiceItems, currentItem.id, pass);

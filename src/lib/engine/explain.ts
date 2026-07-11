@@ -284,27 +284,39 @@ export function explainMove(input: {
 }
 
 // Why a GOOD move is good — same detectors, pointed at the played move itself.
+// Returns the sentence plus the line that backs it, for hover replay.
+export interface GoodMovePoint {
+	text: string;
+	evidence: { fen: string; ucis: string[] };
+}
+
 export function explainGoodMove(
 	fenBefore: string,
 	playedUci: string,
 	playedPv: string[], // line starting with the played move
 	playedMate: number | null
-): string | undefined {
+): GoodMovePoint | undefined {
+	const evidence = (plies: number) => ({ fen: fenBefore, ucis: playedPv.slice(0, plies) });
 	if (playedMate !== null && playedMate > 0) {
 		const san = getSanLine(fenBefore, [playedUci])[0]?.san ?? playedUci;
-		return playedMate === 1 ? `${san} is checkmate.` : `${san} forces mate in ${playedMate}.`;
+		return {
+			text: playedMate === 1 ? `${san} is checkmate.` : `${san} forces mate in ${playedMate}.`,
+			evidence: evidence(12)
+		};
 	}
 	const point = forkPoint(fenBefore, playedUci) ?? freeCapturePoint(fenBefore, playedUci);
-	if (point) return point;
+	if (point) return { text: point, evidence: evidence(1) };
 	if (playedPv.length > 1) {
 		const { net, plies } = quietMaterialOverLine(fenBefore, playedPv.slice(0, 9));
 		if (net >= 2) {
 			const fenAfter = getFenAfter(fenBefore, playedUci);
 			const continuation = fenAfter ? getNumberedSanLine(fenAfter, playedPv.slice(1, plies)) : '';
-			if (continuation) return `It wins ${net} points of material (${continuation}).`;
+			if (continuation) {
+				return { text: `It wins ${net} points of material (${continuation}).`, evidence: evidence(plies) };
+			}
 		}
 		const story = summarizeLine(fenBefore, playedPv.slice(0, 9));
-		if (story) return `In this line, ${story}.`;
+		if (story) return { text: `In this line, ${story}.`, evidence: evidence(9) };
 	}
 	return undefined;
 }

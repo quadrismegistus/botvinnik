@@ -119,7 +119,6 @@
 				{#if selected.bestSan && selected.label && !['brilliant', 'great', 'best'].includes(selected.label)}
 					<span class="stat">best was <strong>{selected.bestSan}</strong></span>
 				{/if}
-				{#if selected.explanation?.playedPoint}<div class="why">{selected.explanation.playedPoint}</div>{/if}
 				{#snippet withEvidence(text: string)}
 					{#if selected?.explanation?.evidence}
 						<LineHover fen={selected.explanation.evidence.fen} ucis={selected.explanation.evidence.ucis}>
@@ -129,6 +128,9 @@
 						{text}
 					{/if}
 				{/snippet}
+				{#if selected.explanation?.playedPoint}
+					<div class="why">{@render withEvidence(selected.explanation.playedPoint)}</div>
+				{/if}
 				{#if selected.explanation?.playedIssue}
 					<div class="why">{@render withEvidence(selected.explanation.playedIssue)}</div>
 				{/if}

@@ -148,8 +148,8 @@ export function backfillGrade(grade: MoveGrade, childLines: EngineMove[]): MoveG
 	let explanation: Explanation | undefined;
 	if (child.depth >= 10) {
 		if (isBest || pctBest >= 90) {
-			const playedPoint = explainGoodMove(grade.fenBefore, grade.uci, playedPv, mate);
-			explanation = playedPoint ? { playedPoint } : undefined;
+			const point = explainGoodMove(grade.fenBefore, grade.uci, playedPv, mate);
+			explanation = point ? { playedPoint: point.text, evidence: point.evidence } : undefined;
 		} else {
 			explanation = explainMove({
 				fenBefore: grade.fenBefore,

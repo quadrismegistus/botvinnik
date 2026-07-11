@@ -76,8 +76,9 @@
 			</div>
 			{#if g.isBest}
 				<p>
-					You played <strong>{g.san}</strong> — the best move
-					({fmtEval(g.evalPawns, g.mate)}, d{g.depth}).
+					You played
+					<LineHover fen={g.fenBefore} ucis={g.bestPv}><strong>{g.san}</strong></LineHover>
+					— the best move ({fmtEval(g.evalPawns, g.mate)}, d{g.depth}).
 				</p>
 			{:else if g.pctBest !== null}
 				<p>
@@ -96,7 +97,15 @@
 				</p>
 			{/if}
 			{#if g.explanation?.playedPoint}
-				<p class="why">{g.explanation.playedPoint}</p>
+				<p class="why">
+					{#if g.explanation.evidence}
+						<LineHover fen={g.explanation.evidence.fen} ucis={g.explanation.evidence.ucis}>
+							{g.explanation.playedPoint}
+						</LineHover>
+					{:else}
+						{g.explanation.playedPoint}
+					{/if}
+				</p>
 			{/if}
 			{#if g.explanation?.playedIssue}
 				<p class="why">

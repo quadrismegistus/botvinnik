@@ -116,17 +116,17 @@ describe('explainGoodMove', () => {
 		expect(explainGoodMove(START, 'd2d4', pv, null)).toBeUndefined();
 	});
 
-	it('credits a genuinely free capture', () => {
+	it('credits a genuinely free capture, with its evidence line', () => {
 		// lone rook takes an undefended queen
 		const fen = 'k7/3q4/8/8/8/8/3R4/K7 w - - 0 1';
-		expect(explainGoodMove(fen, 'd2d7', ['d2d7', 'a8b8'], null)).toBe(
-			"Rxd7 simply wins the queen — it's undefended."
-		);
+		const point = explainGoodMove(fen, 'd2d7', ['d2d7', 'a8b8'], null);
+		expect(point?.text).toBe("Rxd7 simply wins the queen — it's undefended.");
+		expect(point?.evidence).toEqual({ fen, ucis: ['d2d7'] });
 	});
 
 	it('describes a forced mate', () => {
 		// back-rank: 1.f3 e5 2.g4 and black to play Qh4#
 		const fen = 'rnbqkbnr/pppp1ppp/8/4p3/6P1/5P2/PPPPP2P/RNBQKBNR b KQkq - 0 2';
-		expect(explainGoodMove(fen, 'd8h4', ['d8h4'], 1)).toBe('Qh4# is checkmate.');
+		expect(explainGoodMove(fen, 'd8h4', ['d8h4'], 1)?.text).toBe('Qh4# is checkmate.');
 	});
 });

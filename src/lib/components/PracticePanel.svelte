@@ -139,7 +139,13 @@
 							— costs {attempt.drop < 1 ? '<1' : attempt.drop.toFixed(0)}% win chance.
 						{/if}
 						{#if attempt.playedPoint}
-							{attempt.playedPoint}
+							{#if attempt.evidence}
+								<LineHover fen={attempt.evidence.fen} ucis={attempt.evidence.ucis}>
+									{attempt.playedPoint}
+								</LineHover>
+							{:else}
+								{attempt.playedPoint}
+							{/if}
 						{/if}
 					{:else}
 						✗ <strong>{attempt.san}</strong> ({fmtEval(attempt.evalPawns, attempt.mate)})
