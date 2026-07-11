@@ -4,20 +4,19 @@
 // native single-threaded Stockfish processes (the firehose), mirroring the
 // offline script's design: fixed nodes per position, FEN-deduped per run.
 
-import { base } from '$app/paths';
-
 export interface UciEval {
 	cp?: number; // side-to-move perspective
 	mate?: number;
 	pv: string[];
 }
 
-interface Pipe {
+export interface Pipe {
 	send(cmd: string): void;
 	dispose(): void;
 }
 
-class PoolEngine {
+// exported for unit tests — the pipe is injectable so no engine is needed
+export class PoolEngine {
 	busy = false;
 	ready: Promise<void>;
 	private pipe!: Pipe;
@@ -94,6 +93,7 @@ export async function createImportPool(nodes: number): Promise<ImportPool> {
 				})
 		);
 	} else {
+		const { base } = await import('$app/paths');
 		engines = [
 			new PoolEngine((onLine) => {
 				const w = new Worker(`${base}/wasm/stockfish.js`);

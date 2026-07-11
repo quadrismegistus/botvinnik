@@ -64,10 +64,9 @@ fn engine_start(app: AppHandle, state: State<'_, Engines>, id: String) -> Result
     Ok(())
 }
 
-#[tauri::command]
-fn engine_send(state: State<'_, Engines>, id: String, command: String) -> Result<(), String> {
-    let mut slots = state.0.lock().map_err(|e| e.to_string())?;
-    if let Some(child) = slots.get_mut(&id) {
+fn send_impl(engines: &Engines, id: &str, command: &str) -> Result<(), String> {
+    let mut slots = engines.0.lock().map_err(|e| e.to_string())?;
+    if let Some(child) = slots.get_mut(id) {
         child
             .write(format!("{command}\n").as_bytes())
             .map_err(|e| e.to_string())?;
@@ -77,14 +76,41 @@ fn engine_send(state: State<'_, Engines>, id: String, command: String) -> Result
     }
 }
 
-#[tauri::command]
-fn engine_stop(state: State<'_, Engines>, id: String) -> Result<(), String> {
-    let mut slots = state.0.lock().map_err(|e| e.to_string())?;
-    if let Some(mut child) = slots.remove(&id) {
+fn stop_impl(engines: &Engines, id: &str) -> Result<(), String> {
+    let mut slots = engines.0.lock().map_err(|e| e.to_string())?;
+    if let Some(mut child) = slots.remove(id) {
         let _ = child.write(b"quit\n");
         let _ = child.kill();
     }
     Ok(())
+}
+
+#[tauri::command]
+fn engine_send(state: State<'_, Engines>, id: String, command: String) -> Result<(), String> {
+    send_impl(&state, &id, &command)
+}
+
+#[tauri::command]
+fn engine_stop(state: State<'_, Engines>, id: String) -> Result<(), String> {
+    stop_impl(&state, &id)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn send_to_missing_engine_errors() {
+        let engines = Engines(Mutex::new(HashMap::new()));
+        let err = send_impl(&engines, "main", "uci").unwrap_err();
+        assert!(err.contains("main"), "error should name the engine id: {err}");
+    }
+
+    #[test]
+    fn stop_of_missing_engine_is_ok() {
+        let engines = Engines(Mutex::new(HashMap::new()));
+        assert!(stop_impl(&engines, "import-3").is_ok());
+    }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

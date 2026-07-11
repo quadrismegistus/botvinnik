@@ -6,6 +6,7 @@
 
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+import { createLineSplitter } from './lineSplitter';
 import type { TransportFactory } from './stockfish';
 
 interface EngineLine {
@@ -25,18 +26,8 @@ export async function openNativeUci(
 	onError: (message: string) => void
 ): Promise<NativeUci> {
 	let closed = false;
-	let buffer = '';
 	const unlisteners: UnlistenFn[] = [];
-
-	const flush = (chunk: string) => {
-		buffer += chunk;
-		const lines = buffer.split('\n');
-		buffer = lines.pop() ?? '';
-		for (const line of lines) {
-			const trimmed = line.replace(/\r$/, '');
-			if (trimmed) onLine(trimmed);
-		}
-	};
+	const flush = createLineSplitter(onLine);
 
 	unlisteners.push(
 		await listen<EngineLine>('engine-line', (e) => {
