@@ -6,13 +6,21 @@
 		games: StoredGame[];
 		reviewing: StoredGame | null;
 		reviewPly: number; // 0 = initial position, k = after move k
+		importing?: boolean;
+		importStatus?: string;
 		onreview: (game: StoredGame) => void;
 		onclose: () => void;
 		ongoto: (ply: number) => void;
 		ondelete: (id: string) => void;
+		onimport?: (username: string) => void;
 	}
 
-	let { games, reviewing, reviewPly, onreview, onclose, ongoto, ondelete }: Props = $props();
+	let {
+		games, reviewing, reviewPly, importing = false, importStatus = '',
+		onreview, onclose, ongoto, ondelete, onimport
+	}: Props = $props();
+
+	let importName = $state('');
 
 	const LABEL_ORDER = [
 		'brilliant', 'great', 'best', 'excellent', 'good', 'inaccuracy', 'mistake', 'blunder'
@@ -29,6 +37,7 @@
 	}
 
 	function opponent(g: StoredGame): string {
+		if (g.white || g.black) return `${g.white ?? '?'} vs ${g.black ?? '?'}`;
 		if (g.botElo === null) return 'solo analysis';
 		return `vs bot (${g.botElo}) as ${g.botColor === 'w' ? 'Black' : 'White'}`;
 	}
@@ -48,6 +57,26 @@
 
 <div class="games-panel">
 	{#if !reviewing}
+		{#if onimport}
+			<form
+				class="import-row"
+				onsubmit={(e) => {
+					e.preventDefault();
+					if (importName.trim() && !importing) onimport(importName.trim());
+				}}
+			>
+				<input
+					type="text"
+					placeholder="lichess username"
+					bind:value={importName}
+					disabled={importing}
+				/>
+				<button type="submit" disabled={importing || !importName.trim()}>
+					{importing ? 'Importing…' : 'Import analysed games'}
+				</button>
+				{#if importStatus}<span class="import-status">{importStatus}</span>{/if}
+			</form>
+		{/if}
 		{#if games.length === 0}
 			<div class="empty">
 				No games saved yet — finished games (and abandoned ones of 10+ moves) are stored here
@@ -149,6 +178,26 @@
 	}
 	.empty {
 		font-size: 13px;
+		color: var(--text-secondary);
+	}
+	.import-row {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		flex-wrap: wrap;
+		margin-bottom: 8px;
+	}
+	.import-row input {
+		background: var(--bg-button);
+		color: var(--text-primary);
+		border: 1px solid var(--border);
+		border-radius: 4px;
+		font-size: 12px;
+		padding: 3px 8px;
+		width: 160px;
+	}
+	.import-status {
+		font-size: 11px;
 		color: var(--text-secondary);
 	}
 	.list {

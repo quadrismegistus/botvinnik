@@ -30,12 +30,16 @@ export interface StoredGame {
 	result: string; // '1-0' | '0-1' | '1/2-1/2' | '*' (abandoned)
 	pgn: string;
 	botElo: number | null;
-	botColor: 'w' | 'b' | null;
+	botColor: 'w' | 'b' | null; // side the human did NOT play (drives review orientation)
 	moveCount: number;
 	whiteAccuracy: number | null;
 	blackAccuracy: number | null;
 	labelCounts: { w: LabelCounts; b: LabelCounts };
 	moves: StoredMove[];
+	// imported games: real player names and where they came from
+	white?: string;
+	black?: string;
+	source?: 'lichess';
 }
 
 // lichess's move-accuracy curve over win% loss

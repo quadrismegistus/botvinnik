@@ -4,20 +4,17 @@ What's planned, roughly in priority order. See [README](README.md) for what's al
 
 ## Next up
 
-### Import games from Lichess / chess.com and mine them for puzzles
-Both sites have public, CORS-enabled APIs for downloading any player's games
-(Lichess: NDJSON stream per user; chess.com: monthly PGN archives). Imported
-games land in the Games archive and their mistakes feed the practice list via
-the existing collector (win-chance threshold, labels, explanations).
+### Import games from chess.com / unanalysed Lichess games (phase 2)
+Phase 1 shipped: the Games panel imports any Lichess user's **analysed** games
+via the server's per-move evals — instant labels, accuracies and practice
+items, no local engine time. Remaining:
 
-- **Phase 1 — Lichess with server evals.** The export API's `evals` option
-  includes per-move computer evaluations for any game Lichess has analyzed —
-  win-chance drops fall straight out, no local engine time. Instant mistake
-  extraction for those games.
-- **Phase 2 — local analysis queue.** For chess.com games and unanalyzed
-  Lichess games: background queue at depth 12–14, ~1.5–2 min per game
-  (~80 positions × ~1s), with a progress bar. The analysis cache makes
-  repeated openings progressively free.
+- **Local analysis queue** for chess.com games (monthly PGN archives API) and
+  Lichess games without server analysis: background queue at depth 12–14,
+  ~1.5–2 min per game (~80 positions × ~1s), with a progress bar. The
+  analysis cache makes repeated openings progressively free.
+- Explanations for imported moves (the importer stores labels + best moves;
+  fact detectors could run over the stored best variations as a cheap pass).
 
 ### "Practice this" from game review
 Archived games already store fenBefore / best move / explanation for every

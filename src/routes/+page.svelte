@@ -8,6 +8,7 @@
 	import MoveList from '$lib/components/MoveList.svelte';
 	import LinesTree from '$lib/components/LinesTree.svelte';
 	import { downloadBackup, importBackup } from '$lib/backup';
+	import { importLichessGames } from '$lib/lichessImport';
 	import CommentaryPanel from '$lib/components/CommentaryPanel.svelte';
 	import GamesPanel from '$lib/components/GamesPanel.svelte';
 	import PracticePanel from '$lib/components/PracticePanel.svelte';
@@ -136,6 +137,37 @@
 			importMsg = 'Import failed — not a botvinnik backup file.';
 		}
 		if (importInput) importInput.value = '';
+	}
+
+	// lichess import
+	let lichessImporting = $state(false);
+	let lichessStatus = $state('');
+
+	async function handleLichessImport(username: string) {
+		lichessImporting = true;
+		lichessStatus = '';
+		try {
+			const existing = new Set(storedGames.map((g) => g.id));
+			const result = await importLichessGames(username, existing, collectThreshold);
+			for (const g of result.games) await saveGame(g);
+			let added = 0;
+			for (const p of result.practice) {
+				const next = addItem(practiceItems, p);
+				if (next) {
+					practiceItems = next;
+					added++;
+				}
+			}
+			storedGames = await listGames();
+			lichessStatus =
+				result.games.length === 0
+					? `No new analysed games for ${result.username}${result.skipped ? ` (${result.skipped} already imported or unanalysed)` : ''}.`
+					: `Imported ${result.games.length} game${result.games.length === 1 ? '' : 's'}, ${added} practice position${added === 1 ? '' : 's'}.`;
+		} catch (e) {
+			lichessStatus = e instanceof Error ? e.message : 'Import failed.';
+		} finally {
+			lichessImporting = false;
+		}
 	}
 
 	// game archive + review
@@ -888,10 +920,13 @@
 							games={storedGames}
 							reviewing={null}
 							{reviewPly}
+							importing={lichessImporting}
+							importStatus={lichessStatus}
 							onreview={openReview}
 							onclose={exitReview}
 							ongoto={gotoReviewPly}
 							ondelete={deleteStoredGame}
+							onimport={handleLichessImport}
 						/>
 					</SidePanel>
 

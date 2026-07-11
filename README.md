@@ -13,6 +13,7 @@ Ported and distilled from a fork of [en-croissant](https://github.com/franciscoB
 - **Practice mode** — moves that drop ≥N% win chance are collected automatically and replayed as puzzles on a Leitner spaced-repetition schedule
 - **Bot opponents** — 100–3600 ELO via a three-band scheme (UCI_Elo / Skill Level + shallow depth / depth-1 softmax sampling)
 - **Game review** — finished games auto-save to IndexedDB with PGN, per-move grades, and explanations; reviewable move-by-move
+- **Lichess import** — pull any user's server-analysed games straight into the archive: labels, accuracies and practice puzzles are mined from Lichess's own evals, no local engine time
 - **YouTube commentary** — positions matched against ~27k human commentary snippets mined from game-review videos ([Kaggle dataset](https://www.kaggle.com/datasets/huberthamelin/chess-reviews-from-youtube)), with timestamped links to the source video
 - **Blind mode**, promotion picker, refutation arrows
 
