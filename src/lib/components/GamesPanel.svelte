@@ -27,6 +27,9 @@
 	let importName = $state('');
 	let ccName = $state('');
 	let ccMax = $state('');
+	// thousands of imported games would otherwise become thousands of DOM rows
+	const PAGE = 100;
+	let visibleCount = $state(PAGE);
 	const ccRunning = $derived(
 		ccImport !== null && (ccImport.phase === 'fetching' || ccImport.phase === 'analyzing')
 	);
@@ -136,7 +139,7 @@
 			</div>
 		{:else}
 			<div class="list">
-				{#each games as g (g.id)}
+				{#each games.slice(0, visibleCount) as g (g.id)}
 					<div class="row">
 						<span class="when">{new Date(g.endedAt).toLocaleString()}</span>
 						<span class="opp">{opponent(g)}</span>
@@ -152,6 +155,11 @@
 						<button class="remove" title="Delete" onclick={() => ondelete(g.id)}>×</button>
 					</div>
 				{/each}
+				{#if games.length > visibleCount}
+					<button class="show-more" onclick={() => (visibleCount += PAGE)}>
+						Show more ({games.length - visibleCount} older games)
+					</button>
+				{/if}
 			</div>
 		{/if}
 	{:else}
@@ -331,6 +339,10 @@
 	}
 	.remove {
 		padding: 0 6px;
+	}
+	.show-more {
+		margin-top: 6px;
+		width: 100%;
 	}
 	.toolbar {
 		display: flex;
