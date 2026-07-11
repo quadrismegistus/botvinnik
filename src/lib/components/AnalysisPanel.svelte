@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { EngineMove } from '$lib/engine/stockfish';
-	import { getSan } from '$lib/engine/chess';
+	import { getSan, getSanLine } from '$lib/engine/chess';
+	import LineHover from './LineHover.svelte';
 
 	interface Props {
 		moves: EngineMove[];
@@ -16,13 +17,6 @@
 	function formatScore(m: EngineMove): string {
 		if (m.mate !== null) return `M${m.mate}`;
 		return m.score >= 0 ? `+${m.score.toFixed(2)}` : m.score.toFixed(2);
-	}
-
-	function pvDisplay(m: EngineMove): string {
-		return m.pv
-			.slice(0, 6)
-			.map((uci) => getSan(fen, uci))
-			.join(' ');
 	}
 
 	function scoreClass(m: EngineMove): string {
@@ -52,8 +46,15 @@
 				<div class="line" class:best={i === 0}>
 					<span class="rank">{i + 1}.</span>
 					<span class="score {scoreClass(move)}">{formatScore(move)}</span>
-					<span class="san">{getSan(fen, move.pv[0])}</span>
-					<span class="pv">{move.pv.slice(1, 5).map(u => getSan(fen, u)).join(' ')}</span>
+					<LineHover {fen} ucis={move.pv}>
+						<span class="san">{getSan(fen, move.pv[0])}</span>
+						<span class="pv">
+							{getSanLine(fen, move.pv.slice(0, 6))
+								.slice(1)
+								.map((s) => s.san)
+								.join(' ')}
+						</span>
+					</LineHover>
 				</div>
 			{/each}
 		{/if}

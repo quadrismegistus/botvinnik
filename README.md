@@ -9,6 +9,7 @@ Ported and distilled from a fork of [en-croissant](https://github.com/franciscoB
 - **Engine analysis** — Stockfish 18 (lite WASM build) as a web worker, MultiPV 5, with an IndexedDB analysis cache (revisited positions grade in ~70ms instead of ~2s)
 - **Move insights** — every move graded against the engine's best: eval, %-of-best, win-chance delta, chess.com-style labels (brilliant → blunder), and fact-based prose explanations (detected mates, hanging pieces, forks, material over a quoted line — never an unverified claim)
 - **Lines Tree** — a persistent SVG graph of engine lines explored during the game; y-axis/color/label switchable between eval, win %, %-best, and confidence
+- **Line previews** — hover any engine line or best-move reference for a small board that animates through the line
 - **Practice mode** — moves that drop ≥N% win chance are collected automatically and replayed as puzzles on a Leitner spaced-repetition schedule
 - **Bot opponents** — 100–3600 ELO via a three-band scheme (UCI_Elo / Skill Level + shallow depth / depth-1 softmax sampling)
 - **Game review** — finished games auto-save to IndexedDB with PGN, per-move grades, and explanations; reviewable move-by-move

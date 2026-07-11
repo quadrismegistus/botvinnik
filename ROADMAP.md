@@ -31,15 +31,15 @@ discovered attack, trapped piece. Unlocks:
 - **motif-tagged practice** — drill only back-rank mistakes, only forks, etc.
 
 ### Hint button in practice
-Show the detected fact ("there's a fork here") before revealing the move.
-The explanation layer already computes it; this is UI only.
-
-### Line previews on hover
-Wherever a SAN line appears (engine lines, explanation quotes, insight cards,
-review details), hovering shows a mini chessground with the position at that
-point in the line — and/or a small animated playthrough of the whole line.
-All the pieces exist (`getSanLine`, the InsightsPanel mini-board `use:` action);
-the work is one shared tooltip component plus wiring into each display site.
+Tiered hints before the full reveal, all computed from facts the explanation
+layer already detects on the stored best line:
+1. **First click** — name the fact family, no squares: "there's a fork
+   available", "you can win material", "there's a mate".
+2. **Second click** — highlight the piece that should move (origin square
+   only, not the destination).
+3. **Third click** — full reveal (today's "Show best").
+Each hint tier used could scale the spaced-repetition credit (a pass after
+two hints counts less than a cold pass).
 
 ### Line meaning summaries
 Narrate the material story of a PV: "rooks get traded, then your queen is
@@ -67,6 +67,10 @@ its templates; the quiet-ply rule from material claims applies here too.
 - **Bot ELO calibration harness** — bots play each other headlessly
   (Playwright or node) to estimate each band's true strength; the labels
   ("1800") are currently taken on faith from UCI_Elo / Skill Level.
+- **Resign button** — ends the current game as a loss for the resigner and
+  **always** archives it to the Games tab (unlike New, which only auto-saves
+  abandoned games of 10+ plies). Result stored as 1-0/0-1, PGN gets a
+  "resignation" termination comment.
 - **Keyboard shortcuts** — n = next puzzle, r = retry, arrows = review nav.
 - **File System Access autosave** — beyond Export/Import: write backups
   directly to a user-chosen local file (Chromium-only).

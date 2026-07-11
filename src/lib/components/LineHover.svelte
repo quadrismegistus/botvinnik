@@ -1,0 +1,97 @@
+<script lang="ts">
+	import { Chess, type Square } from 'chess.js';
+	import { Chessground } from 'chessground';
+	import type { Api } from 'chessground/api';
+	import type { Key } from 'chessground/types';
+	import type { Snippet } from 'svelte';
+
+	interface Props {
+		fen: string; // position before the line
+		ucis: string[]; // the line to play through
+		children: Snippet;
+	}
+
+	let { fen, ucis, children }: Props = $props();
+
+	const SIZE = 180;
+	let show = $state(false);
+	let pos = $state({ x: 0, y: 0 });
+	let boardEl: HTMLElement | null = $state(null);
+	let api: Api | null = null;
+
+	// position after each ply; frame 0 is the starting position
+	const frames = $derived.by(() => {
+		const c = new Chess(fen);
+		const out: { fen: string; lastMove?: [Key, Key] }[] = [{ fen }];
+		for (const uci of ucis.slice(0, 12)) {
+			try {
+				const m = c.move({
+					from: uci.slice(0, 2) as Square,
+					to: uci.slice(2, 4) as Square,
+					promotion: uci.length > 4 ? uci[4] : undefined
+				});
+				out.push({ fen: c.fen(), lastMove: [m.from as Key, m.to as Key] });
+			} catch {
+				break;
+			}
+		}
+		return out;
+	});
+
+	function enter(e: MouseEvent) {
+		const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+		const x = Math.max(8, Math.min(r.left, window.innerWidth - SIZE - 16));
+		// above the text when there's room, below otherwise
+		const y = r.top > SIZE + 24 ? r.top - SIZE - 12 : r.bottom + 8;
+		pos = { x, y };
+		show = true;
+	}
+
+	$effect(() => {
+		if (!show || !boardEl || frames.length < 2) return;
+		api = Chessground(boardEl, {
+			fen: frames[0].fen,
+			orientation: fen.split(' ')[1] === 'b' ? 'black' : 'white',
+			viewOnly: true,
+			coordinates: false,
+			animation: { enabled: true, duration: 260 }
+		});
+		let i = 0;
+		const timer = setInterval(() => {
+			i = (i + 1) % frames.length; // wraps back to the start and replays
+			api?.set({ fen: frames[i].fen, lastMove: frames[i].lastMove });
+		}, 750);
+		return () => {
+			clearInterval(timer);
+			api?.destroy();
+			api = null;
+		};
+	});
+</script>
+
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<span class="line-hover" onmouseenter={enter} onmouseleave={() => (show = false)}>
+	{@render children()}
+	{#if show && frames.length > 1}
+		<div class="popup" style:left="{pos.x}px" style:top="{pos.y}px">
+			<div class="mini" style:width="{SIZE}px" style:height="{SIZE}px" bind:this={boardEl}></div>
+		</div>
+	{/if}
+</span>
+
+<style>
+	.line-hover {
+		cursor: default;
+		border-bottom: 1px dotted var(--border);
+	}
+	.popup {
+		position: fixed;
+		z-index: 60;
+		padding: 4px;
+		background: var(--bg-panel);
+		border: 1px solid var(--border);
+		border-radius: 6px;
+		box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+		pointer-events: none;
+	}
+</style>

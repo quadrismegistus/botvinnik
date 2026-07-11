@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { AttemptResult, PracticeItem } from '$lib/practice';
 	import { dueCount } from '$lib/practice';
+	import LineHover from './LineHover.svelte';
 
 	interface Props {
 		mode: 'play' | 'practice' | 'review';
@@ -151,7 +152,11 @@
 						{:else if attempt.refutationSan}
 							Punished by <strong class="refutation">{attempt.refutationSan}</strong> (red arrow).
 						{/if}
-						Best was <strong>{revealBest ? current.bestSan : '…'}</strong>.
+						Best was
+						{#if revealBest}
+							<LineHover fen={current.fen} ucis={current.bestPv ?? [current.bestUci]}>
+								<strong>{current.bestSan}</strong>
+							</LineHover>{:else}<strong>…</strong>{/if}.
 						{#if revealBest && attempt.bestPoint}
 							{attempt.bestPoint}
 						{/if}

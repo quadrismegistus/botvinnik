@@ -3,6 +3,7 @@
 	import type { Config } from 'chessground/config';
 	import type { Key } from 'chessground/types';
 	import { winChance, type MoveGrade } from '$lib/engine/insights';
+	import LineHover from './LineHover.svelte';
 
 	interface Props {
 		white: MoveGrade | null;
@@ -82,13 +83,15 @@
 				<p>
 					You played <strong>{g.san}</strong> ({fmtEval(g.evalPawns, g.mate)}),
 					<u>{g.pctBest.toFixed(0)}%</u> as good as the best move,
-					<strong>{g.bestSan}</strong> ({fmtEval(g.bestEval, g.bestMate)}, d{g.depth}).
+					<LineHover fen={g.fenBefore} ucis={g.bestPv}><strong>{g.bestSan}</strong></LineHover>
+					({fmtEval(g.bestEval, g.bestMate)}, d{g.depth}).
 					{#if g.offList}Not in the engine's top {g.totalLines}.{/if}
 				</p>
 			{:else}
 				<p>
 					You played <strong>{g.san}</strong> — outside the engine's top
-					{g.totalLines} moves, evaluating… Best was <strong>{g.bestSan}</strong>
+					{g.totalLines} moves, evaluating… Best was
+					<LineHover fen={g.fenBefore} ucis={g.bestPv}><strong>{g.bestSan}</strong></LineHover>
 					({fmtEval(g.bestEval, g.bestMate)}, d{g.depth}).
 				</p>
 			{/if}
