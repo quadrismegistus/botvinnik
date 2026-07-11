@@ -15,6 +15,7 @@ export interface AttemptResult {
 	playedIssue?: string; // fact-based explanation of what went wrong
 	bestPoint?: string; // what the best move achieves — show only after reveal
 	playedPoint?: string; // why a passing move is good
+	lineStory?: string; // material narrative of the refutation line
 }
 
 export interface PracticeItem {

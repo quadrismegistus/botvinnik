@@ -121,6 +121,7 @@
 				{#if selected.explanation?.playedPoint}<div class="why">{selected.explanation.playedPoint}</div>{/if}
 				{#if selected.explanation?.playedIssue}<div class="why">{selected.explanation.playedIssue}</div>{/if}
 				{#if selected.explanation?.bestPoint}<div class="why">{selected.explanation.bestPoint}</div>{/if}
+				{#if selected.explanation?.lineStory}<div class="why">{selected.explanation.lineStory}</div>{/if}
 			</div>
 		{/if}
 	{/if}

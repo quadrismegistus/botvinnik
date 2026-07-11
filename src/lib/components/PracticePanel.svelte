@@ -146,6 +146,8 @@
 						— drops {attempt.drop.toFixed(0)}% win chance.
 						{#if attempt.playedIssue}
 							{attempt.playedIssue}
+						{:else if attempt.lineStory}
+							{attempt.lineStory}
 						{:else if attempt.refutationSan}
 							Punished by <strong class="refutation">{attempt.refutationSan}</strong> (red arrow).
 						{/if}

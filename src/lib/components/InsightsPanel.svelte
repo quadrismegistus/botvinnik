@@ -101,6 +101,9 @@
 			{#if g.explanation?.bestPoint}
 				<p class="why">{g.explanation.bestPoint}</p>
 			{/if}
+			{#if g.explanation?.lineStory}
+				<p class="why">{g.explanation.lineStory}</p>
+			{/if}
 			{#if hasEval}
 				<div class="wc">
 					{#if g.isBest}

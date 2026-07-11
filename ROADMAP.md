@@ -51,6 +51,10 @@ its templates; the quiet-ply rule from material claims applies here too.
 
 ## Later
 
+- **Win-chance chart** — small collapsible chart of White vs Black win chance
+  over the course of the game (the per-ply evals already live in the move
+  grades and in stored games, so this is pure rendering); also useful inside
+  game review as a click-to-jump timeline.
 - **Unified Moves tab** — the last unported en-croissant visualization:
   opening-book stats from the Lichess Explorer API (games played, win rates,
   master games) merged with engine lines.

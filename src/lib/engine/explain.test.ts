@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { explainGoodMove, explainMove, materialOverLine } from './explain';
+import { explainGoodMove, explainMove, materialOverLine, summarizeLine } from './explain';
 
 const START = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
 
@@ -13,6 +13,46 @@ describe('materialOverLine', () => {
 		expect(materialOverLine(START, ['e2e4', 'd7d5', 'e4d5', 'd8d5'])).toBe(0);
 		// stop after 2.exd5 only: white is up the captured pawn
 		expect(materialOverLine(START, ['e2e4', 'd7d5', 'e4d5'])).toBe(1);
+	});
+});
+
+describe('summarizeLine', () => {
+	it('is silent over a quiet line', () => {
+		expect(summarizeLine(START, ['e2e4', 'e7e5', 'g1f3'])).toBeUndefined();
+	});
+
+	it('narrates an equal trade', () => {
+		// white Rd1 takes black Rd8, the e8 rook recaptures, then a quiet move
+		const fen = '3rr3/8/8/7k/8/8/8/K2R4 w - - 0 1';
+		expect(summarizeLine(fen, ['d1d8', 'e8d8', 'a1b1'])).toBe('rooks are traded on d8');
+	});
+
+	it('narrates losing a piece mid-line', () => {
+		// black shuffles, white rook grabs the queen, black shuffles again
+		const fen = 'q6k/8/8/8/8/8/1K6/R7 b - - 0 1';
+		expect(summarizeLine(fen, ['h8h7', 'a1a8', 'h7h6'])).toBe('your queen is taken (Rxa8)');
+	});
+
+	it('narrates an unequal exchange', () => {
+		// white RxN, black pawn recaptures the rook, then quiet: R for N
+		const fen = '7k/2p5/3n4/8/8/8/8/K2R4 w - - 0 1';
+		expect(summarizeLine(fen, ['d1d6', 'c7d6', 'a1b1'])).toBe(
+			'you give up a rook for a knight on d6'
+		);
+	});
+
+	it('chains events in order', () => {
+		// rook trade on d8, then white picks up the a7 pawn with the other rook
+		const fen = '3rr2k/p7/8/8/8/R7/8/K2R4 w - - 0 1';
+		expect(summarizeLine(fen, ['d1d8', 'e8d8', 'a3a7', 'h8g8'])).toBe(
+			'rooks are traded on d8, then you pick up a pawn (Rxa7)'
+		);
+	});
+
+	it('never narrates an exchange the horizon cuts open', () => {
+		// line ends right after white wins Q for R — the recapture may lie beyond
+		const fen = '3r4/8/8/3q3k/8/8/8/K2R4 w - - 0 1';
+		expect(summarizeLine(fen, ['d1d5', 'd8d5'])).toBeUndefined();
 	});
 });
 

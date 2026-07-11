@@ -9,6 +9,7 @@ export interface Explanation {
 	playedIssue?: string; // what's wrong with the played move
 	bestPoint?: string; // what the best move achieves (may reveal it)
 	playedPoint?: string; // what a GOOD played move achieves
+	lineStory?: string; // material narrative of the line ahead (trades, captures)
 }
 
 const VAL: Record<string, number> = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 0 };
@@ -51,6 +52,87 @@ export function materialOverLine(fen: string, ucis: string[]): number {
 		if (m.promotion) net += (m.color === mover ? 1 : -1) * (VAL[m.promotion] - 1);
 	}
 	return net;
+}
+
+// Narrate the material story of a line from the mover's perspective:
+// "rooks are traded on d5, then your queen is taken (Qxd8)". Conservative by
+// design — anything the line's horizon might cut through is dropped rather
+// than narrated wrong. Returns a lowercase clause (no period) or undefined.
+export function summarizeLine(fen: string, ucis: string[]): string | undefined {
+	const c = new Chess(fen);
+	const mover = c.turn();
+	interface CapEvent {
+		ply: number;
+		square: string;
+		victim: string;
+		byMover: boolean;
+		san: string;
+	}
+	const events: CapEvent[] = [];
+	let ply = 0;
+	let lastSan = '';
+	for (const uci of ucis) {
+		const m = apply(c, uci);
+		if (!m) break;
+		ply++;
+		lastSan = m.san;
+		if (m.captured) {
+			events.push({ ply, square: m.to, victim: m.captured, byMover: m.color === mover, san: m.san });
+		}
+	}
+	if (ply === 0) return undefined;
+	const mate = lastSan.endsWith('#');
+	const mateByMover = mate && ply % 2 === 1;
+
+	// consecutive-ply captures on one square form an exchange
+	let groups: CapEvent[][] = [];
+	for (const e of events) {
+		const g = groups[groups.length - 1];
+		if (g && e.ply === g[g.length - 1].ply + 1 && e.square === g[g.length - 1].square) g.push(e);
+		else groups.push([e]);
+	}
+	// an exchange still open when the line ends may continue past the horizon —
+	// only a completed equal trade is safe to narrate there
+	groups = groups.filter(
+		(g) => g[g.length - 1].ply !== ply || (g.length === 2 && g[0].victim === g[1].victim)
+	);
+
+	const phrases: string[] = [];
+	for (const g of groups) {
+		if (g.length === 1) {
+			const e = g[0];
+			phrases.push(
+				e.byMover
+					? `you pick up a ${NAME[e.victim]} (${e.san})`
+					: `your ${NAME[e.victim]} is taken (${e.san})`
+			);
+		} else if (g.length === 2 && g[0].victim === g[1].victim) {
+			phrases.push(`${NAME[g[0].victim]}s are traded on ${g[0].square}`);
+		} else if (g.length === 2) {
+			const won = g[0].byMover ? g[0].victim : g[1].victim; // what the mover captured
+			const lost = g[0].byMover ? g[1].victim : g[0].victim; // what the mover gave up
+			if (VAL[won] > VAL[lost]) {
+				phrases.push(`you win a ${NAME[won]} for a ${NAME[lost]} on ${g[0].square}`);
+			} else if (VAL[won] < VAL[lost]) {
+				phrases.push(`you give up a ${NAME[lost]} for a ${NAME[won]} on ${g[0].square}`);
+			} else {
+				phrases.push(`a ${NAME[won]} and a ${NAME[lost]} are traded on ${g[0].square}`);
+			}
+		} else {
+			const net = g.reduce((a, e) => a + (e.byMover ? VAL[e.victim] : -VAL[e.victim]), 0);
+			if (net > 0.5) phrases.push(`you come out ahead in the exchange on ${g[0].square}`);
+			else if (net < -0.5) phrases.push(`you come out behind in the exchange on ${g[0].square}`);
+			else phrases.push(`pieces are traded on ${g[0].square}`);
+		}
+	}
+
+	if (phrases.length === 0 && !mate) return undefined;
+	let story = phrases.slice(0, 3).join(', then ');
+	if (mate) {
+		const mateClause = mateByMover ? 'mate follows' : 'you get mated';
+		story = story ? `${story}, and ${mateClause}` : mateClause;
+	}
+	return story;
 }
 
 // Like materialOverLine, but the count stops at the last quiet ply — a window
@@ -167,6 +249,11 @@ export function explainMove(input: {
 				}
 			}
 		}
+		// no named issue — narrate what the line does anyway (trades, captures)
+		if (!out.playedIssue && refutationPv.length > 0) {
+			const story = summarizeLine(fenBefore, playedLine.slice(0, 9));
+			if (story) out.lineStory = `In this line, ${story}.`;
+		}
 	}
 
 	// --- what the best move achieves (priority: mate > fork > free capture > material) ---
@@ -211,6 +298,8 @@ export function explainGoodMove(
 				.join(' ');
 			if (continuation) return `It wins ${net} points of material (${continuation}).`;
 		}
+		const story = summarizeLine(fenBefore, playedPv.slice(0, 9));
+		if (story) return `In this line, ${story}.`;
 	}
 	return undefined;
 }

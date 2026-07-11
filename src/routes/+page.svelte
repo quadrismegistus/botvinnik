@@ -430,7 +430,8 @@
 		attemptGrade = buildAttemptGrade(ref, move.san, uci, evalPawns, mate, depth, drop, {
 			playedIssue: explanation.playedIssue,
 			bestPoint: explanation.bestPoint,
-			playedPoint
+			playedPoint,
+			lineStory: explanation.lineStory
 		});
 		attempt = {
 			san: move.san,
@@ -443,7 +444,8 @@
 			refutationSan: !pass && refutationUci ? getSan(game.fen, refutationUci) : null,
 			playedIssue: explanation.playedIssue,
 			bestPoint: explanation.bestPoint,
-			playedPoint
+			playedPoint,
+			lineStory: explanation.lineStory
 		};
 		// only the stored puzzle counts toward spaced repetition, not line continuations
 		if (lineDepth === 0) practiceItems = recordResult(practiceItems, currentItem.id, pass);
@@ -459,7 +461,12 @@
 		mate: number | null,
 		depth: number,
 		drop: number,
-		explanation: { playedIssue?: string; bestPoint?: string; playedPoint?: string }
+		explanation: {
+			playedIssue?: string;
+			bestPoint?: string;
+			playedPoint?: string;
+			lineStory?: string;
+		}
 	): MoveGrade {
 		const cpOf = (pawns: number | null, m: number | null) =>
 			m !== null ? (m > 0 ? 9999 : -9999) : (pawns ?? 0) * 100;
@@ -474,7 +481,10 @@
 		else if (drop >= 5) label = 'inaccuracy';
 		else label = drop <= 2 ? 'excellent' : 'good';
 		const hasExplanation =
-			explanation.playedIssue || explanation.bestPoint || explanation.playedPoint;
+			explanation.playedIssue ||
+			explanation.bestPoint ||
+			explanation.playedPoint ||
+			explanation.lineStory;
 		return {
 			ply: 0,
 			fenBefore: ref.fen,
