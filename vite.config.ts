@@ -1,6 +1,9 @@
 import { sveltekit } from '@sveltejs/kit/vite';
 import { defineConfig } from 'vite';
 
+// BASE_PATH=/botvinnik for GitHub Pages project-site builds
+const basePath = process.env.BASE_PATH;
+
 export default defineConfig({
 	plugins: [
 		sveltekit({
@@ -9,8 +12,7 @@ export default defineConfig({
 					filename.split(/[/\\]/).includes('node_modules') ? undefined : true
 			},
 			adapter: (await import('@sveltejs/adapter-static')).default(),
-			// BASE_PATH=/botvinnik for GitHub Pages project-site builds
-			paths: { base: process.env.BASE_PATH ?? '' }
+			paths: { base: basePath?.startsWith('/') ? (basePath as `/${string}`) : '' }
 		})
 	]
 });
