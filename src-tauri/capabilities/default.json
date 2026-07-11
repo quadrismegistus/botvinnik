@@ -3,17 +3,5 @@
   "identifier": "default",
   "description": "enables the default permissions",
   "windows": ["main"],
-  "permissions": [
-    "core:default",
-    {
-      "identifier": "shell:allow-execute",
-      "allow": [{ "name": "binaries/stockfish", "sidecar": true, "args": [] }]
-    },
-    {
-      "identifier": "shell:allow-spawn",
-      "allow": [{ "name": "binaries/stockfish", "sidecar": true, "args": [] }]
-    },
-    "shell:allow-stdin-write",
-    "shell:allow-kill"
-  ]
+  "permissions": ["core:default"]
 }

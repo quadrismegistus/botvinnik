@@ -30,7 +30,6 @@
 	},
 	"dependencies": {
 		"@tauri-apps/api": "^2.11.1",
-		"@tauri-apps/plugin-shell": "^2.3.5",
 		"chess.js": "^1.4.0",
 		"chessground": "^9.2.1",
 		"stockfish": "^18.0.8",
