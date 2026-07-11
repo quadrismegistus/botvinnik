@@ -72,7 +72,13 @@ try {
 		await new Promise((r) => setTimeout(r, 1000));
 	}
 	console.log(`title: ${title}`);
-	if (title !== 'Botvinnik') throw new Error(`app never finished loading (title: "${title}")`);
+	if (title !== 'Botvinnik') {
+		const diag = await exec(
+			'return JSON.stringify({ href: location.href, ready: document.readyState, bodyLen: document.body ? document.body.innerHTML.length : -1, headSnip: document.head ? document.head.innerHTML.slice(0, 300) : null })'
+		);
+		console.log('diagnostics:', diag);
+		throw new Error(`app never finished loading (title: "${title}")`);
+	}
 
 	// 2. the native engine's analysis reached the UI: the Lines Tree populates
 	//    only when engine lines stream in — this covers sidecar spawn, the Rust
