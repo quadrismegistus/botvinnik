@@ -26,3 +26,9 @@ vite.config.ts.timestamp-*
 # static/commentary.json is committed; regenerate with scripts/build-commentary.py
 /data
 
+
+# Tauri build artifacts and the 109MB engine binary — never commit these
+# (tracked config lives under src-tauri/ on the tauri branch only)
+src-tauri/target/
+src-tauri/binaries/
+src-tauri/gen/

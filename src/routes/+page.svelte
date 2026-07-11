@@ -32,7 +32,14 @@
 		type MoveGrade,
 		type MoveLabel
 	} from '$lib/engine/insights';
-	import { analyze, analyzeBotMove, analyzeMove, stopEngine, type EngineMove } from '$lib/engine/stockfish';
+	import {
+		analyze,
+		analyzeBotMove,
+		analyzeMove,
+		getAnalysisBudget,
+		stopEngine,
+		type EngineMove
+	} from '$lib/engine/stockfish';
 	import {
 		addItem,
 		dueCount,
@@ -278,12 +285,18 @@
 		}
 		analyzing = true;
 		engineMoves = [];
-		await analyze(game.fen, 20, (moves) => {
-			if (token === analysisToken) {
-				engineMoves = moves;
-				backfillLast(moves);
-			}
-		});
+		const budget = getAnalysisBudget();
+		await analyze(
+			game.fen,
+			budget.depth,
+			(moves) => {
+				if (token === analysisToken) {
+					engineMoves = moves;
+					backfillLast(moves);
+				}
+			},
+			budget.movetimeMs
+		);
 		if (token === analysisToken) {
 			analyzing = false;
 			maybeBotMove(token);

@@ -55,8 +55,21 @@ const wasmWorkerTransport: TransportFactory = (onLine, onError) => {
 
 let transportFactory: TransportFactory = wasmWorkerTransport;
 
-export function setEngineTransport(factory: TransportFactory) {
+// Live analysis runs on a time slice with a depth ceiling — the engine stops
+// at whichever comes first, and the UI keeps whatever depth streamed in.
+export interface AnalysisBudget {
+	depth: number; // ceiling
+	movetimeMs: number; // time slice
+}
+let analysisBudget: AnalysisBudget = { depth: 22, movetimeMs: 3000 };
+
+export function getAnalysisBudget(): AnalysisBudget {
+	return analysisBudget;
+}
+
+export function setEngineTransport(factory: TransportFactory, budget?: AnalysisBudget) {
 	transportFactory = factory;
+	if (budget) analysisBudget = budget;
 }
 
 let worker: EngineTransport | null = null;
@@ -191,9 +204,17 @@ function queueSearch(req: SearchRequest) {
 
 let analyzeSeq = 0;
 
-export function analyze(fen: string, depth: number, onUpdate: Listener): Promise<EngineResult> {
+export function analyze(
+	fen: string,
+	depth: number,
+	onUpdate: Listener,
+	movetimeMs?: number
+): Promise<EngineResult> {
 	ensureWorker();
 	const seq = ++analyzeSeq;
+	// with a time budget the depth ceiling is aspirational — a cache entry
+	// within a few plies of it came from a full slice; don't re-burn the slice
+	const goodEnough = movetimeMs ? Math.max(12, depth - 4) : depth;
 	return new Promise((resolve) => {
 		void (async () => {
 			const cached = await getCached(fen, MULTIPV).catch(() => null);
@@ -205,7 +226,7 @@ export function analyze(fen: string, depth: number, onUpdate: Listener): Promise
 			const cachedDepth = cached?.lines.length ? cached.depth : 0;
 			if (cached && cachedDepth > 0) {
 				onUpdate(cached.lines);
-				if (cachedDepth >= depth) {
+				if (cachedDepth >= goodEnough) {
 					resolve({ moves: cached.lines, bestmove: cached.lines[0].pv[0], depth: cachedDepth });
 					return;
 				}
@@ -213,6 +234,7 @@ export function analyze(fen: string, depth: number, onUpdate: Listener): Promise
 			queueSearch({
 				fen,
 				depth,
+				go: movetimeMs ? `go depth ${depth} movetime ${movetimeMs}` : undefined,
 				// while refining a shallower cache hit, don't regress the UI with
 				// early low-depth updates
 				onUpdate: (moves) => {
