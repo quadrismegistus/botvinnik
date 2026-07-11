@@ -31,31 +31,60 @@ interface SearchRequest {
 	minInfoDepth?: number; // info lines below this depth are ignored (default 6)
 }
 
-let worker: Worker | null = null;
+// The engine speaks UCI over a pluggable transport: the default is the WASM
+// build in a web worker; a Tauri shell can swap in a native-process transport
+// via setEngineTransport() before the first search.
+export interface EngineTransport {
+	send(cmd: string): void;
+	terminate(): void;
+}
+export type TransportFactory = (
+	onLine: (line: string) => void,
+	onError: (message: string) => void
+) => EngineTransport;
+
+const wasmWorkerTransport: TransportFactory = (onLine, onError) => {
+	const w = new Worker(`${base}/wasm/stockfish.js`);
+	w.onmessage = (e) => onLine(e.data);
+	w.onerror = (e) => onError(e.message);
+	return {
+		send: (cmd) => w.postMessage(cmd),
+		terminate: () => w.terminate()
+	};
+};
+
+let transportFactory: TransportFactory = wasmWorkerTransport;
+
+export function setEngineTransport(factory: TransportFactory) {
+	transportFactory = factory;
+}
+
+let worker: EngineTransport | null = null;
 let ready = false;
 let searching = false;
 let activeSearch: SearchRequest | null = null;
 let pendingSearch: SearchRequest | null = null;
 let currentMoves: Map<number, EngineMove> = new Map();
 
-function ensureWorker(): Worker {
+function ensureWorker(): EngineTransport {
 	if (worker) return worker;
-	console.log('[stockfish] Creating worker...');
-	worker = new Worker(`${base}/wasm/stockfish.js`);
-	worker.onmessage = (e) => handleMessage(e.data);
-	worker.onerror = (e) => {
-		console.error('[stockfish] Worker error, restarting:', e.message, e);
-		// self-heal: rebuild the worker and re-run whatever search was wanted
-		const wanted = pendingSearch ?? activeSearch;
-		worker?.terminate();
-		worker = null;
-		ready = false;
-		searching = false;
-		activeSearch = null;
-		pendingSearch = wanted;
-		if (wanted) ensureWorker();
-	};
-	worker.postMessage('uci');
+	console.log('[stockfish] Creating engine...');
+	worker = transportFactory(
+		(line) => handleMessage(line),
+		(message) => {
+			console.error('[stockfish] Engine error, restarting:', message);
+			// self-heal: rebuild the engine and re-run whatever search was wanted
+			const wanted = pendingSearch ?? activeSearch;
+			worker?.terminate();
+			worker = null;
+			ready = false;
+			searching = false;
+			activeSearch = null;
+			pendingSearch = wanted;
+			if (wanted) ensureWorker();
+		}
+	);
+	worker.send('uci');
 	return worker;
 }
 
@@ -64,11 +93,11 @@ function startSearch(req: SearchRequest) {
 	currentMoves = new Map();
 	searching = true;
 	for (const [name, value] of req.options ?? []) {
-		worker?.postMessage(`setoption name ${name} value ${value}`);
+		worker?.send(`setoption name ${name} value ${value}`);
 	}
-	worker?.postMessage('position fen ' + req.fen);
+	worker?.send('position fen ' + req.fen);
 	const restrict = req.searchMoves?.length ? ' searchmoves ' + req.searchMoves.join(' ') : '';
-	worker?.postMessage((req.go ?? 'go depth ' + req.depth) + restrict);
+	worker?.send((req.go ?? 'go depth ' + req.depth) + restrict);
 }
 
 function maybeStartPending() {
@@ -83,8 +112,8 @@ function handleMessage(line: string) {
 	if (typeof line !== 'string') return;
 
 	if (line === 'uciok' && !ready) {
-		worker?.postMessage('setoption name MultiPV value ' + MULTIPV);
-		worker?.postMessage('isready');
+		worker?.send('setoption name MultiPV value ' + MULTIPV);
+		worker?.send('isready');
 		return;
 	}
 
@@ -116,7 +145,7 @@ function handleMessage(line: string) {
 			activeSearch = null;
 			// restore engine options before anything else runs on this worker
 			for (const [name, value] of finished.resetOptions ?? []) {
-				worker?.postMessage(`setoption name ${name} value ${value}`);
+				worker?.send(`setoption name ${name} value ${value}`);
 			}
 			finished.resolve({ moves, bestmove, depth });
 		}
@@ -154,7 +183,7 @@ function queueSearch(req: SearchRequest) {
 	}
 	pendingSearch = req;
 	if (searching) {
-		worker?.postMessage('stop');
+		worker?.send('stop');
 	} else {
 		maybeStartPending();
 	}
@@ -265,11 +294,11 @@ export function analyzeBotMove(
 }
 
 export function stopEngine() {
-	if (searching) worker?.postMessage('stop');
+	if (searching) worker?.send('stop');
 }
 
 export function destroyEngine() {
-	worker?.postMessage('quit');
+	worker?.send('quit');
 	worker?.terminate();
 	worker = null;
 	ready = false;
