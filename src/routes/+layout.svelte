@@ -3,7 +3,15 @@
 	import 'chessground/assets/chessground.base.css';
 	import 'chessground/assets/chessground.brown.css';
 	import 'chessground/assets/chessground.cburnett.css';
+	import { browser } from '$app/environment';
+	import { nativeTransport } from '$lib/engine/nativeTransport';
+	import { setEngineTransport } from '$lib/engine/stockfish';
 	let { children }: { children: Snippet } = $props();
+
+	// inside the Tauri shell, the engine is a native Stockfish sidecar
+	if (browser && '__TAURI_INTERNALS__' in window) {
+		setEngineTransport(nativeTransport);
+	}
 </script>
 
 <svelte:head>
