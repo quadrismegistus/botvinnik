@@ -32,3 +32,7 @@ vite.config.ts.timestamp-*
 src-tauri/target/
 src-tauri/binaries/
 src-tauri/gen/
+
+# Playwright
+/test-results
+/playwright-report

@@ -3,6 +3,7 @@
 	import { Chessground } from 'chessground';
 	import type { Api } from 'chessground/api';
 	import type { Key } from 'chessground/types';
+	import { untrack } from 'svelte';
 	import type { Snippet } from 'svelte';
 
 	interface Props {
@@ -48,9 +49,14 @@
 	}
 
 	$effect(() => {
-		if (!show || !boardEl || frames.length < 2) return;
+		if (!show || !boardEl) return;
+		// the animation must NOT restart every time the engine refines `frames`
+		// (lines stream during analysis) — read frames untracked; the interval
+		// callback always sees the latest version anyway
+		const first = untrack(() => frames[0]);
+		if (!first) return;
 		api = Chessground(boardEl, {
-			fen: frames[0].fen,
+			fen: first.fen,
 			orientation: fen.split(' ')[1] === 'b' ? 'black' : 'white',
 			viewOnly: true,
 			coordinates: false,
@@ -58,8 +64,9 @@
 		});
 		let i = 0;
 		const timer = setInterval(() => {
-			i = (i + 1) % frames.length; // wraps back to the start and replays
-			api?.set({ fen: frames[i].fen, lastMove: frames[i].lastMove });
+			i = (i + 1) % Math.max(1, frames.length); // wraps back and replays
+			const f = frames[i] ?? frames[0];
+			api?.set({ fen: f.fen, lastMove: f.lastMove });
 		}, 1000);
 		return () => {
 			clearInterval(timer);
