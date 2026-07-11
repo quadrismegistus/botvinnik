@@ -15,10 +15,12 @@ Shipped so far:
   code as the Lichess importer, and writes a backup JSON for "Import data".
   Run: `brew install stockfish && npx tsx scripts/analyze-chesscom.mts <user>`.
 
+- **In-app importer (SHIPPED on the tauri branch)**: Games panel form with
+  progress bar and Cancel; dedicated import engine pool (one WASM worker on
+  web, native sidecar pool on desktop) so live play keeps its own engine.
+  Lands on the website when the tauri branch merges.
+
 Remaining:
-- **In-app trickle importer** for new chess.com games and unanalysed Lichess
-  games: browser background queue at depth 12–14 (~2 min/game) with progress,
-  for people who won't run a terminal command.
 - Explanations for imported moves (fact detectors over the stored best
   variations as a cheap pass).
 
