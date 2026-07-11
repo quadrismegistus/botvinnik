@@ -63,18 +63,28 @@ try {
 
 	const exec = (script) =>
 		wd('POST', `/session/${sessionId}/execute/sync`, { script, args: [] });
+	// executing during a navigation throws ("no such frame" / unload) — treat
+	// those as "not ready yet" inside polling loops
+	const tryExec = async (script, fallback) => {
+		try {
+			return await exec(script);
+		} catch {
+			return fallback;
+		}
+	};
 
 	// 1. the app booted, loaded and hydrated (title comes from svelte:head)
 	let title = '';
 	for (let i = 0; i < 30; i++) {
-		title = await exec('return document.title');
+		title = await tryExec('return document.title', '');
 		if (title === 'Botvinnik') break;
 		await new Promise((r) => setTimeout(r, 1000));
 	}
 	console.log(`title: ${title}`);
 	if (title !== 'Botvinnik') {
-		const diag = await exec(
-			'return JSON.stringify({ href: location.href, ready: document.readyState, bodyLen: document.body ? document.body.innerHTML.length : -1, headSnip: document.head ? document.head.innerHTML.slice(0, 300) : null })'
+		const diag = await tryExec(
+			'return JSON.stringify({ href: location.href, ready: document.readyState, bodyLen: document.body ? document.body.innerHTML.length : -1, headSnip: document.head ? document.head.innerHTML.slice(0, 300) : null })',
+			'(execute itself failed)'
 		);
 		console.log('diagnostics:', diag);
 		throw new Error(`app never finished loading (title: "${title}")`);
@@ -85,7 +95,7 @@ try {
 	//    UCI bridge, event delivery, and the whole analysis pipeline
 	let nodes = 0;
 	for (let i = 0; i < 60; i++) {
-		nodes = await exec("return document.querySelectorAll('.lines-tree svg g.node').length");
+		nodes = await tryExec("return document.querySelectorAll('.lines-tree svg g.node').length", 0);
 		if (nodes > 5) break;
 		await new Promise((r) => setTimeout(r, 2000));
 	}
