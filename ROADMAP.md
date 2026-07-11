@@ -34,6 +34,21 @@ discovered attack, trapped piece. Unlocks:
 Show the detected fact ("there's a fork here") before revealing the move.
 The explanation layer already computes it; this is UI only.
 
+### Line previews on hover
+Wherever a SAN line appears (engine lines, explanation quotes, insight cards,
+review details), hovering shows a mini chessground with the position at that
+point in the line — and/or a small animated playthrough of the whole line.
+All the pieces exist (`getSanLine`, the InsightsPanel mini-board `use:` action);
+the work is one shared tooltip component plus wiring into each display site.
+
+### Line meaning summaries
+Narrate the material story of a PV: "rooks get traded, then your queen is
+lost", "wins a pawn, with check". Zero engine cost — the line is already
+computed; a `summarizeLine()` walks it with chess.js, pairs captures into
+trades (recapture on the same square) vs. net wins/losses by piece class, and
+notes checks/promotions/mate. Slots into the facts-first explanation layer and
+its templates; the quiet-ply rule from material claims applies here too.
+
 ## Later
 
 - **Unified Moves tab** — the last unported en-croissant visualization:
