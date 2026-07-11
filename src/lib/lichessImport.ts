@@ -9,7 +9,7 @@ import { gameAccuracy, labelCounts, type StoredGame, type StoredMove } from './g
 import type { PracticeItem } from './practice';
 
 // one entry per half-move; White's point of view
-interface LichessEval {
+export interface LichessEval {
 	eval?: number; // centipawns
 	mate?: number;
 	best?: string; // uci, present on flagged moves
@@ -17,7 +17,7 @@ interface LichessEval {
 	judgment?: { name: string; comment: string };
 }
 
-interface LichessGame {
+export interface LichessGame {
 	id: string;
 	variant: string;
 	speed: string;
@@ -85,9 +85,13 @@ function variationToUcis(fenBefore: string, variation: string, max = 12): string
 	return out;
 }
 
-export function lichessGameToStored(
+// Grade a game from per-half-move white-POV evals. The chess.com offline
+// analyzer fabricates the same shape from local Stockfish output, so both
+// import paths grade identically.
+export function analysedGameToStored(
 	game: LichessGame,
-	username: string
+	username: string,
+	source: 'lichess' | 'chesscom' = 'lichess'
 ): { stored: StoredGame; practice: PracticeCandidate[]; humanColor: 'w' | 'b' | null } | null {
 	if (game.variant !== 'standard' || !game.analysis?.length || !game.moves) return null;
 
@@ -201,7 +205,7 @@ export function lichessGameToStored(
 					: '*';
 
 	const stored: StoredGame = {
-		id: `lichess-${game.id}`,
+		id: `${source}-${game.id}`,
 		endedAt: new Date(game.lastMoveAt).toISOString(),
 		result,
 		pgn: game.pgn ?? '',
@@ -214,10 +218,14 @@ export function lichessGameToStored(
 		moves,
 		white: game.players.white.user?.name ?? 'Anonymous',
 		black: game.players.black.user?.name ?? 'Anonymous',
-		source: 'lichess'
+		source
 	};
 
 	return { stored, practice, humanColor };
+}
+
+export function lichessGameToStored(game: LichessGame, username: string) {
+	return analysedGameToStored(game, username, 'lichess');
 }
 
 export async function fetchLichessGames(

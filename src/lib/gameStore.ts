@@ -39,7 +39,7 @@ export interface StoredGame {
 	// imported games: real player names and where they came from
 	white?: string;
 	black?: string;
-	source?: 'lichess';
+	source?: 'lichess' | 'chesscom';
 }
 
 // lichess's move-accuracy curve over win% loss

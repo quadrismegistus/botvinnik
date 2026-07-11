@@ -5,16 +5,22 @@ What's planned, roughly in priority order. See [README](README.md) for what's al
 ## Next up
 
 ### Import games from chess.com / unanalysed Lichess games (phase 2)
-Phase 1 shipped: the Games panel imports any Lichess user's **analysed** games
-via the server's per-move evals — instant labels, accuracies and practice
-items, no local engine time. Remaining:
+Shipped so far:
+- **Phase 1**: the Games panel imports any Lichess user's **analysed** games
+  via the server's per-move evals — instant, no engine time.
+- **Offline archive analyzer** (`scripts/analyze-chesscom.mts`): downloads a
+  chess.com player's full archive, analyzes every position with native
+  Stockfish (parallel workers, in-run FEN dedupe, resumable per-month
+  checkpoints, ~18 games/min on an M-series laptop), grades with the same
+  code as the Lichess importer, and writes a backup JSON for "Import data".
+  Run: `brew install stockfish && npx tsx scripts/analyze-chesscom.mts <user>`.
 
-- **Local analysis queue** for chess.com games (monthly PGN archives API) and
-  Lichess games without server analysis: background queue at depth 12–14,
-  ~1.5–2 min per game (~80 positions × ~1s), with a progress bar. The
-  analysis cache makes repeated openings progressively free.
-- Explanations for imported moves (the importer stores labels + best moves;
-  fact detectors could run over the stored best variations as a cheap pass).
+Remaining:
+- **In-app trickle importer** for new chess.com games and unanalysed Lichess
+  games: browser background queue at depth 12–14 (~2 min/game) with progress,
+  for people who won't run a terminal command.
+- Explanations for imported moves (fact detectors over the stored best
+  variations as a cheap pass).
 
 ### "Practice this" from game review
 Archived games already store fenBefore / best move / explanation for every
@@ -71,6 +77,12 @@ its templates; the quiet-ply rule from material claims applies here too.
 - **Keyboard shortcuts** — n = next puzzle, r = retry, arrows = review nav.
 - **File System Access autosave** — beyond Export/Import: write backups
   directly to a user-chosen local file (Chromium-only).
+- **Desktop shell (Tauri)** — wrap this same SvelteKit app in Tauri with a
+  native Stockfish sidecar: full-strength NNUE on all cores (10–50× the
+  single-threaded WASM engine, which is capped by GitHub Pages' lack of
+  COOP/COEP headers → no SharedArrayBuffer → no threads). Would fold the
+  offline analyzer into the app itself. Full circle: en-croissant, which this
+  project simplified away from, is exactly this architecture.
 - **LLM polish layer for explanations** — optional, user-supplied API key,
   constrained to restating the detected facts (every SAN token in the output
   must appear in the supplied lines, else fall back to templates). The
