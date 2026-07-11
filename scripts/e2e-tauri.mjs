@@ -73,6 +73,22 @@ try {
 		}
 	};
 
+	// 0. the driver may attach to an auxiliary browsing context — find the one
+	// showing the app (or at least log what contexts exist)
+	await new Promise((r) => setTimeout(r, 4000));
+	try {
+		const handles = await wd('GET', `/session/${sessionId}/window/handles`);
+		console.log(`window handles: ${JSON.stringify(handles)}`);
+		for (const h of handles) {
+			await wd('POST', `/session/${sessionId}/window`, { handle: h });
+			const info = await tryExec('return location.href + " || " + document.title', '(exec failed)');
+			console.log(`  ${h}: ${info}`);
+			if (String(info).includes('Botvinnik')) break;
+		}
+	} catch (e) {
+		console.log('handle scan failed:', e.message);
+	}
+
 	// 1. the app booted, loaded and hydrated (title comes from svelte:head)
 	let title = '';
 	for (let i = 0; i < 30; i++) {
