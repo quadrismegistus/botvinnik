@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { EngineMove } from '$lib/engine/stockfish';
-	import { getSan, getSanLine } from '$lib/engine/chess';
+	import { getFenAfter, getNumberedSanLine, getSan } from '$lib/engine/chess';
 	import LineHover from './LineHover.svelte';
 
 	interface Props {
@@ -49,10 +49,7 @@
 					<LineHover {fen} ucis={move.pv}>
 						<span class="san">{getSan(fen, move.pv[0])}</span>
 						<span class="pv">
-							{getSanLine(fen, move.pv.slice(0, 6))
-								.slice(1)
-								.map((s) => s.san)
-								.join(' ')}
+							{getNumberedSanLine(getFenAfter(fen, move.pv[0]) ?? fen, move.pv.slice(1), 11)}
 						</span>
 					</LineHover>
 				</div>

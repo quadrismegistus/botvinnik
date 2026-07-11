@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { StoredGame, StoredMove } from '$lib/gameStore';
+	import LineHover from './LineHover.svelte';
 
 	interface Props {
 		games: StoredGame[];
@@ -119,9 +120,22 @@
 					<span class="stat">best was <strong>{selected.bestSan}</strong></span>
 				{/if}
 				{#if selected.explanation?.playedPoint}<div class="why">{selected.explanation.playedPoint}</div>{/if}
-				{#if selected.explanation?.playedIssue}<div class="why">{selected.explanation.playedIssue}</div>{/if}
+				{#snippet withEvidence(text: string)}
+					{#if selected?.explanation?.evidence}
+						<LineHover fen={selected.explanation.evidence.fen} ucis={selected.explanation.evidence.ucis}>
+							{text}
+						</LineHover>
+					{:else}
+						{text}
+					{/if}
+				{/snippet}
+				{#if selected.explanation?.playedIssue}
+					<div class="why">{@render withEvidence(selected.explanation.playedIssue)}</div>
+				{/if}
 				{#if selected.explanation?.bestPoint}<div class="why">{selected.explanation.bestPoint}</div>{/if}
-				{#if selected.explanation?.lineStory}<div class="why">{selected.explanation.lineStory}</div>{/if}
+				{#if selected.explanation?.lineStory}
+					<div class="why">{@render withEvidence(selected.explanation.lineStory)}</div>
+				{/if}
 			</div>
 		{/if}
 	{/if}

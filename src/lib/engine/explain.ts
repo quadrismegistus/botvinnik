@@ -3,13 +3,16 @@
 // and templates only verbalize detected facts. See memory: move-explanation-research.
 
 import { Chess, type Square, type Color } from 'chess.js';
-import { getSanLine } from './chess';
+import { getFenAfter, getNumberedSanLine, getSanLine } from './chess';
 
 export interface Explanation {
 	playedIssue?: string; // what's wrong with the played move
 	bestPoint?: string; // what the best move achieves (may reveal it)
 	playedPoint?: string; // what a GOOD played move achieves
 	lineStory?: string; // material narrative of the line ahead (trades, captures)
+	// the engine line backing playedIssue/lineStory (played move + refutation),
+	// so renderers can make the claim hoverable/replayable
+	evidence?: { fen: string; ucis: string[] };
 }
 
 const VAL: Record<string, number> = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 0 };
@@ -240,10 +243,10 @@ export function explainMove(input: {
 			const { net, plies } = quietMaterialOverLine(fenBefore, playedLine.slice(0, 9));
 			if (net <= -2) {
 				// quote only the continuation — the played move itself is already named
-				const continuation = getSanLine(fenBefore, playedLine.slice(0, plies))
-					.slice(1)
-					.map((s) => s.san)
-					.join(' ');
+				const fenAfter = getFenAfter(fenBefore, playedUci);
+				const continuation = fenAfter
+					? getNumberedSanLine(fenAfter, playedLine.slice(1, plies))
+					: '';
 				if (continuation) {
 					out.playedIssue = `This loses material — after ${continuation}, you're down ${-net} points.`;
 				}
@@ -254,6 +257,10 @@ export function explainMove(input: {
 			const story = summarizeLine(fenBefore, playedLine.slice(0, 9));
 			if (story) out.lineStory = `In this line, ${story}.`;
 		}
+	}
+	// the line behind whatever claim (or fallback) the renderer shows
+	if (refutationPv.length > 0) {
+		out.evidence = { fen: fenBefore, ucis: playedLine.slice(0, 9) };
 	}
 
 	// --- what the best move achieves (priority: mate > fork > free capture > material) ---
@@ -292,10 +299,8 @@ export function explainGoodMove(
 	if (playedPv.length > 1) {
 		const { net, plies } = quietMaterialOverLine(fenBefore, playedPv.slice(0, 9));
 		if (net >= 2) {
-			const continuation = getSanLine(fenBefore, playedPv.slice(0, plies))
-				.slice(1)
-				.map((s) => s.san)
-				.join(' ');
+			const fenAfter = getFenAfter(fenBefore, playedUci);
+			const continuation = fenAfter ? getNumberedSanLine(fenAfter, playedPv.slice(1, plies)) : '';
 			if (continuation) return `It wins ${net} points of material (${continuation}).`;
 		}
 		const story = summarizeLine(fenBefore, playedPv.slice(0, 9));

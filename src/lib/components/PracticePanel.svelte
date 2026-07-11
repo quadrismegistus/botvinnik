@@ -145,12 +145,21 @@
 						✗ <strong>{attempt.san}</strong> ({fmtEval(attempt.evalPawns, attempt.mate)})
 						{#if attempt.label}<span class="chip {attempt.label}">{attempt.label}</span>{/if}
 						— drops {attempt.drop.toFixed(0)}% win chance.
-						{#if attempt.playedIssue}
-							{attempt.playedIssue}
-						{:else if attempt.lineStory}
-							{attempt.lineStory}
-						{:else if attempt.refutationSan}
-							Punished by <strong class="refutation">{attempt.refutationSan}</strong> (red arrow).
+						{#snippet failText()}
+							{#if attempt?.playedIssue}
+								{attempt.playedIssue}
+							{:else if attempt?.lineStory}
+								{attempt.lineStory}
+							{:else if attempt?.refutationSan}
+								Punished by <strong class="refutation">{attempt.refutationSan}</strong> (red arrow).
+							{/if}
+						{/snippet}
+						{#if attempt.evidence}
+							<LineHover fen={attempt.evidence.fen} ucis={attempt.evidence.ucis}>
+								{@render failText()}
+							</LineHover>
+						{:else}
+							{@render failText()}
 						{/if}
 						Best was
 						{#if revealBest}

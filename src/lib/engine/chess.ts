@@ -104,6 +104,44 @@ export function getSanLine(fen: string, ucis: string[]): SanStep[] {
 	return steps;
 }
 
+export function getFenAfter(fen: string, uci: string): string | null {
+	try {
+		const tmp = new Chess(fen);
+		tmp.move({
+			from: uci.slice(0, 2) as Square,
+			to: uci.slice(2, 4) as Square,
+			promotion: uci.length > 4 ? uci[4] : undefined
+		});
+		return tmp.fen();
+	} catch {
+		return null;
+	}
+}
+
+// standard numbered notation from an arbitrary position:
+// "3...Nxd5 4.Bc4 Qe7+ 5.Kf1" (leading "N..." when Black moves first)
+export function getNumberedSanLine(fen: string, ucis: string[], max = 12): string {
+	const parts: string[] = [];
+	try {
+		const tmp = new Chess(fen);
+		for (const uci of ucis.slice(0, max)) {
+			const num = Number(tmp.fen().split(' ')[5]);
+			const move = tmp.move({
+				from: uci.slice(0, 2) as Square,
+				to: uci.slice(2, 4) as Square,
+				promotion: uci.length > 4 ? uci[4] : undefined
+			});
+			if (!move) break;
+			if (move.color === 'w') parts.push(`${num}.${move.san}`);
+			else if (parts.length === 0) parts.push(`${num}...${move.san}`);
+			else parts.push(move.san);
+		}
+	} catch {
+		// stop at first illegal move; return what we have
+	}
+	return parts.join(' ');
+}
+
 export function getSan(fen: string, uci: string): string {
 	try {
 		const tmp = new Chess(fen);

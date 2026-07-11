@@ -60,7 +60,7 @@
 		const timer = setInterval(() => {
 			i = (i + 1) % frames.length; // wraps back to the start and replays
 			api?.set({ fen: frames[i].fen, lastMove: frames[i].lastMove });
-		}, 750);
+		}, 1000);
 		return () => {
 			clearInterval(timer);
 			api?.destroy();

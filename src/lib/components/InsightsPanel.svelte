@@ -99,13 +99,31 @@
 				<p class="why">{g.explanation.playedPoint}</p>
 			{/if}
 			{#if g.explanation?.playedIssue}
-				<p class="why">{g.explanation.playedIssue}</p>
+				<p class="why">
+					{#if g.explanation.evidence}
+						<LineHover fen={g.explanation.evidence.fen} ucis={g.explanation.evidence.ucis}>
+							{g.explanation.playedIssue}
+						</LineHover>
+					{:else}
+						{g.explanation.playedIssue}
+					{/if}
+				</p>
 			{/if}
 			{#if g.explanation?.bestPoint}
-				<p class="why">{g.explanation.bestPoint}</p>
+				<p class="why">
+					<LineHover fen={g.fenBefore} ucis={g.bestPv}>{g.explanation.bestPoint}</LineHover>
+				</p>
 			{/if}
 			{#if g.explanation?.lineStory}
-				<p class="why">{g.explanation.lineStory}</p>
+				<p class="why">
+					{#if g.explanation.evidence}
+						<LineHover fen={g.explanation.evidence.fen} ucis={g.explanation.evidence.ucis}>
+							{g.explanation.lineStory}
+						</LineHover>
+					{:else}
+						{g.explanation.lineStory}
+					{/if}
+				</p>
 			{/if}
 			{#if hasEval}
 				<div class="wc">

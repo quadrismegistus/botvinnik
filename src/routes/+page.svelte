@@ -23,7 +23,7 @@
 		type StoredGame,
 		type StoredMove
 	} from '$lib/gameStore';
-	import { explainGoodMove, explainMove } from '$lib/engine/explain';
+	import { explainGoodMove, explainMove, type Explanation } from '$lib/engine/explain';
 	import {
 		backfillGrade,
 		gradeMove,
@@ -431,7 +431,8 @@
 			playedIssue: explanation.playedIssue,
 			bestPoint: explanation.bestPoint,
 			playedPoint,
-			lineStory: explanation.lineStory
+			lineStory: explanation.lineStory,
+			evidence: explanation.evidence
 		});
 		attempt = {
 			san: move.san,
@@ -445,7 +446,8 @@
 			playedIssue: explanation.playedIssue,
 			bestPoint: explanation.bestPoint,
 			playedPoint,
-			lineStory: explanation.lineStory
+			lineStory: explanation.lineStory,
+			evidence: explanation.evidence
 		};
 		// only the stored puzzle counts toward spaced repetition, not line continuations
 		if (lineDepth === 0) practiceItems = recordResult(practiceItems, currentItem.id, pass);
@@ -461,12 +463,7 @@
 		mate: number | null,
 		depth: number,
 		drop: number,
-		explanation: {
-			playedIssue?: string;
-			bestPoint?: string;
-			playedPoint?: string;
-			lineStory?: string;
-		}
+		explanation: Explanation
 	): MoveGrade {
 		const cpOf = (pawns: number | null, m: number | null) =>
 			m !== null ? (m > 0 ? 9999 : -9999) : (pawns ?? 0) * 100;
