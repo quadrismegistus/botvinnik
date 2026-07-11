@@ -15,6 +15,8 @@ Ported and distilled from a fork of [en-croissant](https://github.com/franciscoB
 - **YouTube commentary** — positions matched against ~27k human commentary snippets mined from game-review videos ([Kaggle dataset](https://www.kaggle.com/datasets/huberthamelin/chess-reviews-from-youtube)), with timestamped links to the source video
 - **Blind mode**, promotion picker, refutation arrows
 
+See [ROADMAP.md](ROADMAP.md) for what's planned next.
+
 ## Development
 
 ```sh
