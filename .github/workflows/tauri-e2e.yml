@@ -5,7 +5,7 @@ name: Tauri e2e
 # the real window over WebDriver, assert the native analysis reaches the UI.
 on:
   push:
-    branches: [tauri]
+    branches: [main, tauri]
   workflow_dispatch:
 
 jobs:
