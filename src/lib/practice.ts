@@ -59,6 +59,11 @@ function save(items: PracticeItem[]) {
 	if (hasStorage()) localStorage.setItem(KEY, JSON.stringify(items));
 }
 
+// replace the stored list wholesale (used by backup import)
+export function saveItems(items: PracticeItem[]) {
+	save(items);
+}
+
 export function addItem(
 	items: PracticeItem[],
 	data: Omit<PracticeItem, 'id' | 'createdAt' | 'box' | 'dueAt' | 'attempts' | 'correct'>

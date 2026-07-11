@@ -7,6 +7,7 @@
 	import InsightsPanel from '$lib/components/InsightsPanel.svelte';
 	import MoveList from '$lib/components/MoveList.svelte';
 	import LinesTree from '$lib/components/LinesTree.svelte';
+	import { downloadBackup, importBackup } from '$lib/backup';
 	import CommentaryPanel from '$lib/components/CommentaryPanel.svelte';
 	import GamesPanel from '$lib/components/GamesPanel.svelte';
 	import PracticePanel from '$lib/components/PracticePanel.svelte';
@@ -118,6 +119,24 @@
 	let attemptGrade: MoveGrade | null = $state(null); // insight card for the attempt
 	let continuing = $state(false); // engine playing the opponent reply
 	let lineNote: string | null = $state(null); // e.g. the line ended in mate
+
+	// data backup
+	let importInput: HTMLInputElement | null = $state(null);
+	let importMsg = $state('');
+
+	async function handleImportFile(e: Event) {
+		const file = (e.currentTarget as HTMLInputElement).files?.[0];
+		if (!file) return;
+		try {
+			const { practice, games } = await importBackup(file);
+			practiceItems = loadItems();
+			storedGames = await listGames();
+			importMsg = `Imported ${practice} practice position${practice === 1 ? '' : 's'}, ${games} game${games === 1 ? '' : 's'}.`;
+		} catch {
+			importMsg = 'Import failed — not a botvinnik backup file.';
+		}
+		if (importInput) importInput.value = '';
+	}
 
 	// game archive + review
 	let storedGames: StoredGame[] = $state([]);
@@ -873,6 +892,23 @@
 							Game over: {game.result}
 						</div>
 					{/if}
+
+					<div class="data-row">
+						<button onclick={() => void downloadBackup()} title="Download practice positions + game archive as JSON">
+							Export data
+						</button>
+						<button onclick={() => importInput?.click()} title="Merge a botvinnik backup file into this browser's data">
+							Import data
+						</button>
+						<input
+							type="file"
+							accept="application/json"
+							bind:this={importInput}
+							onchange={handleImportFile}
+							hidden
+						/>
+						{#if importMsg}<span class="import-msg">{importMsg}</span>{/if}
+					</div>
 				{:else if mode === 'practice'}
 					<div class="practice-note">
 						Practicing — analysis is hidden until you move.
@@ -1000,6 +1036,28 @@
 	}
 	.collapse-btn:hover {
 		color: var(--text-primary);
+	}
+	.data-row {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		flex-wrap: wrap;
+	}
+	.data-row button {
+		background: transparent;
+		color: var(--text-secondary);
+		border: 1px solid var(--border);
+		border-radius: 4px;
+		font-size: 11px;
+		padding: 2px 10px;
+		cursor: pointer;
+	}
+	.data-row button:hover {
+		color: var(--text-primary);
+	}
+	.import-msg {
+		font-size: 11px;
+		color: var(--text-secondary);
 	}
 	.game-over {
 		text-align: center;
