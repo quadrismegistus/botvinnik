@@ -29,11 +29,12 @@ Archived games already store fenBefore / best move / explanation for every
 graded move. One button on a reviewed blunder turns it into a practice item —
 review feeds the drill loop, zero new analysis.
 
-### More motif detectors
-Port the remaining lichess-puzzler `cook.py` detectors: pin, skewer,
-discovered attack, trapped piece. Unlocks:
-- richer explanations ("this pins the knight against the queen")
-- **motif-tagged practice** — drill only back-rank mistakes, only forks, etc.
+### Motif-tagged practice
+The detectors (fork, pin, skewer, discovered attack, trapped piece, free
+capture, mate, hanging) all exist in `explain.ts` as pure functions — run
+them over each practice item's stored best line at collect/import time, tag
+items with their motifs, and add a filter to the practice list ("drill only
+pins"). The hint button's tier-1 text comes from the same tags.
 
 ### Hint button in practice
 Tiered hints before the full reveal, all computed from facts the explanation
