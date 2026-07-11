@@ -77,6 +77,19 @@ its templates; the quiet-ply rule from material claims applies here too.
 - **Keyboard shortcuts** — n = next puzzle, r = retry, arrows = review nav.
 - **File System Access autosave** — beyond Export/Import: write backups
   directly to a user-chosen local file (Chromium-only).
+- **Engine settings panel** — a small "Engine" section (sidebar SidePanel,
+  persisted like the bot settings) now that web/desktop hardware profiles
+  genuinely differ:
+  - *Analysis effort*: time slice + depth ceiling, presented as
+    quick / normal / deep / unlimited presets with the raw numbers visible
+  - *Lines* (MultiPV 1–5) — note MULTIPV is baked into the analysis-cache
+    key, so changing it namespaces the cache (old entries just age out)
+  - *Threads / Hash* — native shell only; default cores−2 / 256MB
+  Deliberately NOT exposed: grading standards (practice d14, collect gates,
+  batch node budgets) — verdicts should mean the same thing on every
+  machine and every day, so they stay fixed constants. The collect
+  *threshold* (win%-drop) stays where it is in the Practice panel — that's
+  taste, not measurement.
 - **Desktop shell (Tauri)** — wrap this same SvelteKit app in Tauri with a
   native Stockfish sidecar: full-strength NNUE on all cores (10–50× the
   single-threaded WASM engine, which is capped by GitHub Pages' lack of
