@@ -1,0 +1,66 @@
+name: Tauri e2e
+
+# tauri-driver has no macOS backend, so the desktop shell's end-to-end test
+# lives here on Linux: build the app with a Linux stockfish sidecar, drive
+# the real window over WebDriver, assert the native analysis reaches the UI.
+on:
+  push:
+    branches: [tauri]
+  workflow_dispatch:
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install system deps (webkit, driver, xvfb, stockfish)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev \
+            libayatana-appindicator3-dev librsvg2-dev \
+            webkit2gtk-driver xvfb stockfish
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Cache tauri-driver
+        id: driver-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/tauri-driver
+          key: tauri-driver-v1
+
+      - name: Install tauri-driver
+        if: steps.driver-cache.outputs.cache-hit != 'true'
+        run: cargo install tauri-driver --locked
+
+      - run: npm ci
+
+      - name: Rust unit tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml
+
+      - name: Build frontend
+        run: npm run build
+
+      - name: Stage stockfish sidecar
+        run: |
+          mkdir -p src-tauri/binaries
+          cp "$(which stockfish)" src-tauri/binaries/stockfish-x86_64-unknown-linux-gnu
+
+      - name: Build app (release embeds the frontend)
+        run: cargo build --release --manifest-path src-tauri/Cargo.toml
+
+      - name: Run e2e under xvfb
+        env:
+          WEBKIT_DISABLE_COMPOSITING_MODE: '1'
+          WEBKIT_DISABLE_DMABUF_RENDERER: '1'
+        run: xvfb-run --auto-servernum node scripts/e2e-tauri.mjs

@@ -13,7 +13,8 @@
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
 		"tauri": "tauri",
 		"tauri:setup": "mkdir -p src-tauri/binaries && cp \"$(which stockfish)\" src-tauri/binaries/stockfish-aarch64-apple-darwin",
-		"test:rust": "cargo test --manifest-path src-tauri/Cargo.toml"
+		"test:rust": "cargo test --manifest-path src-tauri/Cargo.toml",
+		"test:e2e:tauri": "node scripts/e2e-tauri.mjs"
 	},
 	"devDependencies": {
 		"@sveltejs/adapter-static": "^3.0.10",
