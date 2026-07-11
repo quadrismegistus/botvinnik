@@ -139,8 +139,16 @@ function handleMessage(line: string) {
 	if (line.startsWith('info') && line.includes(' pv ')) {
 		// while a new search is queued, incoming lines belong to the old position — drop them
 		if (!activeSearch || pendingSearch) return;
+		// bound reports (fail-high/low near a stop) carry truncated PVs — skip them
+		if (/ (upper|lower)bound /.test(line)) return;
 		const move = parseInfoLine(line, activeSearch.minInfoDepth ?? 6);
 		if (move) {
+			// if the engine still truncated the PV of the same root move, keep the
+			// longer continuation we already had
+			const prev = currentMoves.get(move.multipv);
+			if (prev && prev.pv[0] === move.pv[0] && move.pv.length < prev.pv.length && move.pv.length < 4) {
+				move.pv = prev.pv;
+			}
 			currentMoves.set(move.multipv, move);
 			activeSearch.onUpdate(
 				Array.from(currentMoves.values()).sort((a, b) => a.multipv - b.multipv)

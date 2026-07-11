@@ -34,7 +34,9 @@
 			<span class="title">Engine Analysis</span>
 		</button>
 		{#if analyzing}
-			<span class="status">depth {moves[0]?.depth ?? '…'}</span>
+			<span class="status">depth {moves[0]?.depth ?? '…'}…</span>
+		{:else if moves.length > 0}
+			<span class="status">d{moves[0]?.depth}</span>
 		{/if}
 	</div>
 
