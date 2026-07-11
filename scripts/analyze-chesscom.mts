@@ -29,13 +29,8 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { Chess } from 'chess.js';
-import {
-	analysedGameToStored,
-	type LichessEval,
-	type LichessGame,
-	type PracticeCandidate
-} from '../src/lib/lichessImport';
+import { ccGameToAnalysed, fetchChesscomArchives, fetchChesscomMonth } from '../src/lib/chesscomCore';
+import { analysedGameToStored, type PracticeCandidate } from '../src/lib/lichessImport';
 import type { StoredGame } from '../src/lib/gameStore';
 
 // ---------- args ----------
@@ -147,118 +142,6 @@ function evalPosition(fen: string): Promise<EvalResult> {
 	return p;
 }
 
-// ---------- chess.com fetch ----------
-interface CcGame {
-	uuid: string;
-	pgn?: string;
-	rules: string;
-	time_class: string;
-	end_time: number;
-	white: { username: string; rating: number; result: string };
-	black: { username: string; rating: number; result: string };
-}
-
-async function fetchJson<T>(url: string): Promise<T> {
-	const res = await fetch(url, { headers: { 'User-Agent': 'botvinnik-analyzer' } });
-	if (!res.ok) throw new Error(`${res.status} ${url}`);
-	return res.json() as Promise<T>;
-}
-
-// ---------- per-game analysis ----------
-function toWhitePov(r: EvalResult, whiteToMove: boolean): LichessEval {
-	const sign = whiteToMove ? 1 : -1;
-	if (r.mate !== undefined) return { mate: sign * r.mate };
-	return { eval: sign * (r.cp ?? 0) };
-}
-
-async function analyzeGame(cc: CcGame): Promise<LichessGame | null> {
-	if (cc.rules !== 'chess' || !cc.pgn) return null;
-	const c = new Chess();
-	try {
-		c.loadPgn(cc.pgn);
-	} catch {
-		return null;
-	}
-	const history = c.history({ verbose: true });
-	if (history.length < 4) return null;
-
-	// evaluate every position: index i = before move i (0..n), n+1 entries
-	const walker = new Chess();
-	const fens: string[] = [walker.fen()];
-	for (const m of history) {
-		walker.move(m.san);
-		fens.push(walker.fen());
-	}
-	const results = await Promise.all(
-		fens.map(async (fen, i) => {
-			const probe = new Chess(fen);
-			if (probe.isGameOver()) return null; // mate/stalemate — no search needed
-			void i;
-			return evalPosition(fen);
-		})
-	);
-
-	// fabricate the lichess-shaped analysis array: entry i = after move i,
-	// with best/variation from the position BEFORE move i
-	const analysis: LichessEval[] = [];
-	for (let i = 0; i < history.length; i++) {
-		const posAfter = fens[i + 1];
-		const whiteToMoveAfter = posAfter.split(' ')[1] === 'w';
-		const rAfter = results[i + 1];
-		let entry: LichessEval;
-		if (rAfter) {
-			entry = toWhitePov(rAfter, whiteToMoveAfter);
-		} else {
-			// terminal position: the side to move is mated, or it's a draw
-			const probe = new Chess(posAfter);
-			entry = probe.isCheckmate() ? { mate: whiteToMoveAfter ? -1 : 1 } : { eval: 0 };
-		}
-		const rBefore = results[i];
-		if (rBefore && rBefore.pv.length) {
-			const playedUci = history[i].from + history[i].to + (history[i].promotion ?? '');
-			if (rBefore.pv[0] !== playedUci) {
-				entry.best = rBefore.pv[0];
-				// variation as SAN text
-				const t = new Chess(fens[i]);
-				const sans: string[] = [];
-				for (const uci of rBefore.pv.slice(0, 10)) {
-					try {
-						const m = t.move({
-							from: uci.slice(0, 2) as never,
-							to: uci.slice(2, 4) as never,
-							promotion: uci.length > 4 ? uci[4] : undefined
-						});
-						if (!m) break;
-						sans.push(m.san);
-					} catch {
-						break;
-					}
-				}
-				entry.variation = sans.join(' ');
-			}
-		}
-		analysis.push(entry);
-	}
-
-	const winner =
-		cc.white.result === 'win' ? 'white' : cc.black.result === 'win' ? 'black' : undefined;
-	return {
-		id: cc.uuid,
-		variant: 'standard',
-		speed: cc.time_class,
-		status: winner ? 'mate' : 'draw',
-		winner,
-		lastMoveAt: cc.end_time * 1000,
-		players: {
-			white: { user: { name: cc.white.username }, rating: cc.white.rating },
-			black: { user: { name: cc.black.username }, rating: cc.black.rating }
-		},
-		moves: history.map((m) => m.san).join(' '),
-		pgn: cc.pgn,
-		analysis
-	};
-}
-
 // ---------- main ----------
 interface State {
 	doneMonths: string[];
@@ -278,10 +161,8 @@ async function main() {
 		existing.practice as never[];
 	const practiceFens = new Set(practice.map((p) => p.fen));
 
-	const { archives } = await fetchJson<{ archives: string[] }>(
-		`https://api.chess.com/pub/player/${username!.toLowerCase()}/games/archives`
-	);
-	const months = archives.reverse().slice(0, MONTHS === Infinity ? undefined : MONTHS);
+	const archives = await fetchChesscomArchives(username!); // newest first
+	const months = archives.slice(0, MONTHS === Infinity ? undefined : MONTHS);
 	console.log(`${username}: ${archives.length} months, analyzing ${months.length} (newest first)`);
 	console.log(`engine: ${ENGINE} ×${WORKERS} workers, ${NODES} nodes/position\n`);
 
@@ -296,14 +177,13 @@ async function main() {
 		}
 		if (gamesDone >= MAX_GAMES) break;
 
-		const { games: ccGames } = await fetchJson<{ games: CcGame[] }>(monthUrl);
-		ccGames.sort((a, b) => b.end_time - a.end_time);
+		const ccGames = await fetchChesscomMonth(monthUrl); // newest first
 		console.log(`${monthKey}: ${ccGames.length} games`);
 
 		for (const cc of ccGames) {
 			if (gamesDone >= MAX_GAMES) break;
 			if (gameIds.has(`chesscom-${cc.uuid}`)) continue;
-			const lichessShaped = await analyzeGame(cc);
+			const lichessShaped = await ccGameToAnalysed(cc, evalPosition);
 			if (!lichessShaped) continue;
 			const mapped = analysedGameToStored(lichessShaped, username!, 'chesscom');
 			if (!mapped) continue;

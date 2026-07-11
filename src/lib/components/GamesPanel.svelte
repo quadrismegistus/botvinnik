@@ -1,4 +1,5 @@
 <script lang="ts">
+	import type { CcImportProgress } from '$lib/chesscomImport';
 	import type { StoredGame, StoredMove } from '$lib/gameStore';
 	import LineHover from './LineHover.svelte';
 
@@ -8,19 +9,32 @@
 		reviewPly: number; // 0 = initial position, k = after move k
 		importing?: boolean;
 		importStatus?: string;
+		ccImport?: CcImportProgress | null;
 		onreview: (game: StoredGame) => void;
 		onclose: () => void;
 		ongoto: (ply: number) => void;
 		ondelete: (id: string) => void;
 		onimport?: (username: string) => void;
+		onccimport?: (username: string, maxGames?: number) => void;
+		onccancel?: () => void;
 	}
 
 	let {
-		games, reviewing, reviewPly, importing = false, importStatus = '',
-		onreview, onclose, ongoto, ondelete, onimport
+		games, reviewing, reviewPly, importing = false, importStatus = '', ccImport = null,
+		onreview, onclose, ongoto, ondelete, onimport, onccimport, onccancel
 	}: Props = $props();
 
 	let importName = $state('');
+	let ccName = $state('');
+	let ccMax = $state('');
+	const ccRunning = $derived(
+		ccImport !== null && (ccImport.phase === 'fetching' || ccImport.phase === 'analyzing')
+	);
+	const ccPct = $derived(
+		ccImport && ccImport.gamesPlanned > 0
+			? Math.min(100, (ccImport.gamesDone / ccImport.gamesPlanned) * 100)
+			: 0
+	);
 
 	const LABEL_ORDER = [
 		'brilliant', 'great', 'best', 'excellent', 'good', 'inaccuracy', 'mistake', 'blunder'
@@ -76,6 +90,44 @@
 				</button>
 				{#if importStatus}<span class="import-status">{importStatus}</span>{/if}
 			</form>
+		{/if}
+		{#if onccimport}
+			<form
+				class="import-row"
+				onsubmit={(e) => {
+					e.preventDefault();
+					if (ccName.trim() && !ccRunning)
+						onccimport(ccName.trim(), Number(ccMax) > 0 ? Number(ccMax) : undefined);
+				}}
+			>
+				<input type="text" placeholder="chess.com username" bind:value={ccName} disabled={ccRunning} />
+				<input class="max" type="text" placeholder="max" title="Max games (blank = all)" bind:value={ccMax} disabled={ccRunning} />
+				{#if ccRunning}
+					<button type="button" onclick={() => onccancel?.()}>Cancel</button>
+				{:else}
+					<button type="submit" disabled={!ccName.trim()}>Analyze + import</button>
+				{/if}
+			</form>
+			{#if ccImport}
+				<div class="cc-progress" title="Runs in the background on its own engine{ccImport.engines === 1 ? '' : 's'} — keep playing">
+					<div class="bar"><div class="fill" style:width="{ccPct}%"></div></div>
+					<span class="cc-status">
+						{#if ccImport.phase === 'fetching'}
+							Fetching archives…
+						{:else if ccImport.phase === 'analyzing'}
+							{ccImport.currentMonth} · {ccImport.gamesDone}/{ccImport.gamesPlanned} games
+							· +{ccImport.gamesAdded} imported, +{ccImport.practiceAdded} puzzles
+							· {ccImport.gamesPerMin.toFixed(1)}/min on {ccImport.engines} engine{ccImport.engines === 1 ? '' : 's'}
+						{:else if ccImport.phase === 'done'}
+							Done: {ccImport.gamesAdded} games, {ccImport.practiceAdded} practice positions.
+						{:else if ccImport.phase === 'cancelled'}
+							Cancelled at {ccImport.gamesAdded} games, {ccImport.practiceAdded} practice positions.
+						{:else}
+							{ccImport.error}
+						{/if}
+					</span>
+				</div>
+			{/if}
 		{/if}
 		{#if games.length === 0}
 			<div class="empty">
@@ -197,6 +249,32 @@
 		width: 160px;
 	}
 	.import-status {
+		font-size: 11px;
+		color: var(--text-secondary);
+	}
+	.import-row input.max {
+		width: 52px;
+	}
+	.cc-progress {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		margin-bottom: 8px;
+	}
+	.bar {
+		flex: 0 0 140px;
+		height: 8px;
+		border-radius: 4px;
+		background: var(--bg-highlight);
+		border: 1px solid var(--border);
+		overflow: hidden;
+	}
+	.fill {
+		height: 100%;
+		background: var(--color-win);
+		transition: width 0.4s;
+	}
+	.cc-status {
 		font-size: 11px;
 		color: var(--text-secondary);
 	}

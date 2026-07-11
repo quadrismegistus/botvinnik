@@ -15,10 +15,12 @@ Shipped so far:
   code as the Lichess importer, and writes a backup JSON for "Import data".
   Run: `brew install stockfish && npx tsx scripts/analyze-chesscom.mts <user>`.
 
+- **In-app importer (SHIPPED on the tauri branch)**: Games panel form with
+  progress bar and Cancel; dedicated import engine pool (one WASM worker on
+  web, native sidecar pool on desktop) so live play keeps its own engine.
+  Lands on the website when the tauri branch merges.
+
 Remaining:
-- **In-app trickle importer** for new chess.com games and unanalysed Lichess
-  games: browser background queue at depth 12–14 (~2 min/game) with progress,
-  for people who won't run a terminal command.
 - Explanations for imported moves (fact detectors over the stored best
   variations as a cheap pass).
 
@@ -118,10 +120,15 @@ its templates; the quiet-ply rule from material claims applies here too.
   [chess-reviews-from-youtube](https://www.kaggle.com/datasets/huberthamelin/chess-reviews-from-youtube)
   dataset could also be phrase-mined to make the templates sound more human
   without any model at all.
-- **Formalize e2e tests** — the Playwright verification scripts (engine flow,
-  practice loop, game review, layout) live outside the repo today; port them
-  to `@playwright/test` and run against the built bundle in CI (~1 min of
-  engine time per run).
+- **Formalize e2e tests** — the desktop shell now has real e2e in CI
+  (`.github/workflows/tauri-e2e.yml`: tauri-driver on Linux drives the app,
+  asserts native analysis reaches the UI; skipped on macOS where no driver
+  exists — `npm run test:e2e:tauri`). Still to do: port the web Playwright
+  verification scripts (engine flow, practice loop, game review, layout)
+  into `@playwright/test` in-repo and run them in CI too.
+- **Release-build blank window on Linux** — the release binary's embedded-
+  asset webview stalls at about:blank on ubuntu runners (debug + devUrl works
+  fine, macOS unaffected); investigate before shipping Linux bundles.
 
 ## Design notes / known quirks
 

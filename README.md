@@ -28,6 +28,21 @@ npm run dev
 
 `npm run check` type-checks. Playwright (against installed Chrome) is used for end-to-end verification scripts.
 
+## Desktop app (Tauri)
+
+The same app ships as a desktop shell with a native Stockfish sidecar —
+full-strength NNUE on all cores instead of the single-threaded WASM build,
+plus a background archive analyzer. Requires Rust and a stockfish binary:
+
+```sh
+brew install stockfish   # or apt-get install stockfish
+npm run tauri:setup      # stages the sidecar binary (gitignored)
+npx tauri dev            # or: npx tauri build
+```
+
+Stockfish is GPL-3.0 and runs as a separate sidecar process; bundles that
+include the binary must comply with its license (source: stockfishchess.org).
+
 ## Static build / deploy
 
 The app is fully client-side, so `npm run build` (adapter-static) emits a plain HTML/JS bundle in `build/` that runs on any static file host — `npx serve build` works; `file://` does not (workers and fetch need HTTP).

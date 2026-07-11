@@ -8,6 +8,7 @@
 	import MoveList from '$lib/components/MoveList.svelte';
 	import LinesTree from '$lib/components/LinesTree.svelte';
 	import { downloadBackup, importBackup } from '$lib/backup';
+	import { startChesscomImport, type CcImportHandle, type CcImportProgress } from '$lib/chesscomImport';
 	import { importLichessGames } from '$lib/lichessImport';
 	import CommentaryPanel from '$lib/components/CommentaryPanel.svelte';
 	import GamesPanel from '$lib/components/GamesPanel.svelte';
@@ -175,6 +176,43 @@
 		} finally {
 			lichessImporting = false;
 		}
+	}
+
+	// chess.com archive import — background analysis on the import engine pool
+	const PRACTICE_CAP = 1000;
+	let ccImport: CcImportProgress | null = $state(null);
+	let ccHandle: CcImportHandle | null = null;
+
+	function startCcImport(username: string, maxGames?: number) {
+		if (ccHandle) return;
+		ccHandle = startChesscomImport({
+			username,
+			maxGames,
+			existingIds: new Set(storedGames.map((g) => g.id)),
+			onProgress: (p) => (ccImport = p),
+			onGame: async (stored, practice) => {
+				await saveGame(stored);
+				storedGames = [stored, ...storedGames].sort(
+					(a, b) => Date.parse(b.endedAt) - Date.parse(a.endedAt)
+				);
+				let added = 0;
+				for (const p of practice) {
+					if (practiceItems.length >= PRACTICE_CAP) break;
+					if (p.drop < collectThreshold) continue;
+					const next = addItem(practiceItems, p);
+					if (next) {
+						practiceItems = next;
+						added++;
+					}
+				}
+				return added;
+			}
+		});
+		void ccHandle.finished.then(() => (ccHandle = null));
+	}
+
+	function cancelCcImport() {
+		ccHandle?.cancel();
 	}
 
 	// game archive + review
@@ -935,11 +973,14 @@
 							{reviewPly}
 							importing={lichessImporting}
 							importStatus={lichessStatus}
+							{ccImport}
 							onreview={openReview}
 							onclose={exitReview}
 							ongoto={gotoReviewPly}
 							ondelete={deleteStoredGame}
 							onimport={handleLichessImport}
+							onccimport={startCcImport}
+							onccancel={cancelCcImport}
 						/>
 					</SidePanel>
 

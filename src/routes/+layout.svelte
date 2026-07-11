@@ -3,7 +3,16 @@
 	import 'chessground/assets/chessground.base.css';
 	import 'chessground/assets/chessground.brown.css';
 	import 'chessground/assets/chessground.cburnett.css';
+	import { browser } from '$app/environment';
+	import { nativeTransport } from '$lib/engine/nativeTransport';
+	import { setEngineTransport } from '$lib/engine/stockfish';
 	let { children }: { children: Snippet } = $props();
+
+	// inside the Tauri shell, the engine is a native Stockfish sidecar with a
+	// higher depth ceiling — the time slice is what actually bounds a search
+	if (browser && '__TAURI_INTERNALS__' in window) {
+		setEngineTransport(nativeTransport, { depth: 30, movetimeMs: 4000 });
+	}
 </script>
 
 <svelte:head>
