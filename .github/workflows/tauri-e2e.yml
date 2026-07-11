@@ -43,6 +43,11 @@ jobs:
         if: steps.driver-cache.outputs.cache-hit != 'true'
         run: cargo install tauri-driver --locked
 
+      - name: Stage stockfish sidecar
+        run: |
+          mkdir -p src-tauri/binaries
+          cp "$(which stockfish)" src-tauri/binaries/stockfish-x86_64-unknown-linux-gnu
+
       - run: npm ci
 
       - name: Rust unit tests
@@ -50,11 +55,6 @@ jobs:
 
       - name: Build frontend
         run: npm run build
-
-      - name: Stage stockfish sidecar
-        run: |
-          mkdir -p src-tauri/binaries
-          cp "$(which stockfish)" src-tauri/binaries/stockfish-x86_64-unknown-linux-gnu
 
       - name: Build app (release embeds the frontend)
         run: cargo build --release --manifest-path src-tauri/Cargo.toml
