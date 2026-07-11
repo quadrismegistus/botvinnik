@@ -9,19 +9,24 @@
 		attempt: AttemptResult | null;
 		grading: boolean;
 		revealBest: boolean;
+		lineDepth?: number; // "Continue" steps past the stored puzzle
+		lineNote?: string | null; // the continued line ended (e.g. mate)
+		continuing?: boolean; // engine is playing the opponent's reply
 		threshold: number;
 		onstart: () => void;
 		onexit: () => void;
 		onnext: () => void;
 		onretry: () => void;
 		onreveal: () => void;
+		oncontinue?: () => void;
 		onremove: (id: string) => void;
 		onthreshold: (n: number) => void;
 	}
 
 	let {
-		mode, items, current, attempt, grading, revealBest, threshold,
-		onstart, onexit, onnext, onretry, onreveal, onremove, onthreshold
+		mode, items, current, attempt, grading, revealBest,
+		lineDepth = 0, lineNote = null, continuing = false, threshold,
+		onstart, onexit, onnext, onretry, onreveal, oncontinue, onremove, onthreshold
 	}: Props = $props();
 
 	const due = $derived(dueCount(items));
@@ -94,6 +99,11 @@
 		<div class="toolbar">
 			{#if !current}
 				<span class="summary">All caught up — nothing due. 🎉</span>
+			{:else if lineDepth > 0}
+				<span class="summary">
+					Continuing the line (move +{lineDepth}) — find a strong move
+					<span class="hint">(within 10% of the engine's best here)</span>
+				</span>
 			{:else}
 				<span class="summary">
 					<strong>{sideToMove(current.fen)}</strong> to move — find a strong move
@@ -104,8 +114,17 @@
 		</div>
 
 		{#if current}
-			{#if grading}
+			{#if lineNote}
+				<div class="result">
+					{lineNote}
+					<span class="actions">
+						<button class="primary" onclick={onnext}>Next puzzle</button>
+					</span>
+				</div>
+			{:else if grading}
 				<div class="result">Checking your move…</div>
+			{:else if continuing}
+				<div class="result">Opponent thinking…</div>
 			{:else if attempt}
 				<div class="result" class:pass={attempt.pass} class:fail={!attempt.pass}>
 					{#if attempt.pass}
@@ -133,6 +152,11 @@
 						{/if}
 						{#if !revealBest}
 							<button onclick={onreveal}>Show best</button>
+						{/if}
+						{#if oncontinue}
+							<button onclick={oncontinue} title="Opponent plays its best reply — find your next move">
+								Continue ▸
+							</button>
 						{/if}
 						<button class="primary" onclick={onnext}>Next</button>
 					</span>

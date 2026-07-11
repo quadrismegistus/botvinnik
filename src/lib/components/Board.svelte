@@ -15,6 +15,7 @@
 		resetKey?: number; // bump to force a piece resync (e.g. cancelled promotion)
 		lastMove?: [string, string] | null;
 		size?: number; // board edge in px (still capped at 90vw)
+		boundsKey?: unknown; // change when layout SHIFTS the board without resizing it
 		onmove?: (from: string, to: string) => void;
 	}
 
@@ -29,6 +30,7 @@
 		resetKey = 0,
 		lastMove = null,
 		size = 500,
+		boundsKey = 0,
 		onmove
 	}: Props = $props();
 
@@ -82,9 +84,12 @@
 		});
 	});
 
-	// chessground positions pieces with px translates — recompute when the box resizes
+	// chessground positions pieces with px translates and memoizes its bounding
+	// box for click mapping — recompute when the box resizes OR when the layout
+	// moves it (e.g. the sidebar collapses and the board re-centers)
 	$effect(() => {
 		size;
+		boundsKey;
 		api?.redrawAll();
 	});
 

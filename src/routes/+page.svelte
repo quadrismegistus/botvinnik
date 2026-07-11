@@ -23,7 +23,13 @@
 		type StoredMove
 	} from '$lib/gameStore';
 	import { explainGoodMove, explainMove } from '$lib/engine/explain';
-	import { backfillGrade, gradeMove, winChance, type MoveGrade } from '$lib/engine/insights';
+	import {
+		backfillGrade,
+		gradeMove,
+		winChance,
+		type MoveGrade,
+		type MoveLabel
+	} from '$lib/engine/insights';
 	import { analyze, analyzeBotMove, analyzeMove, stopEngine, type EngineMove } from '$lib/engine/stockfish';
 	import {
 		addItem,
@@ -92,6 +98,24 @@
 	let grading = $state(false);
 	let revealBest = $state(false);
 	const practiceDue = $derived(dueCount(practiceItems));
+
+	// what the current practice position is graded against — the stored item at
+	// first, then live analysis when "Continue" extends the line
+	interface PracticeRef {
+		fen: string;
+		bestUci: string;
+		bestSan: string;
+		evalBest: number; // mover's perspective, pawns
+		mateBest: number | null;
+		wcBest: number;
+		bestPv: string[];
+		depth: number;
+	}
+	let practiceRef: PracticeRef | null = $state(null);
+	let lineDepth = $state(0); // how many "Continue" steps past the stored puzzle
+	let attemptGrade: MoveGrade | null = $state(null); // insight card for the attempt
+	let continuing = $state(false); // engine playing the opponent reply
+	let lineNote: string | null = $state(null); // e.g. the line ended in mate
 
 	// game archive + review
 	let storedGames: StoredGame[] = $state([]);
@@ -266,9 +290,11 @@
 		}
 		const fenBefore = game.fen;
 		const linesBefore = engineMoves;
+		const sansBefore = playedSans;
 		const move = makeMove(from, to, promotion);
 		if (move) {
 			lastMove = [from, to];
+			prevAnalysis = { fen: fenBefore, sans: sansBefore, lines: linesBefore };
 			refresh();
 			recordGrade(from + to + (move.promotion ?? ''), move.san, move.color, fenBefore, linesBefore);
 			if (game.isGameOver) void saveCurrentGame();
@@ -288,7 +314,20 @@
 
 	function loadPuzzle(item: PracticeItem) {
 		currentItem = item;
+		practiceRef = {
+			fen: item.fen,
+			bestUci: item.bestUci,
+			bestSan: item.bestSan,
+			evalBest: item.evalBestPawns,
+			mateBest: item.mateBest,
+			wcBest: item.wcBest,
+			bestPv: item.bestPv ?? [item.bestUci],
+			depth: item.depth
+		};
+		lineDepth = 0;
 		attempt = null;
+		attemptGrade = null;
+		lineNote = null;
 		revealBest = false;
 		loadFen(item.fen);
 		lastMove = null;
@@ -310,13 +349,17 @@
 	function exitPractice() {
 		mode = 'play';
 		currentItem = null;
+		practiceRef = null;
 		attempt = null;
+		attemptGrade = null;
+		lineNote = null;
 		revealBest = false;
 		handleReset();
 	}
 
 	async function practiceAttempt(from: string, to: string, promotion?: string) {
-		if (!currentItem || attempt || grading) return;
+		const ref = practiceRef;
+		if (!currentItem || !ref || attempt || grading || continuing) return;
 		const move = makeMove(from, to, promotion);
 		if (!move) return;
 		lastMove = [from, to];
@@ -325,16 +368,18 @@
 
 		let evalPawns: number | null;
 		let mate: number | null;
+		let depth = ref.depth;
 		let refutationPv: string[] = [];
-		if (uci === currentItem.bestUci) {
-			evalPawns = currentItem.evalBestPawns;
-			mate = currentItem.mateBest;
+		if (uci === ref.bestUci) {
+			evalPawns = ref.evalBest;
+			mate = ref.mateBest;
 		} else {
 			grading = true;
-			const res = await analyzeMove(currentItem.fen, uci, 14);
+			const res = await analyzeMove(ref.fen, uci, 14);
 			grading = false;
 			evalPawns = res.moves[0]?.score ?? null;
 			mate = res.moves[0]?.mate ?? null;
+			depth = res.moves[0]?.depth ?? 14;
 			refutationPv = res.moves[0]?.pv.slice(1) ?? [];
 			if (evalPawns === null && mate === null) {
 				// grading got superseded somehow — reset the puzzle rather than guess
@@ -342,28 +387,24 @@
 				return;
 			}
 		}
-		const drop = currentItem.wcBest - winChance(evalPawns, mate);
+		const drop = ref.wcBest - winChance(evalPawns, mate);
 		const pass = drop <= PASS_DROP;
+		const isBest = uci === ref.bestUci;
 		const explanation = pass
 			? {}
 			: explainMove({
-					fenBefore: currentItem.fen,
+					fenBefore: ref.fen,
 					playedUci: uci,
 					refutationPv,
-					bestUci: currentItem.bestUci,
-					bestPv: currentItem.bestPv ?? [currentItem.bestUci],
+					bestUci: ref.bestUci,
+					bestPv: ref.bestPv,
 					playedMate: mate,
-					bestMate: currentItem.mateBest,
+					bestMate: ref.mateBest,
 					isBest: false
 				});
 		const refutationUci = refutationPv[0] ?? null;
 		const playedPoint = pass
-			? explainGoodMove(
-					currentItem.fen,
-					uci,
-					uci === currentItem.bestUci ? (currentItem.bestPv ?? [uci]) : [uci, ...refutationPv],
-					mate
-				)
+			? explainGoodMove(ref.fen, uci, isBest ? ref.bestPv : [uci, ...refutationPv], mate)
 			: undefined;
 		attempt = {
 			san: move.san,
@@ -377,7 +418,108 @@
 			bestPoint: explanation.bestPoint,
 			playedPoint
 		};
-		practiceItems = recordResult(practiceItems, currentItem.id, pass);
+		attemptGrade = buildAttemptGrade(ref, move.san, uci, evalPawns, mate, depth, drop, {
+			playedIssue: explanation.playedIssue,
+			bestPoint: explanation.bestPoint,
+			playedPoint
+		});
+		// only the stored puzzle counts toward spaced repetition, not line continuations
+		if (lineDepth === 0) practiceItems = recordResult(practiceItems, currentItem.id, pass);
+	}
+
+	// an InsightsPanel-compatible grade for a practice attempt; pctBest is the
+	// same τ=100cp softmax ratio the play-mode grades use, over the two evals
+	function buildAttemptGrade(
+		ref: PracticeRef,
+		san: string,
+		uci: string,
+		evalPawns: number | null,
+		mate: number | null,
+		depth: number,
+		drop: number,
+		explanation: { playedIssue?: string; bestPoint?: string; playedPoint?: string }
+	): MoveGrade {
+		const cpOf = (pawns: number | null, m: number | null) =>
+			m !== null ? (m > 0 ? 9999 : -9999) : (pawns ?? 0) * 100;
+		const isBest = uci === ref.bestUci;
+		const pctBest = isBest
+			? 100
+			: Math.min(100, Math.exp((cpOf(evalPawns, mate) - cpOf(ref.evalBest, ref.mateBest)) / 100) * 100);
+		let label: MoveLabel;
+		if (isBest) label = 'best';
+		else if (drop >= 20) label = 'blunder';
+		else if (drop >= 10) label = 'mistake';
+		else if (drop >= 5) label = 'inaccuracy';
+		else label = drop <= 2 ? 'excellent' : 'good';
+		const hasExplanation =
+			explanation.playedIssue || explanation.bestPoint || explanation.playedPoint;
+		return {
+			ply: 0,
+			fenBefore: ref.fen,
+			san,
+			uci,
+			color: ref.fen.split(' ')[1] === 'b' ? 'b' : 'w',
+			depth,
+			rank: isBest ? 1 : null,
+			evalPawns,
+			mate,
+			pctBest,
+			isBest,
+			bestSan: ref.bestSan,
+			bestUci: ref.bestUci,
+			bestEval: ref.evalBest,
+			bestMate: ref.mateBest,
+			totalLines: 0,
+			offList: false,
+			backfilled: true,
+			preLines: [],
+			bestPv: ref.bestPv,
+			explanation: hasExplanation ? explanation : undefined,
+			label
+		};
+	}
+
+	// play the engine's reply to the attempt, turning the position one move
+	// later into a fresh (temporary) puzzle
+	async function continueLine() {
+		if (!attempt || continuing || grading || mode !== 'practice') return;
+		continuing = true;
+		attempt = null;
+		attemptGrade = null;
+		revealBest = false;
+		try {
+			const replyRes = await analyze(game.fen, 14, () => {});
+			const reply = replyRes.moves[0]?.pv[0];
+			if (!reply) return;
+			const m = makeMove(reply.slice(0, 2), reply.slice(2, 4), reply.length > 4 ? reply[4] : undefined);
+			if (!m) return;
+			lastMove = [reply.slice(0, 2), reply.slice(2, 4)];
+			refresh();
+			lineDepth++;
+			if (game.isGameOver) {
+				practiceRef = null;
+				lineNote = `Line over after ${m.san} — ${game.result}.`;
+				return;
+			}
+			const posRes = await analyze(game.fen, 14, () => {});
+			const best = posRes.moves[0];
+			if (!best) {
+				practiceRef = null;
+				return;
+			}
+			practiceRef = {
+				fen: game.fen,
+				bestUci: best.pv[0],
+				bestSan: getSan(game.fen, best.pv[0]),
+				evalBest: best.score,
+				mateBest: best.mate,
+				wcBest: winChance(best.mate !== null ? null : best.score, best.mate),
+				bestPv: best.pv,
+				depth: best.depth
+			};
+		} finally {
+			continuing = false;
+		}
 	}
 
 	function nextPuzzle() {
@@ -385,15 +527,19 @@
 		if (item) loadPuzzle(item);
 		else {
 			currentItem = null;
+			practiceRef = null;
 			attempt = null;
+			attemptGrade = null;
+			lineNote = null;
 		}
 	}
 
 	function retryPuzzle() {
-		if (!currentItem) return;
-		loadFen(currentItem.fen);
+		if (!practiceRef) return;
+		loadFen(practiceRef.fen);
 		lastMove = null;
 		attempt = null;
+		attemptGrade = null;
 		revealBest = false;
 		refresh();
 	}
@@ -452,14 +598,14 @@
 	const boardLegalMoves = $derived.by(() => {
 		if (mode === 'review') return []; // read-only
 		if (pendingPromotion) return []; // waiting on the piece choice
-		if (mode === 'practice' && (attempt || grading)) return []; // answered — lock the board
+		if (mode === 'practice' && (attempt || grading || continuing || !practiceRef)) return []; // answered/waiting — lock the board
 		if (botEnabled && mode === 'play' && game.turn === botColor) return [];
 		return game.legalMoves;
 	});
 	const boardArrows: EngineMove[] = $derived.by(() => {
 		if (mode === 'practice') {
-			return revealBest && currentItem
-				? [{ pv: [currentItem.bestUci], score: 0, mate: null, depth: 0, multipv: 1 }]
+			return revealBest && practiceRef
+				? [{ pv: [practiceRef.bestUci], score: 0, mate: null, depth: 0, multipv: 1 }]
 				: [];
 		}
 		if (blindMode) return [];
@@ -468,12 +614,23 @@
 	// hints the panels/tree see — blanked in blind mode so nothing leaks
 	const visibleLines = $derived(blindMode && mode === 'play' ? [] : engineMoves);
 
+	// last completed position's analysis — in blind mode the tree can show
+	// everything up to the previous move without hinting at the current one
+	let prevAnalysis: { fen: string; sans: string[]; lines: EngineMove[] } | null = $state(null);
+	const treeView = $derived(
+		blindMode && mode === 'play'
+			? (prevAnalysis ?? { fen: game.fen, sans: playedSans, lines: [] as EngineMove[] })
+			: { fen: game.fen, sans: playedSans, lines: visibleLines }
+	);
+
 	function applyUci(uci: string) {
 		const fenBefore = game.fen;
 		const linesBefore = engineMoves;
+		const sansBefore = playedSans;
 		const move = makeMove(uci.slice(0, 2), uci.slice(2, 4), uci.length > 4 ? uci[4] : undefined);
 		if (move) {
 			lastMove = [move.from, move.to];
+			prevAnalysis = { fen: fenBefore, sans: sansBefore, lines: linesBefore };
 			refresh();
 			recordGrade(uci, move.san, move.color, fenBefore, linesBefore);
 			if (game.isGameOver) void saveCurrentGame();
@@ -548,6 +705,7 @@
 		if (botEnabled && getState().turn === botColor) undo();
 		const last = getState().moves.at(-1);
 		lastMove = last ? [last.from, last.to] : null;
+		prevAnalysis = null; // stale after undo
 		refresh();
 		moveHistory = moveHistory.filter((g) => g.ply <= game.moves.length);
 		runAnalysis();
@@ -559,6 +717,7 @@
 		reset();
 		gameSaved = false;
 		lastMove = null;
+		prevAnalysis = null;
 		refresh();
 		moveHistory = [];
 		collectedPlies = new Set();
@@ -590,6 +749,7 @@
 			resetKey={boardResetKey}
 			{lastMove}
 			size={boardSize}
+			boundsKey={panelsHidden}
 			onmove={handleMove}
 		/>
 
@@ -609,13 +769,34 @@
 		{/if}
 
 		<div class="sidebar" class:collapsed={panelsHidden}>
-			<button
-				class="collapse-btn"
-				onclick={() => (panelsHidden = !panelsHidden)}
-				title={panelsHidden ? 'Show panels' : 'Hide panels'}
-			>
-				{panelsHidden ? '⟨ panels' : 'hide ⟩'}
-			</button>
+			<div class="sidebar-top">
+				{#if !panelsHidden && mode === 'play'}
+					<div class="quick-toggles">
+						<button
+							class:on={showArrows && !blindMode}
+							disabled={blindMode}
+							onclick={() => (showArrows = !showArrows)}
+							title="Draw the engine's top moves on the board"
+						>
+							Arrows
+						</button>
+						<button
+							class:on={blindMode}
+							onclick={() => (blindMode = !blindMode)}
+							title="Hide engine hints until you've moved"
+						>
+							Blind mode
+						</button>
+					</div>
+				{/if}
+				<button
+					class="collapse-btn"
+					onclick={() => (panelsHidden = !panelsHidden)}
+					title={panelsHidden ? 'Show panels' : 'Hide panels'}
+				>
+					{panelsHidden ? '⟨ panels' : 'hide ⟩'}
+				</button>
+			</div>
 
 			{#if !panelsHidden}
 				{#if mode === 'play'}
@@ -632,11 +813,11 @@
 
 					<SidePanel title="Lines Tree" bind:open={treeOpen}>
 						<LinesTree
-							lines={visibleLines}
-							fen={game.fen}
-							{playedSans}
+							lines={treeView.lines}
+							fen={treeView.fen}
+							playedSans={treeView.sans}
 							height={TREE_HEIGHT}
-							onplay={handlePlayUci}
+							onplay={blindMode ? undefined : handlePlayUci}
 						/>
 					</SidePanel>
 					<SidePanel
@@ -684,15 +865,6 @@
 						/>
 					</SidePanel>
 
-					<label class="toggle">
-						<input type="checkbox" bind:checked={showArrows} disabled={blindMode} />
-						Show arrows
-					</label>
-					<label class="toggle">
-						<input type="checkbox" bind:checked={blindMode} />
-						Blind mode — hide engine hints until you've moved
-					</label>
-
 					{#if game.isGameOver}
 						<div class="game-over">
 							Game over: {game.result}
@@ -710,16 +882,26 @@
 							{attempt}
 							{grading}
 							{revealBest}
+							{lineDepth}
+							{lineNote}
+							{continuing}
 							threshold={collectThreshold}
 							onstart={startPractice}
 							onexit={exitPractice}
 							onnext={nextPuzzle}
 							onretry={retryPuzzle}
 							onreveal={() => (revealBest = true)}
+							oncontinue={continueLine}
 							onremove={removePracticeItem}
 							onthreshold={setCollectThreshold}
 						/>
 					</SidePanel>
+					{#if attemptGrade && (attempt?.pass || revealBest)}
+						<InsightsPanel
+							white={attemptGrade.color === 'w' ? attemptGrade : null}
+							black={attemptGrade.color === 'b' ? attemptGrade : null}
+						/>
+					{/if}
 				{:else}
 					<SidePanel title="Game review">
 						<GamesPanel
@@ -776,8 +958,35 @@
 		flex: 0 0 auto;
 		min-width: 0;
 	}
+	.sidebar-top {
+		display: flex;
+		align-items: center;
+		justify-content: flex-end;
+		gap: 8px;
+	}
+	.quick-toggles {
+		display: flex;
+		gap: 6px;
+		margin-right: auto;
+	}
+	.quick-toggles button {
+		background: transparent;
+		color: var(--text-secondary);
+		border: 1px solid var(--border);
+		border-radius: 12px;
+		font-size: 11px;
+		padding: 2px 10px;
+		cursor: pointer;
+	}
+	.quick-toggles button.on {
+		color: var(--color-win);
+		border-color: var(--color-win);
+	}
+	.quick-toggles button:disabled {
+		opacity: 0.4;
+		cursor: default;
+	}
 	.collapse-btn {
-		align-self: flex-end;
 		background: transparent;
 		color: var(--text-secondary);
 		border: 1px solid var(--border);
@@ -788,15 +997,6 @@
 	}
 	.collapse-btn:hover {
 		color: var(--text-primary);
-	}
-	.toggle {
-		display: flex;
-		align-items: center;
-		gap: 8px;
-		font-size: 13px;
-		color: var(--text-secondary);
-		cursor: pointer;
-		padding: 4px 0;
 	}
 	.game-over {
 		text-align: center;
