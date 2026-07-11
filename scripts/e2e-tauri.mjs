@@ -64,10 +64,15 @@ try {
 	const exec = (script) =>
 		wd('POST', `/session/${sessionId}/execute/sync`, { script, args: [] });
 
-	// 1. the app booted and rendered
-	const title = await exec('return document.title');
+	// 1. the app booted, loaded and hydrated (title comes from svelte:head)
+	let title = '';
+	for (let i = 0; i < 30; i++) {
+		title = await exec('return document.title');
+		if (title === 'Botvinnik') break;
+		await new Promise((r) => setTimeout(r, 1000));
+	}
 	console.log(`title: ${title}`);
-	if (title !== 'Botvinnik') throw new Error(`unexpected title: ${title}`);
+	if (title !== 'Botvinnik') throw new Error(`app never finished loading (title: "${title}")`);
 
 	// 2. the native engine's analysis reached the UI: the Lines Tree populates
 	//    only when engine lines stream in — this covers sidecar spawn, the Rust
