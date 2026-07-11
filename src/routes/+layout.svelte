@@ -8,9 +8,10 @@
 	import { setEngineTransport } from '$lib/engine/stockfish';
 	let { children }: { children: Snippet } = $props();
 
-	// inside the Tauri shell, the engine is a native Stockfish sidecar
+	// inside the Tauri shell, the engine is a native Stockfish sidecar with a
+	// higher depth ceiling — the time slice is what actually bounds a search
 	if (browser && '__TAURI_INTERNALS__' in window) {
-		setEngineTransport(nativeTransport);
+		setEngineTransport(nativeTransport, { depth: 30, movetimeMs: 4000 });
 	}
 </script>
 
