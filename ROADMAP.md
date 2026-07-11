@@ -120,10 +120,15 @@ its templates; the quiet-ply rule from material claims applies here too.
   [chess-reviews-from-youtube](https://www.kaggle.com/datasets/huberthamelin/chess-reviews-from-youtube)
   dataset could also be phrase-mined to make the templates sound more human
   without any model at all.
-- **Formalize e2e tests** — the Playwright verification scripts (engine flow,
-  practice loop, game review, layout) live outside the repo today; port them
-  to `@playwright/test` and run against the built bundle in CI (~1 min of
-  engine time per run).
+- **Formalize e2e tests** — the desktop shell now has real e2e in CI
+  (`.github/workflows/tauri-e2e.yml`: tauri-driver on Linux drives the app,
+  asserts native analysis reaches the UI; skipped on macOS where no driver
+  exists — `npm run test:e2e:tauri`). Still to do: port the web Playwright
+  verification scripts (engine flow, practice loop, game review, layout)
+  into `@playwright/test` in-repo and run them in CI too.
+- **Release-build blank window on Linux** — the release binary's embedded-
+  asset webview stalls at about:blank on ubuntu runners (debug + devUrl works
+  fine, macOS unaffected); investigate before shipping Linux bundles.
 
 ## Design notes / known quirks
 
