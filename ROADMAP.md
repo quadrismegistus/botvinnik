@@ -90,6 +90,22 @@ its templates; the quiet-ply rule from material claims applies here too.
   machine and every day, so they stay fixed constants. The collect
   *threshold* (win%-drop) stays where it is in the Practice panel — that's
   taste, not measurement.
+- **Mobile layout** — the panel architecture ports as-is; the shell around it
+  changes. Chess apps converge on: board fixed at top (full width in
+  portrait), everything else in a draggable **bottom sheet with tabs**
+  (Insights / Lines / Practice / Games) rather than a scrolling sidebar.
+  Phased:
+  1. CSS breakpoint pass on the web app (board 100vw, panels stack, sticky
+     section-jump strip) — makes the deployed site usable on phones cheaply.
+  2. Real bottom-sheet + tab shell behind a viewport check.
+  3. Touch replacements for hover affordances: LineHover previews become
+     tap-to-toggle/long-press; everything else (tree pan, move grid,
+     promotion picker) is already touch-fine.
+  Engine on mobile: WASM works day one in any mobile webview. A native
+  mobile engine can't use the sidecar trick (iOS forbids spawning
+  processes) — it means compiling Stockfish into the app and speaking UCI
+  over an in-process channel, which slots into the existing transport
+  interface as a third implementation (Tauri 2 does target iOS/Android).
 - **Desktop shell (Tauri)** — wrap this same SvelteKit app in Tauri with a
   native Stockfish sidecar: full-strength NNUE on all cores (10–50× the
   single-threaded WASM engine, which is capped by GitHub Pages' lack of
