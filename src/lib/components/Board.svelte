@@ -12,6 +12,7 @@
 		engineMoves?: EngineMove[];
 		botArrow?: string | null; // uci the bot is currently considering
 		refutationArrow?: string | null; // opponent's punishing reply, drawn red
+		hintSquare?: string | null; // practice tier-2 hint: circle the best move's origin square
 		resetKey?: number; // bump to force a piece resync (e.g. cancelled promotion)
 		lastMove?: [string, string] | null;
 		size?: number; // board edge in px (still capped at 90vw)
@@ -27,6 +28,7 @@
 		engineMoves = [],
 		botArrow = null,
 		refutationArrow = null,
+		hintSquare = null,
 		resetKey = 0,
 		lastMove = null,
 		size = 500,
@@ -130,7 +132,8 @@
 									brush: 'red'
 								}
 							]
-						: [])
+						: []),
+					...(hintSquare ? [{ orig: hintSquare as Key, brush: 'yellow' }] : [])
 				]
 			}
 		});

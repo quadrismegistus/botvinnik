@@ -2,6 +2,7 @@
 // scheduled with simple Leitner boxes.
 
 import { winChance, type MoveLabel } from './engine/insights';
+import { motifTags } from './engine/explain';
 import type { StoredMove } from './gameStore';
 
 export interface AttemptResult {
@@ -28,6 +29,7 @@ export interface PracticeItem {
 	bestSan: string;
 	bestUci: string;
 	bestPv?: string[]; // best move's full line, for explanations
+	motifs?: string[]; // named facts on the best line (Motif values), for tagging/filtering
 	evalBestPawns: number; // mover's perspective
 	mateBest: number | null;
 	wcBest: number; // win% of the best move at collect time
@@ -51,11 +53,22 @@ function hasStorage(): boolean {
 
 export function loadItems(): PracticeItem[] {
 	if (!hasStorage()) return [];
+	let items: PracticeItem[];
 	try {
-		return JSON.parse(localStorage.getItem(KEY) ?? '[]');
+		items = JSON.parse(localStorage.getItem(KEY) ?? '[]');
 	} catch {
 		return [];
 	}
+	// lazy backfill: older items predate motif tagging — compute once and persist
+	let changed = false;
+	for (const item of items) {
+		if (!item.motifs) {
+			item.motifs = motifTags(item.fen, item.bestUci, item.bestPv ?? [item.bestUci], item.mateBest);
+			changed = true;
+		}
+	}
+	if (changed) save(items);
+	return items;
 }
 
 function save(items: PracticeItem[]) {
@@ -86,6 +99,7 @@ export function itemDataFromStoredMove(
 		bestSan: move.bestSan,
 		bestUci: move.bestUci,
 		bestPv: [move.bestUci],
+		motifs: motifTags(move.fenBefore, move.bestUci, [move.bestUci], null),
 		evalBestPawns,
 		mateBest: null,
 		wcBest,
@@ -128,19 +142,28 @@ export function dueCount(items: PracticeItem[], now: number = Date.now()): numbe
 export function nextItem(
 	items: PracticeItem[],
 	excludeId?: string,
-	now: number = Date.now()
+	now: number = Date.now(),
+	motif?: string
 ): PracticeItem | null {
-	const pool = items.filter((i) => i.id !== excludeId);
+	let pool = items.filter((i) => i.id !== excludeId);
+	if (motif) pool = pool.filter((i) => i.motifs?.includes(motif));
 	if (pool.length === 0) return null;
 	const due = pool.filter((i) => Date.parse(i.dueAt) <= now);
 	const list = due.length > 0 ? due : pool;
 	return list.reduce((a, b) => (Date.parse(a.dueAt) <= Date.parse(b.dueAt) ? a : b));
 }
 
-export function recordResult(items: PracticeItem[], id: string, pass: boolean): PracticeItem[] {
+export function recordResult(
+	items: PracticeItem[],
+	id: string,
+	pass: boolean,
+	hinted = false
+): PracticeItem[] {
 	const next = items.map((i) => {
 		if (i.id !== id) return i;
-		const box = pass ? Math.min(i.box + 1, INTERVAL_DAYS.length - 1) : 0;
+		// a hinted pass holds the box (still counts the attempt); a cold pass
+		// promotes, and a failure always resets to box 0
+		const box = pass ? (hinted ? i.box : Math.min(i.box + 1, INTERVAL_DAYS.length - 1)) : 0;
 		const dueAt = new Date(Date.now() + INTERVAL_DAYS[box] * 86_400_000).toISOString();
 		return {
 			...i,

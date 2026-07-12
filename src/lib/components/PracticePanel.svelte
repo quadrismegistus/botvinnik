@@ -13,24 +13,32 @@
 		lineDepth?: number; // "Continue" steps past the stored puzzle
 		lineNote?: string | null; // the continued line ended (e.g. mate)
 		continuing?: boolean; // engine is playing the opponent's reply
+		hintTier?: number; // 0 none, 1 text, 2 origin square, 3 reveal
+		hint?: string | null; // tier-1 hint text
 		threshold: number;
+		motif?: string | null; // active drill filter (null = all motifs)
 		onstart: () => void;
 		onexit: () => void;
 		onnext: () => void;
 		onretry: () => void;
 		onreveal: () => void;
+		onhint?: () => void;
 		oncontinue?: () => void;
 		onremove: (id: string) => void;
 		onthreshold: (n: number) => void;
+		onmotif?: (m: string | null) => void;
 	}
 
 	let {
 		mode, items, current, attempt, grading, revealBest,
-		lineDepth = 0, lineNote = null, continuing = false, threshold,
-		onstart, onexit, onnext, onretry, onreveal, oncontinue, onremove, onthreshold
+		lineDepth = 0, lineNote = null, continuing = false, hintTier = 0, hint = null, threshold,
+		motif = null,
+		onstart, onexit, onnext, onretry, onreveal, onhint, oncontinue, onremove, onthreshold, onmotif
 	}: Props = $props();
 
 	const due = $derived(dueCount(items));
+	// the distinct motifs present across items, for the filter chips
+	const motifSet = $derived([...new Set(items.flatMap((i) => i.motifs ?? []))].sort());
 
 	function fmtEval(pawns: number | null, mate: number | null): string {
 		if (mate !== null) return `M${mate}`;
@@ -52,7 +60,9 @@
 	}
 
 	const sorted = $derived(
-		[...items].sort((a, b) => Date.parse(a.dueAt) - Date.parse(b.dueAt))
+		[...items]
+			.filter((i) => !motif || i.motifs?.includes(motif))
+			.sort((a, b) => Date.parse(a.dueAt) - Date.parse(b.dueAt))
 	);
 </script>
 
@@ -80,6 +90,14 @@
 			</label>
 			<button class="primary" onclick={onstart} disabled={items.length === 0}>Start practice</button>
 		</div>
+		{#if motifSet.length > 1}
+			<div class="motif-filter">
+				<button class:on={!motif} onclick={() => onmotif?.(null)}>all</button>
+				{#each motifSet as m (m)}
+					<button class:on={motif === m} onclick={() => onmotif?.(m)}>{m}</button>
+				{/each}
+			</div>
+		{/if}
 		{#if sorted.length > 0}
 			<div class="list">
 				{#each sorted as item (item.id)}
@@ -87,6 +105,7 @@
 						<span class="side">{sideToMove(item.fen)}</span>
 						<span class="moves">
 							played <strong>{item.playedSan}</strong>, best <strong>{item.bestSan}</strong>
+							{#if item.motifs && item.motifs.length > 0}<span class="item-motifs">· {item.motifs.join(', ')}</span>{/if}
 						</span>
 						<span class="drop">−{item.drop.toFixed(0)}%</span>
 						<span class="due">{fmtDue(item.dueAt)}</span>
@@ -110,6 +129,11 @@
 					<strong>{sideToMove(current.fen)}</strong> to move — find a strong move
 					<span class="hint">(pass: a good move or better · you lost {current.drop.toFixed(0)}% here with {current.playedSan})</span>
 				</span>
+			{/if}
+			{#if current && !attempt && !grading && !continuing && !lineNote && hintTier < 3 && onhint}
+				<button onclick={onhint}>
+					{hintTier === 0 ? 'Hint' : hintTier === 1 ? 'Another hint' : 'Show best'}
+				</button>
 			{/if}
 			<button onclick={onexit}>Exit practice</button>
 		</div>
@@ -192,7 +216,10 @@
 					</span>
 				</div>
 			{:else}
-				<div class="result muted">Play your move on the board.</div>
+				<div class="result muted">
+					Play your move on the board.
+					{#if hint}<span class="hint-text">{hint}</span>{/if}
+				</div>
 			{/if}
 		{/if}
 	{/if}
@@ -252,6 +279,30 @@
 	}
 	button.primary {
 		border-color: var(--color-win);
+	}
+	.motif-filter {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 6px;
+		margin-top: 8px;
+	}
+	.motif-filter button {
+		background: transparent;
+		color: var(--text-secondary);
+		border: 1px solid var(--border);
+		border-radius: 12px;
+		font-size: 11px;
+		padding: 2px 10px;
+	}
+	.motif-filter button.on {
+		color: var(--color-win);
+		border-color: var(--color-win);
+	}
+	.item-motifs {
+		color: var(--text-secondary);
+	}
+	.hint-text {
+		color: var(--text-secondary);
 	}
 	.list {
 		margin-top: 8px;

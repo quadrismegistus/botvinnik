@@ -26,7 +26,7 @@
 		type StoredGame,
 		type StoredMove
 	} from '$lib/gameStore';
-	import { explainGoodMove, explainMove, type Explanation } from '$lib/engine/explain';
+	import { explainGoodMove, explainMove, motifTags, type Explanation } from '$lib/engine/explain';
 	import {
 		backfillGrade,
 		gradeMove,
@@ -121,7 +121,22 @@
 	let attempt: AttemptResult | null = $state(null);
 	let grading = $state(false);
 	let revealBest = $state(false);
+	let practiceMotif: string | null = $state(null); // drill filter: only items with this motif
+	let hintTier = $state(0); // 0 none, 1 text, 2 origin square, 3 full reveal
 	const practiceDue = $derived(dueCount(practiceItems));
+
+	// tier-1 hint text, drawn from the same motif detectors — names the fact
+	// family without giving the move away
+	const hint = $derived.by((): string | null => {
+		if (hintTier < 1 || !practiceRef) return null;
+		const ref = practiceRef;
+		if (ref.mateBest !== null && ref.mateBest > 0) return "There's a forced mate.";
+		const m = motifTags(ref.fen, ref.bestUci, ref.bestPv, ref.mateBest)[0];
+		if (!m) return 'Look for the strongest move.';
+		if (m === 'free capture') return 'You can win a piece.';
+		if (m === 'material') return 'You can win material.';
+		return `There's a ${m} available.`;
+	});
 
 	// what the current practice position is graded against — the stored item at
 	// first, then live analysis when "Continue" extends the line
@@ -172,7 +187,10 @@
 			for (const g of result.games) await saveGame(g);
 			let added = 0;
 			for (const p of result.practice) {
-				const next = addItem(practiceItems, p);
+				const next = addItem(practiceItems, {
+					...p,
+					motifs: motifTags(p.fen, p.bestUci, p.bestPv ?? [p.bestUci], p.mateBest)
+				});
 				if (next) {
 					practiceItems = next;
 					added++;
@@ -211,7 +229,10 @@
 				for (const p of practice) {
 					if (practiceItems.length >= PRACTICE_CAP) break;
 					if (p.drop < collectThreshold) continue;
-					const next = addItem(practiceItems, p);
+					const next = addItem(practiceItems, {
+						...p,
+						motifs: motifTags(p.fen, p.bestUci, p.bestPv ?? [p.bestUci], p.mateBest)
+					});
 					if (next) {
 						practiceItems = next;
 						added++;
@@ -301,6 +322,7 @@
 			bestSan: g.bestSan,
 			bestUci: g.bestUci,
 			bestPv: g.bestPv,
+			motifs: motifTags(g.fenBefore, g.bestUci, g.bestPv ?? [g.bestUci], g.bestMate),
 			evalBestPawns: g.bestEval,
 			mateBest: g.bestMate,
 			wcBest,
@@ -455,13 +477,14 @@
 		attemptGrade = null;
 		lineNote = null;
 		revealBest = false;
+		hintTier = 0;
 		loadFen(item.fen);
 		lastMove = null;
 		refresh();
 	}
 
 	function startPractice() {
-		const item = nextItem(practiceItems);
+		const item = nextItem(practiceItems, undefined, undefined, practiceMotif ?? undefined);
 		if (!item) return;
 		analysisToken++; // orphan any in-flight play analysis
 		stopEngine();
@@ -555,8 +578,10 @@
 			lineStory: explanation.lineStory,
 			evidence
 		};
-		// only the stored puzzle counts toward spaced repetition, not line continuations
-		if (lineDepth === 0) practiceItems = recordResult(practiceItems, currentItem.id, pass);
+		// only the stored puzzle counts toward spaced repetition, not line continuations;
+		// a hinted pass holds its box rather than promoting
+		if (lineDepth === 0)
+			practiceItems = recordResult(practiceItems, currentItem.id, pass, hintTier > 0);
 	}
 
 	// an InsightsPanel-compatible grade for a practice attempt; pctBest is the
@@ -622,6 +647,7 @@
 		attempt = null;
 		attemptGrade = null;
 		revealBest = false;
+		hintTier = 0;
 		try {
 			const replyRes = await analyze(game.fen, 14, () => {});
 			const reply = replyRes.moves[0]?.pv[0];
@@ -658,7 +684,7 @@
 	}
 
 	function nextPuzzle() {
-		const item = nextItem(practiceItems, currentItem?.id);
+		const item = nextItem(practiceItems, currentItem?.id, undefined, practiceMotif ?? undefined);
 		if (item) loadPuzzle(item);
 		else {
 			currentItem = null;
@@ -666,7 +692,14 @@
 			attempt = null;
 			attemptGrade = null;
 			lineNote = null;
+			hintTier = 0;
 		}
+	}
+
+	// tiered hints: click 1 shows text, 2 circles the origin square, 3 reveals
+	function practiceHint() {
+		if (hintTier >= 2) revealBest = true; // tier 3 reuses the existing reveal
+		hintTier++;
 	}
 
 	function retryPuzzle() {
@@ -676,6 +709,7 @@
 		attempt = null;
 		attemptGrade = null;
 		revealBest = false;
+		hintTier = 0;
 		refresh();
 	}
 
@@ -939,6 +973,9 @@
 			engineMoves={boardArrows}
 			botArrow={botThinking ? botConsidering : null}
 			refutationArrow={mode === 'practice' && attempt && !attempt.pass ? (attempt.refutationUci ?? null) : null}
+			hintSquare={mode === 'practice' && hintTier >= 2 && !attempt && practiceRef
+				? practiceRef.bestUci.slice(0, 2)
+				: null}
 			resetKey={boardResetKey}
 			{lastMove}
 			size={boardSize}
@@ -1042,6 +1079,8 @@
 							{grading}
 							{revealBest}
 							threshold={collectThreshold}
+							motif={practiceMotif}
+							onmotif={(m) => (practiceMotif = m)}
 							onstart={startPractice}
 							onexit={exitPractice}
 							onnext={nextPuzzle}
@@ -1112,12 +1151,17 @@
 							{lineDepth}
 							{lineNote}
 							{continuing}
+							{hintTier}
+							{hint}
 							threshold={collectThreshold}
+							motif={practiceMotif}
+							onmotif={(m) => (practiceMotif = m)}
 							onstart={startPractice}
 							onexit={exitPractice}
 							onnext={nextPuzzle}
 							onretry={retryPuzzle}
 							onreveal={() => (revealBest = true)}
+							onhint={practiceHint}
 							oncontinue={continueLine}
 							onremove={removePracticeItem}
 							onthreshold={setCollectThreshold}
