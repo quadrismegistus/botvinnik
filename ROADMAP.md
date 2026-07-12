@@ -24,11 +24,6 @@ Remaining:
 - Explanations for imported moves (fact detectors over the stored best
   variations as a cheap pass).
 
-### "Practice this" from game review
-Archived games already store fenBefore / best move / explanation for every
-graded move. One button on a reviewed blunder turns it into a practice item —
-review feeds the drill loop, zero new analysis.
-
 ### Motif-tagged practice
 The detectors (fork, pin, skewer, discovered attack, trapped piece, free
 capture, mate, hanging) all exist in `explain.ts` as pure functions — run
@@ -57,10 +52,6 @@ its templates; the quiet-ply rule from material claims applies here too.
 
 ## Later
 
-- **Win-chance chart** — small collapsible chart of White vs Black win chance
-  over the course of the game (the per-ply evals already live in the move
-  grades and in stored games, so this is pure rendering); also useful inside
-  game review as a click-to-jump timeline.
 - **Unified Moves tab** — the last unported en-croissant visualization:
   opening-book stats from the Lichess Explorer API (games played, win rates,
   master games) merged with engine lines.
@@ -73,11 +64,6 @@ its templates; the quiet-ply rule from material claims applies here too.
 - **Bot ELO calibration harness** — bots play each other headlessly
   (Playwright or node) to estimate each band's true strength; the labels
   ("1800") are currently taken on faith from UCI_Elo / Skill Level.
-- **Resign button** — ends the current game as a loss for the resigner and
-  **always** archives it to the Games tab (unlike New, which only auto-saves
-  abandoned games of 10+ plies). Result stored as 1-0/0-1, PGN gets a
-  "resignation" termination comment.
-- **Keyboard shortcuts** — n = next puzzle, r = retry, arrows = review nav.
 - **File System Access autosave** — beyond Export/Import: write backups
   directly to a user-chosen local file (Chromium-only).
 - **Engine settings panel** — a small "Engine" section (sidebar SidePanel,
