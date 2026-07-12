@@ -50,13 +50,12 @@ Shipped so far:
   changes. Chess apps converge on: board fixed at top (full width in
   portrait), everything else in a draggable **bottom sheet with tabs**
   (Insights / Lines / Practice / Games) rather than a scrolling sidebar.
-  Phased:
-  1. CSS breakpoint pass on the web app (board 100vw, panels stack, sticky
-     section-jump strip) — makes the deployed site usable on phones cheaply.
-  2. Real bottom-sheet + tab shell behind a viewport check.
-  3. Touch replacements for hover affordances: LineHover previews become
-     tap-to-toggle/long-press; everything else (tree pan, move grid,
-     promotion picker) is already touch-fine.
+  Phases 1 (narrow layout: full-width board, stacked panels, sticky jump
+  strip below 860px) and 3 (LineHover tap-to-toggle with the synthesized
+  mouseenter guard) SHIPPED — the deployed site is now phone-usable,
+  verified under Playwright iPhone emulation. Remaining:
+  2. Real bottom-sheet + tab shell behind the viewport check (board pinned,
+     draggable sheet with the panels as tabs) — the polish pass.
   Engine on mobile: WASM works day one in any mobile webview. A native
   mobile engine can't use the sidecar trick (iOS forbids spawning
   processes) — it means compiling Stockfish into the app and speaking UCI
