@@ -88,7 +88,14 @@ Shipped so far:
   without any model at all.
 - **Release-build blank window on Linux** — the release binary's embedded-
   asset webview stalls at about:blank on ubuntu runners (debug + devUrl works
-  fine, macOS unaffected); investigate before shipping Linux bundles.
+  fine, macOS unaffected). This is why `release.yml` ships macOS + Windows
+  only; add a Linux matrix entry once fixed. Cheapest path to a fix: build a
+  local ubuntu+webkit2gtk Docker repro so iterations are minutes, not 15-min
+  CI compiles.
+- **Verify the Windows desktop build** — `release.yml` bundles Windows
+  best-effort but the shell has never been run there; confirm the Rust
+  sidecar bridge spawns stockfish.exe and analysis reaches the UI, then drop
+  the "unverified" caveat.
 
 ## Design notes / known quirks
 
