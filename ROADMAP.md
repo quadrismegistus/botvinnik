@@ -46,21 +46,36 @@ Shipped so far:
   machine and every day, so they stay fixed constants. The collect
   *threshold* (win%-drop) stays where it is in the Practice panel — that's
   taste, not measurement.
-- **Mobile layout** — the panel architecture ports as-is; the shell around it
-  changes. Chess apps converge on: board fixed at top (full width in
-  portrait), everything else in a draggable **bottom sheet with tabs**
-  (Insights / Lines / Practice / Games) rather than a scrolling sidebar.
-  Phases 1 (narrow layout: full-width board, stacked panels, sticky jump
-  strip below 860px) and 3 (LineHover tap-to-toggle with the synthesized
-  mouseenter guard) SHIPPED — the deployed site is now phone-usable,
-  verified under Playwright iPhone emulation. Remaining:
-  2. Real bottom-sheet + tab shell behind the viewport check (board pinned,
-     draggable sheet with the panels as tabs) — the polish pass.
-  Engine on mobile: WASM works day one in any mobile webview. A native
-  mobile engine can't use the sidecar trick (iOS forbids spawning
-  processes) — it means compiling Stockfish into the app and speaking UCI
-  over an in-process channel, which slots into the existing transport
-  interface as a third implementation (Tauri 2 does target iOS/Android).
+- **Mobile layout** — ALL PHASES SHIPPED (2026-07-12). Below 860px: board
+  pinned at top, every panel a tab in a draggable bottom sheet
+  (`BottomSheet.svelte`: peek/half/full detents, snap-on-release, handle
+  tap toggles peek/half). Panel bodies are snippets in `+page.svelte`
+  shared verbatim by the desktop sidebar and the sheet tabs — keep it
+  that way so the layouts can't drift. LineHover is tap-to-toggle on
+  `(hover: none)` (with the synthesized-mouseenter guard). Verified under
+  Playwright iPhone-13 emulation.
+- **Native mobile app** — Tauri 2 targets iOS/Android and the existing web
+  build ships as-is inside its webview. The WASM engine (lite-single,
+  7MB) bundles with zero work: single-threaded, so no
+  SharedArrayBuffer/COOP/COEP issues under custom URL schemes — a v1
+  mobile app needs NO engine changes. The native-engine upgrade
+  (multi-threading, ~2-4x per-core) can't use the sidecar trick (iOS
+  forbids spawning processes): compile Stockfish into the app and speak
+  UCI over an in-process channel — a third `EngineTransport` behind the
+  existing `setEngineTransport()` seam. References:
+  - Build for ARM: `make -j profile-build ARCH=armv8` (or
+    `armv8-dotprod` on recent SoCs, `apple-silicon` on Macs); Android
+    cross-compile with `COMP=ndk` (NDK ≥ r21e) — see
+    https://official-stockfish.github.io/docs/stockfish-wiki/Compiling-from-source.html
+    and https://chess.stackexchange.com/questions/28022/compile-stockfish-optimized-for-arm64-v8a
+  - iOS embedding pattern (predates Tauri but the shape holds): compile
+    the Stockfish sources into the app target, rename its `main()`, run
+    the UCI loop on a background thread, talk to it over in-process
+    pipes/queues — an Objective-C++ (or, for Tauri, Rust `cxx`) shim:
+    https://stackoverflow.com/questions/37253950/stockfish-chess-engine-integration-with-ios-project-in-swift
+  - Note the wiki only documents standalone-binary builds; the
+    embed-as-library step (rename `main`, drive `Stockfish::main_loop`
+    from a thread) is on us.
 - **LLM polish layer for explanations** — optional, user-supplied API key,
   constrained to restating the detected facts (every SAN token in the output
   must appear in the supplied lines, else fall back to templates). The
