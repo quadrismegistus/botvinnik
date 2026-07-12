@@ -24,6 +24,32 @@ const FOOLS_MATE = {
 	]
 };
 
+// A game where the flagged move's best alternative is a free queen capture:
+// 1.e4 e5 2.Nf3 Qh4?? hangs the queen to Nf3, and White's 3.d3?? declines it.
+// The best-move detector should name the free capture on White's blunder.
+const FREE_QUEEN = {
+	id: 'freeq999',
+	variant: 'standard',
+	speed: 'blitz',
+	status: 'resign',
+	winner: 'black' as const,
+	lastMoveAt: 1770000000000,
+	players: {
+		white: { user: { name: 'Ryan' }, rating: 1500 },
+		black: { user: { name: 'Villain' }, rating: 1510 }
+	},
+	moves: 'e4 e5 Nf3 Qh4 d3',
+	pgn: '1. e4 e5 2. Nf3 Qh4 3. d3',
+	analysis: [
+		{ eval: 20 }, // after 1.e4
+		{ eval: 15 }, // after 1...e5
+		{ eval: 25 }, // after 2.Nf3
+		{ eval: 900 }, // after 2...Qh4?? (queen hangs to Nxh4; White winning)
+		// after 3.d3??: White declines the free queen — best was Nxh4
+		{ eval: -30, best: 'f3h4', variation: 'Nxh4', judgment: { name: 'Blunder', comment: '' } }
+	]
+};
+
 describe('lichessGameToStored', () => {
 	it('maps evals to mover-perspective grades and labels', () => {
 		const mapped = lichessGameToStored(FOOLS_MATE, 'ryan')!;
@@ -43,6 +69,22 @@ describe('lichessGameToStored', () => {
 		expect(g4.mate).toBe(-1);
 		expect(qh4.label).toBe('excellent'); // no drop — delivered the mate
 		expect(qh4.wcDrop).toBe(0);
+	});
+
+	it('backfills a best-move explanation only when a motif is detected', () => {
+		// quiet best move (Nc3 develops) — no fabricated prose
+		const fools = lichessGameToStored(FOOLS_MATE, 'ryan')!;
+		const g4 = fools.stored.moves[2];
+		expect(g4.label).toBe('blunder');
+		expect(g4.explanation).toBeUndefined();
+
+		// motif best move (Nxh4 wins the hanging queen) — real detector output
+		const mapped = lichessGameToStored(FREE_QUEEN, 'ryan')!;
+		const d3 = mapped.stored.moves[4];
+		expect(d3.san).toBe('d3');
+		expect(d3.label).toBe('blunder');
+		expect(d3.explanation?.bestPoint).toBe("Nxh4 simply wins the queen — it's undefended.");
+		expect(d3.explanation?.evidence).toEqual({ fen: d3.fenBefore, ucis: ['f3h4'] });
 	});
 
 	it('collects the importing user own mistakes as practice candidates', () => {

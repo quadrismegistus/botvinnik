@@ -4,6 +4,7 @@
 // and practice items all fall out of the numbers Lichess already computed.
 
 import { Chess, type Square } from 'chess.js';
+import { bestMovePoint, type Explanation } from './engine/explain';
 import { winChance, type MoveLabel } from './engine/insights';
 import { gameAccuracy, labelCounts, type StoredGame, type StoredMove } from './gameStore';
 import type { PracticeItem } from './practice';
@@ -143,7 +144,10 @@ export function analysedGameToStored(
 			mateAfter !== undefined ? (color === 'w' ? mateAfter : -mateAfter) : null;
 
 		const bestUci = after?.best;
-		const bestPv = bestUci && after?.variation ? variationToUcis(fenBefore, after.variation) : [];
+		let bestPv = bestUci && after?.variation ? variationToUcis(fenBefore, after.variation) : [];
+		// the server's SAN variation always starts with the best move; if parsing ever
+		// drifts, never feed a mismatched line to the detectors or practice items
+		if (bestUci && bestPv[0] !== bestUci) bestPv = [bestUci];
 		let bestSan: string | undefined;
 		if (bestUci) {
 			try {
@@ -159,6 +163,24 @@ export function analysedGameToStored(
 			}
 		}
 
+		const label = labelForDrop(wcDrop);
+
+		// Cheap explanation backfill: only on flagged mistakes, and only when the
+		// best-move detectors find a real motif — never fabricate prose. bestMovePoint
+		// walks a handful of chess.js positions, so flagged-only keeps this affordable
+		// inside bulk imports of thousands of games.
+		let explanation: Explanation | undefined;
+		if (
+			(label === 'inaccuracy' || label === 'mistake' || label === 'blunder') &&
+			bestUci &&
+			bestPv.length >= 1
+		) {
+			const point = bestMovePoint(fenBefore, bestUci, bestPv);
+			if (point) {
+				explanation = { bestPoint: point, evidence: { fen: fenBefore, ucis: bestPv.slice(0, 9) } };
+			}
+		}
+
 		moves.push({
 			ply: i + 1,
 			san: m.san,
@@ -170,9 +192,10 @@ export function analysedGameToStored(
 			mate,
 			pctBest: null,
 			wcDrop,
-			label: labelForDrop(wcDrop),
+			label,
 			bestSan,
-			bestUci
+			bestUci,
+			explanation
 		});
 
 		// practice candidates: the importing user's own graded mistakes
