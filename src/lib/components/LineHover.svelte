@@ -48,6 +48,25 @@
 		show = true;
 	}
 
+	// touch devices have no hover: tap toggles the preview, tapping anywhere
+	// else dismisses it
+	const touchOnly =
+		typeof window !== 'undefined' && window.matchMedia('(hover: none)').matches;
+
+	function tap(e: MouseEvent) {
+		if (!touchOnly) return;
+		e.stopPropagation();
+		if (show) show = false;
+		else enter(e);
+	}
+
+	$effect(() => {
+		if (!show || !touchOnly) return;
+		const close = () => (show = false);
+		window.addEventListener('click', close);
+		return () => window.removeEventListener('click', close);
+	});
+
 	$effect(() => {
 		if (!show || !boardEl) return;
 		// the animation must NOT restart every time the engine refines `frames`
@@ -76,8 +95,19 @@
 	});
 </script>
 
-<!-- svelte-ignore a11y_no_static_element_interactions -->
-<span class="line-hover" onmouseenter={enter} onmouseleave={() => (show = false)}>
+<!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->
+<span
+	class="line-hover"
+	onmouseenter={(e) => {
+		// touch browsers synthesize mouseenter right before click — letting it
+		// open the popup makes the click instantly toggle it shut again
+		if (!touchOnly) enter(e);
+	}}
+	onmouseleave={() => {
+		if (!touchOnly) show = false;
+	}}
+	onclick={tap}
+>
 	{@render children()}
 	{#if show && frames.length > 1}
 		<div class="popup" style:left="{pos.x}px" style:top="{pos.y}px">

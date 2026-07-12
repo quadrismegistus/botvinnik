@@ -85,11 +85,16 @@
 	const TREE_HEIGHT = 200; // LinesTree svg
 	const CHROME_V = 100; // page padding + title
 	const SIDEBAR_MIN = 340; // sidebar min width + gap
+	// below this the sidebar can't sit beside the board: phone/narrow layout —
+	// board goes full width, panels stack beneath a sticky jump strip
+	const isNarrow = $derived(viewportW < 860);
 	const boardSize = $derived(
-		Math.max(
-			360,
-			Math.min(viewportH - CHROME_V, viewportW - (panelsHidden ? 120 : SIDEBAR_MIN + 60))
-		)
+		isNarrow
+			? Math.min(viewportW - 16, viewportH - 60)
+			: Math.max(
+					360,
+					Math.min(viewportH - CHROME_V, viewportW - (panelsHidden ? 120 : SIDEBAR_MIN + 60))
+				)
 	);
 
 	const playedSans = $derived(game.moves.map((m) => m.san));
@@ -998,6 +1003,19 @@
 			</div>
 		{/if}
 
+		{#if isNarrow && !panelsHidden && mode === 'play'}
+			<nav class="jump-strip">
+				{#each [['Insights', '.insights-panel'], ['Engine', '.analysis-panel'], ['Lines', '[data-anchor="lines"]'], ['Chart', '[data-anchor="chart"]'], ['Commentary', '[data-anchor="commentary"]'], ['Practice', '[data-anchor="practice"]'], ['Games', '[data-anchor="games"]']] as [label, sel] (sel)}
+					<button
+						onclick={() =>
+							document.querySelector(sel)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+					>
+						{label}
+					</button>
+				{/each}
+			</nav>
+		{/if}
+
 		<div class="sidebar" class:collapsed={panelsHidden}>
 			<div class="sidebar-top">
 				{#if !panelsHidden && mode === 'play'}
@@ -1047,7 +1065,7 @@
 						startOpen={false}
 					/>
 
-					<SidePanel title="Lines Tree" bind:open={treeOpen}>
+					<SidePanel title="Lines Tree" anchor="lines" bind:open={treeOpen}>
 						<LinesTree
 							lines={treeView.lines}
 							fen={treeView.fen}
@@ -1056,11 +1074,12 @@
 							onplay={blindMode ? undefined : handlePlayUci}
 						/>
 					</SidePanel>
-					<SidePanel title="Win chance" bind:open={wcChartOpen}>
+					<SidePanel title="Win chance" anchor="chart" bind:open={wcChartOpen}>
 						<WinChanceChart points={wcChartPoints} />
 					</SidePanel>
 					<SidePanel
 						title="Commentary"
+						anchor="commentary"
 						badge={commentary.length > 0 ? `${commentary.length} from YouTube` : ''}
 						bind:open={commentaryOpen}
 					>
@@ -1068,6 +1087,7 @@
 					</SidePanel>
 					<SidePanel
 						title="Practice"
+						anchor="practice"
 						badge={practiceItems.length > 0 ? `${practiceDue} due / ${practiceItems.length}` : ''}
 						bind:open={practiceOpen}
 					>
@@ -1092,6 +1112,7 @@
 					</SidePanel>
 					<SidePanel
 						title="Games"
+						anchor="games"
 						badge={storedGames.length > 0 ? String(storedGames.length) : ''}
 						bind:open={gamesOpen}
 					>
@@ -1287,6 +1308,49 @@
 	.collapse-btn:hover {
 		color: var(--text-primary);
 	}
+	.jump-strip {
+		position: sticky;
+		top: 0;
+		z-index: 40;
+		flex-basis: 100%;
+		display: flex;
+		gap: 6px;
+		overflow-x: auto;
+		padding: 6px 2px;
+		background: var(--bg-page);
+		-webkit-overflow-scrolling: touch;
+	}
+	.jump-strip button {
+		background: var(--bg-panel);
+		color: var(--text-secondary);
+		border: 1px solid var(--border);
+		border-radius: 12px;
+		font-size: 12px;
+		padding: 4px 12px;
+		white-space: nowrap;
+		cursor: pointer;
+	}
+
+	@media (max-width: 860px) {
+		.app {
+			padding: 8px;
+		}
+		.title {
+			font-size: 15px;
+			margin-bottom: 6px;
+		}
+		.main {
+			gap: 8px;
+		}
+		/* panels stack under the board; the page scrolls, not the sidebar */
+		.sidebar {
+			flex-basis: 100%;
+			min-width: 0;
+			max-height: none;
+			overflow-y: visible;
+		}
+	}
+
 	.data-row {
 		display: flex;
 		align-items: center;

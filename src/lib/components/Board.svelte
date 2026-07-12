@@ -142,7 +142,7 @@
 
 <svelte:window onresize={() => api?.redrawAll()} />
 
-<div class="board-wrap" style:width="min(90vw, {size}px)">
+<div class="board-wrap" style:width="{size}px">
 	<div class="board" bind:this={boardEl}></div>
 </div>
 

@@ -5,13 +5,14 @@
 		title: string;
 		badge?: string;
 		open?: boolean;
+		anchor?: string; // jump-strip target id on narrow layouts
 		children: Snippet;
 	}
 
-	let { title, badge = '', open = $bindable(true), children }: Props = $props();
+	let { title, badge = '', open = $bindable(true), anchor = '', children }: Props = $props();
 </script>
 
-<div class="side-panel">
+<div class="side-panel" data-anchor={anchor || undefined}>
 	<div class="header">
 		<button class="title-btn" onclick={() => (open = !open)}>
 			<span class="chevron">{open ? '▾' : '▸'}</span>
