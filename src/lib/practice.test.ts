@@ -1,9 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
 	addItem,
+	enPassantSetup,
 	itemDataFromStoredMove,
 	loadItems,
 	nextItem,
+	puzzleSetupMove,
 	recordResult,
 	type PracticeItem
 } from './practice';
@@ -131,6 +133,32 @@ describe('nextItem motif filter', () => {
 
 	it('ignores motifs when none is passed', () => {
 		expect(nextItem(items, undefined, Date.now())).not.toBeNull();
+	});
+});
+
+describe('en-passant setup reconstruction', () => {
+	it('rebuilds Black&apos;s double push from a rank-6 ep square', () => {
+		// after 1.e4 ... c5 2.Nf3 ... and Black just played d7-d5, ep target d6
+		expect(enPassantSetup('rnbqkbnr/pp2pppp/8/2ppP3/8/8/PPPP1PPP/RNBQKBNR w KQkq d6 0 3')).toBe(
+			'd7d5'
+		);
+	});
+	it('rebuilds White&apos;s double push from a rank-3 ep square', () => {
+		expect(enPassantSetup('rnbqkbnr/ppp1pppp/8/8/3pP3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 2')).toBe(
+			'e2e4'
+		);
+	});
+	it('returns null when there is no ep square', () => {
+		expect(enPassantSetup('rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1')).toBeNull();
+	});
+	it('puzzleSetupMove prefers the stored setup move, falls back to ep', () => {
+		const stored = practiceItem({ setupUci: 'g1f3', fen: '8/8/8/8/8/8/8/8 w - - 0 1' });
+		expect(puzzleSetupMove(stored)).toBe('g1f3');
+		const epOnly = practiceItem({
+			setupUci: undefined,
+			fen: 'rnbqkbnr/pp2pppp/8/2ppP3/8/8/PPPP1PPP/RNBQKBNR w KQkq d6 0 3'
+		});
+		expect(puzzleSetupMove(epOnly)).toBe('d7d5');
 	});
 });
 

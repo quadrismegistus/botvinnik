@@ -29,6 +29,7 @@ export interface PracticeItem {
 	bestSan: string;
 	bestUci: string;
 	bestPv?: string[]; // best move's full line, for explanations
+	setupUci?: string; // opponent's move that led into this position, to replay for context
 	motifs?: string[]; // named facts on the best line (Motif values), for tagging/filtering
 	evalBestPawns: number; // mover's perspective
 	mateBest: number | null;
@@ -86,7 +87,8 @@ export function saveItems(items: PracticeItem[]) {
 // chance is the played win chance plus what the played move dropped; we invert
 // the lichess sigmoid to recover a comparable eval for practice grading.
 export function itemDataFromStoredMove(
-	move: StoredMove
+	move: StoredMove,
+	setupUci?: string
 ): Omit<PracticeItem, 'id' | 'createdAt' | 'box' | 'dueAt' | 'attempts' | 'correct'> | null {
 	if (!move.bestSan || !move.bestUci || !move.fenBefore || move.wcDrop <= 0) return null;
 	const wcBest = Math.max(0, Math.min(100, winChance(move.evalPawns, move.mate) + move.wcDrop));
@@ -99,6 +101,7 @@ export function itemDataFromStoredMove(
 		bestSan: move.bestSan,
 		bestUci: move.bestUci,
 		bestPv: [move.bestUci],
+		setupUci: setupUci ?? enPassantSetup(move.fenBefore) ?? undefined,
 		motifs: motifTags(move.fenBefore, move.bestUci, [move.bestUci], null),
 		evalBestPawns,
 		mateBest: null,
@@ -106,6 +109,23 @@ export function itemDataFromStoredMove(
 		drop: move.wcDrop,
 		depth: 22
 	};
+}
+
+// The opponent's last move to replay for context. Prefer the stored setup move;
+// otherwise, when the position has an en-passant target, the double pawn push is
+// fully determined by that square — reconstruct it so en-passant puzzles (where
+// the capture is unknowable from a static board) always show what just happened.
+export function puzzleSetupMove(item: PracticeItem): string | null {
+	return item.setupUci ?? enPassantSetup(item.fen);
+}
+
+export function enPassantSetup(fen: string): string | null {
+	const ep = fen.split(' ')[3];
+	if (!ep || ep === '-' || ep.length < 2) return null;
+	const file = ep[0];
+	if (ep[1] === '6') return `${file}7${file}5`; // Black just pushed a pawn two squares
+	if (ep[1] === '3') return `${file}2${file}4`; // White just pushed a pawn two squares
+	return null;
 }
 
 export function addItem(

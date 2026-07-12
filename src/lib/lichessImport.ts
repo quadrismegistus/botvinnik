@@ -7,7 +7,7 @@ import { Chess, type Square } from 'chess.js';
 import { bestMovePoint, type Explanation } from './engine/explain';
 import { winChance, type MoveLabel } from './engine/insights';
 import { gameAccuracy, labelCounts, type StoredGame, type StoredMove } from './gameStore';
-import type { PracticeItem } from './practice';
+import { enPassantSetup, type PracticeItem } from './practice';
 
 // one entry per half-move; White's point of view
 export interface LichessEval {
@@ -41,6 +41,7 @@ export interface PracticeCandidate {
 	bestSan: string;
 	bestUci: string;
 	bestPv: string[];
+	setupUci?: string;
 	evalBestPawns: number;
 	mateBest: number | null;
 	wcBest: number;
@@ -207,6 +208,8 @@ export function analysedGameToStored(
 				bestSan,
 				bestUci,
 				bestPv: bestPv.length ? bestPv : [bestUci],
+				// opponent's move into this position (previous ply), for replay context
+				setupUci: moves[i - 1]?.uci ?? enPassantSetup(fenBefore) ?? undefined,
 				// the best move roughly preserves the pre-move eval
 				evalBestPawns:
 					before.eval !== undefined ? ((color === 'w' ? before.eval : -before.eval) / 100) : 0,

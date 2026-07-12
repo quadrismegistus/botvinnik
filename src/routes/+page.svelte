@@ -49,9 +49,11 @@
 	import {
 		addItem,
 		dueCount,
+		enPassantSetup,
 		itemDataFromStoredMove,
 		loadItems,
 		nextItem,
+		puzzleSetupMove,
 		recordResult,
 		removeItem,
 		type AttemptResult,
@@ -385,6 +387,7 @@
 			bestSan: g.bestSan,
 			bestUci: g.bestUci,
 			bestPv: g.bestPv,
+			setupUci: moveHistory.find((h) => h.ply === g.ply - 1)?.uci ?? enPassantSetup(g.fenBefore) ?? undefined,
 			motifs: motifTags(g.fenBefore, g.bestUci, g.bestPv ?? [g.bestUci], g.bestMate),
 			evalBestPawns: g.bestEval,
 			mateBest: g.bestMate,
@@ -554,7 +557,10 @@
 		revealBest = false;
 		hintTier = 0;
 		loadFen(item.fen);
-		lastMove = null;
+		// replay the opponent's last move so the setup is visible — essential for
+		// en-passant puzzles, where the legal capture is otherwise unknowable
+		const setup = puzzleSetupMove(item);
+		lastMove = setup ? [setup.slice(0, 2), setup.slice(2, 4)] : null;
 		refresh();
 	}
 
@@ -796,7 +802,9 @@
 	// ---- game review ----
 
 	function practiceFromReview(move: StoredMove) {
-		const data = itemDataFromStoredMove(move);
+		// the opponent's move that set up this position (the ply before the mistake)
+		const prev = reviewGame?.moves[move.ply - 2]?.uci;
+		const data = itemDataFromStoredMove(move, prev);
 		if (!data) return;
 		const next = addItem(practiceItems, data);
 		if (next) practiceItems = next;
