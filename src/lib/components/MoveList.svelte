@@ -4,11 +4,12 @@
 	interface Props {
 		moves: Move[];
 		onundo?: () => void;
+		onresign?: () => void;
 		onreset?: () => void;
 		startOpen?: boolean;
 	}
 
-	let { moves, onundo, onreset, startOpen = true }: Props = $props();
+	let { moves, onundo, onresign, onreset, startOpen = true }: Props = $props();
 	// svelte-ignore state_referenced_locally — startOpen is deliberately initial-only
 	let open = $state(startOpen);
 
@@ -46,6 +47,9 @@
 		</button>
 		<div class="buttons">
 			<button onclick={onundo} disabled={moves.length === 0}>Undo</button>
+			{#if onresign}
+				<button onclick={onresign}>Resign</button>
+			{/if}
 			<button onclick={onreset}>New</button>
 		</div>
 	</div>

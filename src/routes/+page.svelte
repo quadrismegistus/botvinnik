@@ -757,7 +757,7 @@
 	}
 
 	// archive the current game with its per-move grades
-	async function saveCurrentGame() {
+	async function saveCurrentGame(resultOverride?: string) {
 		const moves = game.moves;
 		if (moves.length === 0 || gameSaved) return;
 		gameSaved = true;
@@ -784,7 +784,7 @@
 				explanation: g?.explanation
 			};
 		});
-		const result = game.result ?? '*';
+		const result = resultOverride ?? game.result ?? '*';
 		const youAre = botEnabled ? (botColor === 'w' ? 'Black' : 'White') : null;
 		const botName = botEnabled ? `Bot (${botElo})` : 'Analysis';
 		const record: StoredGame = {
@@ -837,6 +837,43 @@
 		runAnalysis();
 	}
 
+	async function handleResign() {
+		// bot game: the human resigns; solo game: the side to move resigns
+		const loser = botEnabled ? (botColor === 'w' ? 'b' : 'w') : game.turn;
+		await saveCurrentGame(loser === 'w' ? '0-1' : '1-0');
+		// gameSaved is now true, so handleReset's save guard is a no-op — reuse its reset
+		handleReset();
+	}
+
+	function handleKeydown(e: KeyboardEvent) {
+		const tag = (e.target as HTMLElement)?.tagName;
+		if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+		if (e.metaKey || e.ctrlKey || e.altKey) return;
+		if (mode === 'practice') {
+			if (e.key === 'n' && (attempt || !currentItem)) {
+				e.preventDefault();
+				nextPuzzle();
+			} else if (e.key === 'r' && attempt && !attempt.pass) {
+				e.preventDefault();
+				retryPuzzle();
+			}
+		} else if (mode === 'review') {
+			if (e.key === 'ArrowLeft') {
+				e.preventDefault();
+				gotoReviewPly(reviewPly - 1);
+			} else if (e.key === 'ArrowRight') {
+				e.preventDefault();
+				gotoReviewPly(reviewPly + 1);
+			} else if (e.key === 'Escape') {
+				e.preventDefault();
+				exitReview();
+			}
+		} else if (e.key === 'ArrowLeft') {
+			e.preventDefault();
+			handleUndo();
+		}
+	}
+
 	// analysis runs are explicit (every mutation path calls runAnalysis);
 	// a reactive effect here would re-fire on refresh() and supersede
 	// practice-mode searchmoves grading
@@ -845,7 +882,7 @@
 	});
 </script>
 
-<svelte:window bind:innerHeight={viewportH} bind:innerWidth={viewportW} />
+<svelte:window bind:innerHeight={viewportH} bind:innerWidth={viewportW} onkeydown={handleKeydown} />
 
 <div class="app">
 	<h1 class="title">Botvinnik</h1>
@@ -922,7 +959,13 @@
 						startOpen={false}
 					/>
 					<AnalysisPanel moves={visibleLines.slice(0, 3)} fen={game.fen} {analyzing} startOpen={false} />
-					<MoveList moves={game.moves} onundo={handleUndo} onreset={handleReset} startOpen={false} />
+					<MoveList
+						moves={game.moves}
+						onundo={handleUndo}
+						onresign={game.moves.length >= 2 && !game.isGameOver ? handleResign : undefined}
+						onreset={handleReset}
+						startOpen={false}
+					/>
 
 					<SidePanel title="Lines Tree" bind:open={treeOpen}>
 						<LinesTree
