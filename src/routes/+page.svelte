@@ -16,6 +16,7 @@
 	import GamesPanel from '$lib/components/GamesPanel.svelte';
 	import PracticePanel from '$lib/components/PracticePanel.svelte';
 	import SidePanel from '$lib/components/SidePanel.svelte';
+	import UnifiedMovesPanel from '$lib/components/UnifiedMovesPanel.svelte';
 	import { getCommentary, type CommentaryEntry } from '$lib/commentary';
 	import { getPgn, getSan, getState, isPromotionMove, loadFen, makeMove, reset, undo } from '$lib/engine/chess';
 	import {
@@ -63,6 +64,7 @@
 	let lastMove: [string, string] | null = $state(null);
 	let panelsHidden = $state(false);
 	let treeOpen = $state(true);
+	let bookOpen = $state(false);
 	let wcChartOpen = $state(false);
 	let practiceOpen = $state(false);
 	let gamesOpen = $state(false);
@@ -121,6 +123,7 @@
 			{ id: 'insights', label: 'Insights' },
 			{ id: 'engine', label: 'Engine' },
 			{ id: 'lines', label: 'Lines' },
+			{ id: 'book', label: 'Book' },
 			{ id: 'moves', label: 'Moves' },
 			{ id: 'chart', label: 'Chart' },
 			{ id: 'commentary', label: 'Commentary' },
@@ -488,7 +491,6 @@
 		const move = makeMove(from, to, promotion);
 		if (move) {
 			lastMove = [from, to];
-			prevAnalysis = { fen: fenBefore, sans: sansBefore, lines: linesBefore };
 			refresh();
 			recordGrade(from + to + (move.promotion ?? ''), move.san, move.color, fenBefore, linesBefore);
 			if (game.isGameOver) void saveCurrentGame();
@@ -850,14 +852,11 @@
 	// hints the panels/tree see — blanked in blind mode so nothing leaks
 	const visibleLines = $derived(blindMode && mode === 'play' ? [] : engineMoves);
 
-	// last completed position's analysis — in blind mode the tree can show
-	// everything up to the previous move without hinting at the current one
-	let prevAnalysis: { fen: string; sans: string[]; lines: EngineMove[] } | null = $state(null);
-	const treeView = $derived(
-		blindMode && mode === 'play'
-			? (prevAnalysis ?? { fen: game.fen, sans: playedSans, lines: [] as EngineMove[] })
-			: { fen: game.fen, sans: playedSans, lines: visibleLines }
-	);
+	// The tree always ingests live lines so its map accumulates each position's
+	// alternatives; in blind mode LinesTree hides everything anchored at the
+	// CURRENT position instead (hideCurrent), so past possibility space stays
+	// visible without hinting at the move to make now.
+	const treeView = $derived({ fen: game.fen, sans: playedSans, lines: engineMoves });
 
 	function applyUci(uci: string) {
 		const fenBefore = game.fen;
@@ -866,7 +865,6 @@
 		const move = makeMove(uci.slice(0, 2), uci.slice(2, 4), uci.length > 4 ? uci[4] : undefined);
 		if (move) {
 			lastMove = [move.from, move.to];
-			prevAnalysis = { fen: fenBefore, sans: sansBefore, lines: linesBefore };
 			refresh();
 			recordGrade(uci, move.san, move.color, fenBefore, linesBefore);
 			if (game.isGameOver) void saveCurrentGame();
@@ -941,7 +939,6 @@
 		if (botEnabled && getState().turn === botColor) undo();
 		const last = getState().moves.at(-1);
 		lastMove = last ? [last.from, last.to] : null;
-		prevAnalysis = null; // stale after undo
 		refresh();
 		moveHistory = moveHistory.filter((g) => g.ply <= game.moves.length);
 		runAnalysis();
@@ -953,7 +950,6 @@
 		reset();
 		gameSaved = false;
 		lastMove = null;
-		prevAnalysis = null;
 		refresh();
 		moveHistory = [];
 		collectedPlies = new Set();
@@ -1094,6 +1090,16 @@
 				fen={treeView.fen}
 				playedSans={treeView.sans}
 				height={TREE_HEIGHT}
+				hideCurrent={blindMode && mode === 'play'}
+				onplay={blindMode ? undefined : handlePlayUci}
+			/>
+		{/snippet}
+
+		{#snippet bookBody()}
+			<UnifiedMovesPanel
+				fen={game.fen}
+				lines={visibleLines}
+				blind={blindMode && mode === 'play'}
 				onplay={blindMode ? undefined : handlePlayUci}
 			/>
 		{/snippet}
@@ -1229,6 +1235,8 @@
 						{@render engineBody()}
 					{:else if activeTab === 'lines'}
 						{@render linesBody()}
+					{:else if activeTab === 'book'}
+						{@render bookBody()}
 					{:else if activeTab === 'moves'}
 						{@render movesBody()}
 					{:else if activeTab === 'chart'}
@@ -1287,6 +1295,9 @@
 
 					<SidePanel title="Lines Tree" bind:open={treeOpen}>
 						{@render linesBody()}
+					</SidePanel>
+					<SidePanel title="Opening Book" bind:open={bookOpen}>
+						{@render bookBody()}
 					</SidePanel>
 					<SidePanel title="Win chance" bind:open={wcChartOpen}>
 						{@render chartBody()}

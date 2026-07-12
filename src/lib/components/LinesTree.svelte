@@ -9,10 +9,13 @@
 		fen: string;
 		playedSans: string[];
 		height?: number;
+		// blind mode: keep ingesting lines (they become the past's alternatives
+		// once you move on) but render nothing anchored at the current position
+		hideCurrent?: boolean;
 		onplay?: (uci: string) => void;
 	}
 
-	let { lines, fen, playedSans, height = 340, onplay }: Props = $props();
+	let { lines, fen, playedSans, height = 340, hideCurrent = false, onplay }: Props = $props();
 
 	type Metric = 'cp' | 'winChance' | 'pctBest' | 'confidence';
 	let yMode: Metric = $state('pctBest');
@@ -100,18 +103,6 @@
 		// continuous red (0) -> yellow (50) -> green (100)
 		const v = Math.max(0, Math.min(100, metricValue(l, metric)));
 		return `hsl(${Math.round(1.2 * v)}, 65%, 45%)`;
-	}
-
-	const GLYPHS: Record<'w' | 'b', Record<string, string>> = {
-		w: { k: '♔', q: '♕', r: '♖', b: '♗', n: '♘' },
-		b: { k: '♚', q: '♛', r: '♜', b: '♝', n: '♞' }
-	};
-
-	function figurine(san: string, color: 'w' | 'b', piece: string): string {
-		if (san.startsWith('O-O')) return san;
-		const glyph = GLYPHS[color][piece];
-		if (!glyph) return san; // pawn moves keep plain SAN
-		return glyph + san.replace(/^[KQRBN]/, '');
 	}
 
 	// Nudge overlapping nodes in a column apart, keeping them inside the band.
@@ -266,18 +257,30 @@
 
 	const view = $derived.by(() => {
 		version;
-		const ns = [...nodes.values()];
+		// blind mode hides the current position's analysis at render time only:
+		// the map keeps it, so it surfaces as history once the game moves on
+		const shown = [...links.entries()].filter(
+			([key, l]) => !hideCurrent || pathKeys.has(key) || l.anchor !== anchorId
+		);
+		const referenced = new Set([ROOT]);
+		for (const [, l] of shown) {
+			referenced.add(l.source);
+			referenced.add(l.target);
+		}
+		const ns = [...nodes.values()].filter((n) => referenced.has(n.id));
 		const maxDepth = ns.reduce((m, n) => Math.max(m, n.depth), 1);
 		const playableUci = new Map<string, string>();
-		for (const key of liveKeys) {
-			const l = links.get(key);
-			// only first moves out of the current position — an already-played path
-			// edge can carry a stale uci from when the engine suggested it
-			if (l?.uci && l.source === anchorId) playableUci.set(l.target, l.uci);
+		if (!hideCurrent) {
+			for (const key of liveKeys) {
+				const l = links.get(key);
+				// only first moves out of the current position — an already-played path
+				// edge can carry a stale uci from when the engine suggested it
+				if (l?.uci && l.source === anchorId) playableUci.set(l.target, l.uci);
+			}
 		}
 		return {
 			nodes: ns,
-			links: [...links.entries()].map(([key, l]) => ({
+			links: shown.map(([key, l]) => ({
 				...l,
 				key,
 				live: liveKeys.has(key),
@@ -287,7 +290,7 @@
 			})),
 			width: xForDepth(maxDepth) + NODE_W / 2 + PAD_LEFT,
 			anchorId,
-			bestNodeId,
+			bestNodeId: hideCurrent ? null : bestNodeId,
 			playableUci
 		};
 	});
@@ -407,12 +410,12 @@
 							width={NODE_W}
 							height={NODE_H}
 							rx="6"
-							class="chip"
+							class="chip {n.color === 'w' ? 'white-ply' : 'black-ply'}"
 							class:best={n.id === view.bestNodeId}
 							class:anchor={n.id === view.anchorId}
 						/>
 						<text x={n.x} y={n.y} text-anchor="middle" dominant-baseline="central" class="san {n.color === 'w' ? 'white-move' : 'black-move'}">
-							{figurine(n.san, n.color, n.piece)}
+							{n.san}
 						</text>
 					</g>
 				{/if}
@@ -475,10 +478,16 @@
 	.root-node.anchor {
 		fill: var(--color-win);
 	}
+	/* chips take the mover's piece color, like the board */
 	.chip {
-		fill: var(--bg-highlight);
 		stroke: var(--border);
 		stroke-width: 1;
+	}
+	.chip.white-ply {
+		fill: #f0ede6;
+	}
+	.chip.black-ply {
+		fill: #3d3a37;
 	}
 	.chip.best {
 		stroke: #4a9eff;
@@ -497,7 +506,12 @@
 	.san {
 		font-size: 13px;
 		font-weight: 600;
-		fill: var(--text-primary);
+	}
+	.san.white-move {
+		fill: #2b2926;
+	}
+	.san.black-move {
+		fill: #f0ede6;
 	}
 	.edge-label {
 		font-size: 10px;
