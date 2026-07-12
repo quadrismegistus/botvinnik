@@ -1,7 +1,8 @@
 // Practice list: positions where a mistake was played, stored in localStorage,
 // scheduled with simple Leitner boxes.
 
-import type { MoveLabel } from './engine/insights';
+import { winChance, type MoveLabel } from './engine/insights';
+import type { StoredMove } from './gameStore';
 
 export interface AttemptResult {
 	san: string;
@@ -64,6 +65,33 @@ function save(items: PracticeItem[]) {
 // replace the stored list wholesale (used by backup import)
 export function saveItems(items: PracticeItem[]) {
 	save(items);
+}
+
+// Build a practice item from a reviewed game move. Returns null unless the move
+// has a best move, a starting position, and actually cost win chance. The stored
+// eval is mover-perspective AND after the played move, so the best move's win
+// chance is the played win chance plus what the played move dropped; we invert
+// the lichess sigmoid to recover a comparable eval for practice grading.
+export function itemDataFromStoredMove(
+	move: StoredMove
+): Omit<PracticeItem, 'id' | 'createdAt' | 'box' | 'dueAt' | 'attempts' | 'correct'> | null {
+	if (!move.bestSan || !move.bestUci || !move.fenBefore || move.wcDrop <= 0) return null;
+	const wcBest = Math.max(0, Math.min(100, winChance(move.evalPawns, move.mate) + move.wcDrop));
+	const w = Math.max(0.01, Math.min(0.99, wcBest / 100));
+	const evalBestPawns = Math.max(-15, Math.min(15, Math.log(w / (1 - w)) / 0.00368208 / 100));
+	return {
+		fen: move.fenBefore,
+		playedSan: move.san,
+		playedUci: move.uci,
+		bestSan: move.bestSan,
+		bestUci: move.bestUci,
+		bestPv: [move.bestUci],
+		evalBestPawns,
+		mateBest: null,
+		wcBest,
+		drop: move.wcDrop,
+		depth: 22
+	};
 }
 
 export function addItem(

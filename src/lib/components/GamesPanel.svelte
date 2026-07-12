@@ -17,11 +17,12 @@
 		onimport?: (username: string) => void;
 		onccimport?: (username: string, maxGames?: number) => void;
 		onccancel?: () => void;
+		onpractice?: (move: StoredMove) => void;
 	}
 
 	let {
 		games, reviewing, reviewPly, importing = false, importStatus = '', ccImport = null,
-		onreview, onclose, ongoto, ondelete, onimport, onccimport, onccancel
+		onreview, onclose, ongoto, ondelete, onimport, onccimport, onccancel, onpractice
 	}: Props = $props();
 
 	let importName = $state('');
@@ -70,6 +71,15 @@
 	const selected: StoredMove | null = $derived(
 		reviewing && reviewPly > 0 ? reviewing.moves[reviewPly - 1] : null
 	);
+
+	const itemable = $derived(
+		!!selected?.bestUci &&
+			!!selected.label &&
+			['inaccuracy', 'mistake', 'blunder'].includes(selected.label)
+	);
+	// reset the "Added ✓" confirmation whenever the selected move changes
+	let addedPly = $state(-1);
+	const added = $derived(addedPly === reviewPly);
 </script>
 
 <div class="games-panel">
@@ -226,6 +236,18 @@
 				{#if selected.explanation?.bestPoint}<div class="why">{selected.explanation.bestPoint}</div>{/if}
 				{#if selected.explanation?.lineStory}
 					<div class="why">{@render withEvidence(selected.explanation.lineStory)}</div>
+				{/if}
+				{#if itemable && onpractice}
+					<button
+						class="practice"
+						disabled={added}
+						onclick={() => {
+							onpractice(selected);
+							addedPly = reviewPly;
+						}}
+					>
+						{added ? 'Added ✓' : '📌 Practice this'}
+					</button>
 				{/if}
 			</div>
 		{/if}
@@ -415,6 +437,14 @@
 	.why {
 		flex-basis: 100%;
 		font-size: 12px;
+	}
+	button.practice {
+		border-color: var(--color-win);
+	}
+	button.practice:disabled {
+		opacity: 1;
+		color: var(--text-secondary);
+		border-color: var(--border);
 	}
 	.chip {
 		padding: 1px 7px;

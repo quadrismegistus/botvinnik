@@ -44,6 +44,7 @@
 	import {
 		addItem,
 		dueCount,
+		itemDataFromStoredMove,
 		loadItems,
 		nextItem,
 		recordResult,
@@ -664,6 +665,13 @@
 
 	// ---- game review ----
 
+	function practiceFromReview(move: StoredMove) {
+		const data = itemDataFromStoredMove(move);
+		if (!data) return;
+		const next = addItem(practiceItems, data);
+		if (next) practiceItems = next;
+	}
+
 	function openReview(g: StoredGame) {
 		if (mode === 'play' && !gameSaved && game.moves.length >= 10) void saveCurrentGame();
 		analysisToken++; // orphan any in-flight analysis
@@ -1024,6 +1032,7 @@
 							onimport={handleLichessImport}
 							onccimport={startCcImport}
 							onccancel={cancelCcImport}
+							onpractice={practiceFromReview}
 						/>
 					</SidePanel>
 
@@ -1091,6 +1100,7 @@
 							onclose={exitReview}
 							ongoto={gotoReviewPly}
 							ondelete={deleteStoredGame}
+							onpractice={practiceFromReview}
 						/>
 					</SidePanel>
 				{/if}
