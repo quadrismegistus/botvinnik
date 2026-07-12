@@ -134,6 +134,42 @@ describe('nextItem motif filter', () => {
 	});
 });
 
+describe('nextItem randomization', () => {
+	// three items all due long ago (equal weight); a controllable RNG lets us
+	// prove selection depends on chance, not a fixed order
+	const now = 10_000_000;
+	const due = [
+		practiceItem({ id: 'a', dueAt: new Date(0).toISOString() }),
+		practiceItem({ id: 'b', dueAt: new Date(0).toISOString() }),
+		practiceItem({ id: 'c', dueAt: new Date(0).toISOString() })
+	];
+
+	it('picks different items for different RNG draws (not a fixed order)', () => {
+		const first = nextItem(due, undefined, now, undefined, () => 0.0)?.id;
+		const last = nextItem(due, undefined, now, undefined, () => 0.99)?.id;
+		expect(first).toBe('a');
+		expect(last).toBe('c');
+	});
+
+	it('over many draws it reaches every due item', () => {
+		const seen = new Set<string>();
+		for (let k = 0; k < 30; k++) {
+			seen.add(nextItem(due, undefined, now, undefined, () => k / 30)!.id);
+		}
+		expect(seen).toEqual(new Set(['a', 'b', 'c']));
+	});
+
+	it('still respects due-first: an item not yet due is never chosen while others are due', () => {
+		const mixed = [
+			practiceItem({ id: 'due', dueAt: new Date(0).toISOString() }),
+			practiceItem({ id: 'later', dueAt: new Date(now + 86_400_000).toISOString() })
+		];
+		for (let k = 0; k < 20; k++) {
+			expect(nextItem(mixed, undefined, now, undefined, () => k / 20)!.id).toBe('due');
+		}
+	});
+});
+
 describe('recordResult hinted credit', () => {
 	it('holds the box on a hinted pass but still counts the attempt', () => {
 		const items = [practiceItem({ id: 'x', box: 2, attempts: 3, correct: 2 })];

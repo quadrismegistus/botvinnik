@@ -138,19 +138,37 @@ export function dueCount(items: PracticeItem[], now: number = Date.now()): numbe
 	return items.filter((i) => Date.parse(i.dueAt) <= now).length;
 }
 
-// due items first (oldest due first), otherwise the soonest-due upcoming item
+// Pick a due item at random, weighted toward the more overdue, so the
+// spaced-repetition priority still holds but you don't replay the exact same
+// order every session. Falls back to the soonest-due upcoming item when
+// nothing is due yet.
 export function nextItem(
 	items: PracticeItem[],
 	excludeId?: string,
 	now: number = Date.now(),
-	motif?: string
+	motif?: string,
+	rand: () => number = Math.random
 ): PracticeItem | null {
 	let pool = items.filter((i) => i.id !== excludeId);
 	if (motif) pool = pool.filter((i) => i.motifs?.includes(motif));
 	if (pool.length === 0) return null;
+
 	const due = pool.filter((i) => Date.parse(i.dueAt) <= now);
-	const list = due.length > 0 ? due : pool;
-	return list.reduce((a, b) => (Date.parse(a.dueAt) <= Date.parse(b.dueAt) ? a : b));
+	if (due.length === 0) {
+		// nothing due — just serve the one that comes up soonest
+		return pool.reduce((a, b) => (Date.parse(a.dueAt) <= Date.parse(b.dueAt) ? a : b));
+	}
+
+	// weight = minutes overdue + 1, so every due item has a real chance but the
+	// long-overdue ones surface more often
+	const weights = due.map((i) => Math.max(1, (now - Date.parse(i.dueAt)) / 60_000 + 1));
+	const total = weights.reduce((a, b) => a + b, 0);
+	let r = rand() * total;
+	for (let k = 0; k < due.length; k++) {
+		r -= weights[k];
+		if (r <= 0) return due[k];
+	}
+	return due[due.length - 1];
 }
 
 export function recordResult(
