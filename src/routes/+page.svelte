@@ -2,6 +2,7 @@
 	import { onMount, untrack } from 'svelte';
 	import { botDelay, selectBotMove } from '$lib/bot';
 	import Board from '$lib/components/Board.svelte';
+	import BottomSheet from '$lib/components/BottomSheet.svelte';
 	import BotPanel from '$lib/components/BotPanel.svelte';
 	import AnalysisPanel from '$lib/components/AnalysisPanel.svelte';
 	import InsightsPanel from '$lib/components/InsightsPanel.svelte';
@@ -86,16 +87,50 @@
 	const CHROME_V = 100; // page padding + title
 	const SIDEBAR_MIN = 340; // sidebar min width + gap
 	// below this the sidebar can't sit beside the board: phone/narrow layout —
-	// board goes full width, panels stack beneath a sticky jump strip
+	// board pinned at the top, panels live as tabs in a draggable bottom sheet
 	const isNarrow = $derived(viewportW < 860);
+	const SHEET_PEEK = 64; // collapsed sheet: grab handle + tab strip
 	const boardSize = $derived(
 		isNarrow
-			? Math.min(viewportW - 16, viewportH - 60)
+			? Math.min(viewportW - 16, viewportH - SHEET_PEEK - 44)
 			: Math.max(
 					360,
 					Math.min(viewportH - CHROME_V, viewportW - (panelsHidden ? 120 : SIDEBAR_MIN + 60))
 				)
 	);
+
+	// bottom-sheet shell (narrow layout only)
+	type SheetDetent = 'peek' | 'half' | 'full';
+	let sheetDetent: SheetDetent = $state('peek');
+	let sheetTab = $state('insights');
+	const narrowTabs = $derived.by(() => {
+		if (mode === 'practice') return [{ id: 'practice', label: 'Practice' }];
+		if (mode === 'review')
+			return [
+				{ id: 'review', label: 'Review' },
+				{ id: 'chart', label: 'Chart' },
+				{ id: 'commentary', label: 'Commentary' }
+			];
+		return [
+			{ id: 'insights', label: 'Insights' },
+			{ id: 'engine', label: 'Engine' },
+			{ id: 'lines', label: 'Lines' },
+			{ id: 'moves', label: 'Moves' },
+			{ id: 'chart', label: 'Chart' },
+			{ id: 'commentary', label: 'Commentary' },
+			{ id: 'practice', label: 'Practice' },
+			{ id: 'games', label: 'Games' },
+			{ id: 'bot', label: 'Bot' }
+		];
+	});
+	// falls back to the first tab whenever a mode switch drops the selected one
+	const activeTab = $derived(
+		narrowTabs.some((t) => t.id === sheetTab) ? sheetTab : narrowTabs[0].id
+	);
+	function selectTab(id: string) {
+		sheetTab = id;
+		if (sheetDetent === 'peek') sheetDetent = 'half';
+	}
 
 	const playedSans = $derived(game.moves.map((m) => m.san));
 	const topMoves = $derived(engineMoves.slice(0, 3));
@@ -966,7 +1001,7 @@
 
 <svelte:window bind:innerHeight={viewportH} bind:innerWidth={viewportW} onkeydown={handleKeydown} />
 
-<div class="app">
+<div class="app" class:narrow={isNarrow}>
 	<h1 class="title">Botvinnik</h1>
 
 	<div class="main">
@@ -1003,19 +1038,210 @@
 			</div>
 		{/if}
 
-		{#if isNarrow && !panelsHidden && mode === 'play'}
-			<nav class="jump-strip">
-				{#each [['Insights', '.insights-panel'], ['Engine', '.analysis-panel'], ['Lines', '[data-anchor="lines"]'], ['Chart', '[data-anchor="chart"]'], ['Commentary', '[data-anchor="commentary"]'], ['Practice', '[data-anchor="practice"]'], ['Games', '[data-anchor="games"]']] as [label, sel] (sel)}
-					<button
-						onclick={() =>
-							document.querySelector(sel)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
-					>
-						{label}
-					</button>
-				{/each}
-			</nav>
-		{/if}
+		<!-- panel bodies are declared once and rendered either in the desktop
+		     sidebar or in the narrow layout's bottom-sheet tabs -->
+		{#snippet insightsBody()}
+			{#if mode === 'practice'}
+				{#if attemptGrade && (attempt?.pass || revealBest)}
+					<InsightsPanel
+						white={attemptGrade.color === 'w' ? attemptGrade : null}
+						black={attemptGrade.color === 'b' ? attemptGrade : null}
+					/>
+				{/if}
+			{:else}
+				<InsightsPanel white={insightWhite} black={insightBlack} {collectedPlies} />
+			{/if}
+		{/snippet}
 
+		{#snippet botBody()}
+			<BotPanel
+				bind:enabled={botEnabled}
+				bind:color={botColor}
+				bind:elo={botElo}
+				thinking={botThinking}
+				startOpen={isNarrow}
+			/>
+		{/snippet}
+
+		{#snippet engineBody()}
+			<AnalysisPanel
+				moves={visibleLines.slice(0, 3)}
+				fen={game.fen}
+				{analyzing}
+				startOpen={isNarrow}
+			/>
+		{/snippet}
+
+		{#snippet movesBody()}
+			<MoveList
+				moves={game.moves}
+				onundo={handleUndo}
+				onresign={game.moves.length >= 2 && !game.isGameOver ? handleResign : undefined}
+				onreset={handleReset}
+				startOpen={isNarrow}
+			/>
+		{/snippet}
+
+		{#snippet linesBody()}
+			<LinesTree
+				lines={treeView.lines}
+				fen={treeView.fen}
+				playedSans={treeView.sans}
+				height={TREE_HEIGHT}
+				onplay={blindMode ? undefined : handlePlayUci}
+			/>
+		{/snippet}
+
+		{#snippet chartBody()}
+			{#if mode === 'review'}
+				{#if reviewGame && reviewGame.moves.length > 1}
+					<WinChanceChart points={reviewWcPoints} currentPly={reviewPly} onselect={gotoReviewPly} />
+				{/if}
+			{:else}
+				<WinChanceChart points={wcChartPoints} />
+			{/if}
+		{/snippet}
+
+		{#snippet commentaryBody()}
+			<CommentaryPanel entries={commentary} />
+		{/snippet}
+
+		{#snippet practiceBody()}
+			<PracticePanel
+				{mode}
+				items={practiceItems}
+				current={currentItem}
+				{attempt}
+				{grading}
+				{revealBest}
+				{lineDepth}
+				{lineNote}
+				{continuing}
+				{hintTier}
+				{hint}
+				threshold={collectThreshold}
+				motif={practiceMotif}
+				onmotif={(m) => (practiceMotif = m)}
+				onstart={startPractice}
+				onexit={exitPractice}
+				onnext={nextPuzzle}
+				onretry={retryPuzzle}
+				onreveal={() => (revealBest = true)}
+				onhint={practiceHint}
+				oncontinue={continueLine}
+				onremove={removePracticeItem}
+				onthreshold={setCollectThreshold}
+			/>
+		{/snippet}
+
+		{#snippet gamesBody()}
+			<GamesPanel
+				games={storedGames}
+				reviewing={mode === 'review' ? reviewGame : null}
+				{reviewPly}
+				importing={lichessImporting}
+				importStatus={lichessStatus}
+				{ccImport}
+				onreview={openReview}
+				onclose={exitReview}
+				ongoto={gotoReviewPly}
+				ondelete={deleteStoredGame}
+				onimport={handleLichessImport}
+				onccimport={startCcImport}
+				onccancel={cancelCcImport}
+				onpractice={practiceFromReview}
+				onexport={exportPgn}
+			/>
+		{/snippet}
+
+		{#snippet gameOverNote()}
+			{#if game.isGameOver}
+				<div class="game-over">
+					Game over: {game.result}
+				</div>
+			{/if}
+		{/snippet}
+
+		{#snippet dataRow()}
+			<div class="data-row">
+				<button onclick={() => void downloadBackup()} title="Download practice positions + game archive as JSON">
+					Export data
+				</button>
+				<button onclick={() => importInput?.click()} title="Merge a botvinnik backup file into this browser's data">
+					Import data
+				</button>
+				<input
+					type="file"
+					accept="application/json"
+					bind:this={importInput}
+					onchange={handleImportFile}
+					hidden
+				/>
+				{#if importMsg}<span class="import-msg">{importMsg}</span>{/if}
+			</div>
+		{/snippet}
+
+		{#if isNarrow}
+			<BottomSheet bind:detent={sheetDetent} peek={SHEET_PEEK}>
+				{#snippet header()}
+					<nav class="tab-strip">
+						{#each narrowTabs as t (t.id)}
+							<button class:active={activeTab === t.id} onclick={() => selectTab(t.id)}>
+								{t.label}
+							</button>
+						{/each}
+						{#if mode === 'play'}
+							<button
+								class="toggle"
+								class:on={showArrows && !blindMode}
+								disabled={blindMode}
+								onclick={() => (showArrows = !showArrows)}
+							>
+								Arrows
+							</button>
+							<button class="toggle" class:on={blindMode} onclick={() => (blindMode = !blindMode)}>
+								Blind
+							</button>
+						{/if}
+					</nav>
+				{/snippet}
+				{#if mode === 'practice'}
+					<div class="practice-note">Practicing — analysis is hidden until you move.</div>
+					{@render practiceBody()}
+					{@render insightsBody()}
+				{:else if mode === 'review'}
+					{#if activeTab === 'chart'}
+						{@render chartBody()}
+					{:else if activeTab === 'commentary'}
+						{@render commentaryBody()}
+					{:else}
+						{@render gamesBody()}
+					{/if}
+				{:else}
+					{@render gameOverNote()}
+					{#if activeTab === 'engine'}
+						{@render engineBody()}
+					{:else if activeTab === 'lines'}
+						{@render linesBody()}
+					{:else if activeTab === 'moves'}
+						{@render movesBody()}
+					{:else if activeTab === 'chart'}
+						{@render chartBody()}
+					{:else if activeTab === 'commentary'}
+						{@render commentaryBody()}
+					{:else if activeTab === 'practice'}
+						{@render practiceBody()}
+					{:else if activeTab === 'games'}
+						{@render gamesBody()}
+						{@render dataRow()}
+					{:else if activeTab === 'bot'}
+						{@render botBody()}
+					{:else}
+						{@render insightsBody()}
+					{/if}
+				{/if}
+			</BottomSheet>
+		{:else}
 		<div class="sidebar" class:collapsed={panelsHidden}>
 			<div class="sidebar-top">
 				{#if !panelsHidden && mode === 'play'}
@@ -1048,185 +1274,69 @@
 
 			{#if !panelsHidden}
 				{#if mode === 'play'}
-					<InsightsPanel white={insightWhite} black={insightBlack} {collectedPlies} />
-					<BotPanel
-						bind:enabled={botEnabled}
-						bind:color={botColor}
-						bind:elo={botElo}
-						thinking={botThinking}
-						startOpen={false}
-					/>
-					<AnalysisPanel moves={visibleLines.slice(0, 3)} fen={game.fen} {analyzing} startOpen={false} />
-					<MoveList
-						moves={game.moves}
-						onundo={handleUndo}
-						onresign={game.moves.length >= 2 && !game.isGameOver ? handleResign : undefined}
-						onreset={handleReset}
-						startOpen={false}
-					/>
+					{@render insightsBody()}
+					{@render botBody()}
+					{@render engineBody()}
+					{@render movesBody()}
 
-					<SidePanel title="Lines Tree" anchor="lines" bind:open={treeOpen}>
-						<LinesTree
-							lines={treeView.lines}
-							fen={treeView.fen}
-							playedSans={treeView.sans}
-							height={TREE_HEIGHT}
-							onplay={blindMode ? undefined : handlePlayUci}
-						/>
+					<SidePanel title="Lines Tree" bind:open={treeOpen}>
+						{@render linesBody()}
 					</SidePanel>
-					<SidePanel title="Win chance" anchor="chart" bind:open={wcChartOpen}>
-						<WinChanceChart points={wcChartPoints} />
+					<SidePanel title="Win chance" bind:open={wcChartOpen}>
+						{@render chartBody()}
 					</SidePanel>
 					<SidePanel
 						title="Commentary"
-						anchor="commentary"
 						badge={commentary.length > 0 ? `${commentary.length} from YouTube` : ''}
 						bind:open={commentaryOpen}
 					>
-						<CommentaryPanel entries={commentary} />
+						{@render commentaryBody()}
 					</SidePanel>
 					<SidePanel
 						title="Practice"
-						anchor="practice"
 						badge={practiceItems.length > 0 ? `${practiceDue} due / ${practiceItems.length}` : ''}
 						bind:open={practiceOpen}
 					>
-						<PracticePanel
-							{mode}
-							items={practiceItems}
-							current={currentItem}
-							{attempt}
-							{grading}
-							{revealBest}
-							threshold={collectThreshold}
-							motif={practiceMotif}
-							onmotif={(m) => (practiceMotif = m)}
-							onstart={startPractice}
-							onexit={exitPractice}
-							onnext={nextPuzzle}
-							onretry={retryPuzzle}
-							onreveal={() => (revealBest = true)}
-							onremove={removePracticeItem}
-							onthreshold={setCollectThreshold}
-						/>
+						{@render practiceBody()}
 					</SidePanel>
 					<SidePanel
 						title="Games"
-						anchor="games"
 						badge={storedGames.length > 0 ? String(storedGames.length) : ''}
 						bind:open={gamesOpen}
 					>
-						<GamesPanel
-							games={storedGames}
-							reviewing={null}
-							{reviewPly}
-							importing={lichessImporting}
-							importStatus={lichessStatus}
-							{ccImport}
-							onreview={openReview}
-							onclose={exitReview}
-							ongoto={gotoReviewPly}
-							ondelete={deleteStoredGame}
-							onimport={handleLichessImport}
-							onccimport={startCcImport}
-							onccancel={cancelCcImport}
-							onpractice={practiceFromReview}
-							onexport={exportPgn}
-						/>
+						{@render gamesBody()}
 					</SidePanel>
 
-					{#if game.isGameOver}
-						<div class="game-over">
-							Game over: {game.result}
-						</div>
-					{/if}
-
-					<div class="data-row">
-						<button onclick={() => void downloadBackup()} title="Download practice positions + game archive as JSON">
-							Export data
-						</button>
-						<button onclick={() => importInput?.click()} title="Merge a botvinnik backup file into this browser's data">
-							Import data
-						</button>
-						<input
-							type="file"
-							accept="application/json"
-							bind:this={importInput}
-							onchange={handleImportFile}
-							hidden
-						/>
-						{#if importMsg}<span class="import-msg">{importMsg}</span>{/if}
-					</div>
+					{@render gameOverNote()}
+					{@render dataRow()}
 				{:else if mode === 'practice'}
 					<div class="practice-note">
 						Practicing — analysis is hidden until you move.
 					</div>
 					<SidePanel title="Practice">
-						<PracticePanel
-							{mode}
-							items={practiceItems}
-							current={currentItem}
-							{attempt}
-							{grading}
-							{revealBest}
-							{lineDepth}
-							{lineNote}
-							{continuing}
-							{hintTier}
-							{hint}
-							threshold={collectThreshold}
-							motif={practiceMotif}
-							onmotif={(m) => (practiceMotif = m)}
-							onstart={startPractice}
-							onexit={exitPractice}
-							onnext={nextPuzzle}
-							onretry={retryPuzzle}
-							onreveal={() => (revealBest = true)}
-							onhint={practiceHint}
-							oncontinue={continueLine}
-							onremove={removePracticeItem}
-							onthreshold={setCollectThreshold}
-						/>
+						{@render practiceBody()}
 					</SidePanel>
-					{#if attemptGrade && (attempt?.pass || revealBest)}
-						<InsightsPanel
-							white={attemptGrade.color === 'w' ? attemptGrade : null}
-							black={attemptGrade.color === 'b' ? attemptGrade : null}
-						/>
-					{/if}
+					{@render insightsBody()}
 				{:else}
 					{#if reviewGame && reviewGame.moves.length > 1}
 						<SidePanel title="Win chance">
-							<WinChanceChart
-								points={reviewWcPoints}
-								currentPly={reviewPly}
-								onselect={gotoReviewPly}
-							/>
+							{@render chartBody()}
 						</SidePanel>
 					{/if}
 					<SidePanel title="Game review">
-						<GamesPanel
-							games={storedGames}
-							reviewing={reviewGame}
-							{reviewPly}
-							onreview={openReview}
-							onclose={exitReview}
-							ongoto={gotoReviewPly}
-							ondelete={deleteStoredGame}
-							onpractice={practiceFromReview}
-							onexport={exportPgn}
-						/>
+						{@render gamesBody()}
 					</SidePanel>
 					<SidePanel
 						title="Commentary"
 						badge={commentary.length > 0 ? `${commentary.length} from YouTube` : ''}
 						bind:open={commentaryOpen}
 					>
-						<CommentaryPanel entries={commentary} />
+						{@render commentaryBody()}
 					</SidePanel>
 				{/if}
 			{/if}
 		</div>
+		{/if}
 	</div>
 </div>
 
@@ -1308,20 +1418,17 @@
 	.collapse-btn:hover {
 		color: var(--text-primary);
 	}
-	.jump-strip {
-		position: sticky;
-		top: 0;
-		z-index: 40;
-		flex-basis: 100%;
+	/* tab strip inside the bottom sheet's header (narrow layout) */
+	.tab-strip {
 		display: flex;
 		gap: 6px;
 		overflow-x: auto;
-		padding: 6px 2px;
-		background: var(--bg-page);
+		padding: 2px 10px 8px;
+		flex-shrink: 0;
 		-webkit-overflow-scrolling: touch;
 	}
-	.jump-strip button {
-		background: var(--bg-panel);
+	.tab-strip button {
+		background: transparent;
 		color: var(--text-secondary);
 		border: 1px solid var(--border);
 		border-radius: 12px;
@@ -1330,9 +1437,31 @@
 		white-space: nowrap;
 		cursor: pointer;
 	}
+	.tab-strip button.active {
+		background: var(--bg-highlight);
+		color: var(--text-primary);
+		border-color: var(--text-secondary);
+	}
+	.tab-strip button.toggle {
+		margin-left: auto;
+	}
+	.tab-strip button.toggle ~ button.toggle {
+		margin-left: 0;
+	}
+	.tab-strip button.toggle.on {
+		color: var(--color-win);
+		border-color: var(--color-win);
+	}
+	.tab-strip button.toggle:disabled {
+		opacity: 0.4;
+		cursor: default;
+	}
 
 	@media (max-width: 860px) {
-		.app {
+		/* board pinned at the top; the bottom sheet owns all scrolling */
+		.app.narrow {
+			height: 100dvh;
+			overflow: hidden;
 			padding: 8px;
 		}
 		.title {
@@ -1341,13 +1470,6 @@
 		}
 		.main {
 			gap: 8px;
-		}
-		/* panels stack under the board; the page scrolls, not the sidebar */
-		.sidebar {
-			flex-basis: 100%;
-			min-width: 0;
-			max-height: none;
-			overflow-y: visible;
 		}
 	}
 
