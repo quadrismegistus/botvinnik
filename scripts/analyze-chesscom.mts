@@ -233,7 +233,8 @@ async function main() {
 }
 
 function writeBackup(games: StoredGame[], practice: unknown[]) {
-	const capped = (practice as { createdAt: string }[]).slice(-PRACTICE_CAP);
+	// months are processed newest-first, so the newest mistakes are at the FRONT
+	const capped = (practice as { createdAt: string }[]).slice(0, PRACTICE_CAP);
 	if (practice.length > capped.length) {
 		console.log(`  (practice capped at ${PRACTICE_CAP} of ${practice.length})`);
 	}
