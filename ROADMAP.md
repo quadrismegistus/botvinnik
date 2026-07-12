@@ -15,10 +15,9 @@ Shipped so far:
   code as the Lichess importer, and writes a backup JSON for "Import data".
   Run: `brew install stockfish && npx tsx scripts/analyze-chesscom.mts <user>`.
 
-- **In-app importer (SHIPPED on the tauri branch)**: Games panel form with
-  progress bar and Cancel; dedicated import engine pool (one WASM worker on
-  web, native sidecar pool on desktop) so live play keeps its own engine.
-  Lands on the website when the tauri branch merges.
+- **In-app importer**: Games panel form with progress bar and Cancel;
+  dedicated import engine pool (one WASM worker on web, native sidecar pool
+  on desktop) so live play keeps its own engine. Live on web and desktop.
 
 Remaining:
 - Explanations for imported moves (fact detectors over the stored best
@@ -41,14 +40,6 @@ layer already detects on the stored best line:
 3. **Third click** — full reveal (today's "Show best").
 Each hint tier used could scale the spaced-repetition credit (a pass after
 two hints counts less than a cold pass).
-
-### Line meaning summaries
-Narrate the material story of a PV: "rooks get traded, then your queen is
-lost", "wins a pawn, with check". Zero engine cost — the line is already
-computed; a `summarizeLine()` walks it with chess.js, pairs captures into
-trades (recapture on the same square) vs. net wins/losses by piece class, and
-notes checks/promotions/mate. Slots into the facts-first explanation layer and
-its templates; the quiet-ply rule from material claims applies here too.
 
 ## Later
 
@@ -95,12 +86,6 @@ its templates; the quiet-ply rule from material claims applies here too.
   processes) — it means compiling Stockfish into the app and speaking UCI
   over an in-process channel, which slots into the existing transport
   interface as a third implementation (Tauri 2 does target iOS/Android).
-- **Desktop shell (Tauri)** — wrap this same SvelteKit app in Tauri with a
-  native Stockfish sidecar: full-strength NNUE on all cores (10–50× the
-  single-threaded WASM engine, which is capped by GitHub Pages' lack of
-  COOP/COEP headers → no SharedArrayBuffer → no threads). Would fold the
-  offline analyzer into the app itself. Full circle: en-croissant, which this
-  project simplified away from, is exactly this architecture.
 - **LLM polish layer for explanations** — optional, user-supplied API key,
   constrained to restating the detected facts (every SAN token in the output
   must appear in the supplied lines, else fall back to templates). The
