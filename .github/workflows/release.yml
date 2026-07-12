@@ -1,0 +1,84 @@
+name: Release
+
+# Cuts desktop bundles when you push a version tag (e.g. `git tag v0.1.0 &&
+# git push origin v0.1.0`). tauri-action compiles the app, bundles it, and
+# uploads the artifacts to a DRAFT GitHub Release for you to review/publish.
+#
+# Platforms:
+#   - macOS (arm64): verified — this is the build run locally today.
+#   - Windows (x64): best-effort — the sidecar path is wired up but the
+#     Windows desktop shell hasn't been run yet; fail-fast is off and the
+#     release is a draft, so a Windows hiccup never blocks the macOS bundle.
+#   - Linux: deliberately omitted. The release build's embedded-asset webview
+#     stalls at about:blank on webkit2gtk (see ROADMAP + tauri-e2e.yml). Add a
+#     matrix entry here once that's fixed.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch: # manual run (drafts a release tagged with the branch name)
+
+permissions:
+  contents: write # create the release + upload bundles
+
+jobs:
+  bundle:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest # Apple Silicon runner
+            sidecar: aarch64-apple-darwin
+            args: '--target aarch64-apple-darwin'
+          - platform: windows-latest
+            sidecar: x86_64-pc-windows-msvc
+            args: ''
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin' || '' }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - run: npm ci
+
+      # The sidecar is a native Stockfish named for the Rust target triple;
+      # Tauri's bundler validates externalBin at compile time, so it must be
+      # staged before tauri-action runs.
+      - name: Stage stockfish sidecar (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install stockfish
+          mkdir -p src-tauri/binaries
+          cp "$(which stockfish)" "src-tauri/binaries/stockfish-${{ matrix.sidecar }}"
+
+      - name: Stage stockfish sidecar (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $url = "https://github.com/official-stockfish/Stockfish/releases/download/sf_18/stockfish-windows-x86-64-sse41-popcnt.zip"
+          Invoke-WebRequest -Uri $url -OutFile sf.zip
+          Expand-Archive sf.zip -DestinationPath sf
+          New-Item -ItemType Directory -Force -Path src-tauri/binaries | Out-Null
+          Copy-Item "sf/stockfish/stockfish-windows-x86-64-sse41-popcnt.exe" `
+            "src-tauri/binaries/stockfish-${{ matrix.sidecar }}.exe"
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: 'Botvinnik ${{ github.ref_name }}'
+          releaseBody: 'Desktop builds. Unsigned — on macOS, right-click the app and choose Open the first time to bypass Gatekeeper.'
+          releaseDraft: true
+          prerelease: false
+          args: ${{ matrix.args }}
