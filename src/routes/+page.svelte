@@ -7,6 +7,7 @@
 	import InsightsPanel from '$lib/components/InsightsPanel.svelte';
 	import MoveList from '$lib/components/MoveList.svelte';
 	import LinesTree from '$lib/components/LinesTree.svelte';
+	import WinChanceChart from '$lib/components/WinChanceChart.svelte';
 	import { downloadBackup, importBackup } from '$lib/backup';
 	import { startChesscomImport, type CcImportHandle, type CcImportProgress } from '$lib/chesscomImport';
 	import { importLichessGames } from '$lib/lichessImport';
@@ -29,6 +30,7 @@
 	import {
 		backfillGrade,
 		gradeMove,
+		whitePovWinChance,
 		winChance,
 		type MoveGrade,
 		type MoveLabel
@@ -60,6 +62,7 @@
 	let lastMove: [string, string] | null = $state(null);
 	let panelsHidden = $state(false);
 	let treeOpen = $state(true);
+	let wcChartOpen = $state(false);
 	let practiceOpen = $state(false);
 	let gamesOpen = $state(false);
 	let commentaryOpen = $state(true);
@@ -96,6 +99,14 @@
 	let moveHistory: MoveGrade[] = $state([]);
 	const insightWhite = $derived(moveHistory.findLast((g) => g.color === 'w') ?? null);
 	const insightBlack = $derived(moveHistory.findLast((g) => g.color === 'b') ?? null);
+
+	// White-POV win chance per played move, for the win-chance chart
+	const wcChartPoints = $derived(
+		moveHistory.map((g) => ({
+			ply: g.ply,
+			wcWhite: whitePovWinChance(g.color, g.evalPawns, g.mate)
+		}))
+	);
 
 	// practice list + mode
 	// pass = the move labels "good" or better — under 5% win-chance loss, the
@@ -221,6 +232,16 @@
 	let reviewGame: StoredGame | null = $state(null);
 	let reviewPly = $state(0);
 	let gameSaved = false; // current game already archived
+
+	// White-POV win chance per stored move, for the review win-chance chart
+	const reviewWcPoints = $derived.by(() => {
+		const g = reviewGame;
+		if (!g || g.moves.length <= 1) return [];
+		return g.moves.map((m) => ({
+			ply: m.ply,
+			wcWhite: whitePovWinChance(m.color, m.evalPawns, m.mate)
+		}));
+	});
 
 	// bot opponent
 	const BOT_KEY = 'botvinnik-bot-v1';
@@ -984,6 +1005,9 @@
 							onplay={blindMode ? undefined : handlePlayUci}
 						/>
 					</SidePanel>
+					<SidePanel title="Win chance" bind:open={wcChartOpen}>
+						<WinChanceChart points={wcChartPoints} />
+					</SidePanel>
 					<SidePanel
 						title="Commentary"
 						badge={commentary.length > 0 ? `${commentary.length} from YouTube` : ''}
@@ -1091,6 +1115,15 @@
 						/>
 					{/if}
 				{:else}
+					{#if reviewGame && reviewGame.moves.length > 1}
+						<SidePanel title="Win chance">
+							<WinChanceChart
+								points={reviewWcPoints}
+								currentPly={reviewPly}
+								onselect={gotoReviewPly}
+							/>
+						</SidePanel>
+					{/if}
 					<SidePanel title="Game review">
 						<GamesPanel
 							games={storedGames}

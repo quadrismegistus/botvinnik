@@ -57,6 +57,17 @@ export function winChance(evalPawns: number | null, mate: number | null): number
 	return 50 + 50 * (2 / (1 + Math.exp(-0.00368208 * cp)) - 1);
 }
 
+// Win chance (0..100) always from White's perspective. Evals/mates are stored
+// from the mover's perspective, so a Black move's win chance is flipped.
+export function whitePovWinChance(
+	color: 'w' | 'b',
+	evalPawns: number | null,
+	mate: number | null
+): number {
+	const wc = winChance(evalPawns, mate);
+	return color === 'w' ? wc : 100 - wc;
+}
+
 export function gradeMove(
 	ply: number,
 	fenBefore: string,

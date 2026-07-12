@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { EngineMove } from './stockfish';
-import { backfillGrade, gradeMove, winChance } from './insights';
+import { backfillGrade, gradeMove, winChance, whitePovWinChance } from './insights';
 
 const START = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
 
@@ -29,6 +29,20 @@ describe('winChance', () => {
 		expect(winChance(-1, null)).toBeLessThan(winChance(0, null));
 		// lichess constant: +1 pawn ≈ 59%
 		expect(winChance(1, null)).toBeCloseTo(59.1, 0);
+	});
+});
+
+describe('whitePovWinChance', () => {
+	it("keeps White's evals as-is and flips Black's", () => {
+		// +1 pawn for the mover ≈ 59%
+		expect(whitePovWinChance('w', 1, null)).toBeCloseTo(59.1, 0);
+		// same eval from Black's move is White losing ≈ 41%
+		expect(whitePovWinChance('b', 1, null)).toBeCloseTo(40.9, 0);
+	});
+
+	it('flips mates by the mover', () => {
+		expect(whitePovWinChance('w', null, 2)).toBe(100);
+		expect(whitePovWinChance('b', null, 2)).toBe(0);
 	});
 });
 
