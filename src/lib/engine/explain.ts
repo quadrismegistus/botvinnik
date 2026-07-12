@@ -141,7 +141,7 @@ export function summarizeLine(fen: string, ucis: string[]): string | undefined {
 // Like materialOverLine, but the count stops at the last quiet ply — a window
 // ending mid-exchange would credit a capture the opponent recaptures next move.
 // Returns the plies actually counted so callers can quote exactly that line.
-function quietMaterialOverLine(fen: string, ucis: string[]): { net: number; plies: number } {
+export function quietMaterialOverLine(fen: string, ucis: string[]): { net: number; plies: number } {
 	const c = new Chess(fen);
 	const mover = c.turn();
 	let net = 0;

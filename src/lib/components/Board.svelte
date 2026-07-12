@@ -11,6 +11,7 @@
 		orientation?: 'white' | 'black';
 		engineMoves?: EngineMove[];
 		botArrow?: string | null; // uci the bot is currently considering
+		threatArrow?: string | null; // what the opponent threatens (null-move probe), drawn as a warning
 		refutationArrow?: string | null; // opponent's punishing reply, drawn red
 		hintSquare?: string | null; // practice tier-2 hint: circle the best move's origin square
 		resetKey?: number; // bump to force a piece resync (e.g. cancelled promotion)
@@ -27,6 +28,7 @@
 		orientation = 'white',
 		engineMoves = [],
 		botArrow = null,
+		threatArrow = null,
 		refutationArrow = null,
 		hintSquare = null,
 		resetKey = 0,
@@ -62,11 +64,28 @@
 			});
 	}
 
+	// the engine's moves share one hue (green); rank shows as opacity, so the
+	// best move reads boldest and weaker candidates fade back
 	function brushForRank(rank: number): string {
-		if (rank === 0) return 'green';
-		if (rank === 1) return 'blue';
-		return 'red';
+		if (rank === 0) return 'g0';
+		if (rank === 1) return 'g1';
+		return 'g2';
 	}
+
+	// chessground's brush registry (keyed by name). The defaults must stay
+	// present; we add green opacity tiers (g0–g2) for ranked engine moves and a
+	// red threat arrow. paleGrey is kept for the bot's considered move.
+	const BRUSHES = {
+		green: { key: 'green', color: '#15781b', opacity: 1, lineWidth: 10 },
+		red: { key: 'red', color: '#882020', opacity: 1, lineWidth: 10 },
+		blue: { key: 'blue', color: '#003088', opacity: 1, lineWidth: 10 },
+		yellow: { key: 'yellow', color: '#e68f00', opacity: 1, lineWidth: 10 },
+		paleGrey: { key: 'paleGrey', color: '#4a4a4a', opacity: 0.35, lineWidth: 15 },
+		g0: { key: 'g0', color: '#15781b', opacity: 1, lineWidth: 12 },
+		g1: { key: 'g1', color: '#15781b', opacity: 0.55, lineWidth: 11 },
+		g2: { key: 'g2', color: '#15781b', opacity: 0.32, lineWidth: 10 },
+		threat: { key: 'threat', color: '#c62828', opacity: 0.9, lineWidth: 12 }
+	};
 
 	$effect(() => {
 		if (!boardEl || api) return;
@@ -80,6 +99,7 @@
 				dests: toDests()
 			},
 			draggable: { showGhost: true },
+			drawable: { brushes: BRUSHES },
 			events: {
 				move: (orig, dest) => onmove?.(orig, dest)
 			}
@@ -121,6 +141,15 @@
 									orig: botArrow.slice(0, 2) as Key,
 									dest: botArrow.slice(2, 4) as Key,
 									brush: 'paleGrey'
+								}
+							]
+						: []),
+					...(threatArrow
+						? [
+								{
+									orig: threatArrow.slice(0, 2) as Key,
+									dest: threatArrow.slice(2, 4) as Key,
+									brush: 'threat'
 								}
 							]
 						: []),

@@ -45,6 +45,7 @@
 		stopEngine,
 		type EngineMove
 	} from '$lib/engine/stockfish';
+	import { findThreat, type Threat } from '$lib/engine/threats';
 	import {
 		addItem,
 		dueCount,
@@ -79,6 +80,8 @@
 		});
 	});
 	let blindMode = $state(false);
+	let showThreats = $state(true);
+	let threat: Threat | null = $state(null);
 	let pendingPromotion: { from: string; to: string } | null = $state(null);
 	let boardResetKey = $state(0);
 	let viewportH = $state(900);
@@ -341,6 +344,7 @@
 			// ignore malformed settings
 		}
 		blindMode = localStorage.getItem('botvinnik-blind') === '1';
+		showThreats = localStorage.getItem('botvinnik-threats') !== '0';
 		botSettingsLoaded = true;
 		void listGames().then((g) => (storedGames = g));
 	});
@@ -348,6 +352,12 @@
 	$effect(() => {
 		const on = blindMode;
 		if (botSettingsLoaded) localStorage.setItem('botvinnik-blind', on ? '1' : '0');
+	});
+
+	$effect(() => {
+		const on = showThreats;
+		if (botSettingsLoaded) localStorage.setItem('botvinnik-threats', on ? '1' : '0');
+		if (!on) threat = null;
 	});
 
 
@@ -435,7 +445,20 @@
 		if (token === analysisToken) {
 			analyzing = false;
 			maybeBotMove(token);
+			void computeThreat(token, game.fen);
 		}
+	}
+
+	// after the main analysis settles, probe what the opponent threatens (a
+	// null-move search) on the same engine — the position's own search is done,
+	// so this doesn't compete with it; a new move supersedes via the token
+	async function computeThreat(token: number, fen: string) {
+		if (!showThreats || blindMode || (mode !== 'play' && mode !== 'review')) {
+			threat = null;
+			return;
+		}
+		const t = await findThreat(fen, analyze, { depth: 14, movetimeMs: 500 });
+		if (token === analysisToken) threat = t;
 	}
 
 	// pick the bot's reply with a dedicated strength-limited search (runs
@@ -853,6 +876,11 @@
 		if (blindMode) return [];
 		return showArrows ? topMoves : [];
 	});
+	// the opponent's threat (null-move probe), drawn as a warning arrow
+	const threatArrow = $derived.by(() => {
+		if (!showThreats || blindMode || mode === 'practice') return null;
+		return threat?.uci ?? null;
+	});
 	// hints the panels/tree see — blanked in blind mode so nothing leaks
 	const visibleLines = $derived(blindMode && mode === 'play' ? [] : engineMoves);
 
@@ -1018,6 +1046,7 @@
 			orientation={boardOrientation}
 			engineMoves={boardArrows}
 			botArrow={botThinking ? botConsidering : null}
+			threatArrow={threatArrow}
 			refutationArrow={mode === 'practice' && attempt && !attempt.pass ? (attempt.refutationUci ?? null) : null}
 			hintSquare={mode === 'practice' && hintTier >= 2 && !attempt && practiceRef
 				? practiceRef.bestUci.slice(0, 2)
@@ -1218,6 +1247,14 @@
 							<button class="toggle" class:on={blindMode} onclick={() => (blindMode = !blindMode)}>
 								Blind
 							</button>
+							<button
+								class="toggle"
+								class:on={showThreats && !blindMode}
+								disabled={blindMode}
+								onclick={() => (showThreats = !showThreats)}
+							>
+								Threats
+							</button>
 						{/if}
 					</nav>
 				{/snippet}
@@ -1278,6 +1315,14 @@
 							title="Hide engine hints until you've moved"
 						>
 							Blind mode
+						</button>
+						<button
+							class:on={showThreats && !blindMode}
+							disabled={blindMode}
+							onclick={() => (showThreats = !showThreats)}
+							title="Draw what your opponent threatens (a move that wins material or mates) in red"
+						>
+							Threats
 						</button>
 					</div>
 				{/if}
