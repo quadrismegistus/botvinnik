@@ -932,7 +932,7 @@
 		if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
 		if (e.metaKey || e.ctrlKey || e.altKey) return;
 		if (mode === 'practice') {
-			if (e.key === 'n' && (attempt || !currentItem)) {
+			if (e.key === 'n' && !grading && !continuing) {
 				e.preventDefault();
 				nextPuzzle();
 			} else if (e.key === 'r' && attempt && !attempt.pass) {

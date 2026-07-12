@@ -201,9 +201,7 @@
 						{/if}
 					{/if}
 					<span class="actions">
-						{#if !attempt.pass}
-							<button onclick={onretry}>Retry</button>
-						{/if}
+						<button onclick={onretry}>Retry</button>
 						{#if !revealBest}
 							<button onclick={onreveal}>Show best</button>
 						{/if}
@@ -219,6 +217,9 @@
 				<div class="result muted">
 					Play your move on the board.
 					{#if hint}<span class="hint-text">{hint}</span>{/if}
+					<span class="actions">
+						<button onclick={onnext}>{lineDepth > 0 ? 'Next puzzle' : 'Skip'}</button>
+					</span>
 				</div>
 			{/if}
 		{/if}
