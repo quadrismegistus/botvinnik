@@ -723,6 +723,20 @@
 		handleReset();
 	}
 
+	function exportPgn(g: StoredGame) {
+		if (!g.pgn) return;
+		const seg = (s: string) => s.replace(/[^A-Za-z0-9_-]/g, '');
+		const name = `botvinnik-${seg(g.white ?? 'game')}-vs-${seg(g.black ?? 'bot')}-${seg(g.endedAt.slice(0, 10))}.pgn`;
+		const blob = new Blob([g.pgn], { type: 'application/x-chess-pgn' });
+		const a = document.createElement('a');
+		a.href = URL.createObjectURL(blob);
+		a.download = name;
+		document.body.appendChild(a); // detached-anchor clicks are ignored in some browsers
+		a.click();
+		a.remove();
+		URL.revokeObjectURL(a.href);
+	}
+
 	function deleteStoredGame(id: string) {
 		void deleteGame(id);
 		storedGames = storedGames.filter((g) => g.id !== id);
@@ -1057,6 +1071,7 @@
 							onccimport={startCcImport}
 							onccancel={cancelCcImport}
 							onpractice={practiceFromReview}
+							onexport={exportPgn}
 						/>
 					</SidePanel>
 
@@ -1134,7 +1149,15 @@
 							ongoto={gotoReviewPly}
 							ondelete={deleteStoredGame}
 							onpractice={practiceFromReview}
+							onexport={exportPgn}
 						/>
+					</SidePanel>
+					<SidePanel
+						title="Commentary"
+						badge={commentary.length > 0 ? `${commentary.length} from YouTube` : ''}
+						bind:open={commentaryOpen}
+					>
+						<CommentaryPanel entries={commentary} />
 					</SidePanel>
 				{/if}
 			{/if}

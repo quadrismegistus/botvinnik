@@ -18,11 +18,12 @@
 		onccimport?: (username: string, maxGames?: number) => void;
 		onccancel?: () => void;
 		onpractice?: (move: StoredMove) => void;
+		onexport?: (game: StoredGame) => void;
 	}
 
 	let {
 		games, reviewing, reviewPly, importing = false, importStatus = '', ccImport = null,
-		onreview, onclose, ongoto, ondelete, onimport, onccimport, onccancel, onpractice
+		onreview, onclose, ongoto, ondelete, onimport, onccimport, onccancel, onpractice, onexport
 	}: Props = $props();
 
 	let importName = $state('');
@@ -162,6 +163,9 @@
 							{mistakes(g, 'w')} / {mistakes(g, 'b')}
 						</span>
 						<button class="primary" onclick={() => onreview(g)}>Review</button>
+						{#if onexport && g.pgn}
+							<button class="export" title="Download PGN" onclick={() => onexport(g)}>⬇</button>
+						{/if}
 						<button class="remove" title="Delete" onclick={() => ondelete(g.id)}>×</button>
 					</div>
 				{/each}
@@ -191,6 +195,9 @@
 			<span class="nav">
 				<button onclick={() => ongoto(reviewPly - 1)} disabled={reviewPly === 0}>‹</button>
 				<button onclick={() => ongoto(reviewPly + 1)} disabled={reviewPly >= reviewing.moves.length}>›</button>
+				{#if onexport && reviewing.pgn}
+					<button title="Download PGN" onclick={() => onexport(reviewing)}>PGN</button>
+				{/if}
 				<button onclick={onclose}>Exit review</button>
 			</span>
 		</div>
@@ -360,6 +367,9 @@
 		border-color: var(--color-win);
 	}
 	.remove {
+		padding: 0 6px;
+	}
+	.export {
 		padding: 0 6px;
 	}
 	.show-more {
