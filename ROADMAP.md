@@ -22,9 +22,13 @@ Shipped so far:
 
 ## Later
 
-- **Unified Moves tab** — the last unported en-croissant visualization:
-  opening-book stats from the Lichess Explorer API (games played, win rates,
-  master games) merged with engine lines.
+- **Unified Moves tab** — SHIPPED 2026-07-12 as the "Opening Book" panel
+  (desktop sidebar + mobile sheet tab): Lichess Explorer stats (lichess db
+  + masters, W/D/L bars, opening names) merged with engine lines and
+  softmax confidence. NOTE: the explorer API moved to
+  `explorer.lichess.org` and requires an OAuth2 bearer token — the panel
+  prompts for a free no-scope lichess token on 401 and keeps it in
+  localStorage (`botvinnik-lichess-token`).
 - **PGN import** — paste/upload a PGN for review/analysis (export shipped).
 - **Practice history detail** — per-item pass/fail trail in the practice list
   (attempts/correct are already stored), maybe a small sparkline.
