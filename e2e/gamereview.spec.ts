@@ -21,13 +21,15 @@ test('a finished game auto-saves and is reviewable with labels and explanations'
 
 	// review: the g4 blunder carries its label and the mate explanation
 	await page.locator('.games-panel .row .primary', { hasText: 'Review' }).click();
-	await page.waitForSelector('.games-panel .mv');
-	await page.locator('.games-panel .mv', { hasText: 'g4' }).click();
+	await page.waitForSelector('.rv-table .rv-mv');
+	// classification counts summary lists a blunder
+	await expect(page.locator('.rv-counts .rv-cname', { hasText: 'blunder' })).toBeVisible();
+	await page.locator('.rv-table .rv-mv', { hasText: 'g4' }).click();
 	await page.waitForTimeout(600);
-	const detail = (await page.locator('.games-panel .detail').textContent()) ?? '';
-	expect(detail).toContain('blunder');
-	expect(detail).toContain('Qh4#');
-	await page.locator('.games-panel button', { hasText: 'Exit review' }).click();
+	const card = (await page.locator('.rv-card').textContent()) ?? '';
+	expect(card).toContain('blunder');
+	expect(card).toContain('Qh4#');
+	await page.locator('.games-panel button', { hasText: 'Exit' }).click();
 
 	// the archive survives a reload
 	await page.reload();

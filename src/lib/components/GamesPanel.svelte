@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { CcImportProgress } from '$lib/chesscomImport';
 	import type { StoredGame, StoredMove } from '$lib/gameStore';
+	import { CLASS, LABEL_ORDER } from '$lib/classifications';
 	import LineHover from './LineHover.svelte';
 
 	interface Props {
@@ -41,10 +42,6 @@
 			: 0
 	);
 
-	const LABEL_ORDER = [
-		'brilliant', 'great', 'best', 'excellent', 'good', 'inaccuracy', 'mistake', 'blunder'
-	] as const;
-
 	function fmtAcc(a: number | null): string {
 		return a === null ? '—' : a.toFixed(1) + '%';
 	}
@@ -81,6 +78,40 @@
 	// reset the "Added ✓" confirmation whenever the selected move changes
 	let addedPly = $state(-1);
 	const added = $derived(addedPly === reviewPly);
+
+	// player names for the summary cards
+	function sideName(g: StoredGame, color: 'w' | 'b'): string {
+		const explicit = color === 'w' ? g.white : g.black;
+		if (explicit) return explicit;
+		if (g.botElo === null) return color === 'w' ? 'White' : 'Black';
+		return g.botColor === color ? `Bot ${g.botElo}` : 'You';
+	}
+
+	// two-column move table rows: [moveNo, whiteMove?, blackMove?]
+	const moveRows = $derived.by(() => {
+		const g = reviewing;
+		if (!g) return [];
+		const rows: { no: number; white?: StoredMove; black?: StoredMove }[] = [];
+		for (const m of g.moves) {
+			const no = Math.ceil(m.ply / 2);
+			let row = rows[rows.length - 1];
+			if (!row || (m.color === 'w' && row.white)) {
+				row = { no };
+				rows.push(row);
+			}
+			if (m.color === 'w') row.white = m;
+			else row.black = m;
+		}
+		return rows;
+	});
+
+	// "Best" reveals the engine's preferred move + line for the selected move
+	let showBest = $state(false);
+	$effect(() => {
+		reviewPly; // collapse the best-line reveal on navigation
+		showBest = false;
+	});
+	const selClass = $derived(selected?.label ? CLASS[selected.label] : null);
 </script>
 
 <div class="games-panel">
@@ -177,54 +208,62 @@
 			</div>
 		{/if}
 	{:else}
-		<div class="toolbar">
-			<span class="summary">
-				{opponent(reviewing)} · <strong>{reviewing.result}</strong>
-				· accuracy {fmtAcc(reviewing.whiteAccuracy)} / {fmtAcc(reviewing.blackAccuracy)}
-			</span>
-			<span class="chips">
-				{#each ['w', 'b'] as const as color (color)}
-					<span class="side">{color === 'w' ? 'W' : 'B'}:</span>
-					{#each LABEL_ORDER as label (label)}
-						{#if reviewing.labelCounts[color][label]}
-							<span class="chip {label}">{reviewing.labelCounts[color][label]} {label}</span>
-						{/if}
-					{/each}
-				{/each}
-			</span>
-			<span class="nav">
-				<button onclick={() => ongoto(reviewPly - 1)} disabled={reviewPly === 0}>‹</button>
-				<button onclick={() => ongoto(reviewPly + 1)} disabled={reviewPly >= reviewing.moves.length}>›</button>
+		<div class="rv-head">
+			<span class="rv-result">{opponent(reviewing)} · <strong>{reviewing.result}</strong></span>
+			<span class="rv-headnav">
 				{#if onexport && reviewing.pgn}
 					<button title="Download PGN" onclick={() => onexport(reviewing)}>PGN</button>
 				{/if}
-				<button onclick={onclose}>Exit review</button>
+				<button onclick={onclose}>Exit</button>
 			</span>
 		</div>
 
-		<div class="moves">
-			<button class="mv" class:sel={reviewPly === 0} onclick={() => ongoto(0)}>start</button>
-			{#each reviewing.moves as m (m.ply)}
-				<button
-					class="mv {m.label ?? ''}"
-					class:sel={reviewPly === m.ply}
-					onclick={() => ongoto(m.ply)}
-				>
-					{m.color === 'w' ? `${(m.ply + 1) / 2}. ` : ''}{m.san}
-				</button>
-			{/each}
+		<!-- accuracy + classification summary, chess.com style -->
+		<div class="rv-summary">
+			<div class="rv-acc">
+				{#each ['w', 'b'] as const as color (color)}
+					<div class="rv-player" class:active={selected?.color === color}>
+						<span class="rv-name">{sideName(reviewing, color)}</span>
+						<span class="rv-accval">{fmtAcc(color === 'w' ? reviewing.whiteAccuracy : reviewing.blackAccuracy)}</span>
+						<span class="rv-acclbl">accuracy</span>
+					</div>
+				{/each}
+			</div>
+			<div class="rv-counts">
+				{#each LABEL_ORDER as label (label)}
+					{@const wc = reviewing.labelCounts.w[label]}
+					{@const bc = reviewing.labelCounts.b[label]}
+					{#if wc || bc}
+						<div class="rv-crow">
+							<span class="rv-cnum">{wc || ''}</span>
+							<span class="rv-cmid">
+								<span class="rv-glyph" style:color={CLASS[label].color}>{CLASS[label].glyph}</span>
+								<span class="rv-cname">{label}</span>
+							</span>
+							<span class="rv-cnum">{bc || ''}</span>
+						</div>
+					{/if}
+				{/each}
+			</div>
 		</div>
 
+		<!-- feedback card for the selected move -->
 		{#if selected}
-			<div class="detail">
-				<strong>{selected.san}</strong>
-				{#if selected.label}<span class="chip {selected.label}">{selected.label}</span>{/if}
-				<span class="stat">{fmtEval(selected)}</span>
-				{#if selected.pctBest !== null}<span class="stat">{selected.pctBest.toFixed(0)}% of best</span>{/if}
-				{#if selected.wcDrop >= 1}<span class="stat drop">−{selected.wcDrop.toFixed(0)}% win chance</span>{/if}
-				{#if selected.bestSan && selected.label && !['brilliant', 'great', 'best'].includes(selected.label)}
-					<span class="stat">best was <strong>{selected.bestSan}</strong></span>
-				{/if}
+			{@const showBestBtn =
+				!!selected.bestSan &&
+				!!selected.label &&
+				!['brilliant', 'great', 'best'].includes(selected.label)}
+			<div class="rv-card" style:border-left-color={selClass?.color ?? 'var(--border)'}>
+				<div class="rv-cardhead">
+					{#if selClass}
+						<span class="rv-cglyph" style:background={selClass.color}>{selClass.glyph}</span>
+					{/if}
+					<span class="rv-cardtitle">
+						<strong>{selected.san}</strong>{#if selClass} is {selClass.noun}{/if}
+					</span>
+					<span class="rv-cardeval" class:drop={selected.wcDrop >= 5}>{fmtEval(selected)}</span>
+				</div>
+
 				{#snippet withEvidence(text: string)}
 					{#if selected?.explanation?.evidence}
 						<LineHover fen={selected.explanation.evidence.fen} ucis={selected.explanation.evidence.ucis}>
@@ -235,29 +274,97 @@
 					{/if}
 				{/snippet}
 				{#if selected.explanation?.playedPoint}
-					<div class="why">{@render withEvidence(selected.explanation.playedPoint)}</div>
+					<div class="rv-why">{@render withEvidence(selected.explanation.playedPoint)}</div>
 				{/if}
 				{#if selected.explanation?.playedIssue}
-					<div class="why">{@render withEvidence(selected.explanation.playedIssue)}</div>
+					<div class="rv-why">{@render withEvidence(selected.explanation.playedIssue)}</div>
 				{/if}
-				{#if selected.explanation?.bestPoint}<div class="why">{selected.explanation.bestPoint}</div>{/if}
+				{#if selected.explanation?.bestPoint}
+					<div class="rv-why">{selected.explanation.bestPoint}</div>
+				{/if}
 				{#if selected.explanation?.lineStory}
-					<div class="why">{@render withEvidence(selected.explanation.lineStory)}</div>
+					<div class="rv-why">{@render withEvidence(selected.explanation.lineStory)}</div>
 				{/if}
-				{#if itemable && onpractice}
-					<button
-						class="practice"
-						disabled={added}
-						onclick={() => {
-							onpractice(selected);
-							addedPly = reviewPly;
-						}}
-					>
-						{added ? 'Added ✓' : '📌 Practice this'}
-					</button>
+
+				{#if showBest && selected.bestSan}
+					<div class="rv-bestline">
+						<span class="rv-glyph" style:color={CLASS.best.color}>★</span>
+						Best was
+						{#if selected.explanation?.evidence}
+							<LineHover
+								fen={selected.explanation.evidence.fen}
+								ucis={selected.explanation.evidence.ucis}
+							>
+								<strong>{selected.bestSan}</strong>
+							</LineHover>
+						{:else}
+							<strong>{selected.bestSan}</strong>
+						{/if}
+						{#if selected.pctBest !== null}<span class="rv-dim"> · {selected.pctBest.toFixed(0)}% of best</span>{/if}
+					</div>
 				{/if}
+
+				<div class="rv-actions">
+					{#if showBestBtn}
+						<button class="rv-best" class:on={showBest} onclick={() => (showBest = !showBest)}>
+							★ Best move
+						</button>
+					{/if}
+					{#if itemable && onpractice}
+						<button
+							class="practice"
+							disabled={added}
+							onclick={() => {
+								onpractice(selected);
+								addedPly = reviewPly;
+							}}
+						>
+							{added ? 'Added ✓' : '📌 Practice this'}
+						</button>
+					{/if}
+				</div>
 			</div>
+		{:else}
+			<div class="rv-card intro">Step through with the arrows or the move list below.</div>
 		{/if}
+
+		<!-- move controls -->
+		<div class="rv-controls">
+			<button onclick={() => ongoto(0)} disabled={reviewPly === 0} title="Start">«</button>
+			<button onclick={() => ongoto(reviewPly - 1)} disabled={reviewPly === 0} title="Previous">‹</button>
+			<button
+				class="grow"
+				onclick={() => ongoto(reviewPly + 1)}
+				disabled={reviewPly >= reviewing.moves.length}>Next ›</button
+			>
+			<button
+				onclick={() => ongoto(reviewing.moves.length)}
+				disabled={reviewPly >= reviewing.moves.length}
+				title="End">»</button
+			>
+		</div>
+
+		<!-- two-column move table -->
+		<div class="rv-table">
+			{#each moveRows as row (row.no)}
+				<div class="rv-mrow">
+					<span class="rv-no">{row.no}.</span>
+					{#each [row.white, row.black] as m, i (i)}
+						{#if m}
+							{@const cls = m.label ? CLASS[m.label] : null}
+							<button class="rv-mv" class:sel={reviewPly === m.ply} onclick={() => ongoto(m.ply)}>
+								<span class="rv-mvsan">{m.san}</span>
+								{#if cls && m.label !== 'good' && m.label !== 'excellent'}
+									<span class="rv-mvglyph" style:color={cls.color}>{cls.glyph}</span>
+								{/if}
+							</button>
+						{:else}
+							<span class="rv-mv empty"></span>
+						{/if}
+					{/each}
+				</div>
+			{/each}
+		</div>
 	{/if}
 </div>
 
@@ -376,77 +483,160 @@
 		margin-top: 6px;
 		width: 100%;
 	}
-	.toolbar {
+	/* ---- review mode (chess.com-style) ---- */
+	.rv-head {
 		display: flex;
 		align-items: center;
-		gap: 12px;
-		flex-wrap: wrap;
+		justify-content: space-between;
+		gap: 8px;
 		font-size: 12px;
+		color: var(--text-secondary);
+		margin-bottom: 8px;
+	}
+	.rv-result strong {
 		color: var(--text-primary);
 	}
-	.chips {
+	.rv-headnav {
+		display: flex;
+		gap: 4px;
+	}
+	.rv-summary {
+		border: 1px solid var(--border);
+		border-radius: 8px;
+		overflow: hidden;
+		margin-bottom: 8px;
+	}
+	.rv-acc {
+		display: flex;
+	}
+	.rv-player {
+		flex: 1;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		padding: 8px 4px;
+		gap: 1px;
+	}
+	.rv-player:first-child {
+		border-right: 1px solid var(--border);
+	}
+	.rv-player.active {
+		background: var(--bg-highlight);
+	}
+	.rv-name {
+		font-size: 12px;
+		color: var(--text-secondary);
+		max-width: 100%;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.rv-accval {
+		font-size: 20px;
+		font-weight: 700;
+		color: var(--text-primary);
+		font-variant-numeric: tabular-nums;
+	}
+	.rv-acclbl {
+		font-size: 10px;
+		text-transform: uppercase;
+		letter-spacing: 0.5px;
+		color: var(--text-secondary);
+	}
+	.rv-counts {
+		border-top: 1px solid var(--border);
+		padding: 4px 0;
+	}
+	.rv-crow {
+		display: grid;
+		grid-template-columns: 40px 1fr 40px;
+		align-items: center;
+		padding: 2px 8px;
+		font-size: 12px;
+	}
+	.rv-cmid {
 		display: flex;
 		align-items: center;
-		gap: 4px;
-		flex-wrap: wrap;
+		gap: 8px;
+		justify-content: center;
 	}
-	.side {
+	.rv-glyph {
+		font-weight: 800;
+		font-size: 13px;
+	}
+	.rv-cname {
 		color: var(--text-secondary);
-		font-weight: 700;
-		margin-left: 6px;
+		text-transform: capitalize;
 	}
-	.nav {
-		margin-left: auto;
-		display: flex;
-		gap: 4px;
+	.rv-cnum {
+		text-align: center;
+		font-weight: 600;
+		color: var(--text-primary);
+		font-variant-numeric: tabular-nums;
 	}
-	.moves {
-		margin-top: 8px;
-		display: flex;
-		flex-wrap: wrap;
-		gap: 3px;
-		max-height: 110px;
-		overflow-y: auto;
-	}
-	.mv {
-		padding: 1px 7px;
-		font-size: 12px;
-		border-bottom-width: 3px;
-	}
-	.mv.sel {
-		background: var(--bg-highlight);
-		outline: 1px solid var(--text-secondary);
-	}
-	.mv.brilliant { border-bottom-color: #1baca6; }
-	.mv.great { border-bottom-color: #5b8bb0; }
-	.mv.best { border-bottom-color: #81b64c; }
-	.mv.excellent { border-bottom-color: #a3c585; }
-	.mv.good { border-bottom-color: #95b776; }
-	.mv.inaccuracy { border-bottom-color: #f0c15c; }
-	.mv.mistake { border-bottom-color: #e6912c; }
-	.mv.blunder { border-bottom-color: #ca3431; }
-	.detail {
-		margin-top: 8px;
-		padding: 8px 10px;
+	.rv-card {
 		border: 1px solid var(--border);
+		border-left-width: 4px;
 		border-radius: 6px;
+		padding: 8px 10px;
+		margin-bottom: 8px;
 		font-size: 13px;
 		color: var(--text-primary);
-		display: flex;
-		align-items: baseline;
-		gap: 10px;
-		flex-wrap: wrap;
 	}
-	.stat {
+	.rv-card.intro {
 		color: var(--text-secondary);
+		border-left-color: var(--border);
+	}
+	.rv-cardhead {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+	}
+	.rv-cglyph {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		min-width: 20px;
+		height: 20px;
+		padding: 0 5px;
+		border-radius: 10px;
+		color: #fff;
+		font-weight: 800;
 		font-size: 12px;
 	}
-	.stat.drop {
+	.rv-cardtitle {
+		flex: 1;
+	}
+	.rv-cardeval {
+		font-weight: 700;
+		font-variant-numeric: tabular-nums;
+		color: var(--text-secondary);
+	}
+	.rv-cardeval.drop {
 		color: var(--color-lose);
 	}
-	.why {
-		flex-basis: 100%;
+	.rv-why {
+		margin-top: 6px;
 		font-size: 12px;
+		color: var(--text-secondary);
+		line-height: 1.4;
+	}
+	.rv-bestline {
+		margin-top: 6px;
+		font-size: 12px;
+		color: var(--text-primary);
+	}
+	.rv-dim {
+		color: var(--text-secondary);
+	}
+	.rv-actions {
+		display: flex;
+		gap: 6px;
+		margin-top: 8px;
+	}
+	.rv-best.on {
+		border-color: var(--color-win);
+		color: var(--color-win);
 	}
 	button.practice {
 		border-color: var(--color-win);
@@ -456,19 +646,58 @@
 		color: var(--text-secondary);
 		border-color: var(--border);
 	}
-	.chip {
-		padding: 1px 7px;
-		border-radius: 9px;
-		font-size: 10px;
-		color: #fff;
-		white-space: nowrap;
+	.rv-controls {
+		display: flex;
+		gap: 4px;
+		margin-bottom: 8px;
 	}
-	.chip.brilliant { background: #1baca6; }
-	.chip.great { background: #5b8bb0; }
-	.chip.best { background: #81b64c; }
-	.chip.excellent { background: #81b64c; opacity: 0.75; }
-	.chip.good { background: #95b776; opacity: 0.7; }
-	.chip.inaccuracy { background: #f0c15c; color: #333; }
-	.chip.mistake { background: #e6912c; }
-	.chip.blunder { background: #ca3431; }
+	.rv-controls .grow {
+		flex: 1;
+	}
+	.rv-table {
+		max-height: 220px;
+		overflow-y: auto;
+		border: 1px solid var(--border);
+		border-radius: 6px;
+	}
+	.rv-mrow {
+		display: grid;
+		grid-template-columns: 34px 1fr 1fr;
+		align-items: stretch;
+	}
+	.rv-mrow:nth-child(odd) {
+		background: var(--bg-highlight);
+	}
+	.rv-no {
+		display: flex;
+		align-items: center;
+		padding-left: 8px;
+		font-size: 12px;
+		color: var(--text-secondary);
+		font-variant-numeric: tabular-nums;
+	}
+	.rv-mv {
+		display: flex;
+		align-items: center;
+		gap: 4px;
+		background: none;
+		border: none;
+		border-radius: 0;
+		padding: 3px 8px;
+		font-size: 13px;
+		text-align: left;
+		color: var(--text-primary);
+	}
+	.rv-mv.empty {
+		cursor: default;
+	}
+	.rv-mv.sel {
+		background: var(--bg-button);
+		outline: 1px solid var(--text-secondary);
+		outline-offset: -1px;
+	}
+	.rv-mvglyph {
+		font-weight: 800;
+		font-size: 12px;
+	}
 </style>

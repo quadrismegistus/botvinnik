@@ -153,7 +153,9 @@
 	const wcChartPoints = $derived(
 		moveHistory.map((g) => ({
 			ply: g.ply,
-			wcWhite: whitePovWinChance(g.color, g.evalPawns, g.mate)
+			wcWhite: whitePovWinChance(g.color, g.evalPawns, g.mate),
+			label: g.label,
+			san: g.san
 		}))
 	);
 
@@ -309,7 +311,9 @@
 		if (!g || g.moves.length <= 1) return [];
 		return g.moves.map((m) => ({
 			ply: m.ply,
-			wcWhite: whitePovWinChance(m.color, m.evalPawns, m.mate)
+			wcWhite: whitePovWinChance(m.color, m.evalPawns, m.mate),
+			label: m.label,
+			san: m.san
 		}));
 	});
 
