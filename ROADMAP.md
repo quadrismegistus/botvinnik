@@ -19,37 +19,13 @@ Shipped so far:
   dedicated import engine pool (one WASM worker on web, native sidecar pool
   on desktop) so live play keeps its own engine. Live on web and desktop.
 
-Remaining:
-- Explanations for imported moves (fact detectors over the stored best
-  variations as a cheap pass).
-
-### Motif-tagged practice
-The detectors (fork, pin, skewer, discovered attack, trapped piece, free
-capture, mate, hanging) all exist in `explain.ts` as pure functions — run
-them over each practice item's stored best line at collect/import time, tag
-items with their motifs, and add a filter to the practice list ("drill only
-pins"). The hint button's tier-1 text comes from the same tags.
-
-### Hint button in practice
-Tiered hints before the full reveal, all computed from facts the explanation
-layer already detects on the stored best line:
-1. **First click** — name the fact family, no squares: "there's a fork
-   available", "you can win material", "there's a mate".
-2. **Second click** — highlight the piece that should move (origin square
-   only, not the destination).
-3. **Third click** — full reveal (today's "Show best").
-Each hint tier used could scale the spaced-repetition credit (a pass after
-two hints counts less than a cold pass).
 
 ## Later
 
 - **Unified Moves tab** — the last unported en-croissant visualization:
   opening-book stats from the Lichess Explorer API (games played, win rates,
   master games) merged with engine lines.
-- **Commentary in review mode** — the YouTube commentary lookup already works
-  in play mode; run the same placement match on stored review positions.
-- **PGN export/import buttons** — per-game download from the archive (the PGN
-  is already stored); import a pasted PGN for review/analysis.
+- **PGN import** — paste/upload a PGN for review/analysis (export shipped).
 - **Practice history detail** — per-item pass/fail trail in the practice list
   (attempts/correct are already stored), maybe a small sparkline.
 - **Bot ELO calibration harness** — bots play each other headlessly
