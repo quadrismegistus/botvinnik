@@ -435,21 +435,71 @@ export function explainMove(input: {
 				? `${bestSan} was immediate checkmate.`
 				: `${bestSan} forces mate in ${bestMate}.`;
 	} else {
-		out.bestPoint =
-			forkPoint(fenBefore, bestUci) ??
-			freeCapturePoint(fenBefore, bestUci) ??
-			pinOrSkewerPoint(fenBefore, bestUci) ??
-			discoveredPoint(fenBefore, bestUci) ??
-			trappedPoint(fenBefore, bestUci);
-		if (!out.bestPoint && bestPv.length > 1) {
-			const { net, plies } = quietMaterialOverLine(fenBefore, bestPv.slice(0, 9));
-			if (net >= 2) {
-				out.bestPoint = `Instead, ${sanLine(fenBefore, bestPv, plies)} wins ${net} point${net === 1 ? '' : 's'} of material.`;
-			}
-		}
+		out.bestPoint = bestMovePoint(fenBefore, bestUci, bestPv);
 	}
 
 	return out;
+}
+
+// What the best move achieves, as a standalone sentence — the same detector
+// chain explainMove uses, exported so importers can backfill explanations.
+export function bestMovePoint(
+	fenBefore: string,
+	bestUci: string,
+	bestPv: string[]
+): string | undefined {
+	const point =
+		forkPoint(fenBefore, bestUci) ??
+		freeCapturePoint(fenBefore, bestUci) ??
+		pinOrSkewerPoint(fenBefore, bestUci) ??
+		discoveredPoint(fenBefore, bestUci) ??
+		trappedPoint(fenBefore, bestUci);
+	if (point) return point;
+	if (bestPv.length > 1) {
+		const { net, plies } = quietMaterialOverLine(fenBefore, bestPv.slice(0, 9));
+		if (net >= 2) {
+			return `Instead, ${sanLine(fenBefore, bestPv, plies)} wins ${net} point${net === 1 ? '' : 's'} of material.`;
+		}
+	}
+	return undefined;
+}
+
+// The motif vocabulary — which named facts a move exhibits. Used to tag
+// practice items ("drill only pins") and to phrase tier-1 hints without
+// giving the move away. Same never-wrong discipline: tags mirror exactly
+// what the prose detectors would claim.
+export type Motif =
+	| 'mate'
+	| 'fork'
+	| 'free capture'
+	| 'pin'
+	| 'skewer'
+	| 'discovered attack'
+	| 'trapped piece'
+	| 'material';
+
+export function motifTags(
+	fenBefore: string,
+	uci: string,
+	pv: string[],
+	mate: number | null
+): Motif[] {
+	const tags: Motif[] = [];
+	if (mate !== null && mate > 0) tags.push('mate');
+	if (forkPoint(fenBefore, uci)) tags.push('fork');
+	if (freeCapturePoint(fenBefore, uci)) tags.push('free capture');
+	const ps = pinOrSkewerPoint(fenBefore, uci);
+	if (ps) tags.push(ps.includes('skewers') ? 'skewer' : 'pin');
+	if (discoveredPoint(fenBefore, uci)) tags.push('discovered attack');
+	if (trappedPoint(fenBefore, uci)) tags.push('trapped piece');
+	if (
+		tags.length === 0 &&
+		pv.length > 1 &&
+		quietMaterialOverLine(fenBefore, pv.slice(0, 9)).net >= 2
+	) {
+		tags.push('material');
+	}
+	return tags;
 }
 
 // Why a GOOD move is good — same detectors, pointed at the played move itself.

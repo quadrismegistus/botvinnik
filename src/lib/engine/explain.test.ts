@@ -4,6 +4,7 @@ import {
 	explainGoodMove,
 	explainMove,
 	materialOverLine,
+	motifTags,
 	pinOrSkewerPoint,
 	summarizeLine,
 	trappedPoint
@@ -145,6 +146,23 @@ describe('trappedPoint', () => {
 		// no rook on a8: b8 is free
 		const fen = '6k1/b7/8/PP6/8/8/8/6K1 w - - 0 1';
 		expect(trappedPoint(fen, 'b5b6')).toBeUndefined();
+	});
+});
+
+describe('motifTags', () => {
+	it('tags a pin', () => {
+		const fen = 'rnbqkb1r/ppp2ppp/4pn2/3p4/2PP4/2N5/PP2PPPP/R1BQKBNR w KQkq - 0 4';
+		expect(motifTags(fen, 'c1g5', ['c1g5'], null)).toEqual(['pin']);
+	});
+
+	it('tags a free capture and mate together', () => {
+		const fen = 'k7/3q4/8/8/8/8/3R4/K7 w - - 0 1';
+		expect(motifTags(fen, 'd2d7', ['d2d7', 'a8b8'], 5)).toEqual(['mate', 'free capture']);
+	});
+
+	it('returns no tags for a quiet developing move', () => {
+		const START = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+		expect(motifTags(START, 'e2e4', ['e2e4', 'e7e5', 'g1f3'], null)).toEqual([]);
 	});
 });
 
