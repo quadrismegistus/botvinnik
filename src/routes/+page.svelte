@@ -89,20 +89,26 @@
 	// below this the sidebar can't sit beside the board: phone/narrow layout —
 	// board pinned at the top, panels live as tabs in a draggable bottom sheet
 	const isNarrow = $derived(viewportW < 860);
+
+	// bottom-sheet shell (narrow layout only)
+	type SheetDetent = 'peek' | 'half' | 'full';
 	const SHEET_PEEK = 64; // collapsed sheet: grab handle + tab strip
+	let sheetDetent: SheetDetent = $state('peek');
+	let sheetTab = $state('insights');
+	// the board shrinks so the sheet's resting position never hides a rank.
+	// 'full' sizes like 'half': the sheet covers the board region there anyway,
+	// and resizing to a thumbnail behind it helps nobody
+	const sheetRestH = $derived(
+		sheetDetent === 'peek' ? SHEET_PEEK : Math.round(viewportH * 0.5)
+	);
 	const boardSize = $derived(
 		isNarrow
-			? Math.min(viewportW - 16, viewportH - SHEET_PEEK - 44)
+			? Math.max(200, Math.min(viewportW - 16, viewportH - sheetRestH - 44))
 			: Math.max(
 					360,
 					Math.min(viewportH - CHROME_V, viewportW - (panelsHidden ? 120 : SIDEBAR_MIN + 60))
 				)
 	);
-
-	// bottom-sheet shell (narrow layout only)
-	type SheetDetent = 'peek' | 'half' | 'full';
-	let sheetDetent: SheetDetent = $state('peek');
-	let sheetTab = $state('insights');
 	const narrowTabs = $derived.by(() => {
 		if (mode === 'practice') return [{ id: 'practice', label: 'Practice' }];
 		if (mode === 'review')
