@@ -65,11 +65,21 @@ Shipped so far:
   buys nothing), so the movetime knot is gone and the slider caps at **2800**
   (the honest ceiling); (2) the 900→1100 "+236" kink was a 3/40 tail sample
   — an 80-game re-measure put the real gap at 283 (+83, ~1σ, within
-  tolerance), so no knot changed. REMAINING (one item, needs judgment):
-  re-measure all knots on the app's real WASM lite-single via `--engine` +
-  a node UCI wrapper (the native big-net is stronger, so 2800 is generous
-  and the absolute scale shifts down on the small net). Continuation
-  protocol in project memory.
+  tolerance), so no knot changed.
+  **WASM SUBSTRATE CALIBRATED (5cf16ff) — both engines now honest.** The app
+  runs two engines: native (desktop/Tauri, big net) and Stockfish.js (web,
+  small lite-single net), so botRecipe holds two measured knot tables behind
+  `setBotSubstrate()` — web defaults wasm, Tauri flips to native. The WASM
+  table was measured on the app's real engine (scripts/wasm-engine runs
+  static/wasm/stockfish.js as a node UCI process — the build has node mode
+  built in; the flaky drop-bestmoves shim was the separate npm cli.js). The
+  sampler knots come from a 2,600-game high-N ladder (sampler games are ~free
+  at 2000/min): requested 700–2100 lands within ±32 of nominal, floor ~90
+  (eloMin 100), seam at 2485. The UCI_Elo top band (2485–2800, movetime-bound
+  = expensive) stays n=40-soft — least label-sensitive region. Per-engine
+  absolute scales are each honest but not cross-comparable (different nets).
+  Bot ELO calibration is now COMPLETE for both substrates. Lesson banked in
+  project memory: calibrate the free (sampler) bands at high N, not n=40.
 - **File System Access autosave** — beyond Export/Import: write backups
   directly to a user-chosen local file (Chromium-only).
 - **Engine settings panel** — a small "Engine" section (sidebar SidePanel,
