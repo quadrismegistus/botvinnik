@@ -13,6 +13,7 @@ import type { EngineResult } from './stockfish';
 // same settled-exchange counting the move explanations use.
 
 export interface Threat {
+	fen: string; // the position the threat belongs to — display must check it still matches
 	uci: string;
 	san: string;
 	gain: number; // material the threatening side nets, in pawns (Infinity = mate)
@@ -70,7 +71,7 @@ export async function findThreat(
 
 	// mate for the threatening side (side to move in the flipped position)
 	if (best.mate !== null && best.mate > 0) {
-		return { uci: best.pv[0], san: getSan(nullFen, best.pv[0]) ?? best.pv[0], gain: Infinity };
+		return { fen, uci: best.pv[0], san: getSan(nullFen, best.pv[0]) ?? best.pv[0], gain: Infinity };
 	}
 
 	// settle the exchange over the engine's line; net is from the mover's
@@ -79,5 +80,5 @@ export async function findThreat(
 	const net = quiet.plies > 0 ? quiet.net : materialOverLine(nullFen, best.pv);
 	if (net < MIN_GAIN) return null;
 
-	return { uci: best.pv[0], san: getSan(nullFen, best.pv[0]) ?? best.pv[0], gain: net };
+	return { fen, uci: best.pv[0], san: getSan(nullFen, best.pv[0]) ?? best.pv[0], gain: net };
 }

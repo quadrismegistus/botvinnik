@@ -29,6 +29,7 @@ describe('findThreat', () => {
 		expect(t!.uci).toBe('e6d5');
 		expect(t!.san).toBe('exd5');
 		expect(t!.gain).toBe(3);
+		expect(t!.fen).toBe(fen); // tagged with the original position, not the flipped probe
 		// probed the flipped (Black-to-move) position, not the original
 		expect(analyze.seen[0]).toContain(' b ');
 	});
@@ -58,9 +59,9 @@ describe('findThreat', () => {
 	});
 
 	it('returns null on a finished game', async () => {
-		const fen = '4k3/8/8/8/8/8/8/4K3 w - - 0 1'; // bare kings, drawn/dead but not "over" per rules
+		const fen = '4k3/8/8/8/8/8/8/4K3 w - - 0 1'; // bare kings → insufficient material → over
 		const analyze = fakeAnalyze([]);
-		// engine yields no move → no threat
 		expect(await findThreat(fen, analyze)).toBeNull();
+		expect(analyze.seen).toHaveLength(0); // bailed on isGameOver, before ever probing
 	});
 });

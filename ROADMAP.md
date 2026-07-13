@@ -96,6 +96,16 @@ Shipped so far:
   best-effort but the shell has never been run there; confirm the Rust
   sidecar bridge spawns stockfish.exe and analysis reaches the UI, then drop
   the "unverified" caveat.
+- **Review-UI polish** (nits from the 2026-07-13 code review):
+  - `WinChanceChart` clips its classification dots (r=4) at extreme win
+    chances — the redesign dropped the vertical padding and the frame is
+    `overflow: hidden`; the tooltip clamp also assumes ≥120px chart width.
+  - The review move table (`.rv-table`, 220px max-height) doesn't scroll the
+    selected move into view when stepping with ‹/›, so mid-game the
+    highlight goes offscreen.
+  - `findThreat`'s fallback to raw `materialOverLine` (when no ply of the PV
+    is "settled") can overcredit a line that ends mid-exchange; rare at
+    depth 14 but it's the one heuristic seam in threat detection.
 
 ## Design notes / known quirks
 
@@ -112,5 +122,14 @@ Shipped so far:
 - Material claims in explanations count captures only up to the last quiet
   ply and quote exactly the counted window — never trust a PV material count
   that ends mid-exchange.
+- **The engine is a single-slot supersede queue** (`queueSearch` in
+  stockfish.ts): a new request resolves any *pending* request empty and
+  `stop`s the *running* one. Anything that fires a background search after
+  analysis settles must mind the ordering — the threat probe once landed a
+  few ms after `analyzeBotMove` and stopped the bot's calibrated 400ms
+  search mid-think (found in the 2026-07-13 review; `computeThreat` now
+  skips positions where the bot is about to reply). Threat arrows are also
+  fen-tagged: display checks `threat.fen === game.fen` so a stale arrow
+  can't survive a move while the next probe is still running.
 - localhost and the deployed site are separate origins with separate
   storage; Export/Import data is the bridge.

@@ -453,13 +453,17 @@
 	}
 
 	// after the main analysis settles, probe what the opponent threatens (a
-	// null-move search) on the same engine — the position's own search is done,
-	// so this doesn't compete with it; a new move supersedes via the token
+	// null-move search) on the same engine. NEVER when the bot is about to
+	// reply: the engine is a single-slot supersede queue, so the probe would
+	// `stop` the bot's strength-limited search a few ms in and wreck its ELO
+	// calibration — and the position is transient anyway; the probe runs once
+	// the bot has moved and that analysis settles.
 	async function computeThreat(token: number, fen: string) {
 		if (!showThreats || blindMode || (mode !== 'play' && mode !== 'review')) {
 			threat = null;
 			return;
 		}
+		if (botEnabled && mode === 'play' && !game.isGameOver && game.turn === botColor) return;
 		const t = await findThreat(fen, analyze, { depth: 14, movetimeMs: 500 });
 		if (token === analysisToken) threat = t;
 	}
@@ -884,10 +888,11 @@
 		if (blindMode) return [];
 		return showArrows ? topMoves : [];
 	});
-	// the opponent's threat (null-move probe), drawn as a warning arrow
+	// the opponent's threat (null-move probe), drawn as a warning arrow; gated
+	// on the fen it was computed for, so a stale arrow never survives a move
 	const threatArrow = $derived.by(() => {
 		if (!showThreats || blindMode || mode === 'practice') return null;
-		return threat?.uci ?? null;
+		return threat && threat.fen === game.fen ? threat.uci : null;
 	});
 	// hints the panels/tree see — blanked in blind mode so nothing leaks
 	const visibleLines = $derived(blindMode && mode === 'play' ? [] : engineMoves);
