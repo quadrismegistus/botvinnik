@@ -46,7 +46,8 @@
 
 			<label class="row">
 				<span class="label">Strength</span>
-				<input type="range" min="100" max="3600" step="50" bind:value={elo} />
+				<!-- 3000 is the strongest CALIBRATED setting (UCI_Elo 3190 @ 1s) -->
+				<input type="range" min="100" max="3000" step="50" bind:value={elo} />
 				<span class="elo">{elo}</span>
 			</label>
 		</div>
