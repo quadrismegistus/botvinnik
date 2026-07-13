@@ -57,14 +57,19 @@ Shipped so far:
   Raw data: data/bot-calibration.json (local, gitignored).
   **REDESIGN SHIPPED (5d47024):** botSpec maps requested ELO through
   measured knots — sampler (α 0.1→8, geometric interp) covers 100–2100
-  continuously, UCI_Elo (knob over its measured response, then movetime
-  400ms→1s) covers 2100–3000; Skill band deleted; slider caps at 3000.
-  Verification ladder: 10/12 rungs within noise of nominal, all monotone.
-  REMAINING: (a) refine the 900–1100 and 2400–2700 knot segments (bend
-  the bracketing knots' `e` values, re-verify only those rungs with
-  --pairs); (b) re-measure knots on the app's real WASM lite-single via
-  --engine + a node UCI wrapper (native big-net knots shift somewhat on
-  the small net). Full continuation protocol in project memory.
+  continuously, UCI_Elo covers the top; Skill band deleted.
+  **CALIBRATION CLOSED on native engine (9498d21):** the 560-game verify
+  ladder fit is monotonic with every rung's slope within n=40 noise of 1.0
+  once two flagged spots were resolved — (1) the 2700→3000 top rung bought
+  only ~+80 real Elo (engine saturated at UCI_Elo 3190; movetime stretch
+  buys nothing), so the movetime knot is gone and the slider caps at **2800**
+  (the honest ceiling); (2) the 900→1100 "+236" kink was a 3/40 tail sample
+  — an 80-game re-measure put the real gap at 283 (+83, ~1σ, within
+  tolerance), so no knot changed. REMAINING (one item, needs judgment):
+  re-measure all knots on the app's real WASM lite-single via `--engine` +
+  a node UCI wrapper (the native big-net is stronger, so 2800 is generous
+  and the absolute scale shifts down on the small net). Continuation
+  protocol in project memory.
 - **File System Access autosave** — beyond Export/Import: write backups
   directly to a user-chosen local file (Chromium-only).
 - **Engine settings panel** — a small "Engine" section (sidebar SidePanel,
