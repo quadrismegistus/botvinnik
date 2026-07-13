@@ -183,6 +183,14 @@ function forkPoint(fenBefore: string, uci: string) {
 	const m = apply(c, uci);
 	if (!m || m.piece === 'k') return undefined;
 	const to = m.to as Square;
+	// cook.py's bad-spot rule: no fork from a square where the forker itself
+	// is takeable — by a cheaper piece (recapture doesn't matter), or by
+	// anything at all when undefended. A king only counts in the undefended
+	// case: it can't legally capture a defended piece.
+	const them: Color = m.color === 'w' ? 'b' : 'w';
+	const hunters = c.attackers(to, them).map((sq) => c.get(sq)?.type ?? 'k');
+	if (hunters.some((t) => t !== 'k' && VAL[t] < VAL[m.piece])) return undefined;
+	if (hunters.length > 0 && c.attackers(to, m.color).length === 0) return undefined;
 	const targets: string[] = [];
 	for (const row of c.board()) {
 		for (const cell of row) {
@@ -274,7 +282,11 @@ export function pinOrSkewerPoint(fenBefore: string, uci: string): string | undef
 			} else if (p.type === 'k') {
 				return `${m.san} pins the ${NAME[first.type]} on ${first.sq} against the king.`;
 			} else if (VAL[p.type] > VAL[first.type]) {
-				if (wins) {
+				// a pawn on a file-ray isn't pinned in any useful sense: its
+				// pushes stay on the ray, so nothing behind it is ever exposed
+				// (only its captures are restrained)
+				const pawnOnFile = first.type === 'p' && dir[0] === 0;
+				if (wins && !pawnOnFile) {
 					return `${m.san} pins the ${NAME[first.type]} on ${first.sq} against the ${NAME[p.type]} on ${s}.`;
 				}
 			} else if (first.type === 'q' && VAL[m.piece] < 9 && VAL[p.type] >= 3 && wins) {
@@ -323,18 +335,62 @@ export function discoveredPoint(fenBefore: string, uci: string): string | undefi
 	return undefined;
 }
 
-// After `uci`, an enemy piece is attacked by something cheaper and has no safe
-// square: every escape is guarded (by a cheaper piece, or undefended into a
-// capture), and no escape grabs equal-or-better material.
+// After `uci`, an enemy piece is attacked (forced) and has no safe square:
+// every escape is guarded (by a cheaper piece, or undefended into a capture),
+// and no escape grabs equal-or-better material. The trap must be NEW — a piece
+// that was already trapped before the move isn't something this move did.
 export function trappedPoint(fenBefore: string, uci: string): string | undefined {
 	const c = new Chess(fenBefore);
 	const m = apply(c, uci);
 	if (!m) return undefined;
 	const us = m.color;
-	const minAttackerVal = (sq: Square, by: Color): number => {
-		const vals = c.attackers(sq, by).map((a) => VAL[c.get(a)?.type ?? 'k']);
-		return vals.length ? Math.min(...vals) : Infinity;
+	const them: Color = us === 'w' ? 'b' : 'w';
+
+	const isTrappedOn = (board: Chess, sq: Square, type: string): boolean => {
+		// cheapest NON-KING attacker (VAL['k'] is 0, which would wrongly make
+		// the king the cheapest hunter — a king can only ever take an
+		// undefended piece, so it's handled through the defender counts)
+		const attackerTypes = (s: Square, by: Color): string[] =>
+			board.attackers(s, by).map((a) => board.get(a)?.type ?? 'k');
+		const minAttackerVal = (s: Square, by: Color): number => {
+			const vals = attackerTypes(s, by)
+				.filter((t) => t !== 'k')
+				.map((t) => VAL[t]);
+			return vals.length ? Math.min(...vals) : Infinity;
+		};
+		// forced: a cheaper piece attacks it, or it's attacked at all (king
+		// included) while undefended
+		const forced =
+			minAttackerVal(sq, us) < VAL[type] ||
+			(attackerTypes(sq, us).length > 0 && board.attackers(sq, them).length === 0);
+		if (!forced) return false;
+		const escapes = board.moves({ square: sq, verbose: true });
+		return escapes.every((e) => {
+			const grabbed = board.get(e.to as Square);
+			if (grabbed && grabbed.color === us && VAL[grabbed.type] >= VAL[type]) {
+				return false; // escapes with equal-or-better material — not trapped
+			}
+			if (attackerTypes(e.to as Square, us).length === 0) return false; // a genuinely safe square
+			if (minAttackerVal(e.to as Square, us) < VAL[type]) return true; // guarded by something cheaper
+			// guarded by equal/greater value (or only the king): only unsafe if
+			// nothing recaptures
+			const defenders = board.attackers(e.to as Square, them).filter((d) => d !== sq);
+			return defenders.length === 0;
+		});
 	};
+
+	// pre-move board with the victim's side to move, so escapes generate.
+	// (Flipping the turn is safe: the mover's opponent is never in check before
+	// the mover moves; en passant is voided like the threat probe does.)
+	let pre: Chess | null = null;
+	try {
+		const parts = fenBefore.split(' ');
+		parts[1] = them;
+		parts[3] = '-';
+		pre = new Chess(parts.join(' '));
+	} catch {
+		pre = null;
+	}
 
 	// most valuable first — "traps the queen" beats "traps the knight"
 	const candidates: { sq: Square; type: string }[] = [];
@@ -348,22 +404,10 @@ export function trappedPoint(fenBefore: string, uci: string): string | undefined
 	candidates.sort((a, b) => VAL[b.type] - VAL[a.type]);
 
 	for (const x of candidates) {
-		if (minAttackerVal(x.sq, us) >= VAL[x.type]) continue; // no cheap attacker: not forced
-		const escapes = c.moves({ square: x.sq, verbose: true });
-		const allUnsafe = escapes.every((e) => {
-			const grabbed = c.get(e.to as Square);
-			if (grabbed && grabbed.color === us && VAL[grabbed.type] >= VAL[x.type]) {
-				return false; // escapes with equal-or-better material — not trapped
-			}
-			const attackerVal = minAttackerVal(e.to as Square, us);
-			if (attackerVal === Infinity) return false; // a genuinely safe square
-			if (attackerVal < VAL[x.type]) return true; // guarded by something cheaper
-			// guarded by equal/greater value: only unsafe if nothing recaptures
-			const them: Color = us === 'w' ? 'b' : 'w';
-			const defenders = c.attackers(e.to as Square, them).filter((d) => d !== x.sq);
-			return defenders.length === 0;
-		});
-		if (allUnsafe) {
+		if (!isTrappedOn(c, x.sq, x.type)) continue;
+		// only claim traps this move created — and if the pre-move probe can't
+		// be built, claim nothing rather than risk misattribution
+		if (pre && !isTrappedOn(pre, x.sq, x.type)) {
 			return `${m.san} traps the ${NAME[x.type]} on ${x.sq} — it has no safe square.`;
 		}
 	}
@@ -488,7 +532,9 @@ export type Motif =
 
 // Bump whenever a detector's semantics change so stored practice tags get
 // recomputed on load. 2: pins/skewers require a profitable capture behind.
-export const MOTIF_TAGS_VERSION = 2;
+// 3: forker must not be en prise; no file-pins of pawns against non-kings;
+// trapped-piece escapes attacked only by the king count as safe when defended.
+export const MOTIF_TAGS_VERSION = 3;
 
 export function motifTags(
 	fenBefore: string,

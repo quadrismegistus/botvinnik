@@ -112,10 +112,23 @@ describe('pinOrSkewerPoint', () => {
 	});
 
 	it('pins a pawn against an UNDEFENDED knight — the capture behind pays', () => {
-		const fen = '1n5k/8/8/1p6/8/8/8/1Q5K w - - 0 1';
-		expect(pinOrSkewerPoint(fen, 'b1b3')).toBe(
-			'Qb3 pins the pawn on b5 against the knight on b8.'
+		// diagonal ray, so the pawn's push would genuinely expose the knight
+		const fen = '7k/8/4n3/3p4/8/8/8/5B1K w - - 0 1';
+		expect(pinOrSkewerPoint(fen, 'f1c4')).toBe(
+			'Bc4 pins the pawn on d5 against the knight on e6.'
 		);
+	});
+
+	it('never calls a pawn on a file-ray pinned — its pushes stay on the ray', () => {
+		// same undefended knight behind, but on the b-FILE: pushing b5-b4 keeps
+		// blocking, so nothing is ever exposed
+		const fen = '1n5k/8/8/1p6/8/8/8/1Q5K w - - 0 1';
+		expect(pinOrSkewerPoint(fen, 'b1b3')).toBeUndefined();
+	});
+
+	it('still calls a file-pinned pawn pinned against its KING (captures are illegal)', () => {
+		const fen = '1k6/8/8/1p6/8/8/8/1Q5K w - - 0 1';
+		expect(pinOrSkewerPoint(fen, 'b1b3')).toBe('Qb3 pins the pawn on b5 against the king.');
 	});
 
 	it('does not check-skewer when the piece behind the king is defended and dearer to take', () => {
@@ -167,6 +180,20 @@ describe('trappedPoint', () => {
 		const fen = '6k1/b7/8/PP6/8/8/8/6K1 w - - 0 1';
 		expect(trappedPoint(fen, 'b5b6')).toBeUndefined();
 	});
+
+	it('an escape attacked only by the king but defended is SAFE, not trapped', () => {
+		// b4 hits the a5 knight; b7/c6/c4 are covered, but b3 is guarded only by
+		// the white king and the a4 pawn defends it — Nb3 survives (Kxb3 is
+		// illegal against a defended piece)
+		const fen = '1R6/6k1/8/n2P4/p7/1P1P4/1K6/8 w - - 0 1';
+		expect(trappedPoint(fen, 'b3b4')).toBeUndefined();
+	});
+
+	it('an escape attacked only by the king and UNDEFENDED is unsafe — trapped', () => {
+		// same position without the a4 pawn: the king simply takes on b3
+		const fen = '1R6/6k1/8/n2P4/8/1P1P4/1K6/8 w - - 0 1';
+		expect(trappedPoint(fen, 'b3b4')).toBe('b4 traps the knight on a5 — it has no safe square.');
+	});
 });
 
 describe('motifTags', () => {
@@ -183,6 +210,19 @@ describe('motifTags', () => {
 	it('returns no tags for a quiet developing move', () => {
 		const START = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
 		expect(motifTags(START, 'e2e4', ['e2e4', 'e7e5', 'g1f3'], null)).toEqual([]);
+	});
+
+	it('does not call it a fork when the forker itself can be taken by a pawn', () => {
+		// Nd5 "forks" the c7 queen and f6 rook, but exd5 just removes the knight
+		const fen = '7k/2q5/4pr2/8/5N2/8/8/7K w - - 0 1';
+		expect(motifTags(fen, 'f4d5', ['f4d5'], null)).toEqual([]);
+	});
+
+	it('still tags a fork when the forker is defended and nothing cheaper attacks it', () => {
+		// Nd5 (guarded by the e4 pawn, hunted only by the equal-value b4 knight)
+		// forks the queen and the rook
+		const fen = '7k/2q5/5r2/8/1n2PN2/8/8/7K w - - 0 1';
+		expect(motifTags(fen, 'f4d5', ['f4d5'], null)).toContain('fork');
 	});
 });
 

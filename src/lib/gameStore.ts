@@ -1,7 +1,7 @@
 // Finished-game archive in IndexedDB: PGN plus the per-move grades, labels and
 // explanations the app computed while the game was played.
 
-import type { Explanation } from './engine/explain';
+import { bestMovePoint, type Explanation } from './engine/explain';
 import type { MoveLabel } from './engine/insights';
 import { GAMES_STORE, openDb } from './engine/db';
 
@@ -91,6 +91,47 @@ export async function listGames(): Promise<StoredGame[]> {
 			resolve([]);
 		}
 	});
+}
+
+// Stored explanation prose is frozen at analysis time, so when a detector's
+// rules tighten, already-saved sentences can claim motifs the detectors no
+// longer stand behind. Re-verify the claim families whose rules have changed
+// (fork / pin / skewer) against the current detectors and rewrite or drop the
+// sentence. Only bestPoint/playedPoint can carry these claims, and their
+// detectors need nothing beyond fenBefore + the move — the material fallback
+// (which needs the full PV) can't fire with a 1-move line, so a dead claim
+// falls through to the remaining detectors or is dropped, never invented.
+const STALE_CLAIM = / (?:forks|pins|skewers) the /;
+
+export function sanitizeExplanations(games: StoredGame[]): StoredGame[] {
+	const changed: StoredGame[] = [];
+	for (const g of games) {
+		let dirty = false;
+		for (const m of g.moves) {
+			const e = m.explanation;
+			if (!e) continue;
+			for (const field of ['bestPoint', 'playedPoint'] as const) {
+				const text = e[field];
+				if (!text || !STALE_CLAIM.test(text)) continue;
+				const uci = field === 'bestPoint' ? m.bestUci : m.uci;
+				const fresh = uci ? bestMovePoint(m.fenBefore, uci, [uci]) : undefined;
+				if (fresh === text) continue; // the claim still holds verbatim
+				if (fresh) e[field] = fresh;
+				else delete e[field];
+				dirty = true;
+			}
+		}
+		if (dirty) changed.push(g);
+	}
+	return changed;
+}
+
+// run the re-verify pass over loaded games and persist whatever it corrected;
+// returns how many games were rewritten
+export async function sanitizeStoredExplanations(games: StoredGame[]): Promise<number> {
+	const changed = sanitizeExplanations(games);
+	for (const g of changed) await saveGame(g);
+	return changed.length;
 }
 
 export async function deleteGame(id: string): Promise<void> {

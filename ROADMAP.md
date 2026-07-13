@@ -122,6 +122,17 @@ Shipped so far:
 - Material claims in explanations count captures only up to the last quiet
   ply and quote exactly the counted window — never trust a PV material count
   that ends mid-exchange.
+- Motif detector invariants (2026-07-13 hardening): a fork/pin/skewer claim
+  must survive "so what does the opponent just do?" — the forker can't be en
+  prise, the piece behind a pin/skewer must be profitably takeable, a pawn is
+  never file-pinned against a non-king (its pushes stay on the ray), a king
+  is never a "cheapest attacker" (VAL['k']=0 — it only takes undefended
+  pieces), and "traps" claims require the trap to be NEW (pre-move probe with
+  the turn flipped). Detector semantics changes must bump MOTIF_TAGS_VERSION
+  (re-tags practice items on load) — stored GAME prose is separately
+  re-verified by `sanitizeExplanations` (gameStore), which re-runs the
+  fork/pin/skewer detectors over saved sentences on every load and rewrites
+  or drops what no longer holds.
 - **The engine is a single-slot supersede queue** (`queueSearch` in
   stockfish.ts): a new request resolves any *pending* request empty and
   `stop`s the *running* one. Anything that fires a background search after

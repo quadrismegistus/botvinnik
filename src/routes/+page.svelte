@@ -24,6 +24,7 @@
 		gameAccuracy,
 		labelCounts,
 		listGames,
+		sanitizeStoredExplanations,
 		saveGame,
 		type StoredGame,
 		type StoredMove
@@ -348,7 +349,12 @@
 		blindMode = localStorage.getItem('botvinnik-blind') === '1';
 		showThreats = localStorage.getItem('botvinnik-threats') !== '0';
 		botSettingsLoaded = true;
-		void listGames().then((g) => (storedGames = g));
+		// re-verify stored fork/pin/skewer prose against the current detectors
+		// BEFORE handing the games to $state (plain objects → safe IDB puts)
+		void listGames().then(async (g) => {
+			await sanitizeStoredExplanations(g);
+			storedGames = g;
+		});
 	});
 
 	$effect(() => {
