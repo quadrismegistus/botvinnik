@@ -195,19 +195,54 @@
 		width: 100%;
 		height: 100%;
 	}
-	/* square-control tint (chessground highlight.custom classes) */
+	/* square-control tint (chessground highlight.custom classes). The tint
+	   sets `background`, which chessground's own square signals (move-dest
+	   dots, selection, last-move) also use — so every combination re-stacks
+	   the signal ON TOP of the tint as a multi-background. */
 	.board :global(cg-board square.ctrl-us) {
-		background: radial-gradient(
+		--ctrl-tint: radial-gradient(
 			circle,
 			rgba(129, 182, 76, 0.38) 0%,
 			rgba(129, 182, 76, 0.14) 100%
 		);
+		background: var(--ctrl-tint);
 	}
 	.board :global(cg-board square.ctrl-them) {
-		background: radial-gradient(
+		--ctrl-tint: radial-gradient(
 			circle,
 			rgba(202, 52, 49, 0.38) 0%,
 			rgba(202, 52, 49, 0.14) 100%
 		);
+		background: var(--ctrl-tint);
+	}
+	.board :global(cg-board square.move-dest.ctrl-us),
+	.board :global(cg-board square.move-dest.ctrl-them) {
+		background:
+			radial-gradient(rgba(20, 85, 30, 0.5) 22%, #208530 0, rgba(0, 0, 0, 0.3) 0, rgba(0, 0, 0, 0) 0),
+			var(--ctrl-tint);
+	}
+	.board :global(cg-board square.oc.move-dest.ctrl-us),
+	.board :global(cg-board square.oc.move-dest.ctrl-them) {
+		background:
+			radial-gradient(transparent 0%, transparent 80%, rgba(20, 85, 0, 0.3) 80%),
+			var(--ctrl-tint);
+	}
+	.board :global(cg-board square.move-dest.ctrl-us:hover),
+	.board :global(cg-board square.move-dest.ctrl-them:hover) {
+		background:
+			linear-gradient(rgba(20, 85, 30, 0.3), rgba(20, 85, 30, 0.3)),
+			var(--ctrl-tint);
+	}
+	.board :global(cg-board square.selected.ctrl-us),
+	.board :global(cg-board square.selected.ctrl-them) {
+		background:
+			linear-gradient(rgba(20, 85, 30, 0.5), rgba(20, 85, 30, 0.5)),
+			var(--ctrl-tint);
+	}
+	.board :global(cg-board square.last-move.ctrl-us),
+	.board :global(cg-board square.last-move.ctrl-them) {
+		background:
+			linear-gradient(rgba(155, 199, 0, 0.41), rgba(155, 199, 0, 0.41)),
+			var(--ctrl-tint);
 	}
 </style>
