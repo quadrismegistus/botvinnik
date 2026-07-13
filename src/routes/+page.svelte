@@ -2,6 +2,7 @@
 	import { onMount, untrack } from 'svelte';
 	import { botDelay, selectBotMove } from '$lib/bot';
 	import Board from '$lib/components/Board.svelte';
+	import MaterialBar from '$lib/components/MaterialBar.svelte';
 	import BottomSheet from '$lib/components/BottomSheet.svelte';
 	import BotPanel from '$lib/components/BotPanel.svelte';
 	import AnalysisPanel from '$lib/components/AnalysisPanel.svelte';
@@ -69,12 +70,14 @@
 	let showArrows = $state(true);
 	let lastMove: [string, string] | null = $state(null);
 	let panelsHidden = $state(false);
-	let treeOpen = $state(true);
+	// sidebar panels collapse by default (only Insights stays open); contextual
+	// actions still auto-open the relevant panel (e.g. starting practice)
+	let treeOpen = $state(false);
 	let bookOpen = $state(false);
 	let wcChartOpen = $state(false);
 	let practiceOpen = $state(false);
 	let gamesOpen = $state(false);
-	let commentaryOpen = $state(true);
+	let commentaryOpen = $state(false);
 	let commentary: CommentaryEntry[] = $state([]);
 
 	// human commentary for the position on the board (placement-keyed, lazy-loaded)
@@ -96,6 +99,7 @@
 	// which soaks up the remaining width
 	const TREE_HEIGHT = 200; // LinesTree svg
 	const CHROME_V = 100; // page padding + title
+	const MATERIAL_H = 44; // the two material strips above & below the board
 	const SIDEBAR_MIN = 340; // sidebar min width + gap
 	// below this the sidebar can't sit beside the board: phone/narrow layout —
 	// board pinned at the top, panels live as tabs in a draggable bottom sheet
@@ -114,10 +118,13 @@
 	);
 	const boardSize = $derived(
 		isNarrow
-			? Math.max(200, Math.min(viewportW - 16, viewportH - sheetRestH - 44))
+			? Math.max(200, Math.min(viewportW - 16, viewportH - sheetRestH - 44 - MATERIAL_H))
 			: Math.max(
 					360,
-					Math.min(viewportH - CHROME_V, viewportW - (panelsHidden ? 120 : SIDEBAR_MIN + 60))
+					Math.min(
+						viewportH - CHROME_V - MATERIAL_H,
+						viewportW - (panelsHidden ? 120 : SIDEBAR_MIN + 60)
+					)
 				)
 	);
 	const narrowTabs = $derived.by(() => {
@@ -893,6 +900,9 @@
 		if (botEnabled) return botColor === 'w' ? 'black' : 'white'; // human's side up
 		return 'white';
 	});
+	// material strips: bottom = side facing the viewer, top = opponent
+	const bottomColor: 'w' | 'b' = $derived(boardOrientation === 'white' ? 'w' : 'b');
+	const topColor: 'w' | 'b' = $derived(boardOrientation === 'white' ? 'b' : 'w');
 	const boardLegalMoves = $derived.by(() => {
 		if (mode === 'review') return []; // read-only
 		if (pendingPromotion) return []; // waiting on the piece choice
@@ -1078,25 +1088,29 @@
 	<h1 class="title">Botvinnik</h1>
 
 	<div class="main">
-		<Board
-			fen={game.fen}
-			turn={game.turn}
-			legalMoves={boardLegalMoves}
-			orientation={boardOrientation}
-			engineMoves={boardArrows}
-			botArrow={botThinking ? botConsidering : null}
-			threatArrow={threatArrow}
-			control={controlMap}
-			refutationArrow={mode === 'practice' && attempt && !attempt.pass ? (attempt.refutationUci ?? null) : null}
-			hintSquare={mode === 'practice' && hintTier >= 2 && !attempt && practiceRef
-				? practiceRef.bestUci.slice(0, 2)
-				: null}
-			resetKey={boardResetKey}
-			{lastMove}
-			size={boardSize}
-			boundsKey={panelsHidden}
-			onmove={handleMove}
-		/>
+		<div class="board-col" style:width="{boardSize}px">
+			<MaterialBar fen={game.fen} color={topColor} />
+			<Board
+				fen={game.fen}
+				turn={game.turn}
+				legalMoves={boardLegalMoves}
+				orientation={boardOrientation}
+				engineMoves={boardArrows}
+				botArrow={botThinking ? botConsidering : null}
+				threatArrow={threatArrow}
+				control={controlMap}
+				refutationArrow={mode === 'practice' && attempt && !attempt.pass ? (attempt.refutationUci ?? null) : null}
+				hintSquare={mode === 'practice' && hintTier >= 2 && !attempt && practiceRef
+					? practiceRef.bestUci.slice(0, 2)
+					: null}
+				resetKey={boardResetKey}
+				{lastMove}
+				size={boardSize}
+				boundsKey={panelsHidden}
+				onmove={handleMove}
+			/>
+			<MaterialBar fen={game.fen} color={bottomColor} />
+		</div>
 
 		{#if pendingPromotion}
 			{@const promoGlyphs =
@@ -1419,13 +1433,6 @@
 						{@render chartBody()}
 					</SidePanel>
 					<SidePanel
-						title="Commentary"
-						badge={commentary.length > 0 ? `${commentary.length} from YouTube` : ''}
-						bind:open={commentaryOpen}
-					>
-						{@render commentaryBody()}
-					</SidePanel>
-					<SidePanel
 						title="Practice"
 						badge={practiceItems.length > 0 ? `${practiceDue} due / ${practiceItems.length}` : ''}
 						bind:open={practiceOpen}
@@ -1438,6 +1445,14 @@
 						bind:open={gamesOpen}
 					>
 						{@render gamesBody()}
+					</SidePanel>
+					<!-- Commentary sits at the bottom: it's passive reference, not an action -->
+					<SidePanel
+						title="Commentary"
+						badge={commentary.length > 0 ? `${commentary.length} from YouTube` : ''}
+						bind:open={commentaryOpen}
+					>
+						{@render commentaryBody()}
 					</SidePanel>
 
 					{@render gameOverNote()}
@@ -1497,6 +1512,12 @@
 		flex-wrap: wrap;
 		justify-content: center;
 		width: 100%;
+	}
+	.board-col {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+		flex-shrink: 0;
 	}
 	.sidebar {
 		display: flex;

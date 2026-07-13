@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { ROOK_TAKES_QUEEN_ITEM, waitForApp } from './helpers';
+import { ROOK_TAKES_QUEEN_ITEM, waitForEngineReady } from './helpers';
 
 test('backup exports, imports into a fresh profile, and dedupes', async ({ browser }) => {
 	// context A: seeded data, export
@@ -9,7 +9,7 @@ test('backup exports, imports into a fresh profile, and dedupes', async ({ brows
 		localStorage.setItem('botvinnik-practice-v1', JSON.stringify([item]));
 	}, ROOK_TAKES_QUEEN_ITEM);
 	await pageA.goto('http://localhost:4399/');
-	await pageA.waitForSelector('.lines-tree svg g.node', { timeout: 90_000 });
+	await waitForEngineReady(pageA);
 
 	const [download] = await Promise.all([
 		pageA.waitForEvent('download'),
@@ -24,7 +24,7 @@ test('backup exports, imports into a fresh profile, and dedupes', async ({ brows
 	const b = await browser.newContext();
 	const pageB = await b.newPage();
 	await pageB.goto('http://localhost:4399/');
-	await pageB.waitForSelector('.lines-tree svg g.node', { timeout: 90_000 });
+	await waitForEngineReady(pageB);
 
 	await pageB.locator('.data-row input[type=file]').setInputFiles(file);
 	await expect(pageB.locator('.import-msg')).toContainText('Imported 1 practice position');

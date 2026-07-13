@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { openSidePanel, playMove, waitForApp } from './helpers';
+import { openSidePanel, playMove, waitForApp, waitForEngineReady } from './helpers';
 
 test('a finished game auto-saves and is reviewable with labels and explanations', async ({
 	page
@@ -33,7 +33,7 @@ test('a finished game auto-saves and is reviewable with labels and explanations'
 
 	// the archive survives a reload
 	await page.reload();
-	await page.waitForSelector('.lines-tree svg g.node', { timeout: 90_000 });
+	await waitForEngineReady(page);
 	await expect(page.locator('.side-panel .badge', { hasText: '1' }).first()).toBeVisible();
 
 	// and the stored PGN is a real game

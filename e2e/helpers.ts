@@ -1,12 +1,21 @@
 import type { Page } from '@playwright/test';
 
-// The SSR HTML renders before hydration — interactions before this resolve
-// are swallowed. The tree's playable nodes only exist after the engine's
-// first lines arrive, so this also proves the engine booted.
-export async function waitForApp(page: Page) {
-	await page.goto('/');
+// Hydrated + engine booted, on the CURRENT page (after any goto/reload).
+// Chessground renders its pieces only after mount → a safe "interactive"
+// signal. The Lines Tree collapses by default now, so open it: its playable
+// nodes only exist after the engine's first lines arrive, which also proves
+// the engine booted. Interactions before hydration are swallowed, hence the
+// piece wait before the click.
+export async function waitForEngineReady(page: Page) {
+	await page.waitForSelector('.board-wrap .board piece', { timeout: 90_000 });
+	await page.locator('.side-panel .title-btn', { hasText: 'Lines Tree' }).click();
 	await page.waitForSelector('.lines-tree svg g.node.playable', { timeout: 90_000 });
 	await page.waitForTimeout(300);
+}
+
+export async function waitForApp(page: Page) {
+	await page.goto('/');
+	await waitForEngineReady(page);
 }
 
 // click a board square by file (0 = a) and rank (1-8)
