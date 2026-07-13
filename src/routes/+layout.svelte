@@ -6,12 +6,17 @@
 	import { browser } from '$app/environment';
 	import { nativeTransport } from '$lib/engine/nativeTransport';
 	import { setEngineTransport } from '$lib/engine/stockfish';
+	import { setBotSubstrate } from '$lib/engine/botRecipe';
 	let { children }: { children: Snippet } = $props();
 
 	// inside the Tauri shell, the engine is a native Stockfish sidecar with a
-	// higher depth ceiling — the time slice is what actually bounds a search
+	// higher depth ceiling — the time slice is what actually bounds a search.
+	// The bot ELO mapping is engine-specific too (native plays much stronger
+	// than the web WASM build), so switch its knot table to match. This runs
+	// before the page script, so botEloMax() is correct when the slider mounts.
 	if (browser && '__TAURI_INTERNALS__' in window) {
 		setEngineTransport(nativeTransport, { depth: 30, movetimeMs: 4000 });
+		setBotSubstrate('native');
 	}
 </script>
 

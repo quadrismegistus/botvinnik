@@ -36,7 +36,13 @@ import os from 'node:os';
 import path from 'node:path';
 import { Chess } from 'chess.js';
 import { selectBotMove } from '../src/lib/bot';
-import { botResetOptions, parseSpec, specToRecipe } from '../src/lib/engine/botRecipe';
+import {
+	botResetOptions,
+	parseSpec,
+	setBotSubstrate,
+	specToRecipe,
+	type Substrate
+} from '../src/lib/engine/botRecipe';
 import type { EngineMove } from '../src/lib/engine/stockfish';
 
 // ---------- args ----------
@@ -71,7 +77,12 @@ const ENGINE = optStr('engine', NATIVE_CANDIDATES.find((p) => existsSync(p)) ?? 
 if (ENGINE.includes('node_modules')) {
 	console.warn(`WARNING: engine resolves inside node_modules (${ENGINE}) — the WASM CLI shim`);
 }
-console.log(`engine: ${ENGINE}`);
+// which knot table numeric ids map through (bare-number ids → botSpec). The
+// harness measures the two substrates separately: native SF by default, the
+// app's WASM build when pointed at scripts/wasm-engine via --substrate wasm.
+const SUBSTRATE = optStr('substrate', 'native') as Substrate;
+setBotSubstrate(SUBSTRATE);
+console.log(`engine: ${ENGINE} · substrate: ${SUBSTRATE}`);
 const SEARCH_TIMEOUT_MS = 60_000;
 const OUT = optStr('out', 'data/bot-calibration.json');
 const STATE = `${OUT}.state.json`;

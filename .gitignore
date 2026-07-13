@@ -36,3 +36,4 @@ src-tauri/gen/
 # Playwright
 /test-results
 /playwright-report
+scripts/wasm-engine/

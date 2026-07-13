@@ -3,6 +3,8 @@
 		enabled: boolean;
 		color: 'w' | 'b'; // side the bot plays
 		elo: number;
+		minElo?: number; // honest floor for the active engine (wasm sampler bottoms out)
+		maxElo?: number; // honest ceiling for the active engine (wasm vs native)
 		thinking: boolean;
 		startOpen?: boolean;
 	}
@@ -11,6 +13,8 @@
 		enabled = $bindable(),
 		color = $bindable(),
 		elo = $bindable(),
+		minElo = 100,
+		maxElo = 2800,
 		thinking,
 		startOpen = true
 	}: Props = $props();
@@ -46,9 +50,10 @@
 
 			<label class="row">
 				<span class="label">Strength</span>
-				<!-- 2800 is the honest ceiling: above it the engine is saturated
-				     (UCI_Elo 3190) and buys no real strength — see botRecipe.ts -->
-				<input type="range" min="100" max="2800" step="50" bind:value={elo} />
+				<!-- min/max are the active engine's honest floor & ceiling
+				     (botEloMin/botEloMax): the web WASM sampler bottoms out
+				     near 250, native reaches 100 — see botRecipe.ts -->
+				<input type="range" min={minElo} max={maxElo} step="50" bind:value={elo} />
 				<span class="elo">{elo}</span>
 			</label>
 		</div>
