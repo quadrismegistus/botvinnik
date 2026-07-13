@@ -55,6 +55,16 @@ Shipped so far:
   verify; eventually rerun with the app's actual WASM lite-single via
   `--engine` (the native big net inflates the fixed-depth bands somewhat).
   Raw data: data/bot-calibration.json (local, gitignored).
+  **REDESIGN SHIPPED (5d47024):** botSpec maps requested ELO through
+  measured knots — sampler (α 0.1→8, geometric interp) covers 100–2100
+  continuously, UCI_Elo (knob over its measured response, then movetime
+  400ms→1s) covers 2100–3000; Skill band deleted; slider caps at 3000.
+  Verification ladder: 10/12 rungs within noise of nominal, all monotone.
+  REMAINING: (a) refine the 900–1100 and 2400–2700 knot segments (bend
+  the bracketing knots' `e` values, re-verify only those rungs with
+  --pairs); (b) re-measure knots on the app's real WASM lite-single via
+  --engine + a node UCI wrapper (native big-net knots shift somewhat on
+  the small net). Full continuation protocol in project memory.
 - **File System Access autosave** — beyond Export/Import: write backups
   directly to a user-chosen local file (Chromium-only).
 - **Engine settings panel** — a small "Engine" section (sidebar SidePanel,
