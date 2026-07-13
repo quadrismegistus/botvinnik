@@ -1,6 +1,6 @@
-import { Chess } from 'chess.js';
+import { Chess, type Square } from 'chess.js';
 import { getSan } from './chess';
-import { materialOverLine, quietMaterialOverLine } from './explain';
+import { PIECE_VAL, quietMaterialOverLine } from './explain';
 import type { EngineResult } from './stockfish';
 
 // A "threat" is what the side NOT to move would do if handed a free move — the
@@ -75,10 +75,28 @@ export async function findThreat(
 	}
 
 	// settle the exchange over the engine's line; net is from the mover's
-	// (the threatening side's) perspective, so a positive net means they win
+	// (the threatening side's) perspective, so a positive net means they win.
+	// A pv with NO quiet ply ends mid-exchange, and a raw material count over
+	// it credits captures the opponent recaptures just past the horizon (a
+	// 1-ply pv made "Nxf4" a threat against a queen-defended bishop) — fall
+	// back to a static guess on the first capture instead: profitable only if
+	// the victim is undefended or outvalues the capturer.
 	const quiet = quietMaterialOverLine(nullFen, best.pv);
-	const net = quiet.plies > 0 ? quiet.net : materialOverLine(nullFen, best.pv);
+	const net = quiet.plies > 0 ? quiet.net : staticFirstCaptureGain(nullFen, best.pv[0]);
 	if (net < MIN_GAIN) return null;
 
 	return { fen, uci: best.pv[0], san: getSan(nullFen, best.pv[0]) ?? best.pv[0], gain: net };
+}
+
+// what a lone capture nets when the line ends before the exchange settles:
+// the full victim if nobody defends it, else victim minus capturer (assume
+// the cheapest possible outcome — a recapture)
+function staticFirstCaptureGain(fen: string, uci: string): number {
+	const c = new Chess(fen);
+	const victimSq = uci.slice(2, 4) as Square;
+	const victim = c.get(victimSq);
+	const capturer = c.get(uci.slice(0, 2) as Square);
+	if (!victim || !capturer || victim.color === capturer.color) return 0;
+	if (c.attackers(victimSq, victim.color).length === 0) return PIECE_VAL[victim.type];
+	return PIECE_VAL[victim.type] - PIECE_VAL[capturer.type];
 }

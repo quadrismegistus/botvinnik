@@ -9,10 +9,17 @@
 		white: MoveGrade | null;
 		black: MoveGrade | null;
 		collectedPlies?: Set<number>;
+		orientation?: 'white' | 'black'; // main-board orientation, for the mini boards
 		startOpen?: boolean;
 	}
 
-	let { white, black, collectedPlies = new Set(), startOpen = true }: Props = $props();
+	let {
+		white,
+		black,
+		collectedPlies = new Set(),
+		orientation = 'white',
+		startOpen = true
+	}: Props = $props();
 	// svelte-ignore state_referenced_locally — startOpen is deliberately initial-only
 	let open = $state(startOpen);
 
@@ -39,7 +46,7 @@
 		}
 		return {
 			fen: g.fenBefore,
-			orientation: g.color === 'w' ? 'white' : 'black',
+			orientation,
 			viewOnly: true,
 			coordinates: false,
 			animation: { enabled: false },
@@ -77,14 +84,14 @@
 			{#if g.isBest}
 				<p>
 					You played
-					<LineHover fen={g.fenBefore} ucis={g.bestPv}><strong>{g.san}</strong></LineHover>
+					<LineHover fen={g.fenBefore} ucis={g.bestPv} {orientation}><strong>{g.san}</strong></LineHover>
 					— the best move ({fmtEval(g.evalPawns, g.mate)}, d{g.depth}).
 				</p>
 			{:else if g.pctBest !== null}
 				<p>
 					You played <strong>{g.san}</strong> ({fmtEval(g.evalPawns, g.mate)}),
 					<u>{g.pctBest.toFixed(0)}%</u> as good as the best move,
-					<LineHover fen={g.fenBefore} ucis={g.bestPv}><strong>{g.bestSan}</strong></LineHover>
+					<LineHover fen={g.fenBefore} ucis={g.bestPv} {orientation}><strong>{g.bestSan}</strong></LineHover>
 					({fmtEval(g.bestEval, g.bestMate)}, d{g.depth}).
 					{#if g.offList}Not in the engine's top {g.totalLines}.{/if}
 				</p>
@@ -92,14 +99,14 @@
 				<p>
 					You played <strong>{g.san}</strong> — outside the engine's top
 					{g.totalLines} moves, evaluating… Best was
-					<LineHover fen={g.fenBefore} ucis={g.bestPv}><strong>{g.bestSan}</strong></LineHover>
+					<LineHover fen={g.fenBefore} ucis={g.bestPv} {orientation}><strong>{g.bestSan}</strong></LineHover>
 					({fmtEval(g.bestEval, g.bestMate)}, d{g.depth}).
 				</p>
 			{/if}
 			{#if g.explanation?.playedPoint}
 				<p class="why">
 					{#if g.explanation.evidence}
-						<LineHover fen={g.explanation.evidence.fen} ucis={g.explanation.evidence.ucis}>
+						<LineHover fen={g.explanation.evidence.fen} ucis={g.explanation.evidence.ucis} {orientation}>
 							{g.explanation.playedPoint}
 						</LineHover>
 					{:else}
@@ -110,7 +117,7 @@
 			{#if g.explanation?.playedIssue}
 				<p class="why">
 					{#if g.explanation.evidence}
-						<LineHover fen={g.explanation.evidence.fen} ucis={g.explanation.evidence.ucis}>
+						<LineHover fen={g.explanation.evidence.fen} ucis={g.explanation.evidence.ucis} {orientation}>
 							{g.explanation.playedIssue}
 						</LineHover>
 					{:else}
@@ -120,13 +127,13 @@
 			{/if}
 			{#if g.explanation?.bestPoint}
 				<p class="why">
-					<LineHover fen={g.fenBefore} ucis={g.bestPv}>{g.explanation.bestPoint}</LineHover>
+					<LineHover fen={g.fenBefore} ucis={g.bestPv} {orientation}>{g.explanation.bestPoint}</LineHover>
 				</p>
 			{/if}
 			{#if g.explanation?.lineStory}
 				<p class="why">
 					{#if g.explanation.evidence}
-						<LineHover fen={g.explanation.evidence.fen} ucis={g.explanation.evidence.ucis}>
+						<LineHover fen={g.explanation.evidence.fen} ucis={g.explanation.evidence.ucis} {orientation}>
 							{g.explanation.lineStory}
 						</LineHover>
 					{:else}

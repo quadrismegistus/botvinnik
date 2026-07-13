@@ -7,10 +7,11 @@
 		moves: EngineMove[];
 		fen: string;
 		analyzing: boolean;
+		orientation?: 'white' | 'black'; // main-board orientation, for line previews
 		startOpen?: boolean;
 	}
 
-	let { moves, fen, analyzing, startOpen = true }: Props = $props();
+	let { moves, fen, analyzing, orientation = 'white', startOpen = true }: Props = $props();
 	// svelte-ignore state_referenced_locally — startOpen is deliberately initial-only
 	let open = $state(startOpen);
 
@@ -48,7 +49,7 @@
 				<div class="line" class:best={i === 0}>
 					<span class="rank">{i + 1}.</span>
 					<span class="score {scoreClass(move)}">{formatScore(move)}</span>
-					<LineHover {fen} ucis={move.pv}>
+					<LineHover {fen} ucis={move.pv} {orientation}>
 						<span class="san">{getSan(fen, move.pv[0])}</span>
 						<span class="pv">
 							{getNumberedSanLine(getFenAfter(fen, move.pv[0]) ?? fen, move.pv.slice(1), 11)}

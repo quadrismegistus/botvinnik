@@ -20,10 +20,12 @@
 		onccancel?: () => void;
 		onpractice?: (move: StoredMove) => void;
 		onexport?: (game: StoredGame) => void;
+		orientation?: 'white' | 'black'; // main-board orientation, for line previews
 	}
 
 	let {
 		games, reviewing, reviewPly, importing = false, importStatus = '', ccImport = null,
+		orientation = 'white',
 		onreview, onclose, ongoto, ondelete, onimport, onccimport, onccancel, onpractice, onexport
 	}: Props = $props();
 
@@ -266,7 +268,7 @@
 
 				{#snippet withEvidence(text: string)}
 					{#if selected?.explanation?.evidence}
-						<LineHover fen={selected.explanation.evidence.fen} ucis={selected.explanation.evidence.ucis}>
+						<LineHover fen={selected.explanation.evidence.fen} ucis={selected.explanation.evidence.ucis} {orientation}>
 							{text}
 						</LineHover>
 					{:else}
@@ -294,6 +296,7 @@
 							<LineHover
 								fen={selected.explanation.evidence.fen}
 								ucis={selected.explanation.evidence.ucis}
+								{orientation}
 							>
 								<strong>{selected.bestSan}</strong>
 							</LineHover>

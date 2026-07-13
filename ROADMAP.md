@@ -103,9 +103,14 @@ Shipped so far:
   - The review move table (`.rv-table`, 220px max-height) doesn't scroll the
     selected move into view when stepping with ‹/›, so mid-game the
     highlight goes offscreen.
-  - `findThreat`'s fallback to raw `materialOverLine` (when no ply of the PV
-    is "settled") can overcredit a line that ends mid-exchange; rare at
-    depth 14 but it's the one heuristic seam in threat detection.
+- **Square control refinements** (v1 shipped 2026-07-13 as the "Control"
+  toggle — `engine/control.ts`, tint via chessground `highlight.custom`,
+  green = bottom side, red = top): possible next steps are intensity
+  gradation by exchange margin, x-ray attackers in the swap lists (batteries
+  currently invisible), an option to tint *held* occupied squares (v1 tints
+  occupied squares only when the piece is outright winnable, to avoid
+  repainting the whole board), and skipping the null-move flip so control
+  renders while in check.
 
 ## Design notes / known quirks
 
@@ -122,6 +127,15 @@ Shipped so far:
 - Material claims in explanations count captures only up to the last quiet
   ply and quote exactly the counted window — never trust a PV material count
   that ends mid-exchange.
+- Threat probe material rule (2026-07-13): when the probe's PV never reaches
+  a quiet ply, the raw line count credits mid-exchange captures (a 1-ply pv
+  made "Nxf4" a threat against a queen-defended bishop) — `findThreat` now
+  falls back to a static first-capture guess (victim undefended, or worth
+  more than the capturer) instead of `materialOverLine`.
+- Mini boards (LineHover previews, insight-card boards) take an
+  `orientation` prop fed from the main board — they used to orient by the
+  evidence line's side to move, which rendered mirrored positions that read
+  as stale/different (Ryan's 2026-07-13 report).
 - Motif detector invariants (2026-07-13 hardening): a fork/pin/skewer claim
   must survive "so what does the opponent just do?" — the forker can't be en
   prise, the piece behind a pin/skewer must be profitably takeable, a pawn is

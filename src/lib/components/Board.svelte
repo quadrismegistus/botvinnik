@@ -14,6 +14,7 @@
 		threatArrow?: string | null; // what the opponent threatens (null-move probe), drawn as a warning
 		refutationArrow?: string | null; // opponent's punishing reply, drawn red
 		hintSquare?: string | null; // practice tier-2 hint: circle the best move's origin square
+		control?: Map<string, 'w' | 'b'> | null; // per-square control tint (see engine/control.ts)
 		resetKey?: number; // bump to force a piece resync (e.g. cancelled promotion)
 		lastMove?: [string, string] | null;
 		size?: number; // board edge in px (still capped at 90vw)
@@ -31,6 +32,7 @@
 		threatArrow = null,
 		refutationArrow = null,
 		hintSquare = null,
+		control = null,
 		resetKey = 0,
 		lastMove = null,
 		size = 500,
@@ -124,6 +126,16 @@
 			turnColor,
 			orientation,
 			lastMove: lastMove ? (lastMove as [Key, Key]) : undefined,
+			highlight: {
+				lastMove: true,
+				// green = the side at the bottom of the board, red = the other side
+				custom: new Map<Key, string>(
+					[...(control ?? [])].map(([sq, side]) => [
+						sq as Key,
+						(side === 'w') === (orientation === 'white') ? 'ctrl-us' : 'ctrl-them'
+					])
+				)
+			},
 			movable: {
 				color: turnColor,
 				dests: toDests()
@@ -182,5 +194,20 @@
 	.board {
 		width: 100%;
 		height: 100%;
+	}
+	/* square-control tint (chessground highlight.custom classes) */
+	.board :global(cg-board square.ctrl-us) {
+		background: radial-gradient(
+			circle,
+			rgba(129, 182, 76, 0.38) 0%,
+			rgba(129, 182, 76, 0.14) 100%
+		);
+	}
+	.board :global(cg-board square.ctrl-them) {
+		background: radial-gradient(
+			circle,
+			rgba(202, 52, 49, 0.38) 0%,
+			rgba(202, 52, 49, 0.14) 100%
+		);
 	}
 </style>

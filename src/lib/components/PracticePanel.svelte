@@ -27,12 +27,13 @@
 		onremove: (id: string) => void;
 		onthreshold: (n: number) => void;
 		onmotif?: (m: string | null) => void;
+		orientation?: 'white' | 'black'; // main-board orientation, for line previews
 	}
 
 	let {
 		mode, items, current, attempt, grading, revealBest,
 		lineDepth = 0, lineNote = null, continuing = false, hintTier = 0, hint = null, threshold,
-		motif = null,
+		motif = null, orientation = 'white',
 		onstart, onexit, onnext, onretry, onreveal, onhint, oncontinue, onremove, onthreshold, onmotif
 	}: Props = $props();
 
@@ -164,7 +165,7 @@
 						{/if}
 						{#if attempt.playedPoint}
 							{#if attempt.evidence}
-								<LineHover fen={attempt.evidence.fen} ucis={attempt.evidence.ucis}>
+								<LineHover fen={attempt.evidence.fen} ucis={attempt.evidence.ucis} {orientation}>
 									{attempt.playedPoint}
 								</LineHover>
 							{:else}
@@ -185,7 +186,7 @@
 							{/if}
 						{/snippet}
 						{#if attempt.evidence}
-							<LineHover fen={attempt.evidence.fen} ucis={attempt.evidence.ucis}>
+							<LineHover fen={attempt.evidence.fen} ucis={attempt.evidence.ucis} {orientation}>
 								{@render failText()}
 							</LineHover>
 						{:else}
@@ -193,7 +194,7 @@
 						{/if}
 						Best was
 						{#if revealBest}
-							<LineHover fen={current.fen} ucis={current.bestPv ?? [current.bestUci]}>
+							<LineHover fen={current.fen} ucis={current.bestPv ?? [current.bestUci]} {orientation}>
 								<strong>{current.bestSan}</strong>
 							</LineHover>{:else}<strong>…</strong>{/if}.
 						{#if revealBest && attempt.bestPoint}

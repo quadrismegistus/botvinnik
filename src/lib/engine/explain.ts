@@ -15,7 +15,8 @@ export interface Explanation {
 	evidence?: { fen: string; ucis: string[] };
 }
 
-const VAL: Record<string, number> = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 0 };
+export const PIECE_VAL: Record<string, number> = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 0 };
+const VAL = PIECE_VAL;
 const NAME: Record<string, string> = {
 	p: 'pawn',
 	n: 'knight',

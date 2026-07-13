@@ -9,10 +9,11 @@
 	interface Props {
 		fen: string; // position before the line
 		ucis: string[]; // the line to play through
+		orientation?: 'white' | 'black'; // match the main board, or the preview reads as a different position
 		children: Snippet;
 	}
 
-	let { fen, ucis, children }: Props = $props();
+	let { fen, ucis, orientation = 'white', children }: Props = $props();
 
 	const SIZE = 180;
 	let show = $state(false);
@@ -76,7 +77,7 @@
 		if (!first) return;
 		api = Chessground(boardEl, {
 			fen: first.fen,
-			orientation: fen.split(' ')[1] === 'b' ? 'black' : 'white',
+			orientation,
 			viewOnly: true,
 			coordinates: false,
 			animation: { enabled: true, duration: 260 }

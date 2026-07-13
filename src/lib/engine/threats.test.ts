@@ -58,6 +58,23 @@ describe('findThreat', () => {
 		expect(t!.gain).toBe(Infinity);
 	});
 
+	it('ignores a truncated pv that "wins" a defended piece (mid-exchange horizon)', async () => {
+		// Ryan's report: Nh5xf4 flagged as a threat although the f4 bishop was
+		// queen-protected — the 1-ply pv never showed the recapture. White to
+		// move; Black's free move Nxf4 trades knight for defended bishop: no gain.
+		const fen = '4k3/8/8/7n/3Q1B2/8/8/4K3 w - - 0 1';
+		const analyze = fakeAnalyze(['h5f4']); // pv ends on the capture
+		expect(await findThreat(fen, analyze)).toBeNull();
+	});
+
+	it('still flags a truncated pv that grabs an UNDEFENDED piece', async () => {
+		const fen = '4k3/8/8/7n/5B2/8/8/4K3 w - - 0 1'; // no queen: Bf4 hangs to Nxf4
+		const analyze = fakeAnalyze(['h5f4']);
+		const t = await findThreat(fen, analyze);
+		expect(t).not.toBeNull();
+		expect(t!.gain).toBe(3);
+	});
+
 	it('returns null on a finished game', async () => {
 		const fen = '4k3/8/8/8/8/8/8/4K3 w - - 0 1'; // bare kings → insufficient material → over
 		const analyze = fakeAnalyze([]);

@@ -46,6 +46,7 @@
 		stopEngine,
 		type EngineMove
 	} from '$lib/engine/stockfish';
+	import { computeControl } from '$lib/engine/control';
 	import { findThreat, type Threat } from '$lib/engine/threats';
 	import {
 		addItem,
@@ -85,6 +86,7 @@
 	let blindMode = $state(false);
 	let showThreats = $state(true);
 	let threat: Threat | null = $state(null);
+	let showControl = $state(false);
 	let pendingPromotion: { from: string; to: string } | null = $state(null);
 	let boardResetKey = $state(0);
 	let viewportH = $state(900);
@@ -348,6 +350,7 @@
 		}
 		blindMode = localStorage.getItem('botvinnik-blind') === '1';
 		showThreats = localStorage.getItem('botvinnik-threats') !== '0';
+		showControl = localStorage.getItem('botvinnik-control') === '1';
 		botSettingsLoaded = true;
 		// re-verify stored fork/pin/skewer prose against the current detectors
 		// BEFORE handing the games to $state (plain objects → safe IDB puts)
@@ -366,6 +369,11 @@
 		const on = showThreats;
 		if (botSettingsLoaded) localStorage.setItem('botvinnik-threats', on ? '1' : '0');
 		if (!on) threat = null;
+	});
+
+	$effect(() => {
+		const on = showControl;
+		if (botSettingsLoaded) localStorage.setItem('botvinnik-control', on ? '1' : '0');
 	});
 
 
@@ -900,6 +908,11 @@
 		if (!showThreats || blindMode || mode === 'practice') return null;
 		return threat && threat.fen === game.fen ? threat.uci : null;
 	});
+	// square-control tint — pure chess.js, recomputed per position
+	const controlMap = $derived.by(() => {
+		if (!showControl || blindMode || mode === 'practice') return null;
+		return computeControl(game.fen);
+	});
 	// hints the panels/tree see — blanked in blind mode so nothing leaks
 	const visibleLines = $derived(blindMode && mode === 'play' ? [] : engineMoves);
 
@@ -1066,6 +1079,7 @@
 			engineMoves={boardArrows}
 			botArrow={botThinking ? botConsidering : null}
 			threatArrow={threatArrow}
+			control={controlMap}
 			refutationArrow={mode === 'practice' && attempt && !attempt.pass ? (attempt.refutationUci ?? null) : null}
 			hintSquare={mode === 'practice' && hintTier >= 2 && !attempt && practiceRef
 				? practiceRef.bestUci.slice(0, 2)
@@ -1100,10 +1114,16 @@
 					<InsightsPanel
 						white={attemptGrade.color === 'w' ? attemptGrade : null}
 						black={attemptGrade.color === 'b' ? attemptGrade : null}
+						orientation={boardOrientation}
 					/>
 				{/if}
 			{:else}
-				<InsightsPanel white={insightWhite} black={insightBlack} {collectedPlies} />
+				<InsightsPanel
+					white={insightWhite}
+					black={insightBlack}
+					{collectedPlies}
+					orientation={boardOrientation}
+				/>
 			{/if}
 		{/snippet}
 
@@ -1122,6 +1142,7 @@
 				moves={visibleLines.slice(0, 3)}
 				fen={game.fen}
 				{analyzing}
+				orientation={boardOrientation}
 				startOpen={isNarrow}
 			/>
 		{/snippet}
@@ -1173,6 +1194,7 @@
 		{#snippet practiceBody()}
 			<PracticePanel
 				{mode}
+				orientation={boardOrientation}
 				items={practiceItems}
 				current={currentItem}
 				{attempt}
@@ -1201,6 +1223,7 @@
 		{#snippet gamesBody()}
 			<GamesPanel
 				games={storedGames}
+				orientation={boardOrientation}
 				reviewing={mode === 'review' ? reviewGame : null}
 				{reviewPly}
 				importing={lichessImporting}
@@ -1274,6 +1297,14 @@
 							>
 								Threats
 							</button>
+							<button
+								class="toggle"
+								class:on={showControl && !blindMode}
+								disabled={blindMode}
+								onclick={() => (showControl = !showControl)}
+							>
+								Control
+							</button>
 						{/if}
 					</nav>
 				{/snippet}
@@ -1342,6 +1373,14 @@
 							title="Draw what your opponent threatens (a move that wins material or mates) in red"
 						>
 							Threats
+						</button>
+						<button
+							class:on={showControl && !blindMode}
+							disabled={blindMode}
+							onclick={() => (showControl = !showControl)}
+							title="Tint squares by who can safely use them: green = you'd win or hold the exchange there, red = they would"
+						>
+							Control
 						</button>
 					</div>
 				{/if}
