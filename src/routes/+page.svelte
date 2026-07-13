@@ -46,6 +46,7 @@
 		stopEngine,
 		type EngineMove
 	} from '$lib/engine/stockfish';
+	import { botSpec } from '$lib/engine/botRecipe';
 	import { computeControl } from '$lib/engine/control';
 	import { findThreat, type Threat } from '$lib/engine/threats';
 	import {
@@ -498,14 +499,17 @@
 		botConsidering = null;
 		if (token !== analysisToken || !botEnabled || mode !== 'play') return;
 		if (game.isGameOver || game.turn !== botColor) return;
-		// beginner band: sample flat-softmax over the wide shallow eval;
-		// otherwise trust the strength-limited search's own choice
+		// sampler band: flat-softmax over the wide shallow eval, with the
+		// spec's calibrated exponent; otherwise trust the strength-limited
+		// search's own choice
+		const spec = botSpec(botElo);
+		const specAlpha = spec.kind === 'sampler' ? spec.alpha : undefined;
 		const uci =
-			botElo < 800 && res.moves.length > 0
-				? selectBotMove(res.moves, botElo)
+			spec.kind === 'sampler' && res.moves.length > 0
+				? selectBotMove(res.moves, botElo, spec.alpha)
 				: res.bestmove && res.bestmove !== '(none)'
 					? res.bestmove
-					: selectBotMove(engineMoves, botElo);
+					: selectBotMove(engineMoves, botElo, specAlpha);
 		if (uci) applyUci(uci);
 	}
 

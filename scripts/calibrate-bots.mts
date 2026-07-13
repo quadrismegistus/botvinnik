@@ -36,7 +36,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { Chess } from 'chess.js';
 import { selectBotMove } from '../src/lib/bot';
-import { botRecipe, botResetOptions } from '../src/lib/engine/botRecipe';
+import { botResetOptions, parseSpec, specToRecipe } from '../src/lib/engine/botRecipe';
 import type { EngineMove } from '../src/lib/engine/stockfish';
 
 // ---------- args ----------
@@ -49,10 +49,12 @@ function optStr(name: string, dflt: string): string {
 	const i = args.indexOf(`--${name}`);
 	return i >= 0 ? args[i + 1] : dflt;
 }
+// points are requested-ELO numbers (mapped through the app's botSpec) or raw
+// spec ids like "sampler:a2:d2" / "skill:1:d2" / "ucielo:2400:mt400"
 const POINTS = optStr('points', '100,300,500,700,800,1000,1200,1320,1600,2000')
 	.split(',')
-	.map(Number)
-	.sort((a, b) => a - b);
+	.sort((a, b) => (Number(a) || 1e9) - (Number(b) || 1e9));
+const PAIRS_ARG = optStr('pairs', ''); // explicit "idA~idB,idC~idD" (probe mode)
 const GAMES = Math.max(2, Math.ceil(opt('games', 40) / 2) * 2);
 const WORKERS = Math.max(1, opt('workers', os.cpus().length - 2));
 const MAX_PLIES = opt('max-plies', 160);
@@ -74,16 +76,33 @@ const SEARCH_TIMEOUT_MS = 60_000;
 const OUT = optStr('out', 'data/bot-calibration.json');
 const STATE = `${OUT}.state.json`;
 
-// ladder neighbours + long-range sanity pairs (fit stiffness across seams)
-const pairs: [number, number][] = [];
-for (let i = 0; i + 1 < POINTS.length; i++) pairs.push([POINTS[i], POINTS[i + 1]]);
-for (const [a, b] of [
-	[POINTS[0], POINTS[Math.min(2, POINTS.length - 1)]],
-	[800, 1320]
-] as [number, number][]) {
-	if (POINTS.includes(a) && POINTS.includes(b) && a !== b && !pairs.some(([x, y]) => x === a && y === b)) {
-		pairs.push([a, b]);
+// probe mode: explicit pairs; otherwise ladder neighbours + long-range
+// sanity pairs (fit stiffness across seams)
+let pairs: [string, string][];
+let allIds: string[];
+if (PAIRS_ARG) {
+	pairs = PAIRS_ARG.split(',').map((p) => {
+		const [a, b] = p.split('~');
+		return [a, b] as [string, string];
+	});
+	allIds = [...new Set(pairs.flat())];
+} else {
+	pairs = [];
+	for (let i = 0; i + 1 < POINTS.length; i++) pairs.push([POINTS[i], POINTS[i + 1]]);
+	for (const [a, b] of [
+		[POINTS[0], POINTS[Math.min(2, POINTS.length - 1)]],
+		['800', '1320']
+	] as [string, string][]) {
+		if (
+			POINTS.includes(a) &&
+			POINTS.includes(b) &&
+			a !== b &&
+			!pairs.some(([x, y]) => x === a && y === b)
+		) {
+			pairs.push([a, b]);
+		}
 	}
+	allIds = POINTS;
 }
 
 // short balanced openings (4 plies) — each pair plays each opening twice with
@@ -202,12 +221,15 @@ class Engine {
 }
 
 // ---------- app-faithful bot move ----------
-async function botMove(engine: Engine, fen: string, elo: number): Promise<string | null> {
-	const recipe = botRecipe(elo);
+async function botMove(engine: Engine, fen: string, id: string): Promise<string | null> {
+	const recipe = specToRecipe(parseSpec(id));
+	// numeric ids carry the requested ELO (drives selectBotMove's mate-spotting
+	// etc.); raw spec probes use a mid-range nominal
+	const elo = Number(id) || 1000;
 	// reset first: the OTHER bot's options (LimitStrength, Skill) must not leak
 	const options = [...botResetOptions(1), ...recipe.options];
 	const res = await engine.search(fen, options, recipe.go);
-	if (recipe.sample) return selectBotMove(res.moves, elo);
+	if (recipe.sample) return selectBotMove(res.moves, elo, recipe.alpha);
 	if (res.bestmove && res.bestmove !== '(none)') return res.bestmove;
 	return res.moves[0]?.pv[0] ?? null;
 }
@@ -224,8 +246,8 @@ async function adjudicate(engine: Engine, fen: string): Promise<number> {
 // one game; returns the score for `a` (1 / 0.5 / 0)
 async function playGame(
 	engine: Engine,
-	a: number,
-	b: number,
+	a: string,
+	b: string,
 	opening: string,
 	aIsWhite: boolean
 ): Promise<number> {
@@ -258,13 +280,13 @@ async function playGame(
 
 // ---------- Bradley–Terry fit (draws = half wins) ----------
 interface PairResult {
-	a: number;
-	b: number;
+	a: string;
+	b: string;
 	games: number;
 	aScore: number; // wins + draws/2 from a's side
 }
 
-function fitRatings(results: PairResult[], points: number[]): Map<number, number> {
+function fitRatings(results: PairResult[], points: string[]): Map<string, number> {
 	const rating = new Map(points.map((p) => [p, 0]));
 	// gradient ascent on the Elo-logistic log-likelihood
 	for (let iter = 0; iter < 20000; iter++) {
@@ -281,10 +303,12 @@ function fitRatings(results: PairResult[], points: number[]): Map<number, number
 		for (const p of points) rating.set(p, rating.get(p)! + (lr * grad.get(p)!) / GAMES);
 	}
 	// anchor: the UCI_Elo band's mean fitted value = its mean nominal label
-	const anchors = points.filter((p) => p >= 1320);
-	const ref = anchors.length ? anchors : points;
+	// (probe runs without numeric >=1320 points anchor on the first id = 0,
+	// which is fine — probe fits get merged with the ladder data separately)
+	const anchors = points.filter((p) => Number(p) >= 1320);
+	const ref = anchors.length ? anchors : [points[0]];
 	const offset =
-		ref.reduce((s, p) => s + p, 0) / ref.length -
+		ref.reduce((s, p) => s + (Number(p) || 0), 0) / ref.length -
 		ref.reduce((s, p) => s + rating.get(p)!, 0) / ref.length;
 	for (const p of points) rating.set(p, rating.get(p)! + offset);
 	return rating;
@@ -295,7 +319,7 @@ interface State {
 	games: number;
 	results: Record<string, { games: number; aScore: number }>;
 }
-const key = (a: number, b: number) => `${a}v${b}`;
+const key = (a: string, b: string) => `${a}~${b}`;
 let state: State = { games: GAMES, results: {} };
 if (existsSync(STATE)) {
 	const prev = JSON.parse(readFileSync(STATE, 'utf8')) as State;
@@ -312,8 +336,8 @@ function saveState() {
 }
 
 interface Job {
-	a: number;
-	b: number;
+	a: string;
+	b: string;
 	gameIdx: number;
 }
 const jobs: Job[] = [];
@@ -364,7 +388,7 @@ for (const e of engines) e.quit();
 const results: PairResult[] = pairs
 	.map(([a, b]) => ({ a, b, ...(state.results[key(a, b)] ?? { games: 0, aScore: 0 }) }))
 	.filter((r) => r.games > 0);
-const fitted = fitRatings(results, POINTS);
+const fitted = fitRatings(results, allIds);
 
 console.log('\npairwise results (a vs b, a-score):');
 for (const r of results) {
@@ -379,13 +403,15 @@ for (const r of results) {
 console.log('\nfitted strength (anchored on the UCI_Elo band):');
 console.log('  label  fitted  delta');
 let prevFit = -Infinity;
-for (const p of POINTS) {
+for (const p of allIds) {
 	const f = fitted.get(p)!;
-	const mono = f < prevFit ? '  ⚠ NON-MONOTONIC' : '';
+	const nominal = Number(p);
+	const mono = nominal && f < prevFit ? '  ⚠ NON-MONOTONIC' : '';
 	console.log(
-		`  ${String(p).padStart(5)}  ${f.toFixed(0).padStart(6)}  ${(f - p).toFixed(0).padStart(5)}${mono}`
+		`  ${String(p).padStart(18)}  ${f.toFixed(0).padStart(6)}  ` +
+			`${nominal ? (f - nominal).toFixed(0).padStart(5) : '    —'}${mono}`
 	);
-	prevFit = f;
+	if (nominal) prevFit = f;
 }
 
 mkdirSync(path.dirname(OUT), { recursive: true });
@@ -396,7 +422,7 @@ writeFileSync(
 			ranAt: new Date().toISOString(),
 			engine: ENGINE,
 			gamesPerPair: GAMES,
-			points: POINTS,
+			points: allIds,
 			results,
 			fitted: Object.fromEntries([...fitted.entries()].map(([p, f]) => [p, Math.round(f)]))
 		},

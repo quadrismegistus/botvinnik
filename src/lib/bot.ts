@@ -13,7 +13,7 @@ function clamp01(x: number): number {
 	return Math.max(0, Math.min(1, x));
 }
 
-export function selectBotMove(lines: EngineMove[], elo: number): string | null {
+export function selectBotMove(lines: EngineMove[], elo: number, alpha?: number): string | null {
 	if (lines.length === 0) return null;
 	const sorted = [...lines].sort((a, b) => a.multipv - b.multipv);
 
@@ -41,14 +41,11 @@ export function selectBotMove(lines: EngineMove[], elo: number): string | null {
 		if ((secondBest / bestConf) * 100 < 20) return sorted[bestIdx].pv[0];
 	}
 
-	// ELO -> sampling sharpness. Below 800 the exponent drops toward 0.1 —
-	// an effective temperature of ~1000cp, i.e. near-random beginner play
-	// that only mildly avoids catastrophes. Above 800: α = 0.8..8.0.
-	const alpha =
-		elo < 800
-			? 0.1 + clamp01((elo - 100) / (800 - 100)) * 0.7
-			: 0.8 + clamp01((elo - 800) / (3600 - 800)) * 7.2;
-	let probs = confs.map((c) => Math.pow(Math.max(c, 1e-6) / 100, alpha));
+	// Sampling sharpness: the sampler band passes its CALIBRATED exponent in
+	// (botSpec's alpha knob); the legacy ELO ramp remains only for the
+	// fallback path, where this samples full-strength analysis lines.
+	const a = alpha ?? 0.8 + clamp01((elo - 800) / (3600 - 800)) * 7.2;
+	let probs = confs.map((c) => Math.pow(Math.max(c, 1e-6) / 100, a));
 
 	// Blunder bias at high ELO: steeply downweight moves far below the best
 	if (elo >= 2200) {
