@@ -266,4 +266,26 @@ describe('loadItems motif backfill', () => {
 		const raw = JSON.parse(localStorage.getItem(KEY)!);
 		expect(raw[0].motifs).toContain('free capture');
 	});
+
+	it('re-tags items whose motifs predate the current tagger version', () => {
+		// Qb3 was tagged 'pin' by the value-blind v1 detector, but the knight
+		// behind the pawn is rook-defended — the recomputation must drop it
+		const stored = practiceItem({
+			id: 'rn5k/8/8/1p6/8/8/8/1Q5K w - - 0 1',
+			fen: 'rn5k/8/8/1p6/8/8/8/1Q5K w - - 0 1',
+			bestSan: 'Qb3',
+			bestUci: 'b1b3',
+			bestPv: ['b1b3'],
+			motifs: ['pin'] // stale v1 tag, no tagV field
+		});
+		localStorage.setItem(KEY, JSON.stringify([stored]));
+
+		const loaded = loadItems();
+		expect(loaded[0].motifs).not.toContain('pin');
+		expect(loaded[0].tagV).toBeGreaterThanOrEqual(2);
+
+		// persisted, so the next load doesn't recompute again
+		const raw = JSON.parse(localStorage.getItem(KEY)!);
+		expect(raw[0].tagV).toBeGreaterThanOrEqual(2);
+	});
 });

@@ -259,17 +259,25 @@ export function pinOrSkewerPoint(fenBefore: string, uci: string): string | undef
 				first = { sq: s, type: p.type };
 				continue;
 			}
-			// second enemy piece on the same ray
+			// second enemy piece on the same ray. Unless the king is behind
+			// (an absolute pin always binds), the claim is only real if
+			// capturing the piece behind would PAY once the front piece is out
+			// of the way: a trade up, or an undefended target. A queen
+			// "pinning" a pawn to a rook-defended knight restrains nothing —
+			// taking the knight just loses the queen.
+			const wins = VAL[p.type] > VAL[m.piece] || c.attackers(s, p.color).length === 0;
 			if (first.type === 'k') {
 				// check with a piece behind the king: a skewer
-				if (VAL[p.type] >= 3) {
+				if (VAL[p.type] >= 3 && wins) {
 					return `${m.san} skewers the king on ${first.sq} against the ${NAME[p.type]} on ${s}.`;
 				}
 			} else if (p.type === 'k') {
 				return `${m.san} pins the ${NAME[first.type]} on ${first.sq} against the king.`;
 			} else if (VAL[p.type] > VAL[first.type]) {
-				return `${m.san} pins the ${NAME[first.type]} on ${first.sq} against the ${NAME[p.type]} on ${s}.`;
-			} else if (first.type === 'q' && VAL[m.piece] < 9 && VAL[p.type] >= 3) {
+				if (wins) {
+					return `${m.san} pins the ${NAME[first.type]} on ${first.sq} against the ${NAME[p.type]} on ${s}.`;
+				}
+			} else if (first.type === 'q' && VAL[m.piece] < 9 && VAL[p.type] >= 3 && wins) {
 				// a queen skewered by a CHEAPER slider must give up the piece behind
 				return `${m.san} skewers the queen on ${first.sq} against the ${NAME[p.type]} on ${s}.`;
 			}
@@ -477,6 +485,10 @@ export type Motif =
 	| 'discovered attack'
 	| 'trapped piece'
 	| 'material';
+
+// Bump whenever a detector's semantics change so stored practice tags get
+// recomputed on load. 2: pins/skewers require a profitable capture behind.
+export const MOTIF_TAGS_VERSION = 2;
 
 export function motifTags(
 	fenBefore: string,

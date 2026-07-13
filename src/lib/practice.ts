@@ -2,7 +2,7 @@
 // scheduled with simple Leitner boxes.
 
 import { winChance, type MoveLabel } from './engine/insights';
-import { motifTags } from './engine/explain';
+import { MOTIF_TAGS_VERSION, motifTags } from './engine/explain';
 import type { StoredMove } from './gameStore';
 
 export interface AttemptResult {
@@ -31,6 +31,7 @@ export interface PracticeItem {
 	bestPv?: string[]; // best move's full line, for explanations
 	setupUci?: string; // opponent's move that led into this position, to replay for context
 	motifs?: string[]; // named facts on the best line (Motif values), for tagging/filtering
+	tagV?: number; // MOTIF_TAGS_VERSION the motifs were computed with
 	evalBestPawns: number; // mover's perspective
 	mateBest: number | null;
 	wcBest: number; // win% of the best move at collect time
@@ -60,11 +61,13 @@ export function loadItems(): PracticeItem[] {
 	} catch {
 		return [];
 	}
-	// lazy backfill: older items predate motif tagging — compute once and persist
+	// lazy backfill: items whose motifs predate the current tagger (or motif
+	// tagging entirely) get recomputed once and persisted
 	let changed = false;
 	for (const item of items) {
-		if (!item.motifs) {
+		if (!item.motifs || (item.tagV ?? 1) < MOTIF_TAGS_VERSION) {
 			item.motifs = motifTags(item.fen, item.bestUci, item.bestPv ?? [item.bestUci], item.mateBest);
+			item.tagV = MOTIF_TAGS_VERSION;
 			changed = true;
 		}
 	}

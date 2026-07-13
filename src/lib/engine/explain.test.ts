@@ -103,6 +103,26 @@ describe('pinOrSkewerPoint', () => {
 		const fen = '8/8/8/1pk5/8/8/8/4K2R w K - 0 1';
 		expect(pinOrSkewerPoint(fen, 'h1h5')).toBeUndefined();
 	});
+
+	it('does not call it a pin when taking the piece behind would lose material', () => {
+		// Qb3 "pins" the b5 pawn against the b8 knight — but the knight is
+		// rook-defended, so Qxb8 loses queen for knight; nothing is restrained
+		const fen = 'rn5k/8/8/1p6/8/8/8/1Q5K w - - 0 1';
+		expect(pinOrSkewerPoint(fen, 'b1b3')).toBeUndefined();
+	});
+
+	it('pins a pawn against an UNDEFENDED knight — the capture behind pays', () => {
+		const fen = '1n5k/8/8/1p6/8/8/8/1Q5K w - - 0 1';
+		expect(pinOrSkewerPoint(fen, 'b1b3')).toBe(
+			'Qb3 pins the pawn on b5 against the knight on b8.'
+		);
+	});
+
+	it('does not check-skewer when the piece behind the king is defended and dearer to take', () => {
+		// Rh5+ forces the king aside, but Rxb5 (knight, rook-defended) loses the exchange
+		const fen = '8/8/8/rnk5/8/8/8/4K2R w K - 0 1';
+		expect(pinOrSkewerPoint(fen, 'h1h5')).toBeUndefined();
+	});
 });
 
 describe('discoveredPoint', () => {
