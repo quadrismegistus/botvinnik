@@ -46,8 +46,9 @@
 
 			<label class="row">
 				<span class="label">Strength</span>
-				<!-- 3000 is the strongest CALIBRATED setting (UCI_Elo 3190 @ 1s) -->
-				<input type="range" min="100" max="3000" step="50" bind:value={elo} />
+				<!-- 2800 is the honest ceiling: above it the engine is saturated
+				     (UCI_Elo 3190) and buys no real strength — see botRecipe.ts -->
+				<input type="range" min="100" max="2800" step="50" bind:value={elo} />
 				<span class="elo">{elo}</span>
 			</label>
 		</div>

@@ -33,12 +33,16 @@ describe('botSpec (calibrated mapping)', () => {
 		expect(botSpec(600)).toMatchObject({ kind: 'sampler', depth: 2 });
 	});
 
-	it('saturates the knob then stretches movetime at the top, and clamps', () => {
-		const high = botSpec(2900);
-		expect(high).toMatchObject({ kind: 'ucielo', elo: 3190 });
-		if (high.kind === 'ucielo') {
-			expect(high.movetimeMs).toBeGreaterThan(400);
-			expect(high.movetimeMs).toBeLessThan(1000);
+	it('saturates the UCI_Elo knob at the honest ceiling and clamps', () => {
+		// the movetime-stretch top rung was removed (it measured ~+80 Elo for
+		// 2.5x the time — the engine is saturated); the cap now sits where
+		// strength actually tops out, all at the base movetime
+		const top = botSpec(BOT_ELO_MAX);
+		expect(top.kind).toBe('ucielo');
+		if (top.kind === 'ucielo') {
+			expect(top.movetimeMs).toBe(400);
+			expect(top.elo).toBeGreaterThan(3100);
+			expect(top.elo).toBeLessThanOrEqual(3190);
 		}
 		expect(botSpec(9999)).toEqual(botSpec(BOT_ELO_MAX));
 	});

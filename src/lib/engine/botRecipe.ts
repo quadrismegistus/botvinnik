@@ -106,13 +106,19 @@ const SAMPLER_KNOTS = [
 const UCIELO_KNOTS = [
 	{ e: 2132, elo: 2400, movetimeMs: 400 },
 	{ e: 2433, elo: 2800, movetimeMs: 400 },
-	{ e: 2815, elo: 3190, movetimeMs: 400 },
-	{ e: 2962, elo: 3190, movetimeMs: 1000 }
+	{ e: 2815, elo: 3190, movetimeMs: 400 }
 ];
 // seam: sampler below, UCI_Elo above (both measured within ~±50 there)
 const SAMPLER_MAX = 2100;
-// the strongest measured setting sits just under 3000 — labels cap there
-export const BOT_ELO_MAX = 3000;
+// Honest ceiling. The 560-game verification ladder (data/bot-verify.json)
+// measured requested 2700→3000 as only ~+80 true Elo: at UCI_Elo 3190 the
+// engine is saturated, and stretching movetime 400→1000ms buys almost
+// nothing on these short controls. That flat top rung was a lie, so the
+// movetime-stretch knot is gone and the slider caps where strength actually
+// tops out — UCI_Elo 3190 @ 400ms sits at ~e2815, so 2800 is the last
+// setting that means what it says. (The app's WASM small-net is weaker
+// still, so 2800 is already generous — re-measure with --engine to tighten.)
+export const BOT_ELO_MAX = 2800;
 export const BOT_ELO_MIN = 100;
 
 function lerp(x: number, x0: number, x1: number, y0: number, y1: number): number {

@@ -46,7 +46,7 @@
 		stopEngine,
 		type EngineMove
 	} from '$lib/engine/stockfish';
-	import { botSpec } from '$lib/engine/botRecipe';
+	import { botSpec, BOT_ELO_MAX, BOT_ELO_MIN } from '$lib/engine/botRecipe';
 	import { computeControl } from '$lib/engine/control';
 	import { findThreat, type Threat } from '$lib/engine/threats';
 	import {
@@ -344,7 +344,10 @@
 			if (bot) {
 				botEnabled = !!bot.enabled;
 				botColor = bot.color === 'w' ? 'w' : 'b';
-				if (bot.elo >= 100 && bot.elo <= 3600) botElo = bot.elo;
+				// clamp legacy stored values into the calibrated range (the old
+				// slider went to 3600/3000; the honest ceiling is now BOT_ELO_MAX)
+				if (typeof bot.elo === 'number' && bot.elo >= 100)
+					botElo = Math.max(BOT_ELO_MIN, Math.min(BOT_ELO_MAX, bot.elo));
 			}
 		} catch {
 			// ignore malformed settings
