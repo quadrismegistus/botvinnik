@@ -3,9 +3,9 @@ import { botEloMax, botEloMin, botSpec, samplerAlphaFor, specToRecipe, parseSpec
 
 describe('botSpec — native mapping (desktop/Tauri big net)', () => {
 	it('hits the measured sampler knots exactly', () => {
-		expect(samplerAlphaFor(848, 'native')).toBeCloseTo(0.7, 5);
-		expect(samplerAlphaFor(1638, 'native')).toBeCloseTo(2, 5);
-		expect(samplerAlphaFor(2022, 'native')).toBeCloseTo(4, 5);
+		expect(samplerAlphaFor(773, 'native')).toBeCloseTo(0.7, 5);
+		expect(samplerAlphaFor(1627, 'native')).toBeCloseTo(2, 5);
+		expect(samplerAlphaFor(2033, 'native')).toBeCloseTo(4, 5);
 	});
 
 	it('alpha grows monotonically with requested ELO', () => {

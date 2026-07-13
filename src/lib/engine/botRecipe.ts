@@ -120,15 +120,20 @@ interface Bands {
 // @400ms is COMPRESSED here: the big net plays strong even when limited, so
 // 2400→3190 spans only ~683 Elo and saturates — hence the 2800 cap.
 const NATIVE: Bands = {
+	// SAMPLER refined 2026-07-13 from a 2,600-game high-N ladder
+	// (data/bot-native-hisample.json). The original n=40 fit ran ~85 Elo weak
+	// across 100–1300 (slider-1000 actually played ~900); n=200 caught the
+	// systematic tilt and the knots now invert to identity (700–2100 within
+	// ±45). The UCI_Elo top band is still the n=40 fit (movetime = expensive).
 	sampler: [
-		{ e: -59, alpha: 0.1, depth: 1 },
-		{ e: 241, alpha: 0.3, depth: 1 },
-		{ e: 579, alpha: 0.5, depth: 2 },
-		{ e: 848, alpha: 0.7, depth: 2 },
-		{ e: 1221, alpha: 1.2, depth: 2 },
-		{ e: 1638, alpha: 2, depth: 2 },
-		{ e: 2022, alpha: 4, depth: 2 },
-		{ e: 2349, alpha: 8, depth: 2 }
+		{ e: -153, alpha: 0.1, depth: 1 },
+		{ e: 155, alpha: 0.3, depth: 1 },
+		{ e: 495, alpha: 0.5, depth: 2 },
+		{ e: 773, alpha: 0.7, depth: 2 },
+		{ e: 1161, alpha: 1.2, depth: 2 },
+		{ e: 1627, alpha: 2, depth: 2 },
+		{ e: 2033, alpha: 4, depth: 2 },
+		{ e: 2327, alpha: 8, depth: 2 }
 	],
 	ucielo: [
 		{ e: 2132, elo: 2400, movetimeMs: 400 },
