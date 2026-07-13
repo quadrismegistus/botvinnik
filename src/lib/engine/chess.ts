@@ -104,6 +104,21 @@ export function getSanLine(fen: string, ucis: string[]): SanStep[] {
 	return steps;
 }
 
+// does this UCI move capture a piece from the given position? (includes
+// en passant). Returns false for illegal/unfound moves.
+export function isCapture(fen: string, uci: string): boolean {
+	try {
+		const move = new Chess(fen).move({
+			from: uci.slice(0, 2) as Square,
+			to: uci.slice(2, 4) as Square,
+			promotion: uci.length > 4 ? uci[4] : undefined
+		});
+		return move.captured !== undefined;
+	} catch {
+		return false;
+	}
+}
+
 export function getFenAfter(fen: string, uci: string): string | null {
 	try {
 		const tmp = new Chess(fen);

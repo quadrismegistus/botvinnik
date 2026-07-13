@@ -1437,6 +1437,9 @@
 						badge={practiceItems.length > 0 ? `${practiceDue} due / ${practiceItems.length}` : ''}
 						bind:open={practiceOpen}
 					>
+						{#snippet action()}
+							<button onclick={startPractice} disabled={practiceItems.length === 0}>Start</button>
+						{/snippet}
 						{@render practiceBody()}
 					</SidePanel>
 					<SidePanel

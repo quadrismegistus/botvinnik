@@ -1,11 +1,12 @@
-import { getSan } from './chess';
+import { getSan, isCapture } from './chess';
 import { explainGoodMove, explainMove, materialOverLine, type Explanation } from './explain';
 import type { EngineMove } from './stockfish';
 
 // chess.com-style move labels, from their published expected-points bands
 // (≤0.02 excellent, ≤0.05 good, 0.05–0.10 inaccuracy, 0.10–0.20 mistake,
-// ≥0.20 blunder — our win% drop is expected points ×100), plus the two
-// special cases: brilliant = a sound sacrifice, great = the only good move.
+// ≥0.20 blunder — our win% drop is expected points ×100), plus the special
+// cases: brilliant = a sacrifice that leaves you better, great = the only
+// good move, miss = a material-winning capture you didn't play.
 export type MoveLabel =
 	| 'brilliant'
 	| 'great'
@@ -13,6 +14,7 @@ export type MoveLabel =
 	| 'excellent'
 	| 'good'
 	| 'inaccuracy'
+	| 'miss'
 	| 'mistake'
 	| 'blunder';
 
@@ -140,8 +142,17 @@ export function backfillGrade(grade: MoveGrade, childLines: EngineMove[]): MoveG
 	const wcBest = winChance(grade.bestEval, grade.bestMate);
 	const wcPlayed = winChance(cp / 100, mate);
 	const drop = Math.max(0, wcBest - wcPlayed);
+	// "Miss": you didn't play the best move, and it was a capture that would
+	// have won material — a missed material-winning shot. Only when you're
+	// still ok after your move (wcPlayed >= 40); if you dropped into a worse
+	// position it's a plain mistake/blunder, not a miss.
+	const bestWinsMaterial =
+		isCapture(grade.fenBefore, grade.bestUci) &&
+		materialOverLine(grade.fenBefore, grade.bestPv.slice(0, 6)) >= 2;
+	const missed = !isBest && bestWinsMaterial && drop >= 10 && wcPlayed >= 40;
 	let label: MoveLabel;
-	if (drop >= 20) label = 'blunder';
+	if (missed) label = 'miss';
+	else if (drop >= 20) label = 'blunder';
 	else if (drop >= 10) label = 'mistake';
 	else if (drop >= 5) label = 'inaccuracy';
 	else if (!isBest) label = drop <= 2 ? 'excellent' : 'good';
@@ -151,7 +162,9 @@ export function backfillGrade(grade: MoveGrade, childLines: EngineMove[]): MoveG
 		const others = grade.preLines.filter((l) => l.uci !== grade.bestUci);
 		const secondCp = others.length > 0 ? Math.max(...others.map((l) => l.cp)) : null;
 		const wcSecond = secondCp === null ? null : winChance(secondCp / 100, null);
-		if (shortNet <= -2 && wcPlayed >= 45 && wcBest <= 92) label = 'brilliant';
+		// brilliant = a real sacrifice (down >=2 over the next plies) that leaves
+		// you better (>=55%), and not already trivially winning
+		if (shortNet <= -2 && wcPlayed >= 55 && wcBest <= 92) label = 'brilliant';
 		else if (wcSecond !== null && wcBest - wcSecond >= 15) label = 'great';
 		else label = 'best';
 	}

@@ -86,4 +86,22 @@ describe('backfillGrade labels', () => {
 		const done = backfillGrade(g, [line('e7e5', 0.55, 1)]);
 		expect(done.label).toBe('inaccuracy');
 	});
+
+	it('labels a missed material-winning capture as miss', () => {
+		// Rd2 can take the hanging queen on d8 (best); instead it plays Rd7,
+		// leaving the position roughly equal — a missed capture, still ok
+		const fen = 'k2q4/8/8/8/8/8/3R4/K7 w - - 0 1';
+		const lines = [line('d2d8', 8, 1), line('d2d7', 0, 2)];
+		const g = gradeMove(1, fen, 'Rd7', 'd2d7', 'w', lines)!;
+		// after Rd7 the position is ~equal (Black's perspective ~0)
+		const done = backfillGrade(g, [line('d8a5', 0, 1)]);
+		expect(done.label).toBe('miss');
+	});
+
+	it('does not call it a miss when the missed best move is not a capture', () => {
+		// same drop, but the best move (a4) captures nothing → plain blunder/mistake
+		const g = gradeMove(1, START, 'a3', 'a2a3', 'w', LINES)!;
+		const done = backfillGrade(g, [line('e7e5', 5, 1)]);
+		expect(done.label).not.toBe('miss');
+	});
 });

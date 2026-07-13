@@ -19,6 +19,7 @@ export const CLASS: Record<MoveLabel, Classification> = {
 	good: { glyph: '✓', color: '#95b776', noun: 'a good move', graphed: false },
 	inaccuracy: { glyph: '?!', color: '#f0c15c', noun: 'an inaccuracy', graphed: true },
 	mistake: { glyph: '?', color: '#e6912c', noun: 'a mistake', graphed: true },
+	miss: { glyph: '×', color: '#d9683a', noun: 'a miss', graphed: true },
 	blunder: { glyph: '??', color: '#ca3431', noun: 'a blunder', graphed: true }
 };
 
@@ -30,5 +31,6 @@ export const LABEL_ORDER: MoveLabel[] = [
 	'good',
 	'inaccuracy',
 	'mistake',
+	'miss',
 	'blunder'
 ];
