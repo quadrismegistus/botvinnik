@@ -39,11 +39,22 @@ Shipped so far:
   exact band recipe (`engine/botRecipe.ts`, shared with `analyzeBotMove`)
   and `selectBotMove` sampler; results feed a Bradley–Terry fit anchored on
   the UCI_Elo band; the report flags per-point deltas and non-monotonic
-  seams. Still to do once the numbers are in: RE-MAP the manual bands
-  (α curve, skill/depth line) so the labels mean what they say, then rerun
-  to verify. Caveat printed by the script: native SF at movetime 400 is
-  stronger than the app's WASM for the ≥1320 band, so treat that anchor as
-  an upper bound.
+  seams.
+  **FIRST RESULTS (2026-07-13, native SF, 440 games, anchored on the
+  UCI_Elo band):** label→fitted: 100→47, 300→348, 500→686, 700→955,
+  800→1425, 1000→1758, 1200→2009, 1320→1428 (⚠ NON-MONOTONIC, −580 vs
+  1200), 1600→1697, 2000→1795. Findings: (1) the Skill/depth band is
+  wildly overpowered — even Skill 0 at depth 1 plays ~1425; (2) the
+  700→800 seam is a ~470-Elo cliff AND a genuine coverage gap (no setting
+  produces ~1000–1400); (3) the UCI_Elo band is compressed (680 nominal
+  spread → ~370 measured at movetime 400) and sits entirely inside the
+  skill band's range. NEXT: redesign the bands, not just relabel — extend
+  the sampler band upward to fill the gap, re-map the skill band onto its
+  measured 1400–2000 range, reserve UCI_Elo for the top (likely at a
+  longer movetime, extend the ladder past 2000 to measure it), rerun to
+  verify; eventually rerun with the app's actual WASM lite-single via
+  `--engine` (the native big net inflates the fixed-depth bands somewhat).
+  Raw data: data/bot-calibration.json (local, gitignored).
 - **File System Access autosave** — beyond Export/Import: write backups
   directly to a user-chosen local file (Chromium-only).
 - **Engine settings panel** — a small "Engine" section (sidebar SidePanel,
