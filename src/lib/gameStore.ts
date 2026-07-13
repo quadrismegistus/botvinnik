@@ -2,7 +2,7 @@
 // explanations the app computed while the game was played.
 
 import { bestMovePoint, type Explanation } from './engine/explain';
-import type { MoveLabel } from './engine/insights';
+import { winChance, type MoveLabel } from './engine/insights';
 import { GAMES_STORE, openDb } from './engine/db';
 
 export interface StoredMove {
@@ -42,18 +42,62 @@ export interface StoredGame {
 	source?: 'lichess' | 'chesscom';
 }
 
-// lichess's move-accuracy curve over win% loss
+// lichess's move-accuracy curve over win% loss, incl. lila's +1 "uncertainty
+// bonus" (AccuracyPercent.fromWinPercents)
 export function moveAccuracy(wcDrop: number): number {
-	const a = 103.1668 * Math.exp(-0.04354 * Math.max(0, wcDrop)) - 3.1669;
+	const a = 103.1668 * Math.exp(-0.04354 * Math.max(0, wcDrop)) - 3.1669 + 1;
 	return Math.max(0, Math.min(100, a));
 }
 
-// simple mean of per-move accuracies over the graded moves of one side
+function stdDev(xs: number[]): number {
+	if (xs.length === 0) return 0;
+	const mean = xs.reduce((a, b) => a + b, 0) / xs.length;
+	return Math.sqrt(xs.reduce((a, b) => a + (b - mean) * (b - mean), 0) / xs.length);
+}
+
+// Game accuracy per side, mirroring lichess (lila AccuracyPercent.gameAccuracy):
+// per-move accuracies weighted by local win% VOLATILITY (sliding-window stddev,
+// clamped 0.5–12 — sharp phases count more than dead-level shuffling), averaged
+// with the unweighted HARMONIC mean, which is what actually punishes blunders.
+// The old plain mean barely noticed a single terrible move, which is why our
+// numbers ran far above chess.com's CAPS for the same game.
 export function gameAccuracy(moves: StoredMove[], color: 'w' | 'b'): number | null {
-	const graded = moves.filter((m) => m.color === color && m.label !== undefined);
-	if (graded.length === 0) return null;
-	const sum = graded.reduce((a, m) => a + moveAccuracy(m.wcDrop), 0);
-	return sum / graded.length;
+	if (!moves.some((m) => m.color === color && m.label !== undefined)) return null;
+
+	// white-POV win% after every ply, start position in front; unevaluated
+	// plies carry the previous value forward (neutral for the volatility)
+	const wps: number[] = [50];
+	let last = 50;
+	for (const m of moves) {
+		if (m.evalPawns !== null || m.mate !== null) {
+			const wc = winChance(m.evalPawns, m.mate);
+			last = m.color === 'w' ? wc : 100 - wc;
+		}
+		wps.push(last);
+	}
+
+	const windowSize = Math.max(2, Math.min(8, Math.floor(wps.length / 10)));
+	// one window per move: pad with copies of the first window, then slide
+	const windows: number[][] = [];
+	for (let k = 0; k < windowSize - 2; k++) windows.push(wps.slice(0, windowSize));
+	for (let s = 0; s + windowSize <= wps.length; s++) windows.push(wps.slice(s, s + windowSize));
+
+	let weightSum = 0;
+	let weightedSum = 0;
+	let invSum = 0;
+	let n = 0;
+	moves.forEach((m, i) => {
+		if (m.color !== color || m.label === undefined) return;
+		const acc = moveAccuracy(m.wcDrop);
+		const weight = Math.max(0.5, Math.min(12, stdDev(windows[Math.min(i, windows.length - 1)] ?? wps)));
+		weightedSum += acc * weight;
+		weightSum += weight;
+		invSum += 1 / acc; // acc 0 → Infinity → harmonic 0, as in lila
+		n++;
+	});
+	const weighted = weightedSum / weightSum;
+	const harmonic = n / invSum;
+	return Math.max(0, Math.min(100, (weighted + harmonic) / 2));
 }
 
 export function labelCounts(moves: StoredMove[], color: 'w' | 'b'): LabelCounts {
@@ -126,12 +170,31 @@ export function sanitizeExplanations(games: StoredGame[]): StoredGame[] {
 	return changed;
 }
 
-// run the re-verify pass over loaded games and persist whatever it corrected;
-// returns how many games were rewritten
-export async function sanitizeStoredExplanations(games: StoredGame[]): Promise<number> {
-	const changed = sanitizeExplanations(games);
+// pure: recompute stored per-side accuracies with the current formula (only
+// possible for games that kept their full move data)
+export function refreshAccuracies(games: StoredGame[]): StoredGame[] {
+	const changed: StoredGame[] = [];
+	const differs = (a: number | null, b: number | null) =>
+		a === null || b === null ? a !== b : Math.abs(a - b) > 0.05;
+	for (const g of games) {
+		if (g.moves.length === 0) continue;
+		const w = gameAccuracy(g.moves, 'w');
+		const b = gameAccuracy(g.moves, 'b');
+		if (differs(w, g.whiteAccuracy) || differs(b, g.blackAccuracy)) {
+			g.whiteAccuracy = w;
+			g.blackAccuracy = b;
+			changed.push(g);
+		}
+	}
+	return changed;
+}
+
+// run the load-time repair passes (stale claim prose + accuracy formula
+// changes) and persist whatever they corrected; returns games rewritten
+export async function sanitizeStoredGames(games: StoredGame[]): Promise<number> {
+	const changed = new Set([...sanitizeExplanations(games), ...refreshAccuracies(games)]);
 	for (const g of changed) await saveGame(g);
-	return changed.length;
+	return changed.size;
 }
 
 export async function deleteGame(id: string): Promise<void> {

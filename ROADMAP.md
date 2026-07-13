@@ -127,6 +127,17 @@ Shipped so far:
 - Material claims in explanations count captures only up to the last quiet
   ply and quote exactly the counted window — never trust a PV material count
   that ends mid-exchange.
+- Accuracy = lichess's official algorithm (lila `AccuracyPercent.scala`):
+  per-move `103.1668·e^(−0.04354·wcDrop) − 3.1669 + 1` clamped 0–100, game
+  score per side = (win%-volatility-weighted mean + harmonic mean) / 2. The
+  HARMONIC mean is what makes blunders hurt (one 0-accuracy move zeroes it,
+  collapsing the score to half the weighted mean) — the previous plain
+  arithmetic mean ran ~15 points above chess.com for the same game (Ryan's
+  2026-07-13 comparison: 87.6/91.4 vs CAPS 71.3/80.0). chess.com's CAPS is
+  proprietary and will still read somewhat lower; our imports also analyze
+  at fixed 300K nodes, shallower than their review. Stored games that kept
+  full move data are recomputed on load (`refreshAccuracies`); moves-less
+  imports keep their import-time numbers.
 - Threat probe material rule (2026-07-13): when the probe's PV never reaches
   a quiet ply, the raw line count credits mid-exchange captures (a 1-ply pv
   made "Nxf4" a threat against a queen-defended bishop) — `findThreat` now

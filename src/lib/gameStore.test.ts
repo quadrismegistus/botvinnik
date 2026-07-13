@@ -25,24 +25,47 @@ function move(color: 'w' | 'b', wcDrop: number, label?: StoredMove['label']): St
 }
 
 describe('moveAccuracy', () => {
-	it('follows the lichess curve', () => {
-		expect(moveAccuracy(0)).toBeCloseTo(100, 0);
-		expect(moveAccuracy(10)).toBeCloseTo(63.5, 0);
+	it('follows the lichess curve (incl. the +1 uncertainty bonus)', () => {
+		expect(moveAccuracy(0)).toBe(100); // clamped
+		expect(moveAccuracy(10)).toBeCloseTo(64.5, 0);
 		expect(moveAccuracy(100)).toBe(0); // clamped
 	});
 });
 
 describe('gameAccuracy', () => {
-	it('averages only the labeled moves of one side', () => {
+	it('is 100 for a perfect game and null with nothing graded', () => {
+		const moves = [move('w', 0, 'best'), move('b', 0, 'best'), move('w', 0, 'best')];
+		expect(gameAccuracy(moves, 'w')).toBe(100);
+		expect(gameAccuracy([], 'w')).toBeNull();
+		expect(gameAccuracy([move('w', 5)], 'w')).toBeNull(); // unlabeled only
+	});
+
+	it('the harmonic component punishes blunders far below the plain mean', () => {
+		const moves: StoredMove[] = [];
+		for (let k = 0; k < 20; k++) {
+			moves.push(move('w', 0, 'best'));
+			moves.push(move('b', 0, 'best'));
+		}
+		moves.push(move('w', 30, 'blunder'));
+		const mild = gameAccuracy(moves, 'w')!;
+		const arithmetic = (20 * 100 + moveAccuracy(30)) / 21; // the old formula ≈ 96
+		expect(mild).toBeLessThan(arithmetic - 3);
+		expect(gameAccuracy(moves, 'b')).toBe(100); // Black unaffected
+
+		// a total blunder (accuracy 0) zeroes the harmonic mean, as in lila —
+		// the game score collapses to half the weighted mean
+		moves.push(move('b', 0, 'best'));
+		moves.push(move('w', 90, 'blunder'));
+		expect(gameAccuracy(moves, 'w')!).toBeLessThan(55);
+	});
+
+	it('ignores the other side and unlabeled moves', () => {
 		const moves = [
 			move('w', 0, 'best'),
-			move('b', 0, 'best'),
-			move('w', 20, 'blunder'),
+			move('b', 40, 'blunder'), // not White's problem
 			move('w', 5) // unlabeled — ignored
 		];
-		const w = gameAccuracy(moves, 'w')!;
-		expect(w).toBeCloseTo((moveAccuracy(0) + moveAccuracy(20)) / 2, 5);
-		expect(gameAccuracy([], 'w')).toBeNull();
+		expect(gameAccuracy(moves, 'w')).toBe(100);
 	});
 });
 

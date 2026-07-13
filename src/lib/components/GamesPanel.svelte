@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { CcImportProgress } from '$lib/chesscomImport';
+	import { winChance } from '$lib/engine/insights';
 	import type { StoredGame, StoredMove } from '$lib/gameStore';
 	import { CLASS, LABEL_ORDER } from '$lib/classifications';
 	import LineHover from './LineHover.svelte';
@@ -265,6 +266,14 @@
 					</span>
 					<span class="rv-cardeval" class:drop={selected.wcDrop >= 5}>{fmtEval(selected)}</span>
 				</div>
+
+				{#if selected.evalPawns !== null || selected.mate !== null}
+					{@const wcAfter = winChance(selected.evalPawns, selected.mate)}
+					<div class="rv-wc" class:drop={selected.wcDrop >= 5}>
+						Win chance {Math.round(Math.min(100, wcAfter + selected.wcDrop))}% →
+						{Math.round(wcAfter)}%{#if selected.wcDrop >= 1}&nbsp;(−{selected.wcDrop.toFixed(0)}%){/if}
+					</div>
+				{/if}
 
 				{#snippet withEvidence(text: string)}
 					{#if selected?.explanation?.evidence}
@@ -616,6 +625,15 @@
 		color: var(--text-secondary);
 	}
 	.rv-cardeval.drop {
+		color: var(--color-lose);
+	}
+	.rv-wc {
+		margin-top: 4px;
+		font-size: 12px;
+		color: var(--text-secondary);
+		font-variant-numeric: tabular-nums;
+	}
+	.rv-wc.drop {
 		color: var(--color-lose);
 	}
 	.rv-why {
