@@ -32,9 +32,18 @@ Shipped so far:
 - **PGN import** — paste/upload a PGN for review/analysis (export shipped).
 - **Practice history detail** — per-item pass/fail trail in the practice list
   (attempts/correct are already stored), maybe a small sparkline.
-- **Bot ELO calibration harness** — bots play each other headlessly
-  (Playwright or node) to estimate each band's true strength; the labels
-  ("1800") are currently taken on faith from UCI_Elo / Skill Level.
+- **Bot ELO calibration harness** — BUILT 2026-07-13:
+  `npx tsx scripts/calibrate-bots.mts` (needs `brew install stockfish`).
+  Ladder of settings play each other headlessly (checkpointed/resumable,
+  parallel across cores, ~20+ games/min), move selection reuses the app's
+  exact band recipe (`engine/botRecipe.ts`, shared with `analyzeBotMove`)
+  and `selectBotMove` sampler; results feed a Bradley–Terry fit anchored on
+  the UCI_Elo band; the report flags per-point deltas and non-monotonic
+  seams. Still to do once the numbers are in: RE-MAP the manual bands
+  (α curve, skill/depth line) so the labels mean what they say, then rerun
+  to verify. Caveat printed by the script: native SF at movetime 400 is
+  stronger than the app's WASM for the ≥1320 band, so treat that anchor as
+  an upper bound.
 - **File System Access autosave** — beyond Export/Import: write backups
   directly to a user-chosen local file (Chromium-only).
 - **Engine settings panel** — a small "Engine" section (sidebar SidePanel,

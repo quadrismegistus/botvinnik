@@ -1,5 +1,6 @@
 import { base } from '$app/paths';
 import { getCached, putCached } from './analysisCache';
+import { botRecipe, botResetOptions } from './botRecipe';
 
 export const MULTIPV = 5;
 
@@ -283,41 +284,17 @@ export function analyzeBotMove(
 	onUpdate: Listener = () => {}
 ): Promise<EngineResult> {
 	ensureWorker();
-	const clamped = Math.max(100, Math.min(3600, elo));
-	let options: [string, string][];
-	let go: string;
-	if (clamped >= 1320) {
-		options = [
-			['MultiPV', '1'],
-			['UCI_LimitStrength', 'true'],
-			['UCI_Elo', String(Math.min(3190, clamped))]
-		];
-		go = 'go movetime 400';
-	} else if (clamped >= 800) {
-		const t = (clamped - 800) / (1320 - 800); // 0..1 over this band
-		options = [
-			['MultiPV', '1'],
-			['Skill Level', String(Math.round(t * 6))] // 0..6
-		];
-		go = 'go depth ' + (1 + Math.round(t * 4)); // depth 1..5
-	} else {
-		options = [['MultiPV', '24']];
-		go = 'go depth ' + (clamped < 500 ? 1 : 2);
-	}
-	const resetOptions: [string, string][] = [
-		['UCI_LimitStrength', 'false'],
-		['Skill Level', '20'],
-		['MultiPV', String(MULTIPV)]
-	];
+	// the band logic lives in botRecipe.ts, shared with the calibration harness
+	const recipe = botRecipe(elo);
 	return new Promise((resolve) => {
 		queueSearch({
 			fen,
 			depth: 0,
 			onUpdate,
 			resolve,
-			go,
-			options,
-			resetOptions,
+			go: recipe.go,
+			options: recipe.options,
+			resetOptions: botResetOptions(MULTIPV),
 			minInfoDepth: 1
 		});
 	});

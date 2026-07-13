@@ -1,0 +1,369 @@
+#!/usr/bin/env npx tsx
+/**
+ * Bot ELO calibration harness — bots at different settings play each other
+ * headlessly so the strength labels stop being taken on faith.
+ *
+ * Each test point plays its ladder neighbours (plus a couple of long-range
+ * sanity pairs) from a small balanced opening book, colors alternating. Move
+ * selection replicates the app exactly: the shared botRecipe() band logic and
+ * the same selectBotMove() sampler for the beginner band. Results feed a
+ * Bradley–Terry fit; the scale is anchored so the UCI_Elo band (the only band
+ * with external calibration) averages its nominal labels.
+ *
+ * Usage:
+ *   npx tsx scripts/calibrate-bots.mts [options]
+ *
+ * Options:
+ *   --points a,b,c   test settings (default 100,300,500,700,800,1000,1200,1320,1600,2000)
+ *   --games N        games per pair (default 40; even, so colors balance)
+ *   --workers N      parallel games / engine processes (default: cores - 2)
+ *   --max-plies N    adjudicate unfinished games after N plies (default 160)
+ *   --engine PATH    stockfish binary (default: `stockfish` on PATH)
+ *   --out FILE       results JSON (default data/bot-calibration.json)
+ *
+ * Resumable: finished games are checkpointed in <out>.state.json — rerun with
+ * the same settings to continue, delete the state file to start over.
+ *
+ * CAVEAT: a native binary is (much) faster than the app's single-threaded
+ * WASM build. The fixed-depth bands (<1320) don't care, but the UCI_Elo band
+ * searches `movetime 400` — on stronger hardware its base search is deeper, so
+ * treat the anchor band's absolute level as an upper bound for the app.
+ */
+
+import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { Chess } from 'chess.js';
+import { selectBotMove } from '../src/lib/bot';
+import { botRecipe, botResetOptions } from '../src/lib/engine/botRecipe';
+import type { EngineMove } from '../src/lib/engine/stockfish';
+
+// ---------- args ----------
+const args = process.argv.slice(2);
+function opt(name: string, dflt: number): number {
+	const i = args.indexOf(`--${name}`);
+	return i >= 0 ? Number(args[i + 1]) : dflt;
+}
+function optStr(name: string, dflt: string): string {
+	const i = args.indexOf(`--${name}`);
+	return i >= 0 ? args[i + 1] : dflt;
+}
+const POINTS = optStr('points', '100,300,500,700,800,1000,1200,1320,1600,2000')
+	.split(',')
+	.map(Number)
+	.sort((a, b) => a - b);
+const GAMES = Math.max(2, Math.ceil(opt('games', 40) / 2) * 2);
+const WORKERS = Math.max(1, opt('workers', os.cpus().length - 2));
+const MAX_PLIES = opt('max-plies', 160);
+const ENGINE = optStr('engine', 'stockfish');
+const OUT = optStr('out', 'data/bot-calibration.json');
+const STATE = `${OUT}.state.json`;
+
+// ladder neighbours + long-range sanity pairs (fit stiffness across seams)
+const pairs: [number, number][] = [];
+for (let i = 0; i + 1 < POINTS.length; i++) pairs.push([POINTS[i], POINTS[i + 1]]);
+for (const [a, b] of [
+	[POINTS[0], POINTS[Math.min(2, POINTS.length - 1)]],
+	[800, 1320]
+] as [number, number][]) {
+	if (POINTS.includes(a) && POINTS.includes(b) && a !== b && !pairs.some(([x, y]) => x === a && y === b)) {
+		pairs.push([a, b]);
+	}
+}
+
+// short balanced openings (4 plies) — each pair plays each opening twice with
+// colors swapped, the standard match convention
+const OPENINGS = [
+	'e4 e5 Nf3 Nc6',
+	'd4 d5 c4 e6',
+	'e4 c5 Nf3 d6',
+	'd4 Nf6 c4 e6',
+	'e4 e6 d4 d5',
+	'c4 e5 Nc3 Nf6',
+	'd4 d5 Nf3 Nf6',
+	'e4 c5 Nf3 Nc6',
+	'e4 e5 Nf3 Nf6',
+	'd4 Nf6 c4 g6',
+	'Nf3 d5 g3 Nf6',
+	'e4 c6 d4 d5'
+];
+
+// ---------- engine ----------
+interface SearchOut {
+	moves: EngineMove[];
+	bestmove: string;
+}
+
+class Engine {
+	proc: ChildProcessWithoutNullStreams;
+	busy = false;
+	private buffer = '';
+	private resolve: ((r: SearchOut) => void) | null = null;
+	private byMultipv = new Map<number, EngineMove>();
+
+	constructor() {
+		this.proc = spawn(ENGINE);
+		this.proc.on('error', (e) => {
+			console.error(`cannot start engine "${ENGINE}": ${e.message}`);
+			process.exit(1);
+		});
+		this.proc.stdout.on('data', (d) => this.onData(String(d)));
+		this.proc.stdin.write('uci\nsetoption name Threads value 1\nsetoption name Hash value 32\nisready\n');
+	}
+
+	private onData(chunk: string) {
+		this.buffer += chunk;
+		const lines = this.buffer.split('\n');
+		this.buffer = lines.pop() ?? '';
+		for (const line of lines) {
+			if (line.startsWith('info ') && line.includes(' pv ')) {
+				const depth = Number(line.match(/ depth (\d+)/)?.[1] ?? 0);
+				const multipv = Number(line.match(/ multipv (\d+)/)?.[1] ?? 1);
+				const cp = line.match(/ score cp (-?\d+)/);
+				const mate = line.match(/ score mate (-?\d+)/);
+				const pv = line.split(' pv ')[1]?.trim().split(' ') ?? [];
+				if (pv.length) {
+					this.byMultipv.set(multipv, {
+						pv,
+						score: cp ? Number(cp[1]) / 100 : 0,
+						mate: mate ? Number(mate[1]) : null,
+						depth,
+						multipv
+					});
+				}
+			} else if (line.startsWith('bestmove')) {
+				const best = line.split(/\s+/)[1] ?? '';
+				const moves = [...this.byMultipv.values()].sort((a, b) => a.multipv - b.multipv);
+				const r = this.resolve;
+				this.resolve = null;
+				this.busy = false;
+				r?.({ moves, bestmove: best });
+			}
+		}
+	}
+
+	// run one search with the given options set first; options are NOT reset
+	// here — the caller sends the reset block before the next mover's options
+	search(fen: string, options: [string, string][], go: string): Promise<SearchOut> {
+		this.busy = true;
+		this.byMultipv = new Map();
+		const opts = options.map(([k, v]) => `setoption name ${k} value ${v}`).join('\n');
+		return new Promise((resolve) => {
+			this.resolve = resolve;
+			this.proc.stdin.write(`${opts}\nposition fen ${fen}\n${go}\n`);
+		});
+	}
+
+	newGame() {
+		this.proc.stdin.write('ucinewgame\n');
+	}
+
+	quit() {
+		this.proc.stdin.write('quit\n');
+	}
+}
+
+// ---------- app-faithful bot move ----------
+async function botMove(engine: Engine, fen: string, elo: number): Promise<string | null> {
+	const recipe = botRecipe(elo);
+	// reset first: the OTHER bot's options (LimitStrength, Skill) must not leak
+	const options = [...botResetOptions(1), ...recipe.options];
+	const res = await engine.search(fen, options, recipe.go);
+	if (recipe.sample) return selectBotMove(res.moves, elo);
+	if (res.bestmove && res.bestmove !== '(none)') return res.bestmove;
+	return res.moves[0]?.pv[0] ?? null;
+}
+
+// full-strength eval for adjudicating games the ply cap cuts off
+async function adjudicate(engine: Engine, fen: string): Promise<number> {
+	const res = await engine.search(fen, botResetOptions(1), 'go depth 12');
+	const m = res.moves[0];
+	if (!m) return 0;
+	const cp = m.mate !== null ? (m.mate > 0 ? 9999 : -9999) : m.score * 100;
+	return fen.split(' ')[1] === 'w' ? cp : -cp; // white POV
+}
+
+// one game; returns the score for `a` (1 / 0.5 / 0)
+async function playGame(
+	engine: Engine,
+	a: number,
+	b: number,
+	opening: string,
+	aIsWhite: boolean
+): Promise<number> {
+	engine.newGame();
+	const chess = new Chess();
+	for (const san of opening.split(' ')) chess.move(san);
+	let plies = 0;
+	while (!chess.isGameOver() && plies < MAX_PLIES) {
+		const mover = (chess.turn() === 'w') === aIsWhite ? a : b;
+		const uci = await botMove(engine, chess.fen(), mover);
+		if (!uci) break;
+		try {
+			chess.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci[4] });
+		} catch {
+			break; // illegal engine move — treat as adjudication point
+		}
+		plies++;
+	}
+	let whiteScore: number;
+	if (chess.isCheckmate()) {
+		whiteScore = chess.turn() === 'w' ? 0 : 1;
+	} else if (chess.isDraw() || chess.isStalemate()) {
+		whiteScore = 0.5;
+	} else {
+		const cp = await adjudicate(engine, chess.fen());
+		whiteScore = cp >= 300 ? 1 : cp <= -300 ? 0 : 0.5;
+	}
+	return aIsWhite ? whiteScore : 1 - whiteScore;
+}
+
+// ---------- Bradley–Terry fit (draws = half wins) ----------
+interface PairResult {
+	a: number;
+	b: number;
+	games: number;
+	aScore: number; // wins + draws/2 from a's side
+}
+
+function fitRatings(results: PairResult[], points: number[]): Map<number, number> {
+	const rating = new Map(points.map((p) => [p, 0]));
+	// gradient ascent on the Elo-logistic log-likelihood
+	for (let iter = 0; iter < 20000; iter++) {
+		const lr = 40 * Math.exp(-iter / 4000);
+		const grad = new Map(points.map((p) => [p, 0]));
+		for (const r of results) {
+			const sa = rating.get(r.a)!;
+			const sb = rating.get(r.b)!;
+			const expected = 1 / (1 + Math.pow(10, (sb - sa) / 400));
+			const diff = r.aScore / r.games - expected;
+			grad.set(r.a, grad.get(r.a)! + diff * r.games);
+			grad.set(r.b, grad.get(r.b)! - diff * r.games);
+		}
+		for (const p of points) rating.set(p, rating.get(p)! + (lr * grad.get(p)!) / GAMES);
+	}
+	// anchor: the UCI_Elo band's mean fitted value = its mean nominal label
+	const anchors = points.filter((p) => p >= 1320);
+	const ref = anchors.length ? anchors : points;
+	const offset =
+		ref.reduce((s, p) => s + p, 0) / ref.length -
+		ref.reduce((s, p) => s + rating.get(p)!, 0) / ref.length;
+	for (const p of points) rating.set(p, rating.get(p)! + offset);
+	return rating;
+}
+
+// ---------- state / scheduling ----------
+interface State {
+	games: number;
+	results: Record<string, { games: number; aScore: number }>;
+}
+const key = (a: number, b: number) => `${a}v${b}`;
+let state: State = { games: GAMES, results: {} };
+if (existsSync(STATE)) {
+	const prev = JSON.parse(readFileSync(STATE, 'utf8')) as State;
+	if (prev.games === GAMES) {
+		state = prev;
+		console.log(`resuming from ${STATE}`);
+	} else {
+		console.log(`--games changed (${prev.games} → ${GAMES}); starting over`);
+	}
+}
+function saveState() {
+	mkdirSync(path.dirname(STATE), { recursive: true });
+	writeFileSync(STATE, JSON.stringify(state));
+}
+
+interface Job {
+	a: number;
+	b: number;
+	gameIdx: number;
+}
+const jobs: Job[] = [];
+for (const [a, b] of pairs) {
+	const done = state.results[key(a, b)]?.games ?? 0;
+	for (let g = done; g < GAMES; g++) jobs.push({ a, b, gameIdx: g });
+}
+
+const totalGames = pairs.length * GAMES;
+console.log(
+	`${POINTS.length} settings, ${pairs.length} pairs × ${GAMES} games = ${totalGames} games ` +
+		`(${totalGames - jobs.length} done, ${jobs.length} to play, ${WORKERS} workers)`
+);
+
+// ---------- run ----------
+const engines = Array.from({ length: WORKERS }, () => new Engine());
+let played = 0;
+const t0 = Date.now();
+
+async function worker(engine: Engine) {
+	for (;;) {
+		const job = jobs.shift();
+		if (!job) return;
+		const opening = OPENINGS[Math.floor(job.gameIdx / 2) % OPENINGS.length];
+		const aIsWhite = job.gameIdx % 2 === 0;
+		const score = await playGame(engine, job.a, job.b, opening, aIsWhite);
+		const k = key(job.a, job.b);
+		const r = (state.results[k] ??= { games: 0, aScore: 0 });
+		r.games++;
+		r.aScore += score;
+		saveState();
+		played++;
+		if (played % 10 === 0 || jobs.length === 0) {
+			const rate = played / ((Date.now() - t0) / 60000);
+			console.log(
+				`${played}/${jobs.length + played} games · ${rate.toFixed(1)}/min · ` +
+					`eta ${(jobs.length / Math.max(rate, 0.1)).toFixed(0)}min`
+			);
+		}
+	}
+}
+
+await Promise.all(engines.map((e) => worker(e)));
+for (const e of engines) e.quit();
+
+// ---------- report ----------
+const results: PairResult[] = pairs
+	.map(([a, b]) => ({ a, b, ...(state.results[key(a, b)] ?? { games: 0, aScore: 0 }) }))
+	.filter((r) => r.games > 0);
+const fitted = fitRatings(results, POINTS);
+
+console.log('\npairwise results (a vs b, a-score):');
+for (const r of results) {
+	const p = r.aScore / r.games;
+	const se = Math.sqrt(Math.max(p * (1 - p), 0.01) / r.games);
+	console.log(
+		`  ${String(r.a).padStart(4)} vs ${String(r.b).padStart(4)}: ` +
+			`${r.aScore}/${r.games} (${(p * 100).toFixed(0)}% ±${(se * 100).toFixed(0)})`
+	);
+}
+
+console.log('\nfitted strength (anchored on the UCI_Elo band):');
+console.log('  label  fitted  delta');
+let prevFit = -Infinity;
+for (const p of POINTS) {
+	const f = fitted.get(p)!;
+	const mono = f < prevFit ? '  ⚠ NON-MONOTONIC' : '';
+	console.log(
+		`  ${String(p).padStart(5)}  ${f.toFixed(0).padStart(6)}  ${(f - p).toFixed(0).padStart(5)}${mono}`
+	);
+	prevFit = f;
+}
+
+mkdirSync(path.dirname(OUT), { recursive: true });
+writeFileSync(
+	OUT,
+	JSON.stringify(
+		{
+			ranAt: new Date().toISOString(),
+			engine: ENGINE,
+			gamesPerPair: GAMES,
+			points: POINTS,
+			results,
+			fitted: Object.fromEntries([...fitted.entries()].map(([p, f]) => [p, Math.round(f)]))
+		},
+		null,
+		'\t'
+	)
+);
+console.log(`\nwrote ${OUT}`);
