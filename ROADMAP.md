@@ -75,11 +75,15 @@ Shipped so far:
   built in; the flaky drop-bestmoves shim was the separate npm cli.js). The
   sampler knots come from a 2,600-game high-N ladder (sampler games are ~free
   at 2000/min): requested 700–2100 lands within ±32 of nominal, floor ~90
-  (eloMin 100), seam at 2485. The UCI_Elo top band (2485–2800, movetime-bound
-  = expensive) stays n=40-soft — least label-sensitive region. Per-engine
-  absolute scales are each honest but not cross-comparable (different nets).
-  Bot ELO calibration is now COMPLETE for both substrates. Lesson banked in
-  project memory: calibrate the free (sampler) bands at high N, not n=40.
+  (eloMin 100), seam at 2485. The UCI_Elo top bands were later re-measured at
+  n=200 too (movetime ladders run in a real shell via
+  scripts/run-mt-calibration.sh, since background Bash caps at 10 min) and
+  their knots refined — so **every band on both substrates is now n=200**.
+  Per-engine absolute scales are each honest but not cross-comparable
+  (different nets), and both are anchored to Stockfish UCI_Elo, which runs
+  soft vs chess.com — a human re-anchor is a possible future lever.
+  Bot ELO calibration is COMPLETE. Lesson banked in project memory: calibrate
+  the free (sampler) bands at high N; movetime bands need a real shell.
 - **File System Access autosave** — beyond Export/Import: write backups
   directly to a user-chosen local file (Chromium-only).
 - **Engine settings panel** — a small "Engine" section (sidebar SidePanel,

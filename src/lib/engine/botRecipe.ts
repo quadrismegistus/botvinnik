@@ -135,10 +135,12 @@ const NATIVE: Bands = {
 		{ e: 2033, alpha: 4, depth: 2 },
 		{ e: 2327, alpha: 8, depth: 2 }
 	],
+	// UCI_Elo band refined 2026-07-13 from a 1,000-game n=200 movetime ladder
+	// (data/bot-native-mt200.json) — the original was an n=40 fit
 	ucielo: [
-		{ e: 2132, elo: 2400, movetimeMs: 400 },
-		{ e: 2433, elo: 2800, movetimeMs: 400 },
-		{ e: 2815, elo: 3190, movetimeMs: 400 }
+		{ e: 2048, elo: 2400, movetimeMs: 400 },
+		{ e: 2468, elo: 2800, movetimeMs: 400 },
+		{ e: 2824, elo: 3190, movetimeMs: 400 }
 	],
 	samplerMax: 2100,
 	depthBoundary: 410,
@@ -171,10 +173,13 @@ const WASM: Bands = {
 		{ e: 2239, alpha: 4, depth: 2 },
 		{ e: 2485, alpha: 8, depth: 2 }
 	],
+	// UCI_Elo band refined 2026-07-13 from an 800-game n=200 movetime ladder
+	// (data/bot-wasm-mt200.json); the 3190 knot is extrapolated (the slider
+	// caps at 2800 so it's only the top bracket, never reached)
 	ucielo: [
-		{ e: 2346, elo: 2400, movetimeMs: 400 },
-		{ e: 2573, elo: 2800, movetimeMs: 400 },
-		{ e: 3342, elo: 3190, movetimeMs: 400 }
+		{ e: 2297, elo: 2400, movetimeMs: 400 },
+		{ e: 2574, elo: 2800, movetimeMs: 400 },
+		{ e: 3436, elo: 3190, movetimeMs: 400 }
 	],
 	// sampler covers cleanly up to a8 (2485); UCI_Elo takes only the top above it
 	samplerMax: 2485,
