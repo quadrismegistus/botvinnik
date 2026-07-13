@@ -56,7 +56,21 @@ const POINTS = optStr('points', '100,300,500,700,800,1000,1200,1320,1600,2000')
 const GAMES = Math.max(2, Math.ceil(opt('games', 40) / 2) * 2);
 const WORKERS = Math.max(1, opt('workers', os.cpus().length - 2));
 const MAX_PLIES = opt('max-plies', 160);
-const ENGINE = optStr('engine', 'stockfish');
+// resolve the NATIVE binary explicitly: under `npx tsx`, node_modules/.bin is
+// prepended to PATH, so a bare "stockfish" silently picks the npm package's
+// WASM CLI shim — which is a different net, slower, and occasionally drops a
+// bestmove (three hung workers taught us this)
+const NATIVE_CANDIDATES = [
+	'/opt/homebrew/bin/stockfish',
+	'/usr/local/bin/stockfish',
+	'/usr/bin/stockfish'
+];
+const ENGINE = optStr('engine', NATIVE_CANDIDATES.find((p) => existsSync(p)) ?? 'stockfish');
+if (ENGINE.includes('node_modules')) {
+	console.warn(`WARNING: engine resolves inside node_modules (${ENGINE}) — the WASM CLI shim`);
+}
+console.log(`engine: ${ENGINE}`);
+const SEARCH_TIMEOUT_MS = 60_000;
 const OUT = optStr('out', 'data/bot-calibration.json');
 const STATE = `${OUT}.state.json`;
 
@@ -96,13 +110,19 @@ interface SearchOut {
 }
 
 class Engine {
-	proc: ChildProcessWithoutNullStreams;
+	proc!: ChildProcessWithoutNullStreams;
 	busy = false;
 	private buffer = '';
 	private resolve: ((r: SearchOut) => void) | null = null;
 	private byMultipv = new Map<number, EngineMove>();
+	private watchdog: NodeJS.Timeout | null = null;
 
 	constructor() {
+		this.start();
+	}
+
+	private start() {
+		this.buffer = '';
 		this.proc = spawn(ENGINE);
 		this.proc.on('error', (e) => {
 			console.error(`cannot start engine "${ENGINE}": ${e.message}`);
@@ -135,6 +155,8 @@ class Engine {
 			} else if (line.startsWith('bestmove')) {
 				const best = line.split(/\s+/)[1] ?? '';
 				const moves = [...this.byMultipv.values()].sort((a, b) => a.multipv - b.multipv);
+				if (this.watchdog) clearTimeout(this.watchdog);
+				this.watchdog = null;
 				const r = this.resolve;
 				this.resolve = null;
 				this.busy = false;
@@ -144,13 +166,28 @@ class Engine {
 	}
 
 	// run one search with the given options set first; options are NOT reset
-	// here — the caller sends the reset block before the next mover's options
+	// here — the caller sends the reset block before the next mover's options.
+	// A watchdog respawns the engine and resolves empty if bestmove never
+	// arrives, so a flaky engine can't hang a worker forever.
 	search(fen: string, options: [string, string][], go: string): Promise<SearchOut> {
 		this.busy = true;
 		this.byMultipv = new Map();
 		const opts = options.map(([k, v]) => `setoption name ${k} value ${v}`).join('\n');
 		return new Promise((resolve) => {
 			this.resolve = resolve;
+			this.watchdog = setTimeout(() => {
+				console.warn(`engine timeout on "${go}" — respawning`);
+				const r = this.resolve;
+				this.resolve = null;
+				this.busy = false;
+				try {
+					this.proc.kill();
+				} catch {
+					// already gone
+				}
+				this.start();
+				r?.({ moves: [], bestmove: '' });
+			}, SEARCH_TIMEOUT_MS);
 			this.proc.stdin.write(`${opts}\nposition fen ${fen}\n${go}\n`);
 		});
 	}
@@ -286,9 +323,10 @@ for (const [a, b] of pairs) {
 }
 
 const totalGames = pairs.length * GAMES;
+const toPlay = jobs.length;
 console.log(
 	`${POINTS.length} settings, ${pairs.length} pairs × ${GAMES} games = ${totalGames} games ` +
-		`(${totalGames - jobs.length} done, ${jobs.length} to play, ${WORKERS} workers)`
+		`(${totalGames - toPlay} done, ${toPlay} to play, ${WORKERS} workers)`
 );
 
 // ---------- run ----------
@@ -309,11 +347,11 @@ async function worker(engine: Engine) {
 		r.aScore += score;
 		saveState();
 		played++;
-		if (played % 10 === 0 || jobs.length === 0) {
+		if (played % 10 === 0 || played === toPlay) {
 			const rate = played / ((Date.now() - t0) / 60000);
 			console.log(
-				`${played}/${jobs.length + played} games · ${rate.toFixed(1)}/min · ` +
-					`eta ${(jobs.length / Math.max(rate, 0.1)).toFixed(0)}min`
+				`${played}/${toPlay} games · ${rate.toFixed(1)}/min · ` +
+					`eta ${((toPlay - played) / Math.max(rate, 0.1)).toFixed(0)}min`
 			);
 		}
 	}
