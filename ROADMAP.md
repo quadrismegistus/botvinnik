@@ -96,6 +96,39 @@ Shipped so far:
   `maybeBotMove`) — human-imitation, characteristic beginner errors, small net,
   no search, runs via onnxruntime-web alongside Stockfish. Stockfish stays for
   analysis/hints and the strong bands. GPL-3.0 weights — check licensing.
+- **Maia-3 in-browser port** — fill the roster's 1750–2100 slots with
+  human-style opponents (currently a jump from Maia IX 1700 straight to
+  Fish 1800). Maia-3 is one skill-conditioned net with a real ~600-pt ELO
+  dial, measured ~1500–2100 lichess-equiv in the anchoring runs. Different
+  pipeline from the shipped Maia-1: token input (64×12 one-hot) + two
+  scalar ELO inputs, 4352-move policy, single 44MB ONNX
+  (CSSLab/maia-platform-frontend `public/maia3/`, encoding in that repo's
+  `src/lib/engine/tensor.ts`). Already works in the calibration harness
+  (`scripts/maia-node.mts`); the port is the browser side: encoding module,
+  IndexedDB model cache, Worker inference (44MB on the main thread would
+  jank). Not urgent — the staircase action is at 1200–1500 where coverage
+  is already good.
+- **Patricia as a second honest ruler (and maybe a persona)** —
+  https://github.com/Adam-Kulju/Patricia (MIT, CCRL ~3500, "most
+  aggressive engine"). Why it matters here: `UCI_LimitStrength`/`UCI_Elo`
+  claims a **500 floor** (vs Stockfish's 1320), calibrated by
+  engine-vs-engine matches, plus `Skill_Level` 1–20 starting at 500 —
+  potentially the missing honest reference BELOW SF-1320 for the
+  shaped-bot curve, whose sub-1320 placement currently hangs off the
+  internal BT chain alone. Its `human.h` is a cp-loss BUDGET accumulator
+  (multipv; play a move whose eval_diff fits the accumulated budget;
+  sacrifice bonus for style) — i.e. the frequent-small-bounded-errors
+  design we measured at 2000+ and abandoned; their own comment table says
+  80cp loss/move ≈ 1200, nothing weaker. So treat its labels skeptically
+  at the bottom: verify vs ucielo:1320 before trusting, and expect
+  ruler-vs-ruler disagreement to be informative rather than clean. Also
+  two more lichess human anchors: @PatriciaBot 2741 blitz / 2705 rapid,
+  @littlePatricia 1800 blitz / 2069 rapid over 11k human games. Native
+  binaries only (macOS = build from source, plain C++ make) — harness
+  ruler first; as a roster persona it would be native-substrate (Tauri)
+  only unless someone emscriptens it. An "aggressive" family would be a
+  genuinely different personality (Squares=blind engine, Maia=human,
+  Fish=cold, Patricia=violent).
 - **File System Access autosave** — beyond Export/Import: write backups
   directly to a user-chosen local file (Chromium-only).
 - **Engine settings panel** — a small "Engine" section (sidebar SidePanel,
