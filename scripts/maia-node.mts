@@ -58,6 +58,20 @@ export async function preloadMaiaBands(bands: number[]): Promise<void> {
 	await Promise.all(bands.map((b) => loadBand(b)));
 }
 
+// onnxruntime-web's InferenceSession.run is NOT reentrant — concurrent calls
+// corrupt its internal state. The harness runs many games in parallel, so
+// serialize all Maia inference through one queue (each run is ~ms; the wasm
+// Stockfish games dominate wall time anyway).
+let queue: Promise<unknown> = Promise.resolve();
+function serialize<T>(fn: () => Promise<T>): Promise<T> {
+	const run = queue.then(fn, fn);
+	queue = run.then(
+		() => {},
+		() => {}
+	);
+	return run;
+}
+
 /** The move Maia plays. `fenHistory` is oldest-first (last = current position). */
 export async function maiaMoveNode(
 	fenHistory: string[],
@@ -72,9 +86,9 @@ export async function maiaMoveNode(
 	if (legal.length === 0) return null;
 	const { session, inputName, policyName } = await loadBand(band);
 	const planes = encodeFenHistory(fenHistory);
-	const out = await session.run({
-		[inputName]: new ort.Tensor('float32', planes, [1, 112, 8, 8])
-	});
+	const out = await serialize(() =>
+		session.run({ [inputName]: new ort.Tensor('float32', planes, [1, 112, 8, 8]) })
+	);
 	const policy = new Float32Array(out[policyName].data as ArrayLike<number>);
 	return decodePolicyOutput(policy, legal, fen.split(' ')[1] === 'b', temperature).best.move;
 }
