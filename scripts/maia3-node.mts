@@ -8,6 +8,7 @@
 import * as ort from 'onnxruntime-web';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { Chess, type Move } from 'chess.js';
+import { serializeInference } from './ort-serialize.mts';
 
 ort.env.wasm.numThreads = 1;
 
@@ -87,17 +88,6 @@ export async function preloadMaia3(): Promise<void> {
 	await load();
 }
 
-// onnxruntime-web run() isn't reentrant — serialize (harness runs games in parallel)
-let queue: Promise<unknown> = Promise.resolve();
-function serialize<T>(fn: () => Promise<T>): Promise<T> {
-	const run = queue.then(fn, fn);
-	queue = run.then(
-		() => {},
-		() => {}
-	);
-	return run;
-}
-
 /**
  * The move Maia-3 plays at the given rating (self and opponent set equal).
  * temperature 0 = argmax (deterministic); >0 samples the policy — used for
@@ -115,7 +105,7 @@ export async function maiaMove3Node(fen: string, elo: number, temperature = 0.5)
 	if (legalIdx.length === 0) return null;
 
 	const session = await load();
-	const out = await serialize(() =>
+	const out = await serializeInference(() =>
 		session.run({
 			tokens: new ort.Tensor('float32', tokens(board.fen()), [1, 64, 12]),
 			elo_self: new ort.Tensor('float32', Float32Array.from([elo]), [1]),
