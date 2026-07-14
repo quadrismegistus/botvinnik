@@ -624,15 +624,30 @@
 			if (afterFen) {
 				blundercheckActive = true;
 				practiceRef = null;
-				loadFen(afterFen);
-				lastMove = [item.playedUci.slice(0, 2), item.playedUci.slice(2, 4)]; // your move, as context
-				refresh();
 				puzzleLoading = true;
-				const res = await analyze(afterFen, 16, () => {});
+				// show the position BEFORE your mistake (opponent's setup highlighted)…
+				loadFen(item.fen);
+				const setup = puzzleSetupMove(item);
+				lastMove = setup ? [setup.slice(0, 2), setup.slice(2, 4)] : null;
+				refresh();
+				const searchP = analyze(afterFen, 16, () => {}); // find the punishment meanwhile
+				// …then animate YOUR mistake sliding into place, so you SEE what you played
+				await new Promise((r) => setTimeout(r, 550));
 				if (token !== puzzleToken) return; // a newer puzzle superseded this load
+				const pm = makeMove(
+					item.playedUci.slice(0, 2),
+					item.playedUci.slice(2, 4),
+					item.playedUci.length > 4 ? item.playedUci[4] : undefined
+				);
+				if (pm) {
+					lastMove = [pm.from, pm.to];
+					refresh();
+				}
+				const res = await searchP;
+				if (token !== puzzleToken) return;
 				puzzleLoading = false;
 				const top = res.moves[0];
-				if (top?.pv[0]) {
+				if (pm && top?.pv[0]) {
 					practiceRef = {
 						fen: afterFen,
 						bestUci: top.pv[0],
@@ -645,7 +660,7 @@
 					};
 					return;
 				}
-				// no usable reply — fall through to the classic puzzle
+				// no usable reply / illegal replay — fall through to the classic puzzle
 			}
 			blundercheckActive = false;
 		} else {
