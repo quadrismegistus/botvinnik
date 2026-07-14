@@ -5,6 +5,7 @@
 		elo: number;
 		minElo?: number; // honest floor for the active engine (wasm sampler bottoms out)
 		maxElo?: number; // honest ceiling for the active engine (wasm vs native)
+		human?: boolean; // human-like (Maia) opponent in the 1100–1900 band
 		thinking: boolean;
 		startOpen?: boolean;
 	}
@@ -15,9 +16,11 @@
 		elo = $bindable(),
 		minElo = 100,
 		maxElo = 2800,
+		human = $bindable(false),
 		thinking,
 		startOpen = true
 	}: Props = $props();
+	const humanApplies = $derived(elo >= 1100 && elo <= 1900);
 	// svelte-ignore state_referenced_locally — startOpen is deliberately initial-only
 	let open = $state(startOpen);
 </script>
@@ -55,6 +58,12 @@
 				     near 250, native reaches 100 — see botRecipe.ts -->
 				<input type="range" min={minElo} max={maxElo} step="50" bind:value={elo} />
 				<span class="elo">{elo}</span>
+			</label>
+
+			<label class="row human" class:muted={!humanApplies}>
+				<input type="checkbox" bind:checked={human} />
+				Human-like (Maia)
+				<span class="hint">{humanApplies ? 'plays like a real ~' + elo : 'only 1100–1900'}</span>
 			</label>
 		</div>
 	{/if}
@@ -138,5 +147,16 @@
 		font-size: 12px;
 		font-variant-numeric: tabular-nums;
 		color: var(--text-primary);
+	}
+	.human {
+		cursor: pointer;
+	}
+	.human.muted {
+		opacity: 0.55;
+	}
+	.human .hint {
+		margin-left: auto;
+		font-size: 11px;
+		color: var(--text-secondary);
 	}
 </style>

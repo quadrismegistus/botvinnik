@@ -49,6 +49,7 @@
 		type EngineMove
 	} from '$lib/engine/stockfish';
 	import { botSpec, botEloMax, botEloMin } from '$lib/engine/botRecipe';
+	import { maiaMove, inMaiaRange, preloadMaia } from '$lib/engine/maia';
 	import { computeControl } from '$lib/engine/control';
 	import { findThreat, type Threat } from '$lib/engine/threats';
 	import {
@@ -343,6 +344,7 @@
 	let botEnabled = $state(false);
 	let botColor: 'w' | 'b' = $state('b'); // side the bot plays
 	let botElo = $state(1500);
+	let botHuman = $state(false); // human-like (Maia) opponent in the 1100–1900 band
 	let botThinking = $state(false);
 	let botConsidering: string | null = $state(null); // uci the bot is eyeing right now
 	let botSettingsLoaded = false;
@@ -360,6 +362,7 @@
 				// (the old slider went to 3600; the honest ceiling is now botEloMax)
 				if (typeof bot.elo === 'number' && bot.elo >= 100)
 					botElo = Math.max(botEloMin(), Math.min(botEloMax(), bot.elo));
+				botHuman = !!bot.human;
 			}
 		} catch {
 			// ignore malformed settings
@@ -394,8 +397,13 @@
 
 
 	$effect(() => {
-		const settings = { enabled: botEnabled, color: botColor, elo: botElo };
+		const settings = { enabled: botEnabled, color: botColor, elo: botElo, human: botHuman };
 		if (botSettingsLoaded) localStorage.setItem(BOT_KEY, JSON.stringify(settings));
+	});
+
+	// warm the Maia net ahead of the first move when human-like play is armed
+	$effect(() => {
+		if (botEnabled && botHuman && inMaiaRange(botElo)) preloadMaia(botElo);
 	});
 
 	function setCollectThreshold(n: number) {
@@ -501,30 +509,44 @@
 	// pick the bot's reply with a dedicated strength-limited search (runs
 	// concurrently with the thinking delay); softmax over the full-strength
 	// lines is the fallback if that search yields nothing
+	// the game's FENs oldest-first, for Maia's history planes (chess.js moves
+	// carry before/after FENs, so no replay needed)
+	function maiaFenHistory(): string[] {
+		const ms = game.moves;
+		return ms.length === 0 ? [game.fen] : [ms[0].before, ...ms.map((m) => m.after)];
+	}
+
+	// the Stockfish path: strength-limited search, then sample per the band spec
+	async function stockfishBotMove(): Promise<string | null> {
+		const res = await analyzeBotMove(game.fen, botElo, (moves) => {
+			botConsidering = moves[0]?.pv[0] ?? null;
+		});
+		botConsidering = null;
+		const spec = botSpec(botElo);
+		const specAlpha = spec.kind === 'sampler' ? spec.alpha : undefined;
+		return spec.kind === 'sampler' && res.moves.length > 0
+			? selectBotMove(res.moves, botElo, spec.alpha)
+			: res.bestmove && res.bestmove !== '(none)'
+				? res.bestmove
+				: selectBotMove(engineMoves, botElo, specAlpha);
+	}
+
 	async function maybeBotMove(token: number) {
 		if (!botEnabled || mode !== 'play' || game.isGameOver || game.turn !== botColor) return;
 		botThinking = true;
-		const [res] = await Promise.all([
-			analyzeBotMove(game.fen, botElo, (moves) => {
-				botConsidering = moves[0]?.pv[0] ?? null;
-			}),
-			new Promise((r) => setTimeout(r, botDelay()))
-		]);
+		// human-like (Maia) in its band, else Stockfish; Maia falls back to
+		// Stockfish if its net can't load
+		const wantMaia = botHuman && inMaiaRange(botElo);
+		const compute = wantMaia
+			? maiaMove(maiaFenHistory(), botElo).catch(() => null)
+			: stockfishBotMove();
+		const [primary] = await Promise.all([compute, new Promise((r) => setTimeout(r, botDelay()))]);
+		let uci = primary;
+		if (wantMaia && !uci) uci = await stockfishBotMove();
 		botThinking = false;
 		botConsidering = null;
 		if (token !== analysisToken || !botEnabled || mode !== 'play') return;
 		if (game.isGameOver || game.turn !== botColor) return;
-		// sampler band: flat-softmax over the wide shallow eval, with the
-		// spec's calibrated exponent; otherwise trust the strength-limited
-		// search's own choice
-		const spec = botSpec(botElo);
-		const specAlpha = spec.kind === 'sampler' ? spec.alpha : undefined;
-		const uci =
-			spec.kind === 'sampler' && res.moves.length > 0
-				? selectBotMove(res.moves, botElo, spec.alpha)
-				: res.bestmove && res.bestmove !== '(none)'
-					? res.bestmove
-					: selectBotMove(engineMoves, botElo, specAlpha);
 		if (uci) applyUci(uci);
 	}
 
@@ -1161,6 +1183,7 @@
 				bind:elo={botElo}
 				minElo={botEloMin()}
 				maxElo={botEloMax()}
+				bind:human={botHuman}
 				thinking={botThinking}
 				startOpen={isNarrow}
 			/>
