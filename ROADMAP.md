@@ -129,6 +129,19 @@ Shipped so far:
   only unless someone emscriptens it. An "aggressive" family would be a
   genuinely different personality (Squares=blind engine, Maia=human,
   Fish=cold, Patricia=violent).
+- **Sunfish as a character persona (~1960)** —
+  https://github.com/thomasahle/sunfish (GPL, 131 lines of Python, UCI).
+  NOT a sub-1320 ruler (no weakening dial; starving its clock reopens the
+  weakening-design problem). But @sunfish-engine has a real lichess rating
+  (~1957 blitz / 1961 rapid, ~1000 games) and its weakness is
+  ARCHITECTURAL, not randomized: horizon-blind, materialist, bookless —
+  a genuinely different ~2000 opponent from limiter-weakened Fish, and
+  the one roster bot whose entire mind is readable. Harness-ready today
+  (UCI/stdin); web persona needs a JS port or pyodide (Tauri gets it
+  cheap). Also banks the general lesson: minimal-competent SEARCH floors
+  at ~1900+ from below, imitation floors at ~1500 from above — the
+  beginner range is unreachable from both directions, which is why the
+  shaped choice-layer exists.
 - **File System Access autosave** — beyond Export/Import: write backups
   directly to a user-chosen local file (Chromium-only).
 - **Engine settings panel** — a small "Engine" section (sidebar SidePanel,
