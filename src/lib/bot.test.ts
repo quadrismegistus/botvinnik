@@ -35,25 +35,32 @@ describe('shapedBotMove', () => {
 		expect(counts.get('f3g5')).toBe(4000);
 	});
 
-	it('never plays a free-hang (a move outside the win% window) even at the weakest band', () => {
-		// best +1.0 (~59%), two near-equal alternatives (in-window), one blunder
-		// that drops ~34% win → outside the ~32% window at ELO 800 ⇒ excluded.
+	it('is spiky: plays best the large majority of moves, slips a minority (weakest band)', () => {
+		// best +1.0 (~59%), near-equal alternatives + a real blunder in-window
 		const lines = [
 			line('g1f3', 1.0, 1), // best  ~59%
 			line('b1c3', 0.5, 2), // ~55%  drop ~4.5
 			line('d2d4', 0.2, 3), // ~52%  drop ~7
-			line('d1h5', -3.0, 4) // ~25%  drop ~34  ← hanging move, must never appear
+			line('d1h5', -1.5, 4) // ~36%  drop ~23  ← a genuine blunder, allowed but rare
 		];
 		const counts = tally(() => shapedBotMove(lines, 800));
-		expect(counts.get('d1h5')).toBeUndefined();
-		// it does gamble sometimes (coherent, not deterministic) and it does keep
-		// playing best a large share of the time (anti-swing)
-		expect(counts.get('g1f3')!).toBeGreaterThan(1200);
-		expect(counts.get('g1f3')!).toBeLessThan(3600);
-		expect((counts.get('b1c3') ?? 0) + (counts.get('d2d4') ?? 0)).toBeGreaterThan(400);
+		// near-perfect most of the time (median move is best) …
+		expect(counts.get('g1f3')! / 4000).toBeGreaterThan(0.65);
+		// … but it does slip, and the fat tail means the real blunder DOES occur
+		// (unlike the old model, a weak human at this level hangs sometimes)
+		expect(counts.get('d1h5') ?? 0).toBeGreaterThan(0);
+		expect(counts.get('d1h5')! / 4000).toBeLessThan(0.15); // rare
 	});
 
-	it('biases toward the smaller mistake when it errs', () => {
+	it('never hangs in an EASY position — blunders cluster in complex ones', () => {
+		// best towers (+5 vs 0 ⇒ gap ≫ easyGap): a hanging alternative must never
+		// be chosen here, even though the band is weak and slips are allowed.
+		const lines = [line('g1f3', 5.0, 1), line('b1c3', 0.0, 2), line('d1h5', -4.0, 3)];
+		const counts = tally(() => shapedBotMove(lines, 700));
+		expect(counts.get('g1f3')).toBe(4000);
+	});
+
+	it('biases toward the smaller slip, but keeps a real tail', () => {
 		const lines = [
 			line('g1f3', 1.0, 1),
 			line('b1c3', 0.7, 2), // small drop
@@ -63,11 +70,11 @@ describe('shapedBotMove', () => {
 		expect((counts.get('b1c3') ?? 0)).toBeGreaterThan(counts.get('d2d4') ?? 0);
 	});
 
-	it('plays pure best at club strength (blunderProb 0 by ~1500)', () => {
-		expect(shapedParams(1500).blunderProb).toBe(0);
-		const lines = [line('g1f3', 0.3, 1), line('b1c3', 0.25, 2), line('e2e4', 0.2, 3)];
+	it('plays best the vast majority at club strength (slipProb ~5% by 1500)', () => {
+		expect(shapedParams(1500).slipProb).toBeCloseTo(0.05, 5);
+		const lines = [line('g1f3', 1.0, 1), line('b1c3', 0.6, 2), line('e2e4', 0.5, 3)];
 		const counts = tally(() => shapedBotMove(lines, 1500));
-		expect(counts.get('g1f3')).toBe(4000);
+		expect(counts.get('g1f3')! / 4000).toBeGreaterThan(0.9);
 	});
 
 	it('converts a forced mate (win 100% ⇒ easy)', () => {
@@ -75,8 +82,10 @@ describe('shapedBotMove', () => {
 		expect(shapedBotMove(lines, 700)).toBe('d1h5');
 	});
 
-	it('weaker bands gamble more and give up more', () => {
-		expect(shapedParams(800).blunderProb).toBeGreaterThan(shapedParams(1200).blunderProb);
+	it('weaker bands slip more, give up more, and have a fatter tail', () => {
+		expect(shapedParams(800).slipProb).toBeGreaterThan(shapedParams(1200).slipProb);
 		expect(shapedParams(800).windowPct).toBeGreaterThan(shapedParams(1200).windowPct);
+		// lower tailBias at the weak band ⇒ catastrophes are relatively more common
+		expect(shapedParams(800).tailBias).toBeLessThan(shapedParams(1200).tailBias);
 	});
 });

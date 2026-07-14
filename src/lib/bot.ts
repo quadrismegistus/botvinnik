@@ -89,27 +89,39 @@ export function selectBotMove(lines: EngineMove[], elo: number, alpha?: number):
 //   4. Bias toward the SMALLER mistakes in that window (humans rarely find the
 //      single worst move).
 //
-// Params below are sensible defaults, to be corpus-calibrated (measure real
-// ~700–900-rated blunder rate/severity) and harness-calibrated (bot-vs-bot ELO)
-// before shipping. `ShapedParams` lets the calibrator override them per band,
-// the same way the plain sampler takes a calibrated `alpha`.
+// SHAPE, from Ryan's own 4505-game profile (data/elonmarxx-profile.html): a real
+// weak human plays a SPIKY distribution — near-perfect most moves (median win%
+// loss ~0.6, ~55% of moves lose <1%) with a RARE FAT TAIL (~5.5% of moves lose
+// ≥20% — the catastrophes), ~1.4 blunders/game. NOT uniform moderate sloppiness.
+// So the model is a mixture: play best the large majority of the time; when a
+// "slip" fires, sample within a rating-scaled win% window whose severity is fat-
+// tailed at low ELO (real blunders happen) and small-biased at high ELO. Slips
+// are suppressed in easy/forcing/decided positions (a beginner doesn't hang in a
+// quiet recapture — their blunders cluster in the complex middlegame).
+//
+// Defaults are SEEDED from that profile; slipProb/windowPct get harness-
+// calibrated per band (run-shaped-calibration.sh) to hit target ELOs, then the
+// output distribution is checked back against the spiky profile.
 
 export interface ShapedParams {
-	/** P(make a mistake this move) in a non-easy position. */
-	blunderProb: number;
-	/** Max win% we'll voluntarily give up when we do err. */
+	/** P(not best) this move in a non-easy position — kept LOW (spiky, not sloppy). */
+	slipProb: number;
+	/** Max win% a slip may give up (wide at low ELO ⇒ real blunders possible). */
 	windowPct: number;
 	/** Best beats 2nd by ≥ this many win% points ⇒ treat as easy, play best. */
 	easyGapPct: number;
+	/** Severity weighting exponent 1/drop^tailBias: low ⇒ fatter catastrophe tail. */
+	tailBias: number;
 }
 
-// Defaults interpolated over ELO ~600..1600; above ~1500 it plays pure best.
+// Interpolated over ELO ~600..1600; above ~1500 it essentially plays best.
 export function shapedParams(elo: number): ShapedParams {
 	const t = clamp01((1500 - elo) / 900); // 0 at 1500+, 1 at 600
 	return {
-		blunderProb: 0.55 * t, // ~0.5 at 800, ~0.29 at 1100, 0 at 1500
-		windowPct: 6 + 34 * t, // ~32% at 800, ~18% at 1100, 6% floor
-		easyGapPct: 25 // best clearly best ⇒ no gamble, any band
+		slipProb: 0.05 + 0.22 * t, // ~5% at 1500 → ~22% at 800 → ~27% at 600
+		windowPct: 10 + 45 * t, // 10% at 1500 → ~45% at 800 (a slip can be a real blunder)
+		easyGapPct: 25, // best clearly best ⇒ no slip, any band
+		tailBias: 1.4 - 0.9 * t // 1.4 (small-biased) at 1500 → 0.5 (fat tail) at 600
 	};
 }
 
@@ -123,24 +135,24 @@ export function shapedBotMove(
 	const best = sorted[0];
 	if (sorted.length === 1) return best.pv[0];
 
-	const { blunderProb, windowPct, easyGapPct } = { ...shapedParams(elo), ...params };
+	const { slipProb, windowPct, easyGapPct, tailBias } = { ...shapedParams(elo), ...params };
 
 	const wins = sorted.map(moveWin); // win% per candidate, mover POV
 	const bestWin = wins[0];
 	const secondWin = wins[1];
 
-	// Anti-swing rule: don't gamble when there's nothing to gamble over.
+	// Slips are suppressed where a weak human wouldn't blunder anyway:
 	//  - best towers over the alternatives (recapture / only good move)
-	//  - the game is already decided (winning or lost) — playing on best avoids
-	//    both throwing a won game and flailing in a lost one
-	// (win% saturates near 95/5 for big material leads — the ±1500cp clamp — so
-	// the decided band is 90/10, not 97/3)
+	//  - the game is already decided (win% saturates near 95/5 for big material
+	//    leads — the ±1500cp clamp — so the decided band is 90/10, not 97/3)
 	const easy = bestWin - secondWin >= easyGapPct || bestWin >= 90 || bestWin <= 10;
-	if (easy || Math.random() >= blunderProb) return best.pv[0];
+	if (easy || Math.random() >= slipProb) return best.pv[0];
 
-	// Bounded, human-shaped mistake: worse moves within the win% window only
-	// (this auto-excludes free hangs — they drop win% past the window), weighted
-	// toward the smaller mistakes.
+	// A slip: sample a worse move within the win% window. The window bounds the
+	// severity (so it never simply resigns), but at low ELO it's wide enough to
+	// include genuine blunders — which real players at that level do make. The
+	// 1/drop^tailBias weighting controls how often a slip is a catastrophe vs a
+	// mild imprecision.
 	const inWindow: { move: string; drop: number }[] = [];
 	for (let i = 1; i < sorted.length; i++) {
 		const drop = bestWin - wins[i];
@@ -148,7 +160,7 @@ export function shapedBotMove(
 	}
 	if (inWindow.length === 0) return best.pv[0];
 
-	const weights = inWindow.map((x) => 1 / Math.max(x.drop, 1));
+	const weights = inWindow.map((x) => 1 / Math.pow(Math.max(x.drop, 1), tailBias));
 	const total = weights.reduce((a, b) => a + b, 0);
 	let r = Math.random() * total;
 	for (let k = 0; k < inWindow.length; k++) {
