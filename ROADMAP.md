@@ -124,6 +124,7 @@ Shipped so far:
   | Garbochess-JS | unmeasured (~2200–2500?; harness can measure) | none | **native JS + WebWorkers — zero port** | thin node UCI shim (~half-day, own API not UCI) | BSD-3 (LICENSE file; GitHub misclassifies) | web-native strong persona; JS engine substrate for experiments |
   | js-chess-engine | unmeasured — IN THE GYM (overnight run 2026-07-15) | levels 1–5 + depth/quiescence knobs | **npm import — easiest of all** (TS, zero deps, maintained 2026) | done: `scripts/shims/jsce-uci.mjs` | MIT | level 1 hangs pieces (no quiescence = horizon effect) — possibly the first ARCHITECTURALLY beginner-weak engine; measure, then maybe persona AND low-end corroboration |
   | Wasabi (mhonert/chess) | unmeasured | 6 levels | **already WASM + WebWorkers** (AssemblyScript; that's its point) | standalone UCI build exists (WASI — needs wasmtime or node WASI) | GPL-3 | web-native persona; author's stronger successor is Velvet (Rust) |
+  | VanillaJSChess | author: "under 1300"; Ryan easily beat it (he's ~1300 on our ladder) | none | engine tangled into the page — no module, no npm | no UCI; extraction needed | GPL-3, dead 2021 | PASS — same class as jsce (shallow JS minimax) with worse packaging; revisit only if jsce disappoints |
 
   Per-engine notes:
   - **Patricia** (https://github.com/Adam-Kulju/Patricia): the only
