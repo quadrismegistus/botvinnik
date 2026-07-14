@@ -35,7 +35,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { Chess } from 'chess.js';
-import { selectBotMove } from '../src/lib/bot';
+import { selectBotMove, shapedBotMove } from '../src/lib/bot';
 import {
 	botResetOptions,
 	parseSpec,
@@ -249,6 +249,25 @@ async function botMove(engine: Engine, fen: string, id: string): Promise<string 
 	return res.moves[0]?.pv[0] ?? null;
 }
 
+// Shaped-blunder bot: a STRONG MultiPV search (accurate evals — the coherent
+// baseline) whose move is then chosen by shapedBotMove's human-error model. The
+// weakening lives entirely in shapedParams(elo), not in the search. Ids look
+// like "shaped:900". Depth/MultiPV configurable so we can trade accuracy vs
+// harness speed.
+const SHAPED_DEPTH = opt('--shaped-depth', 12);
+const SHAPED_MULTIPV = opt('--shaped-multipv', 12);
+
+function isShapedId(id: string): boolean {
+	return id.startsWith('shaped:');
+}
+function shapedEloOf(id: string): number {
+	return Number(id.split(':')[1]);
+}
+async function shapedMove(engine: Engine, fen: string, elo: number): Promise<string | null> {
+	const res = await engine.search(fen, botResetOptions(SHAPED_MULTIPV), `go depth ${SHAPED_DEPTH}`);
+	return shapedBotMove(res.moves, elo);
+}
+
 // full-strength eval for adjudicating games the ply cap cuts off
 async function adjudicate(engine: Engine, fen: string): Promise<number> {
 	const res = await engine.search(fen, botResetOptions(1), 'go depth 12');
@@ -284,7 +303,9 @@ async function playGame(
 			? await maiaMove3Node(chess.fen(), maia3EloOf(mover))
 			: isMaiaId(mover)
 				? await maiaMoveNode(fenHistory(chess), maiaBandOf(mover))
-				: await botMove(engine, chess.fen(), mover);
+				: isShapedId(mover)
+					? await shapedMove(engine, chess.fen(), shapedEloOf(mover))
+					: await botMove(engine, chess.fen(), mover);
 		if (!uci) break;
 		try {
 			chess.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci[4] });
