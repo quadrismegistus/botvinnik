@@ -119,14 +119,31 @@ export interface ShapedParams {
 }
 
 // Interpolated over ELO ~600..1600; above ~1600 it plays near-best throughout.
+// The bottom is HARSH by design: the first quick runs (0.44 miss / temp 8 /
+// window 20 / depth 6) still measured ~1500 — a mostly-sound player with any
+// engine backbone has a high strength floor, so reaching beginner takes miss
+// rates and mushiness that look extreme on paper.
 export function shapedParams(elo: number): ShapedParams {
 	const t = clamp01((1600 - elo) / 1000); // 0 at 1600+, 1 at 600
 	return {
-		missProb: 0.04 + 0.4 * t, // 4% at 1600 → ~28% at 1000 → 44% at 600
+		missProb: 0.04 + 0.56 * t, // 4% at 1600 → ~38% at 1000 → 60% at 600
 		tacticalGapPct: 15,
-		temperature: 1.5 + 6.5 * t, // 1.5 at 1600 → 8 at 600
-		quietWindowPct: 6 + 14 * t // 6 at 1600 → 20 at 600
+		temperature: 1.5 + 10.5 * t, // 1.5 at 1600 → 12 at 600
+		quietWindowPct: 6 + 24 * t // 6 at 1600 → 30 at 600
 	};
+}
+
+// Deterministic hash → [0,1). Used for STICKY miss decisions: a human who
+// doesn't see a tactic keeps not seeing it on later moves — without this the
+// per-move re-roll makes eventually-punishing-a-hanging-piece a certainty
+// (1 - missProb^k → 1), which kept shaped:600 beating numeric-900 100-0.
+function hash01(key: string): number {
+	let h = 2166136261;
+	for (let i = 0; i < key.length; i++) {
+		h ^= key.charCodeAt(i);
+		h = Math.imul(h, 16777619);
+	}
+	return (h >>> 0) / 4294967296;
 }
 
 // Softmax-sample over candidate win%s with the given temperature.
@@ -145,7 +162,8 @@ function softmaxPick(cands: { move: string; win: number }[], temperature: number
 export function shapedBotMove(
 	lines: EngineMove[],
 	elo: number,
-	params?: Partial<ShapedParams>
+	params?: Partial<ShapedParams>,
+	seed?: string | number
 ): string | null {
 	if (lines.length === 0) return null;
 	const sorted = [...lines].sort((a, b) => a.multipv - b.multipv);
@@ -162,7 +180,12 @@ export function shapedBotMove(
 
 	if (bestWin - wins[1] >= tacticalGapPct) {
 		// Tactical: there is one move that matters. Either the bot sees it…
-		if (Math.random() >= missProb) return best.pv[0];
+		// With a per-game seed the decision is STICKY, keyed on the tactic's
+		// focal point (the best move's destination square): a hanging piece
+		// missed this move stays unseen while it sits there; the bot only "takes
+		// a fresh look" when the tactical focus moves elsewhere.
+		const roll = seed !== undefined ? hash01(`${seed}:${best.pv[0].slice(2, 4)}`) : Math.random();
+		if (roll >= missProb) return best.pv[0];
 		// …or it doesn't. Choose among the REST as if the best move didn't exist —
 		// still preferring the more plausible of what it can see. No severity cap:
 		// missing the only defence is exactly how a won game gets lost.

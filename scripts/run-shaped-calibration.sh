@@ -36,24 +36,35 @@ if [ ! -f scripts/wasm-engine/stockfish.js ]; then
 	chmod +x scripts/wasm-engine/run.sh
 fi
 
-# shaped internal ladder (does the params ramp give a monotonic spread?) +
-# each shaped band bracketed against our anchored numeric bands (absolute
-# placement) + a numeric anchor ladder (ids >=1320 anchor the whole fit).
-PAIRS="shaped:600~shaped:900,shaped:900~shaped:1200,shaped:1200~shaped:1500,shaped:600~shaped:1500,\
-shaped:600~900,shaped:600~1200,shaped:900~1200,shaped:900~1500,shaped:1200~1500,shaped:1200~1800,shaped:1500~1800,shaped:1500~2100,\
-1500~1800,1800~2100"
-GAMES=100
+# Full grid: shaped internal ladder at 150-pt label steps (fine enough to see
+# the curve's shape — the first honest quick run showed a 700-pt cliff between
+# labels 900 and 1200) + the upper shaped bands vs honest UCI_Elo rulers. The
+# lower bands (600-1050) score ~0 vs any honest ruler, so their placement comes
+# from the internal chain via BT. Raw ucielo specs aren't fit anchors — rebase
+# the fit on ucielo:1320:mt400 = 1320 when reading the output. The result is
+# the label→strength curve, to be INVERTED into a knot table for the app
+# (like the sampler's alpha knots), not tuned by hand.
+PAIRS="shaped:600~shaped:750,shaped:750~shaped:900,shaped:900~shaped:1050,shaped:1050~shaped:1200,shaped:1200~shaped:1350,shaped:1350~shaped:1500,\
+shaped:600~shaped:900,shaped:900~shaped:1200,shaped:1200~shaped:1500,\
+shaped:1050~ucielo:1320:mt400,shaped:1200~ucielo:1320:mt400,shaped:1350~ucielo:1320:mt400,shaped:1500~ucielo:1320:mt400,\
+shaped:1350~ucielo:1600:mt400,shaped:1500~ucielo:1600:mt400,shaped:1500~ucielo:2000:mt400"
+GAMES=50
 OUT=data/bot-shaped-calib.json
-LABEL="full grid (n=100, ~1 hour)"
+LABEL="full honest grid (n=50, ~25 min)"
 
-# Quick tuning mode: just the low-end brackets that failed last time, plus a
-# numeric pair to tie the fit to the >=1320 anchors. Raw win rates are the
-# signal: shaped:600~900 near 50% means the params are in the neighbourhood.
+# Quick tuning mode. NB the numeric bands below the WASM seam (samplerMax 2485)
+# are the SOFTMAX SAMPLER — the exploitable thing shaped replaces — so playing
+# shaped against them measures the sampler's exploitability, not shaped's
+# strength (shaped:600 "beat 900" 97% that way). The honest reference is raw
+# UCI_Elo at its 1320 floor: ucielo:1320:mt400. Raw WIN RATES are the signal
+# (raw specs aren't fit anchors): shaped:600 should score LOW vs 1320 —
+# lichess-600 ≈ ~840 on our computer-hot scale ⇒ target ≲15%; near 50% means
+# it's still playing ~1320.
 if [ "${1:-}" = "--quick" ]; then
-	PAIRS="shaped:600~900,shaped:600~1200,shaped:900~1200,shaped:900~1500,shaped:1200~1500,1200~1500"
+	PAIRS="shaped:600~ucielo:1320:mt400,shaped:900~ucielo:1320:mt400,shaped:1200~ucielo:1320:mt400,shaped:1200~ucielo:1600:mt400"
 	GAMES=30
 	OUT=data/bot-shaped-quick.json
-	LABEL="quick tuning set (n=30, ~10 min)"
+	LABEL="quick tuning set vs honest UCI_Elo floor (n=30, ~15 min)"
 fi
 
 echo "============================================================"

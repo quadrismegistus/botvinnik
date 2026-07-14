@@ -36,8 +36,8 @@ describe('shapedBotMove', () => {
 		// the weak bot blunders, not where it is protected.
 		const counts = tally(() => shapedBotMove(TACTICAL, 600));
 		const bestRate = counts.get('d1h5')! / 4000;
-		expect(bestRate).toBeGreaterThan(0.4); // still sees it more often than not
-		expect(bestRate).toBeLessThan(0.7); // …but misses ~44% of the time
+		expect(bestRate).toBeGreaterThan(0.3); // still sees it a fair amount
+		expect(bestRate).toBeLessThan(0.55); // …but misses ~60% of the time
 		expect(counts.get('b1c3') ?? 0).toBeGreaterThan(0); // and plays on obliviously
 	});
 
@@ -67,12 +67,12 @@ describe('shapedBotMove', () => {
 	});
 
 	it('never plays a howler in a QUIET position (window excludes it)', () => {
-		// All reasonable moves are close; d1h5 hangs (-3.0 ⇒ drop ≈ 28% > window 20).
+		// All reasonable moves are close; d1h5 hangs (-4.5 ⇒ drop ≈ 39% > window 30).
 		// Quiet howlers are what made the old softmax sampler feel broken.
 		const lines = [
 			line('g1f3', 0.5, 1),
 			line('b1c3', 0.3, 2),
-			line('d1h5', -3.0, 3)
+			line('d1h5', -4.5, 3)
 		];
 		const counts = tally(() => shapedBotMove(lines, 600));
 		expect(counts.get('d1h5')).toBeUndefined();
@@ -100,6 +100,24 @@ describe('shapedBotMove', () => {
 		const lines = [line('d1h5', 0, 1, 1), line('f3g5', 8.0, 2)];
 		const counts = tally(() => shapedBotMove(lines, 1600));
 		expect(counts.get('d1h5')! / 4000).toBeGreaterThan(0.9);
+	});
+
+	it('sticky misses: with a seed, the same tactic stays seen or unseen all game', () => {
+		// Without a seed the per-move re-roll makes eventually-capturing a hanging
+		// piece a certainty; with a per-game seed the decision is a function of
+		// (seed, focal square) — miss it once, stay blind while it sits there.
+		const decide = (seed: string) =>
+			shapedBotMove(TACTICAL, 600, undefined, seed) === 'd1h5' ? 'sees' : 'blind';
+		for (const seed of ['g1', 'g2', 'g3', 'g4', 'g5']) {
+			const first = decide(seed);
+			for (let i = 0; i < 20; i++) expect(decide(seed)).toBe(first); // stable within a game
+		}
+		// …and across many games the miss rate still reflects missProb (~60% at 600)
+		const games = 400;
+		let blind = 0;
+		for (let g = 0; g < games; g++) if (decide(`game-${g}`) === 'blind') blind++;
+		expect(blind / games).toBeGreaterThan(0.45);
+		expect(blind / games).toBeLessThan(0.75);
 	});
 
 	it('weaker bands miss more and play mushier', () => {

@@ -249,11 +249,12 @@ async function botMove(engine: Engine, fen: string, id: string): Promise<string 
 	return res.moves[0]?.pv[0] ?? null;
 }
 
-// Shaped-blunder bot: a STRONG MultiPV search (accurate evals — the coherent
-// baseline) whose move is then chosen by shapedBotMove's human-error model. The
-// weakening lives entirely in shapedParams(elo), not in the search. Ids look
-// like "shaped:900". Depth/MultiPV configurable so we can trade accuracy vs
-// harness speed.
+// Shaped-blunder bot: a MultiPV search whose move is then chosen by
+// shapedBotMove's human-error model. Ids look like "shaped:900". Search depth
+// scales with ELO (600→6 … 1500+→12, capped by --shaped-depth): a flat
+// depth-12 backbone proved to be a beginner superpower — eval ordering and
+// punishment lines stayed master-strength regardless of the choice layer. The
+// per-game seed makes tactic-misses STICKY across moves (see shapedBotMove).
 const SHAPED_DEPTH = opt('--shaped-depth', 12);
 const SHAPED_MULTIPV = opt('--shaped-multipv', 12);
 
@@ -263,9 +264,21 @@ function isShapedId(id: string): boolean {
 function shapedEloOf(id: string): number {
 	return Number(id.split(':')[1]);
 }
-async function shapedMove(engine: Engine, fen: string, elo: number): Promise<string | null> {
-	const res = await engine.search(fen, botResetOptions(SHAPED_MULTIPV), `go depth ${SHAPED_DEPTH}`);
-	return shapedBotMove(res.moves, elo);
+function shapedDepth(elo: number): number {
+	return Math.max(4, Math.min(SHAPED_DEPTH, Math.round(4 + (8 * (elo - 600)) / 900)));
+}
+async function shapedMove(
+	engine: Engine,
+	fen: string,
+	elo: number,
+	seed: string
+): Promise<string | null> {
+	const res = await engine.search(
+		fen,
+		botResetOptions(SHAPED_MULTIPV),
+		`go depth ${shapedDepth(elo)}`
+	);
+	return shapedBotMove(res.moves, elo, undefined, seed);
 }
 
 // full-strength eval for adjudicating games the ply cap cuts off
@@ -289,7 +302,8 @@ async function playGame(
 	a: string,
 	b: string,
 	opening: string,
-	aIsWhite: boolean
+	aIsWhite: boolean,
+	gameSeed: string
 ): Promise<number> {
 	engine.newGame();
 	const chess = new Chess();
@@ -304,7 +318,7 @@ async function playGame(
 			: isMaiaId(mover)
 				? await maiaMoveNode(fenHistory(chess), maiaBandOf(mover))
 				: isShapedId(mover)
-					? await shapedMove(engine, chess.fen(), shapedEloOf(mover))
+					? await shapedMove(engine, chess.fen(), shapedEloOf(mover), `${gameSeed}:${mover}`)
 					: await botMove(engine, chess.fen(), mover);
 		if (!uci) break;
 		try {
@@ -423,7 +437,14 @@ async function worker(engine: Engine) {
 		if (!job) return;
 		const opening = OPENINGS[Math.floor(job.gameIdx / 2) % OPENINGS.length];
 		const aIsWhite = job.gameIdx % 2 === 0;
-		const score = await playGame(engine, job.a, job.b, opening, aIsWhite);
+		const score = await playGame(
+			engine,
+			job.a,
+			job.b,
+			opening,
+			aIsWhite,
+			`${job.a}~${job.b}#${job.gameIdx}`
+		);
 		const k = key(job.a, job.b);
 		const r = (state.results[k] ??= { games: 0, aScore: 0 });
 		r.games++;
