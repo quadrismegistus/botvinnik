@@ -2,6 +2,7 @@
 	import { onMount, untrack } from 'svelte';
 	import { botDelay, selectBotMove, shapedBotMove, shapedSearchDepth } from '$lib/bot';
 	import { personaById, personaInternalElo, type BotPersona } from '$lib/bots';
+	import { estimatePlayerElo } from '$lib/playerElo';
 	import Board from '$lib/components/Board.svelte';
 	import MaterialBar from '$lib/components/MaterialBar.svelte';
 	import BottomSheet from '$lib/components/BottomSheet.svelte';
@@ -362,6 +363,8 @@
 	let botConsidering: string | null = $state(null); // uci the bot is eyeing right now
 	let botSettingsLoaded = false;
 	const botPersona: BotPersona | null = $derived(personaById(botPersonaId));
+	// player rating fit from persona-game results (display scale, bots fixed)
+	const playerEloEstimate = $derived(estimatePlayerElo(storedGames));
 	// per-game seed for the shaped bot's sticky tactic-misses (what it doesn't
 	// see this game, it keeps not seeing); re-rolled on every board reset
 	let botGameSeed = $state(`s${Math.floor(Math.random() * 1e9)}`);
@@ -1324,6 +1327,7 @@
 				maxElo={botEloMax()}
 				bind:human={botHuman}
 				bind:personaId={botPersonaId}
+				playerElo={playerEloEstimate}
 				thinking={botThinking}
 				startOpen={isNarrow}
 			/>

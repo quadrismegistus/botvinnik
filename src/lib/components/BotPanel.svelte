@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { PERSONAS, personaById } from '$lib/bots';
+	import type { PlayerEloEstimate } from '$lib/playerElo';
 	import BotAvatar from './BotAvatar.svelte';
 
 	interface Props {
@@ -10,6 +11,7 @@
 		maxElo?: number; // honest ceiling for the active engine (wasm vs native)
 		human?: boolean; // custom mode: human-like (Maia) in the 1100–1900 band
 		personaId: string | null; // selected roster bot; null = custom slider
+		playerElo?: PlayerEloEstimate | null; // fit from stored persona games
 		thinking: boolean;
 		startOpen?: boolean;
 	}
@@ -22,11 +24,16 @@
 		maxElo = 2800,
 		human = $bindable(false),
 		personaId = $bindable(),
+		playerElo = null,
 		thinking,
 		startOpen = true
 	}: Props = $props();
 	const humanApplies = $derived(elo >= 1100 && elo <= 1900);
 	const persona = $derived(personaById(personaId));
+	// index of the first roster chip stronger than the player ("you are here")
+	const youAt = $derived(
+		playerElo === null ? -1 : PERSONAS.findIndex((p) => p.elo > playerElo.elo)
+	);
 	// svelte-ignore state_referenced_locally — startOpen is deliberately initial-only
 	let open = $state(startOpen);
 
@@ -68,7 +75,13 @@
 			     strength (display scale ≈ lichess rapid). "Custom" restores the
 			     raw slider. -->
 			<div class="strip" use:revealSelected>
-				{#each PERSONAS as p (p.id)}
+				{#each PERSONAS as p, i (p.id)}
+					{#if i === youAt}
+						<div class="you" title="Estimated from your {playerElo?.games} rated games">
+							<span class="you-line"></span>
+							<span class="chip-elo">you</span>
+						</div>
+					{/if}
 					<button
 						class="chip"
 						class:active={personaId === p.id}
@@ -84,6 +97,13 @@
 					<span class="chip-elo">custom</span>
 				</button>
 			</div>
+
+			{#if playerElo !== null}
+				<div class="rating">
+					You ≈ <b>{playerElo.elo}</b> ± {playerElo.se}
+					<span class="rating-n">· {playerElo.games} rated {playerElo.games === 1 ? 'game' : 'games'}</span>
+				</div>
+			{/if}
 
 			{#if persona}
 				<div class="card">
@@ -216,6 +236,31 @@
 	}
 	.chip.active .chip-elo {
 		color: var(--text-primary);
+	}
+	.you {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 2px;
+		padding: 3px 1px;
+		flex: none;
+	}
+	.you-line {
+		width: 2px;
+		height: 30px;
+		border-radius: 1px;
+		background: var(--color-win);
+	}
+	.you .chip-elo {
+		color: var(--color-win);
+		font-weight: 600;
+	}
+	.rating {
+		font-size: 12px;
+		color: var(--text-primary);
+	}
+	.rating-n {
+		color: var(--text-secondary);
 	}
 	.custom-mark {
 		width: 30px;
