@@ -15,6 +15,11 @@
 		continuing?: boolean; // engine is playing the opponent's reply
 		hintTier?: number; // 0 none, 1 text, 2 origin square, 3 reveal
 		hint?: string | null; // tier-1 hint text
+		drill?: 'find-best' | 'blundercheck'; // which drill kind is selected
+		blundercheck?: boolean; // this puzzle is currently a blundercheck drill
+		loading?: boolean; // computing the refutation for a blundercheck
+		playedSan?: string | null; // the mistake you played (blundercheck context)
+		drop?: number | null; // win% you lost with it
 		threshold: number;
 		motif?: string | null; // active drill filter (null = all motifs)
 		onstart: () => void;
@@ -27,14 +32,18 @@
 		onremove: (id: string) => void;
 		onthreshold: (n: number) => void;
 		onmotif?: (m: string | null) => void;
+		ondrill?: (d: 'find-best' | 'blundercheck') => void;
+		onlearnbest?: () => void;
 		orientation?: 'white' | 'black'; // main-board orientation, for line previews
 	}
 
 	let {
 		mode, items, current, attempt, grading, revealBest,
-		lineDepth = 0, lineNote = null, continuing = false, hintTier = 0, hint = null, threshold,
-		motif = null, orientation = 'white',
-		onstart, onexit, onnext, onretry, onreveal, onhint, oncontinue, onremove, onthreshold, onmotif
+		lineDepth = 0, lineNote = null, continuing = false, hintTier = 0, hint = null,
+		drill = 'find-best', blundercheck = false, loading = false, playedSan = null, drop = null,
+		threshold, motif = null, orientation = 'white',
+		onstart, onexit, onnext, onretry, onreveal, onhint, oncontinue, onremove, onthreshold, onmotif,
+		ondrill, onlearnbest
 	}: Props = $props();
 
 	const due = $derived(dueCount(items));
@@ -120,6 +129,11 @@
 		<div class="toolbar">
 			{#if !current}
 				<span class="summary">All caught up — nothing due. 🎉</span>
+			{:else if blundercheck}
+				<span class="summary">
+					You played <strong>{playedSan}</strong>{#if drop} (−{drop.toFixed(0)}%){/if} — find how your opponent <em>punishes</em> it.
+					<span class="hint">(this is the reply you should have seen before moving)</span>
+				</span>
 			{:else if lineDepth > 0}
 				<span class="summary">
 					Continuing the line (move +{lineDepth}) — find a strong move
@@ -131,10 +145,16 @@
 					<span class="hint">(pass: a good move or better · you lost {current.drop.toFixed(0)}% here with {current.playedSan})</span>
 				</span>
 			{/if}
-			{#if current && !attempt && !grading && !continuing && !lineNote && hintTier < 3 && onhint}
+			{#if current && !attempt && !grading && !loading && !continuing && !lineNote && hintTier < 3 && onhint}
 				<button onclick={onhint}>
 					{hintTier === 0 ? 'Hint' : hintTier === 1 ? 'Another hint' : 'Show best'}
 				</button>
+			{/if}
+			{#if ondrill}
+				<div class="drill-toggle" title="Find the move: play the strong move. Blundercheck: from after your mistake, find the punishment you missed.">
+					<button class:on={drill === 'find-best'} onclick={() => ondrill?.('find-best')}>Find the move</button>
+					<button class:on={drill === 'blundercheck'} onclick={() => ondrill?.('blundercheck')}>Blundercheck</button>
+				</div>
 			{/if}
 			<button onclick={onexit}>Exit practice</button>
 		</div>
@@ -147,6 +167,8 @@
 						<button class="primary" onclick={onnext}>Next puzzle</button>
 					</span>
 				</div>
+			{:else if loading}
+				<div class="result muted">Reading the position…</div>
 			{:else if grading}
 				<div class="result">Checking your move…</div>
 			{:else if continuing}
@@ -206,7 +228,11 @@
 						{#if !revealBest}
 							<button onclick={onreveal}>Show best</button>
 						{/if}
-						{#if oncontinue}
+						{#if blundercheck && attempt.pass && onlearnbest}
+							<button onclick={onlearnbest} title="Now find the move you should have played instead">
+								Find the fix ▸
+							</button>
+						{:else if oncontinue}
 							<button onclick={oncontinue} title="Opponent plays its best reply — find your next move">
 								Continue ▸
 							</button>
@@ -281,6 +307,23 @@
 	}
 	button.primary {
 		border-color: var(--color-win);
+	}
+	.drill-toggle {
+		display: inline-flex;
+		border: 1px solid var(--border);
+		border-radius: 5px;
+		overflow: hidden;
+	}
+	.drill-toggle button {
+		border: none;
+		border-radius: 0;
+		padding: 4px 10px;
+		background: transparent;
+		color: var(--text-secondary);
+	}
+	.drill-toggle button.on {
+		background: var(--bg-highlight);
+		color: var(--text-primary);
 	}
 	.motif-filter {
 		display: flex;

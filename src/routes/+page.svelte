@@ -19,7 +19,7 @@
 	import SidePanel from '$lib/components/SidePanel.svelte';
 	import UnifiedMovesPanel from '$lib/components/UnifiedMovesPanel.svelte';
 	import { getCommentary, type CommentaryEntry } from '$lib/commentary';
-	import { getPgn, getSan, getState, isPromotionMove, loadFen, makeMove, reset, undo } from '$lib/engine/chess';
+	import { getFenAfter, getPgn, getSan, getState, isPromotionMove, loadFen, makeMove, reset, undo } from '$lib/engine/chess';
 	import {
 		deleteGame,
 		gameAccuracy,
@@ -192,6 +192,13 @@
 	let revealBest = $state(false);
 	let practiceMotif: string | null = $state(null); // drill filter: only items with this motif
 	let hintTier = $state(0); // 0 none, 1 text, 2 origin square, 3 full reveal
+	// drill kind: 'find-best' = the classic "find the strong move" puzzle;
+	// 'blundercheck' = the DEFENSIVE drill — from the position after your played
+	// mistake, find how the opponent punishes it (trains the pre-move scan).
+	let drill: 'find-best' | 'blundercheck' = $state('find-best');
+	let blundercheckActive = $state(false); // this puzzle is currently a blundercheck
+	let puzzleLoading = $state(false); // computing the refutation for a blundercheck
+	let puzzleToken = 0; // guards the async blundercheck load against supersession
 	const practiceDue = $derived(dueCount(practiceItems));
 
 	// tier-1 hint text, drawn from the same motif detectors — names the fact
@@ -367,6 +374,7 @@
 		} catch {
 			// ignore malformed settings
 		}
+		drill = localStorage.getItem('botvinnik-practice-drill') === 'blundercheck' ? 'blundercheck' : 'find-best';
 		blindMode = localStorage.getItem('botvinnik-blind') === '1';
 		showThreats = localStorage.getItem('botvinnik-threats') !== '0';
 		showControl = localStorage.getItem('botvinnik-control') === '1';
@@ -597,8 +605,53 @@
 
 	// ---- practice mode ----
 
-	function loadPuzzle(item: PracticeItem) {
+	async function loadPuzzle(item: PracticeItem, forceDrill?: 'find-best' | 'blundercheck') {
+		const token = ++puzzleToken;
 		currentItem = item;
+		lineDepth = 0;
+		attempt = null;
+		attemptGrade = null;
+		lineNote = null;
+		revealBest = false;
+		hintTier = 0;
+
+		// Blundercheck: set up the position AFTER the played mistake and make the
+		// opponent's best reply (the punishment) the target — the whole grade /
+		// hint / explain / spaced-rep path then works unchanged, just from the
+		// defensive side. Needs a live search for the refutation (not stored).
+		if ((forceDrill ?? drill) === 'blundercheck') {
+			const afterFen = getFenAfter(item.fen, item.playedUci);
+			if (afterFen) {
+				blundercheckActive = true;
+				practiceRef = null;
+				loadFen(afterFen);
+				lastMove = [item.playedUci.slice(0, 2), item.playedUci.slice(2, 4)]; // your move, as context
+				refresh();
+				puzzleLoading = true;
+				const res = await analyze(afterFen, 16, () => {});
+				if (token !== puzzleToken) return; // a newer puzzle superseded this load
+				puzzleLoading = false;
+				const top = res.moves[0];
+				if (top?.pv[0]) {
+					practiceRef = {
+						fen: afterFen,
+						bestUci: top.pv[0],
+						bestSan: getSan(afterFen, top.pv[0]),
+						evalBest: top.mate === null ? top.score : top.mate > 0 ? 15 : -15,
+						mateBest: top.mate,
+						wcBest: winChance(top.mate === null ? top.score : null, top.mate),
+						bestPv: top.pv,
+						depth: top.depth
+					};
+					return;
+				}
+				// no usable reply — fall through to the classic puzzle
+			}
+			blundercheckActive = false;
+		} else {
+			blundercheckActive = false;
+		}
+
 		practiceRef = {
 			fen: item.fen,
 			bestUci: item.bestUci,
@@ -609,18 +662,25 @@
 			bestPv: item.bestPv ?? [item.bestUci],
 			depth: item.depth
 		};
-		lineDepth = 0;
-		attempt = null;
-		attemptGrade = null;
-		lineNote = null;
-		revealBest = false;
-		hintTier = 0;
 		loadFen(item.fen);
 		// replay the opponent's last move so the setup is visible — essential for
 		// en-passant puzzles, where the legal capture is otherwise unknowable
 		const setup = puzzleSetupMove(item);
 		lastMove = setup ? [setup.slice(0, 2), setup.slice(2, 4)] : null;
 		refresh();
+	}
+
+	function setDrill(d: 'find-best' | 'blundercheck') {
+		if (d === drill) return;
+		drill = d;
+		if (botSettingsLoaded) localStorage.setItem('botvinnik-practice-drill', d);
+		if (mode === 'practice' && currentItem) void loadPuzzle(currentItem);
+	}
+
+	// after nailing the punishment, drop into the classic puzzle on the SAME
+	// position: "now find the move you should have played instead"
+	function learnBest() {
+		if (currentItem) void loadPuzzle(currentItem, 'find-best');
 	}
 
 	function startPractice() {
@@ -648,7 +708,7 @@
 
 	async function practiceAttempt(from: string, to: string, promotion?: string) {
 		const ref = practiceRef;
-		if (!currentItem || !ref || attempt || grading || continuing) return;
+		if (!currentItem || !ref || attempt || grading || continuing || puzzleLoading) return;
 		const move = makeMove(from, to, promotion);
 		if (!move) return;
 		lastMove = [from, to];
@@ -845,7 +905,11 @@
 	function retryPuzzle() {
 		if (!practiceRef) return;
 		loadFen(practiceRef.fen);
-		lastMove = null;
+		// keep the played move on the board as context in a blundercheck drill
+		lastMove =
+			blundercheckActive && currentItem
+				? [currentItem.playedUci.slice(0, 2), currentItem.playedUci.slice(2, 4)]
+				: null;
 		attempt = null;
 		attemptGrade = null;
 		revealBest = false;
@@ -1257,9 +1321,16 @@
 				{continuing}
 				{hintTier}
 				{hint}
+				{drill}
+				blundercheck={blundercheckActive}
+				loading={puzzleLoading}
+				playedSan={currentItem?.playedSan ?? null}
+				drop={currentItem?.drop ?? null}
 				threshold={collectThreshold}
 				motif={practiceMotif}
 				onmotif={(m) => (practiceMotif = m)}
+				ondrill={setDrill}
+				onlearnbest={learnBest}
 				onstart={startPractice}
 				onexit={exitPractice}
 				onnext={nextPuzzle}
