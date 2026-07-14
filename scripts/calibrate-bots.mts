@@ -45,6 +45,7 @@ import {
 } from '../src/lib/engine/botRecipe';
 import type { EngineMove } from '../src/lib/engine/stockfish';
 import { isMaiaId, maiaBandOf, maiaMoveNode, preloadMaiaBands } from './maia-node.mts';
+import { isMaia3Id, maia3EloOf, maiaMove3Node, preloadMaia3 } from './maia3-node.mts';
 
 // ---------- args ----------
 const args = process.argv.slice(2);
@@ -277,11 +278,13 @@ async function playGame(
 	let plies = 0;
 	while (!chess.isGameOver() && plies < MAX_PLIES) {
 		const mover = (chess.turn() === 'w') === aIsWhite ? a : b;
-		// Maia moves from its own ONNX net (with real game history); everyone
-		// else goes through the Stockfish engine
-		const uci = isMaiaId(mover)
-			? await maiaMoveNode(fenHistory(chess), maiaBandOf(mover))
-			: await botMove(engine, chess.fen(), mover);
+		// Maia nets move from their own ONNX (Maia-1 with history, Maia-3 from the
+		// current position + ELO dial); everyone else goes through Stockfish
+		const uci = isMaia3Id(mover)
+			? await maiaMove3Node(chess.fen(), maia3EloOf(mover))
+			: isMaiaId(mover)
+				? await maiaMoveNode(fenHistory(chess), maiaBandOf(mover))
+				: await botMove(engine, chess.fen(), mover);
 		if (!uci) break;
 		try {
 			chess.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci[4] });
@@ -383,6 +386,10 @@ const maiaBands = [...new Set(allIds.filter(isMaiaId).map(maiaBandOf))];
 if (maiaBands.length) {
 	console.log(`preloading Maia bands: ${maiaBands.join(', ')}`);
 	await preloadMaiaBands(maiaBands);
+}
+if (allIds.some(isMaia3Id)) {
+	console.log('preloading Maia-3 (one net, ELO-dialed)');
+	await preloadMaia3();
 }
 
 const engines = Array.from({ length: WORKERS }, () => new Engine());
