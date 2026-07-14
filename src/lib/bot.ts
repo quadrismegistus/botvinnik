@@ -178,6 +178,32 @@ export function shapedBotMove(
 	const wins = sorted.map(moveWin); // win% per candidate, mover POV
 	const bestWin = wins[0];
 
+	// Decided-and-WINNING: the ±1500cp clamp saturates win% (~95) so the
+	// gradient vanishes — +9, +12 and mate-in-16 all look alike, and quiet
+	// temperature sampling becomes an aimless shuffle that can walk into a
+	// repetition draw (observed: a 118-move Q-vs-K+P "draw" with M16 on the
+	// board). Real weak players convert slowly but DIRECTIONALLY. So here the
+	// choice signal switches to the UNCLAMPED eval — pawns, with mate lines
+	// scored by mate distance — keeping the temperature so conversion stays
+	// human-sloppy, not the old perfect-conversion superpower.
+	//
+	// Guard: this only applies when the game is won WHICHEVER move it picks
+	// (second-best still ≥ 85). If only the best move is winning — a hanging
+	// queen to capture, a tactic to land — that's a see-it-or-miss-it moment
+	// and must fall through to the miss machinery below, or punishing becomes
+	// automatic again.
+	if (bestWin >= 90 && wins[1] >= 85) {
+		const cands: { move: string; win: number }[] = [];
+		for (let i = 0; i < sorted.length; i++) {
+			if (wins[i] < 85) continue; // never gamble the win itself away
+			const l = sorted[i];
+			const v = l.mate !== null && l.mate > 0 ? 25 - Math.min(l.mate, 15) : l.score;
+			cands.push({ move: l.pv[0], win: v });
+		}
+		// temperature is in win% points; evals are in pawns — rescale
+		if (cands.length > 0) return softmaxPick(cands, temperature / 4);
+	}
+
 	if (bestWin - wins[1] >= tacticalGapPct) {
 		// Tactical: there is one move that matters. Either the bot sees it…
 		// With a per-game seed the decision is STICKY, keyed on the tactic's

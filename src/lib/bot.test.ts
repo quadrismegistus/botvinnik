@@ -85,18 +85,45 @@ describe('shapedBotMove', () => {
 		expect(strong.get('g1f3')! / 4000).toBeGreaterThan(weak.get('g1f3')! / 4000);
 	});
 
-	it('no conversion gate: even winning positions get mushy play at weak bands', () => {
-		// +8 vs +6 vs +5.5 all saturate near 95% win ⇒ reads as quiet ⇒ sampled.
-		// The old model forced best here (decided-position gate), which made every
-		// won game a perfect depth-12 conversion — a beginner superpower.
+	it('won positions: sloppy but DIRECTIONAL conversion, not perfect play', () => {
+		// +8 vs +6 vs +5.5 all saturate near 95% win. Progress mode samples over
+		// the unclamped evals: usually the most-winning move, but spread — not
+		// the old perfect-conversion superpower, not an aimless shuffle either.
 		const lines = [line('f3g5', 8.0, 1), line('c1e3', 6.0, 2), line('h2h3', 5.5, 3)];
 		const counts = tally(() => shapedBotMove(lines, 600));
-		expect(counts.size).toBeGreaterThan(1);
+		expect(counts.size).toBeGreaterThan(1); // still imperfect
+		expect(counts.get('f3g5')! / 4000).toBeGreaterThan(0.4); // but directional
+	});
+
+	it('converts toward mate instead of shuffling, even at the weakest band', () => {
+		// mate-in-3 vs +9 cp: in win% both read ~95-100 (the 118-move Q-vs-K+P
+		// repetition draw). Progress mode scores the mate line by mate distance,
+		// so the bot heads for it.
+		const lines = [line('d1h5', 0, 1, 3), line('f3g5', 9.0, 2), line('h2h3', 8.5, 3)];
+		const counts = tally(() => shapedBotMove(lines, 600));
+		expect(counts.get('d1h5')! / 4000).toBeGreaterThan(0.9);
+	});
+
+	it('progress mode never gambles the win itself away', () => {
+		// Genuine conversion: several winning moves (+9, +8) and one that throws
+		// it all away (+0.5 ⇒ ~equal). The throwaway is outside the keep-the-win
+		// window and must never be sampled, even at the weakest band.
+		const lines = [line('f3g5', 9.0, 1), line('c1e3', 8.0, 2), line('g1f3', 0.5, 3)];
+		const counts = tally(() => shapedBotMove(lines, 600));
+		expect(counts.get('g1f3')).toBeUndefined();
+		expect(counts.size).toBe(2); // both winning moves get play
+	});
+
+	it('a single winning move is a TACTIC, not a conversion — missable', () => {
+		// +9 vs +0.5: only one move keeps the win, so this is see-it-or-miss-it —
+		// the weak bot must sometimes fail to convert by missing it (that's the
+		// human blunder), NOT auto-play it via progress mode.
+		const lines = [line('f3g5', 9.0, 1), line('g1f3', 0.5, 2)];
+		const counts = tally(() => shapedBotMove(lines, 600));
+		expect(counts.get('g1f3') ?? 0).toBeGreaterThan(0);
 	});
 
 	it('takes a forced mate reliably at strong bands', () => {
-		// mate (win 100) vs +8 (win ~95): gap ~5 ⇒ quiet, but at 1600 the low
-		// temperature makes the mate the overwhelming choice.
 		const lines = [line('d1h5', 0, 1, 1), line('f3g5', 8.0, 2)];
 		const counts = tally(() => shapedBotMove(lines, 1600));
 		expect(counts.get('d1h5')! / 4000).toBeGreaterThan(0.9);
