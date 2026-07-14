@@ -39,3 +39,4 @@ src-tauri/gen/
 scripts/wasm-engine/
 scripts/maia-spike/
 scripts/maia3-spike/
+scripts/engines/

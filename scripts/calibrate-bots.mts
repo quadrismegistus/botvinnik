@@ -91,6 +91,25 @@ const SEARCH_TIMEOUT_MS = 60_000;
 const OUT = optStr('out', 'data/bot-calibration.json');
 const STATE = `${OUT}.state.json`;
 
+// ---------- external UCI engines ----------
+// Third-party engines join the gym via --ext-config <file.json>: a map from
+// bot id to { cmd, options?, go? }. The id is used directly in --pairs. Each
+// worker lazily spawns its own instance per engine (parallel games). Example:
+//   { "jsce:1": { "cmd": "node scripts/shims/jsce-uci.mjs",
+//                 "options": { "Level": "1" }, "go": "go" } }
+interface ExtSpec {
+	cmd: string;
+	options?: Record<string, string>;
+	go?: string;
+}
+const EXT_CONFIG_PATH = optStr('ext-config', '');
+const EXT: Record<string, ExtSpec> = EXT_CONFIG_PATH
+	? JSON.parse(readFileSync(EXT_CONFIG_PATH, 'utf8'))
+	: {};
+function isExtId(id: string): boolean {
+	return id in EXT;
+}
+
 // probe mode: explicit pairs; otherwise ladder neighbours + long-range
 // sanity pairs (fit stiffness across seams)
 let pairs: [string, string][];
@@ -150,16 +169,20 @@ class Engine {
 	private resolve: ((r: SearchOut) => void) | null = null;
 	private byMultipv = new Map<number, EngineMove>();
 	private watchdog: NodeJS.Timeout | null = null;
+	private readonly cmd: string;
 
-	constructor() {
+	constructor(cmd: string = ENGINE) {
+		this.cmd = cmd;
 		this.start();
 	}
 
 	private start() {
 		this.buffer = '';
-		this.proc = spawn(ENGINE);
+		// ext commands may carry args ("node scripts/shims/jsce-uci.mjs")
+		const parts = this.cmd.split(/\s+/);
+		this.proc = spawn(parts[0], parts.slice(1));
 		this.proc.on('error', (e) => {
-			console.error(`cannot start engine "${ENGINE}": ${e.message}`);
+			console.error(`cannot start engine "${this.cmd}": ${e.message}`);
 			process.exit(1);
 		});
 		this.proc.stdout.on('data', (d) => this.onData(String(d)));
@@ -283,6 +306,15 @@ async function shapedMove(
 	return shapedBotMove(res.moves, elo, undefined, seed);
 }
 
+// external UCI engine: its own process plays its own move (no sampling layer)
+async function extMove(engine: Engine, id: string, fen: string): Promise<string | null> {
+	const spec = EXT[id];
+	const options = Object.entries(spec.options ?? {}) as [string, string][];
+	const res = await engine.search(fen, options, spec.go ?? 'go movetime 400');
+	if (res.bestmove && res.bestmove !== '(none)' && res.bestmove !== '0000') return res.bestmove;
+	return res.moves[0]?.pv[0] ?? null;
+}
+
 // full-strength eval for adjudicating games the ply cap cuts off
 async function adjudicate(engine: Engine, fen: string): Promise<number> {
 	const res = await engine.search(fen, botResetOptions(1), 'go depth 12');
@@ -305,7 +337,8 @@ async function playGame(
 	b: string,
 	opening: string,
 	aIsWhite: boolean,
-	gameSeed: string
+	gameSeed: string,
+	ext: (id: string) => Engine
 ): Promise<number> {
 	engine.newGame();
 	const chess = new Chess();
@@ -321,7 +354,9 @@ async function playGame(
 				? await maiaMoveNode(fenHistory(chess), maiaBandOf(mover))
 				: isShapedId(mover)
 					? await shapedMove(engine, chess.fen(), shapedEloOf(mover), `${gameSeed}:${mover}`)
-					: await botMove(engine, chess.fen(), mover);
+					: isExtId(mover)
+						? await extMove(ext(mover), mover, chess.fen())
+						: await botMove(engine, chess.fen(), mover);
 		if (!uci) break;
 		try {
 			chess.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci[4] });
@@ -434,32 +469,47 @@ let played = 0;
 const t0 = Date.now();
 
 async function worker(engine: Engine) {
-	for (;;) {
-		const job = jobs.shift();
-		if (!job) return;
-		const opening = OPENINGS[Math.floor(job.gameIdx / 2) % OPENINGS.length];
-		const aIsWhite = job.gameIdx % 2 === 0;
-		const score = await playGame(
-			engine,
-			job.a,
-			job.b,
-			opening,
-			aIsWhite,
-			`${job.a}~${job.b}#${job.gameIdx}`
-		);
-		const k = key(job.a, job.b);
-		const r = (state.results[k] ??= { games: 0, aScore: 0 });
-		r.games++;
-		r.aScore += score;
-		saveState();
-		played++;
-		if (played % 10 === 0 || played === toPlay) {
-			const rate = played / ((Date.now() - t0) / 60000);
-			console.log(
-				`${played}/${toPlay} games · ${rate.toFixed(1)}/min · ` +
-					`eta ${((toPlay - played) / Math.max(rate, 0.1)).toFixed(0)}min`
-			);
+	// each worker owns its own instances of any external engines it meets
+	const extEngines = new Map<string, Engine>();
+	const ext = (id: string): Engine => {
+		let e = extEngines.get(id);
+		if (!e) {
+			e = new Engine(EXT[id].cmd);
+			extEngines.set(id, e);
 		}
+		return e;
+	};
+	try {
+		for (;;) {
+			const job = jobs.shift();
+			if (!job) break;
+			const opening = OPENINGS[Math.floor(job.gameIdx / 2) % OPENINGS.length];
+			const aIsWhite = job.gameIdx % 2 === 0;
+			const score = await playGame(
+				engine,
+				job.a,
+				job.b,
+				opening,
+				aIsWhite,
+				`${job.a}~${job.b}#${job.gameIdx}`,
+				ext
+			);
+			const k = key(job.a, job.b);
+			const r = (state.results[k] ??= { games: 0, aScore: 0 });
+			r.games++;
+			r.aScore += score;
+			saveState();
+			played++;
+			if (played % 10 === 0 || played === toPlay) {
+				const rate = played / ((Date.now() - t0) / 60000);
+				console.log(
+					`${played}/${toPlay} games · ${rate.toFixed(1)}/min · ` +
+						`eta ${((toPlay - played) / Math.max(rate, 0.1)).toFixed(0)}min`
+				);
+			}
+		}
+	} finally {
+		for (const e of extEngines.values()) e.quit();
 	}
 }
 

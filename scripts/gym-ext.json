@@ -1,0 +1,27 @@
+{
+	"jsce:1": { "cmd": "node scripts/shims/jsce-uci.mjs", "options": { "Level": "1" }, "go": "go" },
+	"jsce:2": { "cmd": "node scripts/shims/jsce-uci.mjs", "options": { "Level": "2" }, "go": "go" },
+	"jsce:3": { "cmd": "node scripts/shims/jsce-uci.mjs", "options": { "Level": "3" }, "go": "go" },
+	"jsce:4": { "cmd": "node scripts/shims/jsce-uci.mjs", "options": { "Level": "4" }, "go": "go" },
+	"jsce:5": { "cmd": "node scripts/shims/jsce-uci.mjs", "options": { "Level": "5" }, "go": "go" },
+	"patricia:s1": {
+		"cmd": "scripts/engines/patricia-src/engine/patricia",
+		"options": { "Skill_Level": "1" },
+		"go": "go movetime 300"
+	},
+	"patricia:s3": {
+		"cmd": "scripts/engines/patricia-src/engine/patricia",
+		"options": { "Skill_Level": "3" },
+		"go": "go movetime 300"
+	},
+	"patricia:s5": {
+		"cmd": "scripts/engines/patricia-src/engine/patricia",
+		"options": { "Skill_Level": "5" },
+		"go": "go movetime 300"
+	},
+	"patricia:s7": {
+		"cmd": "scripts/engines/patricia-src/engine/patricia",
+		"options": { "Skill_Level": "7" },
+		"go": "go movetime 300"
+	}
+}

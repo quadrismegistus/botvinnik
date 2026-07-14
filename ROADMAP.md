@@ -122,6 +122,8 @@ Shipped so far:
   | Maia-3 | ~1500–2100 lichess-equiv (our anchoring runs) | real ELO-dial input | 44MB ONNX port, pipeline known (medium) | done (`maia-node.mts`) | GPL-3 weights | human-style personas 1750–2100 |
   | sunfish | @sunfish-engine ~1957b/1961r (~1000 games) | none | JS port / pyodide (medium-hard) | today (UCI stdin) | GPL-3 | readable ~1950 character |
   | Garbochess-JS | unmeasured (~2200–2500?; harness can measure) | none | **native JS + WebWorkers — zero port** | thin node UCI shim (~half-day, own API not UCI) | BSD-3 (LICENSE file; GitHub misclassifies) | web-native strong persona; JS engine substrate for experiments |
+  | js-chess-engine | unmeasured — IN THE GYM (overnight run 2026-07-15) | levels 1–5 + depth/quiescence knobs | **npm import — easiest of all** (TS, zero deps, maintained 2026) | done: `scripts/shims/jsce-uci.mjs` | MIT | level 1 hangs pieces (no quiescence = horizon effect) — possibly the first ARCHITECTURALLY beginner-weak engine; measure, then maybe persona AND low-end corroboration |
+  | Wasabi (mhonert/chess) | unmeasured | 6 levels | **already WASM + WebWorkers** (AssemblyScript; that's its point) | standalone UCI build exists (WASI — needs wasmtime or node WASI) | GPL-3 | web-native persona; author's stronger successor is Velvet (Rust) |
 
   Per-engine notes:
   - **Patricia** (https://github.com/Adam-Kulju/Patricia): the only
@@ -139,13 +141,44 @@ Shipped so far:
     No dial: starving its clock reopens the weakening-design problem.
   - **Garbochess-JS** (https://github.com/glinscott/Garbochess-JS): Gary
     Linscott (fishtest/Leela founder), 2011-era JS, Fruit-style eval
-    (PSQ+mobility+bishop pair, pre-NNUE), WebWorkers built in. The ONLY
-    candidate that runs in the web app as-is — best persona feasibility,
-    zero strength evidence (no lichess account, no CCRL entry for the JS
-    version) and no dial, so measure in the harness first. Unmaintained
-    (2012 code, last push 2023); would need a small protocol shim both
-    for the harness (node) and for our TransportFactory (its worker
-    speaks its own message format, not UCI).
+    (PSQ+mobility+bishop pair, pre-NNUE), WebWorkers built in. Runs in
+    the web app as-is; zero strength evidence (no lichess account, no
+    CCRL entry for the JS version) and no dial, so measure in the harness
+    first. Unmaintained (2012 code, last push 2023); would need a small
+    protocol shim both for the harness (node) and for our
+    TransportFactory (its worker speaks its own message format, not UCI).
+  - **js-chess-engine** (https://github.com/josefjadrny/js-chess-engine):
+    the sleeper. Probe: level 1 played Qxf6?? hanging the queen — no
+    quiescence at low levels ⇒ horizon-effect blunders, i.e. weak the way
+    the shaped bot is DESIGNED to be weak, but architecturally. If the
+    gym confirms level 1-2 land sub-1500 honest, it's both a web persona
+    (npm import) and independent corroboration for the shaped curve's
+    low end. UCI shim done (scripts/shims/jsce-uci.mjs, devDependency).
+  - **Wasabi** (https://github.com/mhonert/chess): AssemblyScript engine
+    already built for browser WebWorkers, 6 levels, GPL-3, ships a
+    standalone WASI UCI binary (run via wasmtime/node WASI) — gym-ready
+    with minor runner glue. Unmeasured; author moved on to Velvet.
+
+- **Gym for third-party engines — BUILT 2026-07-15.** The calibration
+  harness accepts external UCI engines via `--ext-config <json>` (per-id
+  cmd/options/go; each worker spawns its own instances). First cohort:
+  js-chess-engine levels 1–5 + Patricia 5.0 Skill 1/3/5/7 (built from
+  source; NB v5 dropped UCI_Elo for Skill_Level 1–21, so the README's
+  "500 floor" table is v3-era folklore until measured) —
+  `scripts/run-gym-overnight.sh` → data/bot-gym-ext.json.
+
+- **Put our bots ON lichess (the calibration endgame).** A BOT account
+  per Square (e.g. Square-900): create fresh account → upgrade via
+  `/api/bot/account/upgrade` (irreversible, needs 0 games played) → run
+  the standard `lichess-bot` bridge (Python, wraps any UCI engine) →
+  wrap our shaped bot as a UCI engine ("SquareFish": node script = WASM
+  lite-single engine + shapedBotMove choice layer, exactly the harness's
+  shapedMove logic; ~100 lines, same pattern as jsce-uci.mjs). Weak bots
+  farm games fast on lichess (that's how maia1 got 8M) → after ~100
+  rated games our Square has a REAL lichess rating — a self-made human
+  anchor in the sub-1320 desert where no reference bot exists, replacing
+  every borrowed anchor (maia/sunfish/patricia). Needs: a machine that
+  stays up (Mac awake or cheap VPS), token with bot:play scope.
 - **File System Access autosave** — beyond Export/Import: write backups
   directly to a user-chosen local file (Chromium-only).
 - **Engine settings panel** — a small "Engine" section (sidebar SidePanel,
