@@ -84,6 +84,18 @@ Shipped so far:
   soft vs chess.com — a human re-anchor is a possible future lever.
   Bot ELO calibration is COMPLETE. Lesson banked in project memory: calibrate
   the free (sampler) bands at high N; movetime bands need a real shell.
+- **Bot "feel" — make weak play human, not swingy** (research done
+  2026-07-14, see `docs/bot-weakening.md`). The calibration is honest but the
+  sub-1320 sampler blunders _uniformly_ (incl. in easy positions), which feels
+  random/inhuman. Two-track plan: (1) evolve `selectBotMove` into a bounded,
+  position-adaptive sampler — win-probability window, collapse it in
+  easy/forcing/low-reply positions, per-game-stable width — plus a
+  free-material guard so it never misses a hanging piece (near-zero cost, stays
+  in Stockfish.js + MultiPV); (2) **add Maia as an in-browser ONNX move
+  provider** for the low bands (`src/lib/engine/maia.ts`, slotting in at
+  `maybeBotMove`) — human-imitation, characteristic beginner errors, small net,
+  no search, runs via onnxruntime-web alongside Stockfish. Stockfish stays for
+  analysis/hints and the strong bands. GPL-3.0 weights — check licensing.
 - **File System Access autosave** — beyond Export/Import: write backups
   directly to a user-chosen local file (Chromium-only).
 - **Engine settings panel** — a small "Engine" section (sidebar SidePanel,
