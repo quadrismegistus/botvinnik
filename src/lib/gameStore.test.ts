@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import {
 	gameAccuracy,
 	labelCounts,
+	LABEL_VERSION,
 	moveAccuracy,
+	relabelGames,
 	sanitizeExplanations,
 	type StoredGame,
 	type StoredMove
@@ -23,6 +25,72 @@ function move(color: 'w' | 'b', wcDrop: number, label?: StoredMove['label']): St
 		label
 	};
 }
+
+function relabelGame(m: Partial<StoredMove>, labelVersion?: number): StoredGame {
+	const full: StoredMove = {
+		ply: 1,
+		san: 'Rd7',
+		uci: 'd2d7',
+		color: 'w',
+		fenBefore: 'k2q4/8/8/8/8/8/3R4/K7 w - - 0 1',
+		fenAfter: '',
+		evalPawns: 0,
+		mate: null,
+		pctBest: 50,
+		wcDrop: 0,
+		...m
+	};
+	return {
+		id: 'g',
+		endedAt: '2026-07-14T00:00:00.000Z',
+		result: '1-0',
+		pgn: '',
+		botElo: null,
+		botColor: null,
+		moveCount: 1,
+		whiteAccuracy: null,
+		blackAccuracy: null,
+		labelCounts: { w: {}, b: {} },
+		labelVersion,
+		moves: [full]
+	};
+}
+
+describe('relabelGames', () => {
+	it('promotes a missed material-winning capture to miss', () => {
+		// Rd7 played (uci d2d7); best was Rxd8 (d2d8) taking the hanging queen
+		const g = relabelGame({ label: 'mistake', bestUci: 'd2d8', wcDrop: 45, evalPawns: 0 });
+		expect(relabelGames([g])).toHaveLength(1);
+		expect(g.moves[0].label).toBe('miss');
+		expect(g.labelVersion).toBe(LABEL_VERSION);
+		expect(g.labelCounts.w).toEqual({ miss: 1 });
+	});
+
+	it('does not promote to miss when the best move is not a capture', () => {
+		const g = relabelGame({ label: 'mistake', bestUci: 'd2d3', wcDrop: 45, evalPawns: 0 });
+		expect(g.moves[0].label).toBe('mistake');
+		relabelGames([g]);
+		expect(g.moves[0].label).toBe('mistake');
+	});
+
+	it('demotes a brilliant that only held equality (win chance < 55)', () => {
+		const g = relabelGame({ label: 'brilliant', evalPawns: 0, uci: 'd2d8', bestUci: 'd2d8' });
+		relabelGames([g]);
+		expect(g.moves[0].label).toBe('best');
+	});
+
+	it('keeps a brilliant that leaves you clearly better', () => {
+		const g = relabelGame({ label: 'brilliant', evalPawns: 3, uci: 'd2d8', bestUci: 'd2d8' });
+		relabelGames([g]);
+		expect(g.moves[0].label).toBe('brilliant');
+	});
+
+	it('skips games already at the current label version', () => {
+		const g = relabelGame({ label: 'brilliant', evalPawns: 0 }, LABEL_VERSION);
+		expect(relabelGames([g])).toHaveLength(0);
+		expect(g.moves[0].label).toBe('brilliant'); // untouched
+	});
+});
 
 describe('moveAccuracy', () => {
 	it('follows the lichess curve (incl. the +1 uncertainty bonus)', () => {

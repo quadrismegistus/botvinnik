@@ -2,7 +2,13 @@
 // explanations the app computed while the game was played.
 
 import { bestMovePoint, type Explanation } from './engine/explain';
+import { isCapture } from './engine/chess';
 import { winChance, type MoveLabel } from './engine/insights';
+
+// Bump when the move-label rules change (added Miss, tightened Brilliant at v1).
+// Games carry labelVersion; older ones are re-labeled from stored eval data on
+// load (relabelGames), newer ones are stamped at save and skipped.
+export const LABEL_VERSION = 1;
 import { GAMES_STORE, openDb } from './engine/db';
 
 export interface StoredMove {
@@ -35,6 +41,7 @@ export interface StoredGame {
 	whiteAccuracy: number | null;
 	blackAccuracy: number | null;
 	labelCounts: { w: LabelCounts; b: LabelCounts };
+	labelVersion?: number; // ruleset the labels were computed under (see LABEL_VERSION)
 	moves: StoredMove[];
 	// imported games: real player names and where they came from
 	white?: string;
@@ -189,10 +196,65 @@ export function refreshAccuracies(games: StoredGame[]): StoredGame[] {
 	return changed;
 }
 
-// run the load-time repair passes (stale claim prose + accuracy formula
-// changes) and persist whatever they corrected; returns games rewritten
+// Re-derive one move's label under the current ruleset from stored eval data
+// (no engine). Only touches the cases the ruleset changed: Brilliant's floor
+// and the new Miss. Everything else keeps its label.
+function relabelMove(m: StoredMove): MoveLabel | undefined {
+	if (!m.label) return m.label;
+	const wcPlayed = winChance(m.evalPawns, m.mate);
+	// Brilliant now needs the sacrifice to leave you clearly better (>=55). An
+	// already-brilliant move passed the sacrifice test, so just re-check the
+	// floor — demote to best when it merely held equality.
+	if (m.label === 'brilliant') return wcPlayed < 55 ? 'best' : 'brilliant';
+	// Miss: a missed material-winning capture you were still ok after. The best
+	// move's full line isn't stored, so this leans on the >=10% drop as the
+	// proxy that the capture mattered (slightly looser than live labeling).
+	if (m.label === 'inaccuracy' || m.label === 'mistake' || m.label === 'blunder') {
+		if (
+			m.bestUci &&
+			m.bestUci !== m.uci &&
+			m.wcDrop >= 10 &&
+			wcPlayed >= 40 &&
+			isCapture(m.fenBefore, m.bestUci)
+		)
+			return 'miss';
+	}
+	return m.label;
+}
+
+// pure: bring games labeled under an older ruleset up to the current one and
+// recompute their label counts. Games already at LABEL_VERSION are skipped;
+// unchanged older games stay unstamped and are harmlessly re-checked next load.
+export function relabelGames(games: StoredGame[]): StoredGame[] {
+	const changed: StoredGame[] = [];
+	for (const g of games) {
+		if (g.labelVersion === LABEL_VERSION) continue;
+		let dirty = false;
+		for (const m of g.moves) {
+			const next = relabelMove(m);
+			if (next !== m.label) {
+				m.label = next;
+				dirty = true;
+			}
+		}
+		if (dirty) {
+			g.labelVersion = LABEL_VERSION;
+			g.labelCounts = { w: labelCounts(g.moves, 'w'), b: labelCounts(g.moves, 'b') };
+			changed.push(g);
+		}
+	}
+	return changed;
+}
+
+// run the load-time repair passes (stale claim prose, accuracy formula, and
+// move-label ruleset changes) and persist whatever they corrected; returns
+// the number of games rewritten
 export async function sanitizeStoredGames(games: StoredGame[]): Promise<number> {
-	const changed = new Set([...sanitizeExplanations(games), ...refreshAccuracies(games)]);
+	const changed = new Set([
+		...sanitizeExplanations(games),
+		...refreshAccuracies(games),
+		...relabelGames(games)
+	]);
 	for (const g of changed) await saveGame(g);
 	return changed.size;
 }

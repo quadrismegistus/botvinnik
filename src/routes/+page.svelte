@@ -24,6 +24,7 @@
 		deleteGame,
 		gameAccuracy,
 		labelCounts,
+		LABEL_VERSION,
 		listGames,
 		sanitizeStoredGames,
 		saveGame,
@@ -251,7 +252,10 @@
 		try {
 			const existing = new Set(storedGames.map((g) => g.id));
 			const result = await importLichessGames(username, existing, collectThreshold);
-			for (const g of result.games) await saveGame(g);
+			for (const g of result.games) {
+				g.labelVersion = LABEL_VERSION; // freshly analyzed with the current ruleset
+				await saveGame(g);
+			}
 			let added = 0;
 			for (const p of result.practice) {
 				const next = addItem(practiceItems, {
@@ -288,6 +292,7 @@
 			existingIds: new Set(storedGames.map((g) => g.id)),
 			onProgress: (p) => (ccImport = p),
 			onGame: async (stored, practice) => {
+				stored.labelVersion = LABEL_VERSION; // freshly analyzed with the current ruleset
 				await saveGame(stored);
 				storedGames = [stored, ...storedGames].sort(
 					(a, b) => Date.parse(b.endedAt) - Date.parse(a.endedAt)
@@ -1005,6 +1010,7 @@
 			whiteAccuracy: gameAccuracy(stored, 'w'),
 			blackAccuracy: gameAccuracy(stored, 'b'),
 			labelCounts: { w: labelCounts(stored, 'w'), b: labelCounts(stored, 'b') },
+			labelVersion: LABEL_VERSION,
 			moves: stored
 		};
 		// strip $state proxies — IndexedDB's structured clone rejects them
