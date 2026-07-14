@@ -233,20 +233,22 @@ export function shapedBotMove(
 // ─── Shaped label inversion ──────────────────────────────────────────────────
 //
 // The label→strength curve, measured on the honest UCI_Elo ruler
-// (data/bot-shaped-calib.json, n=50/pair, 2026-07-14: internal ladder at
-// 150-pt label steps + upper bands vs ucielo:1320/1600/2000:mt400, BT fit
-// rebased so ucielo:1320 = 1320). shaped:LABEL plays HARDER than its label
-// at the top (1500→~1984) and roughly on-label at the bottom, so the app
-// must invert: given a target slider ELO, find the label whose measured
-// strength matches. WASM substrate only — native needs its own run.
+// (data/bot-shaped-calib.json, n=50/pair, 2026-07-14 evening re-run WITH the
+// directional-conversion rule: internal ladder at 150-pt label steps + upper
+// bands vs ucielo:1320/1600/2000:mt400, BT fit rebased so ucielo:1320 = 1320).
+// Within noise of the pre-conversion-fix run at the bottom, mildly stronger
+// in the upper-middle (1350). shaped:LABEL plays HARDER than its label at the
+// top (1500→~1935) and roughly on-label at the bottom, so the app must
+// invert: given a target slider ELO, find the label whose measured strength
+// matches. WASM substrate only — native needs its own run.
 const SHAPED_KNOTS_WASM: { label: number; strength: number }[] = [
-	{ label: 600, strength: 833 },
-	{ label: 750, strength: 919 },
-	{ label: 900, strength: 1051 },
-	{ label: 1050, strength: 1151 },
-	{ label: 1200, strength: 1327 },
-	{ label: 1350, strength: 1577 },
-	{ label: 1500, strength: 1984 }
+	{ label: 600, strength: 770 },
+	{ label: 750, strength: 870 },
+	{ label: 900, strength: 1000 },
+	{ label: 1050, strength: 1156 },
+	{ label: 1200, strength: 1330 },
+	{ label: 1350, strength: 1654 },
+	{ label: 1500, strength: 1935 }
 ];
 
 /** Measured strength range the shaped bot can honestly cover (WASM). */

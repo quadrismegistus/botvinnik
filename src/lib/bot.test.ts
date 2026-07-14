@@ -157,14 +157,14 @@ describe('shapedBotMove', () => {
 
 describe('shapedLabelFor', () => {
 	it('inverts the measured curve at the knots', () => {
-		expect(shapedLabelFor(833)).toBe(600);
-		expect(shapedLabelFor(1327)).toBe(1200);
-		expect(shapedLabelFor(1984)).toBe(1500);
+		expect(shapedLabelFor(770)).toBe(600);
+		expect(shapedLabelFor(1330)).toBe(1200);
+		expect(shapedLabelFor(1935)).toBe(1500);
 	});
 
 	it('interpolates between knots and clamps outside the measured range', () => {
-		// halfway 1051→1151 strength ⇒ halfway 900→1050 label
-		expect(shapedLabelFor(1101)).toBe(975);
+		// halfway 1000→1156 strength ⇒ halfway 900→1050 label
+		expect(shapedLabelFor(1078)).toBe(975);
 		expect(shapedLabelFor(200)).toBe(600); // below floor
 		expect(shapedLabelFor(2500)).toBe(1500); // above ceiling
 	});
