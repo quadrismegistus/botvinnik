@@ -77,6 +77,23 @@
 		return parts.length ? parts.join(' ') : '·';
 	}
 
+	// spelled-out tooltip for the cryptic "2B / 1M 2B" column, naming the sides
+	function mistakesTitle(g: StoredGame): string {
+		const side = (color: 'w' | 'b') => {
+			const c = g.labelCounts[color];
+			const parts: string[] = [];
+			if (c.mistake) parts.push(`${c.mistake} mistake${c.mistake > 1 ? 's' : ''}`);
+			if (c.blunder) parts.push(`${c.blunder} blunder${c.blunder > 1 ? 's' : ''}`);
+			const who = `${sideName(g, color)} (${color === 'w' ? 'White' : 'Black'})`;
+			return `${who}: ${parts.length ? parts.join(', ') : 'no mistakes'}`;
+		};
+		return `${side('w')} · ${side('b')}`;
+	}
+
+	function accTitle(g: StoredGame): string {
+		return `accuracy — ${sideName(g, 'w')} (White): ${fmtAcc(g.whiteAccuracy)} · ${sideName(g, 'b')} (Black): ${fmtAcc(g.blackAccuracy)}`;
+	}
+
 	const selected: StoredMove | null = $derived(
 		reviewing && reviewPly > 0 ? reviewing.moves[reviewPly - 1] : null
 	);
@@ -200,10 +217,10 @@
 						<span class="opp">{opponent(g)}</span>
 						<span class="result">{g.result}</span>
 						<span class="len">{Math.ceil(g.moveCount / 2)} moves</span>
-						<span class="acc" title="accuracy White / Black">
+						<span class="acc" title={accTitle(g)}>
 							{fmtAcc(g.whiteAccuracy)} / {fmtAcc(g.blackAccuracy)}
 						</span>
-						<span class="errs" title="mistakes (M) and blunders (B), White / Black">
+						<span class="errs" title={mistakesTitle(g)}>
 							{mistakes(g, 'w')} / {mistakes(g, 'b')}
 						</span>
 						<button class="primary" onclick={() => onreview(g)}>Review</button>
