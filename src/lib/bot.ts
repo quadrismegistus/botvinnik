@@ -204,6 +204,53 @@ export function shapedBotMove(
 	return softmaxPick(cands, temperature);
 }
 
+// ─── Shaped label inversion ──────────────────────────────────────────────────
+//
+// The label→strength curve, measured on the honest UCI_Elo ruler
+// (data/bot-shaped-calib.json, n=50/pair, 2026-07-14: internal ladder at
+// 150-pt label steps + upper bands vs ucielo:1320/1600/2000:mt400, BT fit
+// rebased so ucielo:1320 = 1320). shaped:LABEL plays HARDER than its label
+// at the top (1500→~1984) and roughly on-label at the bottom, so the app
+// must invert: given a target slider ELO, find the label whose measured
+// strength matches. WASM substrate only — native needs its own run.
+const SHAPED_KNOTS_WASM: { label: number; strength: number }[] = [
+	{ label: 600, strength: 833 },
+	{ label: 750, strength: 919 },
+	{ label: 900, strength: 1051 },
+	{ label: 1050, strength: 1151 },
+	{ label: 1200, strength: 1327 },
+	{ label: 1350, strength: 1577 },
+	{ label: 1500, strength: 1984 }
+];
+
+/** Measured strength range the shaped bot can honestly cover (WASM). */
+export function shapedStrengthRange(): { min: number; max: number } {
+	const k = SHAPED_KNOTS_WASM;
+	return { min: k[0].strength, max: k[k.length - 1].strength };
+}
+
+/** Invert the measured curve: target strength on our WASM scale → shaped label. */
+export function shapedLabelFor(targetElo: number): number {
+	const k = SHAPED_KNOTS_WASM;
+	if (targetElo <= k[0].strength) return k[0].label;
+	if (targetElo >= k[k.length - 1].strength) return k[k.length - 1].label;
+	for (let i = 1; i < k.length; i++) {
+		if (targetElo <= k[i].strength) {
+			const f = (targetElo - k[i - 1].strength) / (k[i].strength - k[i - 1].strength);
+			return Math.round(k[i - 1].label + f * (k[i].label - k[i - 1].label));
+		}
+	}
+	return k[k.length - 1].label;
+}
+
+// Search depth for the shaped bot's MultiPV analysis, by label. Part of the
+// weakening (a flat strong backbone kept eval ordering at master strength no
+// matter the choice layer); must match the harness's shapedDepth so the app
+// reproduces the calibrated strength.
+export function shapedSearchDepth(label: number): number {
+	return Math.max(4, Math.min(12, Math.round(4 + (8 * (label - 600)) / 900)));
+}
+
 export function botDelay(minMs = 300, maxMs = 1000): number {
 	return minMs + Math.floor(Math.random() * (maxMs - minMs + 1));
 }

@@ -35,7 +35,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { Chess } from 'chess.js';
-import { selectBotMove, shapedBotMove } from '../src/lib/bot';
+import { selectBotMove, shapedBotMove, shapedSearchDepth } from '../src/lib/bot';
 import {
 	botResetOptions,
 	parseSpec,
@@ -265,7 +265,9 @@ function shapedEloOf(id: string): number {
 	return Number(id.split(':')[1]);
 }
 function shapedDepth(elo: number): number {
-	return Math.max(4, Math.min(SHAPED_DEPTH, Math.round(4 + (8 * (elo - 600)) / 900)));
+	// canonical ramp lives in bot.ts (the app must reproduce it exactly);
+	// --shaped-depth only caps it for harness-speed experiments
+	return Math.min(SHAPED_DEPTH, shapedSearchDepth(elo));
 }
 async function shapedMove(
 	engine: Engine,

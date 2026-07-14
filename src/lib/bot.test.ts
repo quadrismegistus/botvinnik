@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { shapedBotMove, shapedParams } from './bot';
+import { shapedBotMove, shapedParams, shapedLabelFor, shapedSearchDepth } from './bot';
 import type { EngineMove } from './engine/stockfish';
 
 // Build a MultiPV line. `score` is pawns from the mover's POV; the first token
@@ -125,5 +125,38 @@ describe('shapedBotMove', () => {
 		expect(shapedParams(1000).missProb).toBeGreaterThan(shapedParams(1600).missProb);
 		expect(shapedParams(600).temperature).toBeGreaterThan(shapedParams(1600).temperature);
 		expect(shapedParams(600).quietWindowPct).toBeGreaterThan(shapedParams(1600).quietWindowPct);
+	});
+});
+
+describe('shapedLabelFor', () => {
+	it('inverts the measured curve at the knots', () => {
+		expect(shapedLabelFor(833)).toBe(600);
+		expect(shapedLabelFor(1327)).toBe(1200);
+		expect(shapedLabelFor(1984)).toBe(1500);
+	});
+
+	it('interpolates between knots and clamps outside the measured range', () => {
+		// halfway 1051→1151 strength ⇒ halfway 900→1050 label
+		expect(shapedLabelFor(1101)).toBe(975);
+		expect(shapedLabelFor(200)).toBe(600); // below floor
+		expect(shapedLabelFor(2500)).toBe(1500); // above ceiling
+	});
+
+	it('is monotonic across the covered range', () => {
+		let prev = -Infinity;
+		for (let e = 800; e <= 2000; e += 50) {
+			const l = shapedLabelFor(e);
+			expect(l).toBeGreaterThanOrEqual(prev);
+			prev = l;
+		}
+	});
+});
+
+describe('shapedSearchDepth', () => {
+	it('ramps 4→12 over labels 600→1500 (must match the harness)', () => {
+		expect(shapedSearchDepth(600)).toBe(4);
+		expect(shapedSearchDepth(1050)).toBe(8);
+		expect(shapedSearchDepth(1500)).toBe(12);
+		expect(shapedSearchDepth(2000)).toBe(12); // capped
 	});
 });
