@@ -199,6 +199,9 @@
 	let blundercheckActive = $state(false); // this puzzle is currently a blundercheck
 	let puzzleLoading = $state(false); // computing the refutation for a blundercheck
 	let puzzleToken = 0; // guards the async blundercheck load against supersession
+	let easeIn = $state(true); // bias each session toward easier puzzles first (morale on-ramp)
+	let sessionSolved = $state(0); // passes this practice session (for the progress readout)
+	let sessionStreak = $state(0); // consecutive cold passes this session
 	const practiceDue = $derived(dueCount(practiceItems));
 
 	// tier-1 hint text, drawn from the same motif detectors — names the fact
@@ -375,6 +378,7 @@
 			// ignore malformed settings
 		}
 		drill = localStorage.getItem('botvinnik-practice-drill') === 'blundercheck' ? 'blundercheck' : 'find-best';
+		easeIn = localStorage.getItem('botvinnik-practice-easein') !== '0';
 		blindMode = localStorage.getItem('botvinnik-blind') === '1';
 		showThreats = localStorage.getItem('botvinnik-threats') !== '0';
 		showControl = localStorage.getItem('botvinnik-control') === '1';
@@ -699,8 +703,10 @@
 	}
 
 	function startPractice() {
-		const item = nextItem(practiceItems, undefined, undefined, practiceMotif ?? undefined);
+		const item = nextItem(practiceItems, undefined, undefined, practiceMotif ?? undefined, Math.random, easeIn);
 		if (!item) return;
+		sessionSolved = 0;
+		sessionStreak = 0;
 		analysisToken++; // orphan any in-flight play analysis
 		stopEngine();
 		analyzing = false;
@@ -795,8 +801,16 @@
 		};
 		// only the stored puzzle counts toward spaced repetition, not line continuations;
 		// a hinted pass holds its box rather than promoting
-		if (lineDepth === 0)
+		if (lineDepth === 0) {
 			practiceItems = recordResult(practiceItems, currentItem.id, pass, hintTier > 0);
+			// session progress: solves count passes; the streak is COLD passes only
+			if (pass) {
+				sessionSolved++;
+				sessionStreak = hintTier > 0 ? 0 : sessionStreak + 1;
+			} else {
+				sessionStreak = 0;
+			}
+		}
 	}
 
 	// an InsightsPanel-compatible grade for a practice attempt; pctBest is the
@@ -899,7 +913,7 @@
 	}
 
 	function nextPuzzle() {
-		const item = nextItem(practiceItems, currentItem?.id, undefined, practiceMotif ?? undefined);
+		const item = nextItem(practiceItems, currentItem?.id, undefined, practiceMotif ?? undefined, Math.random, easeIn);
 		if (item) loadPuzzle(item);
 		else {
 			currentItem = null;
@@ -1341,9 +1355,16 @@
 				loading={puzzleLoading}
 				playedSan={currentItem?.playedSan ?? null}
 				drop={currentItem?.drop ?? null}
+				{easeIn}
+				{sessionSolved}
+				{sessionStreak}
 				threshold={collectThreshold}
 				motif={practiceMotif}
 				onmotif={(m) => (practiceMotif = m)}
+				oneasein={(on) => {
+					easeIn = on;
+					if (botSettingsLoaded) localStorage.setItem('botvinnik-practice-easein', on ? '1' : '0');
+				}}
 				ondrill={setDrill}
 				onlearnbest={learnBest}
 				onstart={startPractice}
