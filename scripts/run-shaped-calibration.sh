@@ -7,16 +7,20 @@
 # monotonicity, and (b) where each shaped band lands against our anchored numeric
 # bands — so we can then tune shapedParams to hit the target ELOs.
 #
-# EXPECT the first pass to show shaped playing STRONGER than its label (coherent
-# + bounded beats the swingy sampler — the anchoring run showed our sampler is
-# "wrong-kind-of-weak"). That's the point: the delta tells us how much to raise
-# blunderProb/windowPct. Run in your own terminal (resume-safe, checkpointed):
+# Run in your own terminal (resume-safe, checkpointed):
 #
-#     bash scripts/run-shaped-calibration.sh
+#     bash scripts/run-shaped-calibration.sh            # full grid, ~1 hour
+#     bash scripts/run-shaped-calibration.sh --quick    # tuning loop, ~10 min
+#
+# --quick plays a small n=30 set (shaped:600/900/1200 vs nearby numeric bands +
+# one anchor pair) into data/bot-shaped-quick.json — enough to eyeball whether
+# the current shapedParams land in the right neighbourhood before committing to
+# the full grid. Delete data/bot-shaped-quick.json* between quick runs after a
+# params change (the checkpoint would otherwise resume stale results).
 #
 # Slower than the sampler runs (depth-12 searches, not depth-1): ballpark
-# 15-25 games/min on WASM, so ~1 hour for the full set. Ctrl-C and re-run to
-# resume. When done, tell Claude "shaped calibration done".
+# 15-25 games/min on WASM. Ctrl-C and re-run to resume. When done, tell Claude
+# "shaped calibration done" (or "quick run done").
 #
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -38,16 +42,29 @@ fi
 PAIRS="shaped:600~shaped:900,shaped:900~shaped:1200,shaped:1200~shaped:1500,shaped:600~shaped:1500,\
 shaped:600~900,shaped:600~1200,shaped:900~1200,shaped:900~1500,shaped:1200~1500,shaped:1200~1800,shaped:1500~1800,shaped:1500~2100,\
 1500~1800,1800~2100"
+GAMES=100
+OUT=data/bot-shaped-calib.json
+LABEL="full grid (n=100, ~1 hour)"
+
+# Quick tuning mode: just the low-end brackets that failed last time, plus a
+# numeric pair to tie the fit to the >=1320 anchors. Raw win rates are the
+# signal: shaped:600~900 near 50% means the params are in the neighbourhood.
+if [ "${1:-}" = "--quick" ]; then
+	PAIRS="shaped:600~900,shaped:600~1200,shaped:900~1200,shaped:900~1500,shaped:1200~1500,1200~1500"
+	GAMES=30
+	OUT=data/bot-shaped-quick.json
+	LABEL="quick tuning set (n=30, ~10 min)"
+fi
 
 echo "============================================================"
-echo " Shaped-blunder calibration — shaped bands vs WASM numeric (n=100)"
+echo " Shaped-blunder calibration — $LABEL"
 echo "============================================================"
 npx tsx scripts/calibrate-bots.mts \
 	--engine scripts/wasm-engine/run.sh --substrate wasm \
 	--pairs "$PAIRS" \
-	--games 100 \
+	--games "$GAMES" \
 	--shaped-depth 12 --shaped-multipv 12 \
-	--out data/bot-shaped-calib.json
+	--out "$OUT"
 
 echo "============================================================"
 echo " DONE — tell Claude: \"shaped calibration done\""

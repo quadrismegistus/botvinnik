@@ -17,75 +17,95 @@ function tally(fn: () => string | null, n = 4000): Map<string, number> {
 	return counts;
 }
 
+// A clearly tactical position: best +5.0 (~86% win) towers over ~50% alternatives.
+const TACTICAL = [line('d1h5', 5.0, 1), line('b1c3', 0.0, 2), line('a2a3', -0.2, 3)];
+
 describe('shapedBotMove', () => {
 	it('returns the only move when there is one', () => {
 		expect(shapedBotMove([line('e2e4', 0.3, 1)], 800)).toBe('e2e4');
 	});
 
-	it('plays best in an EASY position — best towers over the rest', () => {
-		// best +5.0 (win ~86%), alternatives ~50% → gap ≫ easyGap ⇒ never gamble
-		const lines = [line('d1h5', 5.0, 1), line('b1c3', 0.0, 2), line('a2a3', -0.2, 3)];
-		const counts = tally(() => shapedBotMove(lines, 700)); // weakest band
-		expect(counts.get('d1h5')).toBe(4000);
+	it('sees the tactic almost always at strong bands', () => {
+		const counts = tally(() => shapedBotMove(TACTICAL, 1900));
+		// missProb floors at 4% above 1600
+		expect(counts.get('d1h5')! / 4000).toBeGreaterThan(0.9);
 	});
 
-	it('plays best when the game is already decided (winning huge)', () => {
+	it('MISSES the tactic a real fraction of the time at weak bands', () => {
+		// This is the inversion of the old model: tactical positions are where
+		// the weak bot blunders, not where it is protected.
+		const counts = tally(() => shapedBotMove(TACTICAL, 600));
+		const bestRate = counts.get('d1h5')! / 4000;
+		expect(bestRate).toBeGreaterThan(0.4); // still sees it more often than not
+		expect(bestRate).toBeLessThan(0.7); // …but misses ~44% of the time
+		expect(counts.get('b1c3') ?? 0).toBeGreaterThan(0); // and plays on obliviously
+	});
+
+	it('a miss picks the plausible-looking alternative, catastrophe possible but rare', () => {
+		// When it misses +5.0, it should usually play the reasonable 0.0 move;
+		// the outright lost move is possible (no severity cap on misses) but rare.
+		const lines = [line('d1h5', 5.0, 1), line('b1c3', 0.0, 2), line('h2h4', -4.0, 3)];
+		const counts = tally(() => shapedBotMove(lines, 600));
+		expect(counts.get('b1c3') ?? 0).toBeGreaterThan(counts.get('h2h4') ?? 0);
+	});
+
+	it('fails to punish too — a hanging piece is just a tactic from our side', () => {
+		// Opponent hung a queen: capturing is +9, everything else ~equal. A real
+		// beginner sometimes doesn't notice. The old model ALWAYS captured (its
+		// easy-gap gate forced best) which is why it crushed numeric-900 100-0.
+		const lines = [line('d1d8', 9.0, 1), line('g1f3', 0.1, 2), line('b1c3', 0.0, 3)];
+		const counts = tally(() => shapedBotMove(lines, 600));
+		expect(counts.get('g1f3') ?? 0).toBeGreaterThan(0);
+	});
+
+	it('quiet positions: mushy sound play — spreads over near-equal moves', () => {
+		const lines = [line('g1f3', 0.5, 1), line('b1c3', 0.3, 2), line('d2d4', 0.1, 3)];
+		const counts = tally(() => shapedBotMove(lines, 600));
+		// samples all of the close moves, not locked to best
+		expect(counts.size).toBe(3);
+		expect(counts.get('g1f3')! / 4000).toBeLessThan(0.9);
+	});
+
+	it('never plays a howler in a QUIET position (window excludes it)', () => {
+		// All reasonable moves are close; d1h5 hangs (-3.0 ⇒ drop ≈ 28% > window 20).
+		// Quiet howlers are what made the old softmax sampler feel broken.
+		const lines = [
+			line('g1f3', 0.5, 1),
+			line('b1c3', 0.3, 2),
+			line('d1h5', -3.0, 3)
+		];
+		const counts = tally(() => shapedBotMove(lines, 600));
+		expect(counts.get('d1h5')).toBeUndefined();
+	});
+
+	it('quiet play sharpens with ELO (temperature ramp)', () => {
+		const lines = [line('g1f3', 0.5, 1), line('b1c3', 0.2, 2), line('d2d4', 0.0, 3)];
+		const weak = tally(() => shapedBotMove(lines, 600));
+		const strong = tally(() => shapedBotMove(lines, 1600));
+		expect(strong.get('g1f3')! / 4000).toBeGreaterThan(weak.get('g1f3')! / 4000);
+	});
+
+	it('no conversion gate: even winning positions get mushy play at weak bands', () => {
+		// +8 vs +6 vs +5.5 all saturate near 95% win ⇒ reads as quiet ⇒ sampled.
+		// The old model forced best here (decided-position gate), which made every
+		// won game a perfect depth-12 conversion — a beginner superpower.
 		const lines = [line('f3g5', 8.0, 1), line('c1e3', 6.0, 2), line('h2h3', 5.5, 3)];
-		const counts = tally(() => shapedBotMove(lines, 800));
-		expect(counts.get('f3g5')).toBe(4000);
+		const counts = tally(() => shapedBotMove(lines, 600));
+		expect(counts.size).toBeGreaterThan(1);
 	});
 
-	it('is spiky: plays best the large majority of moves, slips a minority (weakest band)', () => {
-		// best +1.0 (~59%), near-equal alternatives + a real blunder in-window
-		const lines = [
-			line('g1f3', 1.0, 1), // best  ~59%
-			line('b1c3', 0.5, 2), // ~55%  drop ~4.5
-			line('d2d4', 0.2, 3), // ~52%  drop ~7
-			line('d1h5', -1.5, 4) // ~36%  drop ~23  ← a genuine blunder, allowed but rare
-		];
-		const counts = tally(() => shapedBotMove(lines, 800));
-		// near-perfect most of the time (median move is best) …
-		expect(counts.get('g1f3')! / 4000).toBeGreaterThan(0.65);
-		// … but it does slip, and the fat tail means the real blunder DOES occur
-		// (unlike the old model, a weak human at this level hangs sometimes)
-		expect(counts.get('d1h5') ?? 0).toBeGreaterThan(0);
-		expect(counts.get('d1h5')! / 4000).toBeLessThan(0.15); // rare
+	it('takes a forced mate reliably at strong bands', () => {
+		// mate (win 100) vs +8 (win ~95): gap ~5 ⇒ quiet, but at 1600 the low
+		// temperature makes the mate the overwhelming choice.
+		const lines = [line('d1h5', 0, 1, 1), line('f3g5', 8.0, 2)];
+		const counts = tally(() => shapedBotMove(lines, 1600));
+		expect(counts.get('d1h5')! / 4000).toBeGreaterThan(0.9);
 	});
 
-	it('never hangs in an EASY position — blunders cluster in complex ones', () => {
-		// best towers (+5 vs 0 ⇒ gap ≫ easyGap): a hanging alternative must never
-		// be chosen here, even though the band is weak and slips are allowed.
-		const lines = [line('g1f3', 5.0, 1), line('b1c3', 0.0, 2), line('d1h5', -4.0, 3)];
-		const counts = tally(() => shapedBotMove(lines, 700));
-		expect(counts.get('g1f3')).toBe(4000);
-	});
-
-	it('biases toward the smaller slip, but keeps a real tail', () => {
-		const lines = [
-			line('g1f3', 1.0, 1),
-			line('b1c3', 0.7, 2), // small drop
-			line('d2d4', -0.5, 3) // bigger drop (still in window)
-		];
-		const counts = tally(() => shapedBotMove(lines, 800));
-		expect((counts.get('b1c3') ?? 0)).toBeGreaterThan(counts.get('d2d4') ?? 0);
-	});
-
-	it('plays best the vast majority at club strength (slipProb ~5% by 1500)', () => {
-		expect(shapedParams(1500).slipProb).toBeCloseTo(0.05, 5);
-		const lines = [line('g1f3', 1.0, 1), line('b1c3', 0.6, 2), line('e2e4', 0.5, 3)];
-		const counts = tally(() => shapedBotMove(lines, 1500));
-		expect(counts.get('g1f3')! / 4000).toBeGreaterThan(0.9);
-	});
-
-	it('converts a forced mate (win 100% ⇒ easy)', () => {
-		const lines = [line('d1h5', 0, 1, 1), line('b1c3', 0.2, 2)];
-		expect(shapedBotMove(lines, 700)).toBe('d1h5');
-	});
-
-	it('weaker bands slip more, give up more, and have a fatter tail', () => {
-		expect(shapedParams(800).slipProb).toBeGreaterThan(shapedParams(1200).slipProb);
-		expect(shapedParams(800).windowPct).toBeGreaterThan(shapedParams(1200).windowPct);
-		// lower tailBias at the weak band ⇒ catastrophes are relatively more common
-		expect(shapedParams(800).tailBias).toBeLessThan(shapedParams(1200).tailBias);
+	it('weaker bands miss more and play mushier', () => {
+		expect(shapedParams(600).missProb).toBeGreaterThan(shapedParams(1000).missProb);
+		expect(shapedParams(1000).missProb).toBeGreaterThan(shapedParams(1600).missProb);
+		expect(shapedParams(600).temperature).toBeGreaterThan(shapedParams(1600).temperature);
+		expect(shapedParams(600).quietWindowPct).toBeGreaterThan(shapedParams(1600).quietWindowPct);
 	});
 });

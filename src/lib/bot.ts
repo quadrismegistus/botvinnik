@@ -72,57 +72,74 @@ export function selectBotMove(lines: EngineMove[], elo: number, alpha?: number):
 	return sorted[sorted.length - 1].pv[0];
 }
 
-// ─── Shaped-blunder sampler (prototype) ────────────────────────────────────
+// ─── Shaped-blunder sampler (v3: miss-the-tactic model) ─────────────────────
 //
-// The plain sampler above blunders position-INDEPENDENTLY and UNBOUNDEDLY: it
-// can play a howler in a trivial recapture and it can hang a queen, because it
-// softmaxes over raw cp. Bot-vs-Maia calibration showed that kind of weakness
-// is *exploitable* (our bands lost ~95% to a coherent bot dialed to ELO 600).
+// Two earlier designs failed the same way (data/bot-shaped-proto-calib.json,
+// data/bot-shaped-calib.json spiky run): both "play best except occasional
+// bounded/spiky slips" models fitted 2000-2900 at EVERY label, beating numeric
+// 900/1200 100-0. Diagnosis: (a) an easy-gap gate that suppresses slips when
+// best towers over the rest protects EXACTLY the tactical positions where real
+// humans blunder; (b) a convert-when-winning gate makes every won position a
+// depth-12 conversion; (c) blunders only cost when the opponent punishes — and
+// a depth-12 backbone punishes every opponent mistake, so strength stays high
+// no matter what the error DISTRIBUTION looks like. Matching Ryan's spiky
+// profile (median 0.6% loss, rare fat tail) got the texture right and the
+// strength completely wrong: error-vs-CRITICALITY correlation, not error size,
+// is what sets strength.
 //
-// This variant plays a SOUND player who makes BOUNDED, human-shaped mistakes:
-//   1. Play the engine-best move most of the time (coherent baseline).
-//   2. Only gamble in genuinely non-forcing positions — collapse to best in
-//      easy/forcing/decided ones (the anti-swing rule).
-//   3. When it does err, keep the move within a rating-scaled WIN-PROBABILITY
-//      window (not raw cp), so a weaker bot gives up more but never hangs free
-//      material — a hanging move falls outside the window and is filtered out.
-//   4. Bias toward the SMALLER mistakes in that window (humans rarely find the
-//      single worst move).
+// So v3 inverts the model. A human blunder is *failing to see* something:
+//   1. TACTICAL position (best beats 2nd by a real win% gap — there is
+//      something to see): with p = missProb the bot doesn't see it. The best
+//      move is EXCLUDED and it chooses among the rest on their apparent merits.
+//      Missing the only defence — or the opponent's hanging queen — IS the
+//      catastrophe, and it fires precisely where humans fire. This also makes
+//      the bot fail to PUNISH (a punish is just a tactic from our side), which
+//      is the other half of being genuinely weak.
+//   2. QUIET position (moves are close): sound-but-mushy play — softmax over
+//      win% with an ELO-scaled temperature, restricted to a window so it never
+//      self-destructs when nothing is going on. Constant small leakage, no
+//      howlers: quiet howlers are what made the old softmax sampler feel broken.
+//   3. NO conversion gate: won positions are sampled like any other, so weak
+//      bands wander and flub wins the way beginners do. (Win% saturates ~95
+//      for big leads, so decided positions read as quiet ⇒ mushy play.)
 //
-// SHAPE, from Ryan's own 4505-game profile (data/elonmarxx-profile.html): a real
-// weak human plays a SPIKY distribution — near-perfect most moves (median win%
-// loss ~0.6, ~55% of moves lose <1%) with a RARE FAT TAIL (~5.5% of moves lose
-// ≥20% — the catastrophes), ~1.4 blunders/game. NOT uniform moderate sloppiness.
-// So the model is a mixture: play best the large majority of the time; when a
-// "slip" fires, sample within a rating-scaled win% window whose severity is fat-
-// tailed at low ELO (real blunders happen) and small-biased at high ELO. Slips
-// are suppressed in easy/forcing/decided positions (a beginner doesn't hang in a
-// quiet recapture — their blunders cluster in the complex middlegame).
-//
-// Defaults are SEEDED from that profile; slipProb/windowPct get harness-
-// calibrated per band (run-shaped-calibration.sh) to hit target ELOs, then the
-// output distribution is checked back against the spiky profile.
+// Output is still spiky like Ryan's real profile — near-best most moves, rare
+// fat-tail catastrophes — but the catastrophes now correlate with criticality.
+// missProb/temperature get harness-calibrated per band (run-shaped-calibration.sh).
 
 export interface ShapedParams {
-	/** P(not best) this move in a non-easy position — kept LOW (spiky, not sloppy). */
-	slipProb: number;
-	/** Max win% a slip may give up (wide at low ELO ⇒ real blunders possible). */
-	windowPct: number;
-	/** Best beats 2nd by ≥ this many win% points ⇒ treat as easy, play best. */
-	easyGapPct: number;
-	/** Severity weighting exponent 1/drop^tailBias: low ⇒ fatter catastrophe tail. */
-	tailBias: number;
+	/** P(failing to see the best move in a tactical position — the human blunder). */
+	missProb: number;
+	/** Best beats 2nd by ≥ this many win% points ⇒ tactical (something to see). */
+	tacticalGapPct: number;
+	/** Softmax temperature (win% points) for move choice — higher = mushier play. */
+	temperature: number;
+	/** Quiet positions only: ignore moves giving up more win% than this. */
+	quietWindowPct: number;
 }
 
-// Interpolated over ELO ~600..1600; above ~1500 it essentially plays best.
+// Interpolated over ELO ~600..1600; above ~1600 it plays near-best throughout.
 export function shapedParams(elo: number): ShapedParams {
-	const t = clamp01((1500 - elo) / 900); // 0 at 1500+, 1 at 600
+	const t = clamp01((1600 - elo) / 1000); // 0 at 1600+, 1 at 600
 	return {
-		slipProb: 0.05 + 0.22 * t, // ~5% at 1500 → ~22% at 800 → ~27% at 600
-		windowPct: 10 + 45 * t, // 10% at 1500 → ~45% at 800 (a slip can be a real blunder)
-		easyGapPct: 25, // best clearly best ⇒ no slip, any band
-		tailBias: 1.4 - 0.9 * t // 1.4 (small-biased) at 1500 → 0.5 (fat tail) at 600
+		missProb: 0.04 + 0.4 * t, // 4% at 1600 → ~28% at 1000 → 44% at 600
+		tacticalGapPct: 15,
+		temperature: 1.5 + 6.5 * t, // 1.5 at 1600 → 8 at 600
+		quietWindowPct: 6 + 14 * t // 6 at 1600 → 20 at 600
 	};
+}
+
+// Softmax-sample over candidate win%s with the given temperature.
+function softmaxPick(cands: { move: string; win: number }[], temperature: number): string {
+	const maxWin = Math.max(...cands.map((c) => c.win));
+	const weights = cands.map((c) => Math.exp((c.win - maxWin) / Math.max(temperature, 0.1)));
+	const total = weights.reduce((a, b) => a + b, 0);
+	let r = Math.random() * total;
+	for (let k = 0; k < cands.length; k++) {
+		r -= weights[k];
+		if (r <= 0) return cands[k].move;
+	}
+	return cands[cands.length - 1].move;
 }
 
 export function shapedBotMove(
@@ -135,39 +152,33 @@ export function shapedBotMove(
 	const best = sorted[0];
 	if (sorted.length === 1) return best.pv[0];
 
-	const { slipProb, windowPct, easyGapPct, tailBias } = { ...shapedParams(elo), ...params };
+	const { missProb, tacticalGapPct, temperature, quietWindowPct } = {
+		...shapedParams(elo),
+		...params
+	};
 
 	const wins = sorted.map(moveWin); // win% per candidate, mover POV
 	const bestWin = wins[0];
-	const secondWin = wins[1];
 
-	// Slips are suppressed where a weak human wouldn't blunder anyway:
-	//  - best towers over the alternatives (recapture / only good move)
-	//  - the game is already decided (win% saturates near 95/5 for big material
-	//    leads — the ±1500cp clamp — so the decided band is 90/10, not 97/3)
-	const easy = bestWin - secondWin >= easyGapPct || bestWin >= 90 || bestWin <= 10;
-	if (easy || Math.random() >= slipProb) return best.pv[0];
-
-	// A slip: sample a worse move within the win% window. The window bounds the
-	// severity (so it never simply resigns), but at low ELO it's wide enough to
-	// include genuine blunders — which real players at that level do make. The
-	// 1/drop^tailBias weighting controls how often a slip is a catastrophe vs a
-	// mild imprecision.
-	const inWindow: { move: string; drop: number }[] = [];
-	for (let i = 1; i < sorted.length; i++) {
-		const drop = bestWin - wins[i];
-		if (drop > 0 && drop <= windowPct) inWindow.push({ move: sorted[i].pv[0], drop });
+	if (bestWin - wins[1] >= tacticalGapPct) {
+		// Tactical: there is one move that matters. Either the bot sees it…
+		if (Math.random() >= missProb) return best.pv[0];
+		// …or it doesn't. Choose among the REST as if the best move didn't exist —
+		// still preferring the more plausible of what it can see. No severity cap:
+		// missing the only defence is exactly how a won game gets lost.
+		return softmaxPick(
+			sorted.slice(1).map((l, i) => ({ move: l.pv[0], win: wins[i + 1] })),
+			temperature
+		);
 	}
-	if (inWindow.length === 0) return best.pv[0];
 
-	const weights = inWindow.map((x) => 1 / Math.pow(Math.max(x.drop, 1), tailBias));
-	const total = weights.reduce((a, b) => a + b, 0);
-	let r = Math.random() * total;
-	for (let k = 0; k < inWindow.length; k++) {
-		r -= weights[k];
-		if (r <= 0) return inWindow[k].move;
+	// Quiet: nothing to see, just play sound-but-imperfect chess. Bounded so the
+	// leakage is steady small stuff, never a howler out of nowhere.
+	const cands: { move: string; win: number }[] = [];
+	for (let i = 0; i < sorted.length; i++) {
+		if (bestWin - wins[i] <= quietWindowPct) cands.push({ move: sorted[i].pv[0], win: wins[i] });
 	}
-	return inWindow[inWindow.length - 1].move;
+	return softmaxPick(cands, temperature);
 }
 
 export function botDelay(minMs = 300, maxMs = 1000): number {
