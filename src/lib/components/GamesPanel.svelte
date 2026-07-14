@@ -2,6 +2,7 @@
 	import type { CcImportProgress } from '$lib/chesscomImport';
 	import { winChance } from '$lib/engine/insights';
 	import type { StoredGame, StoredMove } from '$lib/gameStore';
+	import { personaById } from '$lib/bots';
 	import { CLASS, LABEL_ORDER } from '$lib/classifications';
 	import LineHover from './LineHover.svelte';
 
@@ -55,10 +56,17 @@
 		return (m.evalPawns >= 0 ? '+' : '') + m.evalPawns.toFixed(2);
 	}
 
+	// user-facing bot label: roster personas by name + DISPLAY elo; slider/
+	// legacy games fall back to the stored internal-scale number
+	function botLabel(g: StoredGame): string {
+		const p = personaById(g.botPersona);
+		return p ? `${p.name}` : `bot (${g.botElo})`;
+	}
+
 	function opponent(g: StoredGame): string {
 		if (g.white || g.black) return `${g.white ?? '?'} vs ${g.black ?? '?'}`;
 		if (g.botElo === null) return 'solo analysis';
-		return `vs bot (${g.botElo}) as ${g.botColor === 'w' ? 'Black' : 'White'}`;
+		return `vs ${botLabel(g)} as ${g.botColor === 'w' ? 'Black' : 'White'}`;
 	}
 
 	function mistakes(g: StoredGame, color: 'w' | 'b'): string {
@@ -87,7 +95,9 @@
 		const explicit = color === 'w' ? g.white : g.black;
 		if (explicit) return explicit;
 		if (g.botElo === null) return color === 'w' ? 'White' : 'Black';
-		return g.botColor === color ? `Bot ${g.botElo}` : 'You';
+		if (g.botColor !== color) return 'You';
+		const p = personaById(g.botPersona);
+		return p ? p.name : `Bot ${g.botElo}`;
 	}
 
 	// two-column move table rows: [moveNo, whiteMove?, blackMove?]
