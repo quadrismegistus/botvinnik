@@ -108,40 +108,44 @@ Shipped so far:
   IndexedDB model cache, Worker inference (44MB on the main thread would
   jank). Not urgent — the staircase action is at 1200–1500 where coverage
   is already good.
-- **Patricia as a second honest ruler (and maybe a persona)** —
-  https://github.com/Adam-Kulju/Patricia (MIT, CCRL ~3500, "most
-  aggressive engine"). Why it matters here: `UCI_LimitStrength`/`UCI_Elo`
-  claims a **500 floor** (vs Stockfish's 1320), calibrated by
-  engine-vs-engine matches, plus `Skill_Level` 1–20 starting at 500 —
-  potentially the missing honest reference BELOW SF-1320 for the
-  shaped-bot curve, whose sub-1320 placement currently hangs off the
-  internal BT chain alone. Its `human.h` is a cp-loss BUDGET accumulator
-  (multipv; play a move whose eval_diff fits the accumulated budget;
-  sacrifice bonus for style) — i.e. the frequent-small-bounded-errors
-  design we measured at 2000+ and abandoned; their own comment table says
-  80cp loss/move ≈ 1200, nothing weaker. So treat its labels skeptically
-  at the bottom: verify vs ucielo:1320 before trusting, and expect
-  ruler-vs-ruler disagreement to be informative rather than clean. Also
-  two more lichess human anchors: @PatriciaBot 2741 blitz / 2705 rapid,
-  @littlePatricia 1800 blitz / 2069 rapid over 11k human games. Native
-  binaries only (macOS = build from source, plain C++ make) — harness
-  ruler first; as a roster persona it would be native-substrate (Tauri)
-  only unless someone emscriptens it. An "aggressive" family would be a
-  genuinely different personality (Squares=blind engine, Maia=human,
-  Fish=cold, Patricia=violent).
-- **Sunfish as a character persona (~1960)** —
-  https://github.com/thomasahle/sunfish (GPL, 131 lines of Python, UCI).
-  NOT a sub-1320 ruler (no weakening dial; starving its clock reopens the
-  weakening-design problem). But @sunfish-engine has a real lichess rating
-  (~1957 blitz / 1961 rapid, ~1000 games) and its weakness is
-  ARCHITECTURAL, not randomized: horizon-blind, materialist, bookless —
-  a genuinely different ~2000 opponent from limiter-weakened Fish, and
-  the one roster bot whose entire mind is readable. Harness-ready today
-  (UCI/stdin); web persona needs a JS port or pyodide (Tauri gets it
-  cheap). Also banks the general lesson: minimal-competent SEARCH floors
-  at ~1900+ from below, imitation floors at ~1500 from above — the
-  beginner range is unreachable from both directions, which is why the
-  shaped choice-layer exists.
+- **Engine scouting — third-party engines for rulers and personas.**
+  Two distinct needs: (a) an honest RULER below SF-1320 to cross-check the
+  shaped curve's low end; (b) roster PERSONAS with genuinely distinct
+  styles. General lesson so far: minimal-competent search floors at ~1900
+  from below, imitation floors at ~1500 from above — nothing off the
+  shelf reaches the beginner range honestly, which is why the shaped
+  choice-layer exists.
+
+  | engine | strength (anchor) | weak dial | web app | harness | license | role |
+  |---|---|---|---|---|---|---|
+  | Patricia | CCRL ~3500; @PatriciaBot 2741b/2705r, @littlePatricia 1800b/2069r (11k games) | UCI_Elo **500**–3000 (claimed calibrated) + Skill 1–20 | emscripten build needed (hard) | native build, UCI (easy) | MIT | low-end ruler (VERIFY first); aggressive persona (Tauri) |
+  | Maia-3 | ~1500–2100 lichess-equiv (our anchoring runs) | real ELO-dial input | 44MB ONNX port, pipeline known (medium) | done (`maia-node.mts`) | GPL-3 weights | human-style personas 1750–2100 |
+  | sunfish | @sunfish-engine ~1957b/1961r (~1000 games) | none | JS port / pyodide (medium-hard) | today (UCI stdin) | GPL-3 | readable ~1950 character |
+  | Garbochess-JS | unmeasured (~2200–2500?; harness can measure) | none | **native JS + WebWorkers — zero port** | thin node UCI shim (~half-day, own API not UCI) | BSD-3 (LICENSE file; GitHub misclassifies) | web-native strong persona; JS engine substrate for experiments |
+
+  Per-engine notes:
+  - **Patricia** (https://github.com/Adam-Kulju/Patricia): the only
+    candidate aimed at the sub-1320 gap. Caution: its `human.h` is a
+    cp-loss budget accumulator (multipv + budget + sacrifice bonus) — the
+    frequent-small-bounded-errors design we measured at 2000+ and
+    abandoned; their own comments bottom out at "80cp/move ≈ 1200". So
+    verify UCI_Elo ≤1200 labels against ucielo:1320 before trusting;
+    ruler-vs-ruler disagreement is itself data. macOS = build from source.
+  - **Maia-3** (CSSLab): not strictly scouting — port task above.
+  - **sunfish** (https://github.com/thomasahle/sunfish): 131 lines of
+    Python; weakness is ARCHITECTURAL (horizon-blind, materialist,
+    bookless), not randomized — a different ~2000 opponent from
+    limiter-weakened Fish, and the one bot whose entire mind is readable.
+    No dial: starving its clock reopens the weakening-design problem.
+  - **Garbochess-JS** (https://github.com/glinscott/Garbochess-JS): Gary
+    Linscott (fishtest/Leela founder), 2011-era JS, Fruit-style eval
+    (PSQ+mobility+bishop pair, pre-NNUE), WebWorkers built in. The ONLY
+    candidate that runs in the web app as-is — best persona feasibility,
+    zero strength evidence (no lichess account, no CCRL entry for the JS
+    version) and no dial, so measure in the harness first. Unmaintained
+    (2012 code, last push 2023); would need a small protocol shim both
+    for the harness (node) and for our TransportFactory (its worker
+    speaks its own message format, not UCI).
 - **File System Access autosave** — beyond Export/Import: write backups
   directly to a user-chosen local file (Chromium-only).
 - **Engine settings panel** — a small "Engine" section (sidebar SidePanel,
