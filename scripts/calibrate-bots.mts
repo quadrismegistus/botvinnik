@@ -44,6 +44,7 @@ import {
 	type Substrate
 } from '../src/lib/engine/botRecipe';
 import type { EngineMove } from '../src/lib/engine/stockfish';
+import { isMaiaId, maiaBandOf, maiaMoveNode, preloadMaiaBands } from './maia-node.mts';
 
 // ---------- args ----------
 const args = process.argv.slice(2);
@@ -55,8 +56,10 @@ function optStr(name: string, dflt: string): string {
 	const i = args.indexOf(`--${name}`);
 	return i >= 0 ? args[i + 1] : dflt;
 }
-// points are requested-ELO numbers (mapped through the app's botSpec) or raw
-// spec ids like "sampler:a2:d2" / "skill:1:d2" / "ucielo:2400:mt400"
+// points are requested-ELO numbers (mapped through the app's botSpec), raw
+// spec ids like "sampler:a2:d2" / "skill:1:d2" / "ucielo:2400:mt400", or Maia
+// nets "maia:1500" (human-imitation, lichess-anchored — see maia-node.mts).
+// Pit our bands against Maia to read our scale in human-rating terms.
 const POINTS = optStr('points', '100,300,500,700,800,1000,1200,1320,1600,2000')
 	.split(',')
 	.sort((a, b) => (Number(a) || 1e9) - (Number(b) || 1e9));
@@ -254,6 +257,12 @@ async function adjudicate(engine: Engine, fen: string): Promise<number> {
 	return fen.split(' ')[1] === 'w' ? cp : -cp; // white POV
 }
 
+// the game's FENs oldest-first, for Maia's history planes
+function fenHistory(chess: Chess): string[] {
+	const ms = chess.history({ verbose: true });
+	return ms.length === 0 ? [chess.fen()] : [ms[0].before, ...ms.map((m) => m.after)];
+}
+
 // one game; returns the score for `a` (1 / 0.5 / 0)
 async function playGame(
 	engine: Engine,
@@ -268,7 +277,11 @@ async function playGame(
 	let plies = 0;
 	while (!chess.isGameOver() && plies < MAX_PLIES) {
 		const mover = (chess.turn() === 'w') === aIsWhite ? a : b;
-		const uci = await botMove(engine, chess.fen(), mover);
+		// Maia moves from its own ONNX net (with real game history); everyone
+		// else goes through the Stockfish engine
+		const uci = isMaiaId(mover)
+			? await maiaMoveNode(fenHistory(chess), maiaBandOf(mover))
+			: await botMove(engine, chess.fen(), mover);
 		if (!uci) break;
 		try {
 			chess.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci[4] });
@@ -365,6 +378,13 @@ console.log(
 );
 
 // ---------- run ----------
+// download/warm any Maia nets in the run up front (one shared session per band)
+const maiaBands = [...new Set(allIds.filter(isMaiaId).map(maiaBandOf))];
+if (maiaBands.length) {
+	console.log(`preloading Maia bands: ${maiaBands.join(', ')}`);
+	await preloadMaiaBands(maiaBands);
+}
+
 const engines = Array.from({ length: WORKERS }, () => new Engine());
 let played = 0;
 const t0 = Date.now();
