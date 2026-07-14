@@ -35,7 +35,8 @@ export interface StoredGame {
 	endedAt: string;
 	result: string; // '1-0' | '0-1' | '1/2-1/2' | '*' (abandoned)
 	pgn: string;
-	botElo: number | null;
+	botElo: number | null; // app-internal WASM scale (persona games store personaInternalElo)
+	botPersona?: string; // roster persona id (bots.ts); absent for slider/legacy games
 	botColor: 'w' | 'b' | null; // side the human did NOT play (drives review orientation)
 	moveCount: number;
 	whiteAccuracy: number | null;

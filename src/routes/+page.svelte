@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount, untrack } from 'svelte';
-	import { botDelay, selectBotMove } from '$lib/bot';
+	import { botDelay, selectBotMove, shapedBotMove, shapedSearchDepth } from '$lib/bot';
+	import { personaById, personaInternalElo, type BotPersona } from '$lib/bots';
 	import Board from '$lib/components/Board.svelte';
 	import MaterialBar from '$lib/components/MaterialBar.svelte';
 	import BottomSheet from '$lib/components/BottomSheet.svelte';
@@ -44,6 +45,7 @@
 		analyze,
 		analyzeBotMove,
 		analyzeMove,
+		analyzeShapedMove,
 		getAnalysisBudget,
 		stopEngine,
 		type EngineMove
@@ -353,11 +355,16 @@
 	const BOT_KEY = 'botvinnik-bot-v1';
 	let botEnabled = $state(false);
 	let botColor: 'w' | 'b' = $state('b'); // side the bot plays
-	let botElo = $state(1500);
-	let botHuman = $state(false); // human-like (Maia) opponent in the 1100–1900 band
+	let botElo = $state(1500); // custom-mode slider (app-internal WASM scale)
+	let botHuman = $state(false); // custom mode: human-like (Maia) in the 1100–1900 band
+	let botPersonaId: string | null = $state('square-1000'); // roster bot; null = custom slider
 	let botThinking = $state(false);
 	let botConsidering: string | null = $state(null); // uci the bot is eyeing right now
 	let botSettingsLoaded = false;
+	const botPersona: BotPersona | null = $derived(personaById(botPersonaId));
+	// per-game seed for the shaped bot's sticky tactic-misses (what it doesn't
+	// see this game, it keeps not seeing); re-rolled on every board reset
+	let botGameSeed = $state(`s${Math.floor(Math.random() * 1e9)}`);
 
 	$effect(() => {
 		practiceItems = loadItems();
@@ -373,6 +380,9 @@
 				if (typeof bot.elo === 'number' && bot.elo >= 100)
 					botElo = Math.max(botEloMin(), Math.min(botEloMax(), bot.elo));
 				botHuman = !!bot.human;
+				// personaId absent in legacy settings ⇒ they were using the slider
+				botPersonaId =
+					'personaId' in bot && personaById(bot.personaId) ? bot.personaId : null;
 			}
 		} catch {
 			// ignore malformed settings
@@ -409,13 +419,21 @@
 
 
 	$effect(() => {
-		const settings = { enabled: botEnabled, color: botColor, elo: botElo, human: botHuman };
+		const settings = {
+			enabled: botEnabled,
+			color: botColor,
+			elo: botElo,
+			human: botHuman,
+			personaId: botPersonaId
+		};
 		if (botSettingsLoaded) localStorage.setItem(BOT_KEY, JSON.stringify(settings));
 	});
 
 	// warm the Maia net ahead of the first move when human-like play is armed
 	$effect(() => {
-		if (botEnabled && botHuman && inMaiaRange(botElo)) preloadMaia(botElo);
+		if (!botEnabled) return;
+		if (botPersona?.maiaBand) preloadMaia(botPersona.maiaBand);
+		else if (!botPersona && botHuman && inMaiaRange(botElo)) preloadMaia(botElo);
 	});
 
 	function setCollectThreshold(n: number) {
@@ -529,32 +547,52 @@
 	}
 
 	// the Stockfish path: strength-limited search, then sample per the band spec
-	async function stockfishBotMove(): Promise<string | null> {
-		const res = await analyzeBotMove(game.fen, botElo, (moves) => {
+	async function stockfishBotMove(elo: number = botElo): Promise<string | null> {
+		const res = await analyzeBotMove(game.fen, elo, (moves) => {
 			botConsidering = moves[0]?.pv[0] ?? null;
 		});
 		botConsidering = null;
-		const spec = botSpec(botElo);
+		const spec = botSpec(elo);
 		const specAlpha = spec.kind === 'sampler' ? spec.alpha : undefined;
 		return spec.kind === 'sampler' && res.moves.length > 0
-			? selectBotMove(res.moves, botElo, spec.alpha)
+			? selectBotMove(res.moves, elo, spec.alpha)
 			: res.bestmove && res.bestmove !== '(none)'
 				? res.bestmove
-				: selectBotMove(engineMoves, botElo, specAlpha);
+				: selectBotMove(engineMoves, elo, specAlpha);
+	}
+
+	// the shaped path (Squares): full-strength wide search at the label's
+	// calibrated depth, then the miss-the-tactic choice layer with this game's
+	// sticky-miss seed
+	async function shapedAppMove(label: number): Promise<string | null> {
+		const res = await analyzeShapedMove(game.fen, shapedSearchDepth(label), (moves) => {
+			botConsidering = moves[0]?.pv[0] ?? null;
+		});
+		botConsidering = null;
+		return shapedBotMove(res.moves, label, undefined, botGameSeed);
 	}
 
 	async function maybeBotMove(token: number) {
 		if (!botEnabled || mode !== 'play' || game.isGameOver || game.turn !== botColor) return;
 		botThinking = true;
-		// human-like (Maia) in its band, else Stockfish; Maia falls back to
-		// Stockfish if its net can't load
-		const wantMaia = botHuman && inMaiaRange(botElo);
-		const compute = wantMaia
-			? maiaMove(maiaFenHistory(), botElo).catch(() => null)
-			: stockfishBotMove();
+		// roster personas bind the mechanism directly; custom mode keeps the old
+		// slider behavior (Maia toggle in its band, else numeric Stockfish).
+		// Maia falls back to Stockfish at the persona's strength if its net
+		// can't load.
+		const p = botPersona;
+		const wantMaia = p ? !!p.maiaBand : botHuman && inMaiaRange(botElo);
+		const compute = p?.shapedLabel
+			? shapedAppMove(p.shapedLabel)
+			: p?.maiaBand
+				? maiaMove(maiaFenHistory(), p.maiaBand).catch(() => null)
+				: p
+					? stockfishBotMove(personaInternalElo(p))
+					: wantMaia
+						? maiaMove(maiaFenHistory(), botElo).catch(() => null)
+						: stockfishBotMove();
 		const [primary] = await Promise.all([compute, new Promise((r) => setTimeout(r, botDelay()))]);
 		let uci = primary;
-		if (wantMaia && !uci) uci = await stockfishBotMove();
+		if (wantMaia && !uci) uci = await stockfishBotMove(p ? personaInternalElo(p) : botElo);
 		botThinking = false;
 		botConsidering = null;
 		if (token !== analysisToken || !botEnabled || mode !== 'play') return;
@@ -1108,7 +1146,11 @@
 		});
 		const result = resultOverride ?? game.result ?? '*';
 		const youAre = botEnabled ? (botColor === 'w' ? 'Black' : 'White') : null;
-		const botName = botEnabled ? `Bot (${botElo})` : 'Analysis';
+		const botName = botEnabled
+			? botPersona
+				? `${botPersona.name} (${botPersona.elo})`
+				: `Bot (${botElo})`
+			: 'Analysis';
 		const record: StoredGame = {
 			id: `g-${Date.now()}-${moves.length}`,
 			endedAt: new Date().toISOString(),
@@ -1119,7 +1161,10 @@
 				Date: new Date().toISOString().slice(0, 10).replaceAll('-', '.'),
 				Result: result
 			}),
-			botElo: botEnabled ? botElo : null,
+			// always the app-internal WASM scale, persona or slider — one scale
+			// for the future player-ELO fit over stored results
+			botElo: botEnabled ? (botPersona ? personaInternalElo(botPersona) : botElo) : null,
+			botPersona: botEnabled && botPersona ? botPersona.id : undefined,
 			botColor: botEnabled ? botColor : null,
 			moveCount: moves.length,
 			whiteAccuracy: gameAccuracy(stored, 'w'),
@@ -1150,6 +1195,7 @@
 		// archive abandoned games of meaningful length before wiping them
 		if (mode === 'play' && !gameSaved && game.moves.length >= 10) void saveCurrentGame();
 		reset();
+		botGameSeed = `s${Math.floor(Math.random() * 1e9)}`; // fresh eyes for the shaped bot
 		gameSaved = false;
 		lastMove = null;
 		refresh();
@@ -1277,6 +1323,7 @@
 				minElo={botEloMin()}
 				maxElo={botEloMax()}
 				bind:human={botHuman}
+				bind:personaId={botPersonaId}
 				thinking={botThinking}
 				startOpen={isNarrow}
 			/>

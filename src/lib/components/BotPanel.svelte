@@ -1,11 +1,15 @@
 <script lang="ts">
+	import { PERSONAS, personaById } from '$lib/bots';
+	import BotAvatar from './BotAvatar.svelte';
+
 	interface Props {
 		enabled: boolean;
 		color: 'w' | 'b'; // side the bot plays
-		elo: number;
+		elo: number; // custom-mode slider (app-internal WASM scale)
 		minElo?: number; // honest floor for the active engine (wasm sampler bottoms out)
 		maxElo?: number; // honest ceiling for the active engine (wasm vs native)
-		human?: boolean; // human-like (Maia) opponent in the 1100–1900 band
+		human?: boolean; // custom mode: human-like (Maia) in the 1100–1900 band
+		personaId: string | null; // selected roster bot; null = custom slider
 		thinking: boolean;
 		startOpen?: boolean;
 	}
@@ -17,12 +21,19 @@
 		minElo = 100,
 		maxElo = 2800,
 		human = $bindable(false),
+		personaId = $bindable(),
 		thinking,
 		startOpen = true
 	}: Props = $props();
 	const humanApplies = $derived(elo >= 1100 && elo <= 1900);
+	const persona = $derived(personaById(personaId));
 	// svelte-ignore state_referenced_locally — startOpen is deliberately initial-only
 	let open = $state(startOpen);
+
+	// scroll the selected chip into view when the panel opens
+	function revealSelected(node: HTMLElement) {
+		node.querySelector('.chip.active')?.scrollIntoView({ inline: 'center', block: 'nearest' });
+	}
 </script>
 
 <div class="bot-panel">
@@ -32,7 +43,9 @@
 			<span class="title">Bot</span>
 		</button>
 		{#if enabled}
-			<span class="status">{thinking ? 'thinking…' : `${elo} ELO`}</span>
+			<span class="status">
+				{thinking ? 'thinking…' : persona ? `${persona.name} · ${persona.elo}` : `${elo} ELO`}
+			</span>
 		{/if}
 	</div>
 
@@ -51,20 +64,54 @@
 				</div>
 			</div>
 
-			<label class="row">
-				<span class="label">Strength</span>
-				<!-- min/max are the active engine's honest floor & ceiling
-				     (botEloMin/botEloMax): the web WASM sampler bottoms out
-				     near 250, native reaches 100 — see botRecipe.ts -->
-				<input type="range" min={minElo} max={maxElo} step="50" bind:value={elo} />
-				<span class="elo">{elo}</span>
-			</label>
+			<!-- the roster: one bot per 100 ELO per engine family, ordered by
+			     strength (display scale ≈ lichess rapid). "Custom" restores the
+			     raw slider. -->
+			<div class="strip" use:revealSelected>
+				{#each PERSONAS as p (p.id)}
+					<button
+						class="chip"
+						class:active={personaId === p.id}
+						onclick={() => (personaId = p.id)}
+						title="{p.name} · {p.elo}"
+					>
+						<BotAvatar persona={p} size={30} />
+						<span class="chip-elo">{p.elo}</span>
+					</button>
+				{/each}
+				<button class="chip custom" class:active={persona === null} onclick={() => (personaId = null)}>
+					<span class="custom-mark">⚙</span>
+					<span class="chip-elo">custom</span>
+				</button>
+			</div>
 
-			<label class="row human" class:muted={!humanApplies}>
-				<input type="checkbox" bind:checked={human} />
-				Human-like (Maia)
-				<span class="hint">{humanApplies ? 'plays like a real ~' + elo : 'only 1100–1900'}</span>
-			</label>
+			{#if persona}
+				<div class="card">
+					<BotAvatar {persona} size={40} />
+					<div class="card-text">
+						<div class="card-name">
+							{persona.name}
+							<span class="card-elo">{persona.elo}</span>
+						</div>
+						<div class="card-blurb">{persona.blurb}</div>
+					</div>
+				</div>
+			{:else}
+				<label class="row">
+					<span class="label">Strength</span>
+					<!-- min/max are the active engine's honest floor & ceiling
+					     (botEloMin/botEloMax): the web WASM sampler bottoms out
+					     near 250, native reaches 100 — see botRecipe.ts -->
+					<input type="range" min={minElo} max={maxElo} step="50" bind:value={elo} />
+					<span class="elo">{elo}</span>
+				</label>
+
+				<label class="row human" class:muted={!humanApplies}>
+					<input type="checkbox" bind:checked={human} />
+					Human-like (Maia)
+					<span class="hint">{humanApplies ? 'plays like a real ~' + elo : 'only 1100–1900'}</span>
+				</label>
+			{/if}
 		</div>
 	{/if}
 </div>
@@ -138,6 +185,76 @@
 	.seg button.active {
 		color: var(--text-primary);
 		border-color: var(--color-win);
+	}
+	.strip {
+		display: flex;
+		gap: 4px;
+		overflow-x: auto;
+		padding: 2px 0 6px;
+		scrollbar-width: thin;
+	}
+	.chip {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 2px;
+		background: none;
+		border: 1px solid transparent;
+		border-radius: 6px;
+		padding: 3px 4px;
+		cursor: pointer;
+		flex: none;
+	}
+	.chip.active {
+		border-color: var(--color-win);
+		background: var(--bg-button);
+	}
+	.chip-elo {
+		font-size: 10px;
+		font-variant-numeric: tabular-nums;
+		color: var(--text-secondary);
+	}
+	.chip.active .chip-elo {
+		color: var(--text-primary);
+	}
+	.custom-mark {
+		width: 30px;
+		height: 30px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		font-size: 15px;
+		color: var(--text-secondary);
+		background: var(--bg-button);
+		border-radius: 5px;
+	}
+	.card {
+		display: flex;
+		gap: 10px;
+		align-items: flex-start;
+		background: var(--bg-button);
+		border-radius: 6px;
+		padding: 8px 10px;
+	}
+	.card-text {
+		min-width: 0;
+	}
+	.card-name {
+		font-size: 13px;
+		font-weight: 600;
+		color: var(--text-primary);
+	}
+	.card-elo {
+		font-weight: 400;
+		font-size: 12px;
+		color: var(--text-secondary);
+		margin-left: 4px;
+	}
+	.card-blurb {
+		margin-top: 2px;
+		font-size: 12px;
+		line-height: 1.35;
+		color: var(--text-secondary);
 	}
 	input[type='range'] {
 		flex: 1;

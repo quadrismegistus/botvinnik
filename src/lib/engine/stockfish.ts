@@ -300,6 +300,32 @@ export function analyzeBotMove(
 	});
 }
 
+// The shaped bot's search: FULL-strength eval, wide MultiPV, at the label's
+// calibrated depth — the weakening lives in shapedBotMove's choice layer plus
+// this depth ramp, so the analysis cache must stay out of it in both
+// directions (cached lines are deeper than the label is allowed to see).
+export function analyzeShapedMove(
+	fen: string,
+	depth: number,
+	onUpdate: Listener = () => {}
+): Promise<EngineResult> {
+	ensureWorker();
+	return new Promise((resolve) => {
+		queueSearch({
+			fen,
+			depth: 0,
+			onUpdate,
+			resolve,
+			go: `go depth ${depth}`,
+			// full strength + wide view for the search itself…
+			options: botResetOptions(12),
+			// …then back to the analysis defaults for whoever runs next
+			resetOptions: botResetOptions(MULTIPV),
+			minInfoDepth: 1
+		});
+	});
+}
+
 export function stopEngine() {
 	if (searching) worker?.send('stop');
 }
