@@ -141,6 +141,61 @@ Platforms: [lichess-org/fishnet](https://github.com/lichess-org/fishnet),
 Sampling critique: [Transcendence, arXiv 2406.11741](https://arxiv.org/abs/2406.11741),
 [CPW Playing Strength](https://www.chessprogramming.org/Playing_Strength).
 
+## Maia in-browser: integration spec (verified 2026-07-14 from source)
+
+Two working browser reference implementations exist, taking different paths:
+
+- **Path A — raw lc0/Maia-1 net** (`hunterchen7/play-lc0`, TypeScript): original
+  CSSLab `.pb.gz` converted to ONNX, run as a standard Lc0 net. 112-plane input
+  `[1,112,8,8]`, 1858-move policy, **one net per rating band, no ELO input**.
+  Small (~3.3 MB ONNX/band). **Pre-converted ONNX on HuggingFace**
+  (`shermansiu/maia-1900/resolve/main/model.onnx`, 3.48 MB).
+- **Path B — Maia-3** (`CSSLab/maia-platform-frontend`): single **ELO-conditioned**
+  transformer. Token input (64×12) + two scalar ELO inputs, 4352-move policy,
+  LDW value head. One model, **44 MB** (`public/maia3/maia3_simplified.onnx`; no
+  official HF ONNX — that export is the only one).
+
+**Files to port (Path A):** `play-lc0/src/engine/{encoding.ts, decoding.ts,
+policyIndex.ts (the 1858 index→UCI table), inference.ts, modelCache.ts,
+worker.ts}`.
+
+**Encoding (load-bearing, verified):** `encodeFenHistory` → `Float32Array(112*64)`.
+Planes 0–103 = 13 planes × 8 history positions (6 own + 6 opp piece bitboards +
+1 repetition); 104–107 castling; 108 black-to-move; 109 rule50 (capped 1); 110
+zeros; 111 ones. **Black to move: relabel pieces us/them AND vertical rank flip
+(`7-rank`); swap castling to us/them.** Maia-1 was *trained with move history* —
+feeding only the current position (zeros elsewhere) measurably shifts its move
+distribution. botvinnik HAS the live game history, so we can feed real prior
+FENs and keep fidelity.
+
+**Decoding (verified):** softmax over **legal moves only** via the 1858
+`POLICY_INDEX` (White POV; flip black UCIs to canonical, strip knight-promo `n`);
+temperature 0 = argmax, >0 = sample; return the original (un-flipped) UCI.
+
+**onnxruntime-web:** run in a Web Worker, cache weights in IndexedDB. **Use
+`numThreads=1`** (single policy eval; keeps us off `SharedArrayBuffer` → no
+COOP/COEP cross-origin-isolation headers, matching our no-SAB lite-single
+setup). Providers `["wasm"]` (+ `"webgpu"` opportunistically). Copy
+`onnxruntime-web/dist/ort-wasm*` into a static dir; point `ort.env.wasm.wasmPaths`
+there. Serve `.onnx` from `static/`.
+
+**Licensing:** GPL-3.0 weights → **don't bundle**; `fetch()` from an external URL
+(HuggingFace or our bucket) at runtime + IndexedDB cache. App code stays
+separate, not a derivative. Manageable, not a blocker.
+
+**Top risks:** (1) encoding fidelity — the us/them relabel + rank-flip for black
+is subtle and yields plausible-but-wrong moves if off; validate against known
+Maia move probabilities on a few FENs. (2) history planes (see above). (3)
+ort-**web** export compat — a known Lc0 float64/float32 value-head bug and
+opset/WebGPU-op issues; test the specific `.onnx` under ort-web, not just
+ort-node.
+
+**CRITICAL COVERAGE NUANCE:** Maia-1's lowest band (Maia-1100) is mis-calibrated
+and plays ~1500, blundering _less_ than a real beginner — so Path A covers the
+**~1100–1900 club range** but NOT the true-beginner bottom (Ryan plays ~550–830).
+Only Maia-3 (Path B, 44 MB, less verified) claims down to ~600. So Maia
+complements but does not replace the bounded-sampler work for the very bottom.
+
 ## Confidence
 
 - Stockfish Skill formula, MultiPV≥4, `depth = 1+level`, 1320/3190 range, the
