@@ -38,6 +38,26 @@ const modelUrl = (band: number) =>
 // match the pinned onnxruntime-web version exactly
 const WASM_PATHS = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.27.0/dist/';
 
+// timeouts so a stalled fetch / ORT init / inference REJECTS instead of hanging
+// the bot forever (some browsers can't run ort-web at all — Safari WASM quirks,
+// blocked CDN, etc.); on failure the caller falls back to Stockfish.
+const LOAD_TIMEOUT_MS = 30_000;
+const RUN_TIMEOUT_MS = 15_000;
+
+function withTimeout<T>(p: Promise<T>, ms: number, what: string): Promise<T> {
+	return Promise.race([
+		p,
+		new Promise<T>((_, reject) => setTimeout(() => reject(new Error(`maia ${what} timed out`)), ms))
+	]);
+}
+
+// once ort-web/model loading fails in this session, stop retrying (each retry
+// would re-stall) — go straight to the Stockfish fallback. Refresh to reset.
+let broken = false;
+export function maiaBroken(): boolean {
+	return broken;
+}
+
 let ortConfigured = false;
 function configureOrt(): void {
 	if (ortConfigured) return;
@@ -62,28 +82,34 @@ async function load(band: number): Promise<Loaded> {
 			const key = `maia-${band}`;
 			let bytes = await getCachedModel(key);
 			if (!bytes) {
-				const res = await fetch(modelUrl(band));
+				const res = await fetch(modelUrl(band), { signal: AbortSignal.timeout(LOAD_TIMEOUT_MS) });
 				if (!res.ok) throw new Error(`maia-${band} fetch failed: ${res.status}`);
 				bytes = await res.arrayBuffer();
 				await putCachedModel(key, bytes);
 			}
-			const session = await ort.InferenceSession.create(new Uint8Array(bytes), {
-				executionProviders: ['wasm']
-			});
+			const session = await withTimeout(
+				ort.InferenceSession.create(new Uint8Array(bytes), { executionProviders: ['wasm'] }),
+				LOAD_TIMEOUT_MS,
+				'ort init'
+			);
 			const inputName = session.inputNames[0];
 			const policyName =
 				session.outputNames.find((n) => n.toLowerCase().includes('policy')) ?? session.outputNames[0];
 			return { session, inputName, policyName };
 		})();
 		loads.set(band, p);
-		p.catch(() => loads.delete(band)); // allow retry after a failed load
+		p.catch((e) => {
+			loads.delete(band);
+			broken = true; // don't keep re-stalling this session
+			console.warn('[maia] disabled (falling back to Stockfish):', e);
+		});
 	}
 	return p;
 }
 
 /** Warm the net for a requested ELO ahead of the first move (fire-and-forget). */
 export function preloadMaia(elo: number): void {
-	if (inMaiaRange(elo)) void load(maiaBand(elo)).catch(() => {});
+	if (!broken && inMaiaRange(elo)) void load(maiaBand(elo)).catch(() => {});
 }
 
 /**
@@ -98,6 +124,7 @@ export async function maiaMove(
 	elo: number,
 	temperature = 0
 ): Promise<string | null> {
+	if (broken) return null; // ort-web unavailable this session → use Stockfish
 	const fen = fenHistory[fenHistory.length - 1];
 	if (!fen) return null;
 	const legal = new Chess(fen)
@@ -108,9 +135,11 @@ export async function maiaMove(
 	const isBlack = fen.split(' ')[1] === 'b';
 	const { session, inputName, policyName } = await load(maiaBand(elo));
 	const planes = encodeFenHistory(fenHistory);
-	const out = await session.run({
-		[inputName]: new ort.Tensor('float32', planes, [1, 112, 8, 8])
-	});
+	const out = await withTimeout(
+		session.run({ [inputName]: new ort.Tensor('float32', planes, [1, 112, 8, 8]) }),
+		RUN_TIMEOUT_MS,
+		'inference'
+	);
 	const policy = new Float32Array(out[policyName].data as ArrayLike<number>);
 	return decodePolicyOutput(policy, legal, isBlack, temperature).best.move;
 }
