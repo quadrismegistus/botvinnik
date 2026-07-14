@@ -126,6 +126,7 @@ Shipped so far:
   | Wasabi (mhonert/chess) | unmeasured | 6 levels | **already WASM + WebWorkers** (AssemblyScript; that's its point) | standalone UCI build exists (WASI — needs wasmtime or node WASI) | GPL-3 | web-native persona; author's stronger successor is Velvet (Rust) |
   | VanillaJSChess | author: "under 1300"; Ryan easily beat it (he's ~1300 on our ladder) | none | engine tangled into the page — no module, no npm | no UCI; extraction needed | GPL-3, dead 2021 | PASS — same class as jsce (shallow JS minimax) with worse packaging; revisit only if jsce disappoints |
   | sameshi | ~1170 ±60 (honest: 240 games vs SF 1320–1600 — but under CONSTRAINED rules) | none | 2KB C | no castling/en-passant/PROMOTION — can't play full chess | none (unlicensed) | PASS — doesn't play real endgames; useful only as a datum (material-only depth-5 ≈ 1170: search alone defends the beginner floor) |
+  | chessJS | claim: "beat SF Level-6 (2300+)" — single-game anecdote, GUI level ≠ ELO | none | page-welded JS minimax | no UCI | custom ToU (NOASSERTION) | PASS — jsce covers the class; unverifiable strength, murky license |
 
   Per-engine notes:
   - **Patricia** (https://github.com/Adam-Kulju/Patricia): the only
