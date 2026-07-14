@@ -123,6 +123,84 @@ engine, so it doesn't fit the transport abstraction — it's its own module
 The insertion point is `maybeBotMove`: when `botElo` is in Maia's band, call
 `maiaMove(fen, elo)` instead of the Stockfish sample; otherwise unchanged.
 
+## Anchoring findings + coverage map + the low-end plan (2026-07-14)
+
+Ran our WASM Stockfish bands against Maia-1 and Maia-3 in the harness
+(data/bot-maia3-anchor.json, n=100). Two robust findings:
+
+1. **Our softmax sampler is the _wrong kind_ of weak — measured.** Every one of
+   our bands lost ~95% to _every_ Maia, including Maia-3 dialed to its weakest
+   (600). Our "1500" gets crushed by a coherent bot dialed to 600, because our
+   sampler blunders _randomly and uniformly_ and random blunders are
+   exploitable. This empirically confirms the whole thesis and means the sampler
+   can't be cleanly anchored to a human scale (it's a different _kind_ of
+   player).
+2. **Maia-3 is a real dial but floors at CLUB level — it does NOT reach
+   beginner.** Internal ladder: maia3:600→1900 spans ~600 real Elo (monotonic).
+   Bridge to Maia-1's measured lichess ratings (@maia1=1572, @maia5=1643,
+   @maia9=1701 rapid): maia3:X plays ~150–270 STRONGER than maia:X, so even
+   maia3:600 lands ~lichess-1500–1550 rapid. Imitating human moves — even
+   "beginner" ones — yields sound-enough _games_ (misses tactics but plays
+   coherently) that the floor stays club-ish. Less compressed than Maia-1, but
+   the fundamental Maia limitation holds. (Measured at temperature 0.5; higher
+   temp lowers the floor but re-adds randomness — the knob fight.)
+
+### Coverage map — which model for which band
+
+| Target (lichess rapid ≈) | Model | Status |
+|---|---|---|
+| **~800–1500 (true beginner → lower club) — Ryan's range** | **coherent shaped-blunder sampler** (Stockfish + human-error model) | **to build** — the real gap |
+| ~1500–2000 (club) | **Maia-3** (human-like, ELO-dialed, anchorable to lichess) | integrated on `maia-bot`; adopt for this band |
+| ~2000+ (strong) | Stockfish (UCI_Elo / high-α sampler) | shipped |
+
+Neither Maia nor the current random sampler serves ~800–1500 convincingly. That
+band — which includes Ryan (chess.com 550–830 ≈ lichess ~800–1100) — needs a
+purpose-built coherent-weak bot.
+
+### The low-end answer: coherent shaped-blunder sampler
+
+Evolve `selectBotMove` from "softmax over all MultiPV" into a coherent weak
+player that plays sound chess and makes _bounded, human-shaped_ mistakes:
+
+1. **Play the engine-best move most of the time** (coherent baseline — the thing
+   the random sampler lacks).
+2. **With a rating-dependent probability p(elo), make a mistake** — pick an
+   inferior move, but BOUND it: (a) severity capped (eval drop ≤ a
+   rating-scaled window, so weaker players make bigger but not absurd errors);
+   (b) window is over WIN-PROBABILITY, not raw cp (so it self-tightens in
+   balanced positions, loosens in decided ones).
+3. **Position-adaptive** — collapse the mistake window to zero in easy/forcing
+   positions (few legal replies, only-move, recapture, mate-in-1). The
+   swinginess came from blundering _uniformly_, including in easy spots.
+4. **Per-game-stable regime** — fix p(elo) and the window for a whole game, so a
+   "900" is a coherent 900, not a per-move dice roll.
+5. **Human-shaped error TYPES** — bias mistakes toward realistic human misses
+   (overlook a fork/pin, misjudge a trade, back-rank) rather than random legal
+   moves; forbid free single-move hangs unless a beginner realistically would.
+
+This is what chess.com's beginner bots (Martin ≈ 250) actually do — weakened
+engine + engineered, bounded error injection + human opening books — precisely
+because pure imitation (Maia) averages out beginner blunders and floors too
+high.
+
+### On training a net on a beginner corpus (the imitation ceiling)
+
+"Could we train on human games at particular Elo bands?" — **that is exactly
+what Maia already is** (trained on lichess games bucketed by rating). The
+problem isn't lack of data; it's that **imitating the _average_ move of a band
+washes out the band's blunders** — beginners err in _diverse_ ways that average
+to a sound move, so the model plays stronger than the band (Maia-1100 → ~1500).
+Maia-2/3's skill-conditioning helps but doesn't fully fix it (maia3:600 still
+~1550). So retraining on a beginner corpus would hit the same ceiling. What a
+corpus IS good for: **calibrating the shaped-blunder model above** — measure
+from real ~800-rated games how often and how badly beginners actually err, and
+in what contexts (opening/middlegame/endgame, tactic types), then reproduce that
+error PROFILE on top of Stockfish. That models the error _distribution_, not the
+average move — which is the thing imitation can't capture. (Related research:
+Maia-Individual / personalized Maia; the broader "designing weak but human-like
+game AI" line. The convincing-beginner problem is genuinely unsolved by
+imitation alone, which is why industry beginner bots are engineered.)
+
 ## Sources
 
 Stockfish: [search.cpp](https://github.com/official-stockfish/Stockfish/blob/master/src/search.cpp),
