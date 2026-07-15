@@ -9,6 +9,11 @@
 importScripts('wasm_exec.js');
 
 let booted = false;
+// UCI lines arriving while the wasm is still fetching/compiling (the client
+// sends "uci" right after the init message) — drained once retroSend exists.
+// Without this queue the first lines were silently dropped and every retro
+// persona fell back to Stockfish after a 20s boot timeout.
+const pending = [];
 
 self.onmessage = async (e) => {
 	if (!booted && typeof e.data === 'object') {
@@ -20,18 +25,26 @@ self.onmessage = async (e) => {
 			fetch('retro.wasm'),
 			go.importObject
 		);
-		// mute glog's stderr spam (wasm_exec routes it through fs.writeSync)
+		// demote glog's stderr chatter (wasm_exec routes it through
+		// fs.writeSync) — keep it reachable in the console for debugging Go
+		// panics, but out of the main log
 		const fsShim = globalThis.fs;
 		if (fsShim) {
 			const orig = fsShim.writeSync.bind(fsShim);
-			fsShim.writeSync = (fd, buf) => (fd === 2 ? buf.length : orig(fd, buf));
+			const dec = new TextDecoder();
+			fsShim.writeSync = (fd, buf) => {
+				if (fd !== 2) return orig(fd, buf);
+				console.debug('[retro]', dec.decode(buf).trimEnd());
+				return buf.length;
+			};
 		}
 		go.run(res.instance); // runs forever on its own goroutines
+		for (const line of pending.splice(0)) self.retroSend(line);
 		self.postMessage('__ready__');
 		return;
 	}
 	if (typeof e.data === 'string') {
-		// retroSend is installed by the Go side at startup
 		if (typeof self.retroSend === 'function') self.retroSend(e.data);
+		else pending.push(e.data);
 	}
 };

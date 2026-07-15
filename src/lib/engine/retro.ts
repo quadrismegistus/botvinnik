@@ -43,7 +43,11 @@ function boot(spec: RetroSpec): Client {
 		worker.addEventListener('message', onMsg);
 	});
 	worker.postMessage({ engine: spec.engine, ply: spec.ply });
-	worker.postMessage('uci');
+	worker.postMessage('uci'); // queued worker-side until the wasm is up
+	// preloadRetro fires-and-forgets boot(); without a no-op handler a boot
+	// timeout surfaces as an unhandled rejection (retroMove's own await still
+	// sees the rejection and falls back to Stockfish)
+	ready.catch(() => {});
 	client = { worker, key, ready };
 	return client;
 }

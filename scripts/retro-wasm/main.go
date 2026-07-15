@@ -3,6 +3,15 @@
 // retro-wasm: one WebAssembly binary hosting morlock's re-implementations of
 // TUROCHAMP (1948), BERNSTEIN (1957) and SARGON (1978) for botvinnik-web.
 //
+// BUILD (go.mod pins morlock via a replace to a gitignored checkout):
+//   git clone https://github.com/herohde/morlock ../engines/morlock-src
+//   git -C ../engines/morlock-src checkout 8c55f1e97f6259fcff48a567409b382961045463
+//   GOOS=js GOARCH=wasm go build -ldflags="-s -w" -o retro.wasm .
+//   cp retro.wasm "$(go env GOROOT)/lib/wasm/wasm_exec.js" ../../static/retro/
+// The committed static/retro/retro.wasm was built from exactly that commit —
+// the same source as the native gym binaries (scripts/engines/retro/), so the
+// in-app engines are the ones the calibration measured.
+//
 // JS contract (set BEFORE running the Go instance):
 //   globalThis.retroConfig = { engine: "bernstein"|"sargon"|"turochamp", ply: 2 }
 //   globalThis.onRetroLine = (line) => { ... }   // engine → UI
