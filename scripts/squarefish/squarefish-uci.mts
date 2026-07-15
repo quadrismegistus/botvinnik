@@ -137,8 +137,8 @@ rl.on('line', (line) => {
 			// them; accepted and ignored — the label fixes the effort, the backend
 			// runs one thread, and moves take <1s regardless of clock
 			out('option name Move Overhead type spin default 100 min 0 max 10000');
-			out('option name Threads type spin default 1 min 1 max 1');
-			out('option name Hash type spin default 32 min 1 max 1024');
+			out('option name Threads type spin default 1 min 1 max 128');
+			out('option name Hash type spin default 32 min 1 max 65536');
 			out('uciok');
 		} else if (cmd === 'isready') {
 			out('readyok');
