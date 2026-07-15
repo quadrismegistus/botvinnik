@@ -179,6 +179,23 @@ describe('shapedLabelFor', () => {
 	});
 });
 
+describe('shapedLabelFor per substrate', () => {
+	it('uses the native curve when the native substrate is active', async () => {
+		const { setBotSubstrate } = await import('./engine/botRecipe');
+		try {
+			setBotSubstrate('native');
+			expect(shapedLabelFor(691)).toBe(600); // native knot
+			expect(shapedLabelFor(1955)).toBe(1500);
+			// same target maps to different labels per substrate near the seams
+			setBotSubstrate('wasm');
+			expect(shapedLabelFor(1955)).toBe(1500); // clamped above wasm ceiling 1935
+			expect(shapedLabelFor(770)).toBe(600);
+		} finally {
+			setBotSubstrate('wasm');
+		}
+	});
+});
+
 describe('shapedSearchDepth', () => {
 	it('ramps 4→12 over labels 600→1500 (must match the harness)', () => {
 		expect(shapedSearchDepth(600)).toBe(4);

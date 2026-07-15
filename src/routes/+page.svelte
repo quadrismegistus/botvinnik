@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount, untrack } from 'svelte';
-	import { botDelay, selectBotMove, shapedBotMove, shapedSearchDepth } from '$lib/bot';
+	import { botDelay, selectBotMove, shapedBotMove, shapedLabelFor, shapedSearchDepth } from '$lib/bot';
 	import { personaById, personaInternalElo, type BotPersona } from '$lib/bots';
 	import { estimatePlayerElo } from '$lib/playerElo';
 	import Board from '$lib/components/Board.svelte';
@@ -600,8 +600,11 @@
 		const fallible = p
 			? !!p.maiaBand || !!p.retro || !!p.dalaBand
 			: botHuman && inMaiaRange(botElo);
+		// square labels resolve at MOVE time, not roster-build time: the label
+		// depends on the active substrate's measured curve (web wasm vs the
+		// desktop big-net sidecar), and the substrate flips after module load
 		const compute = p?.shapedLabel
-			? shapedAppMove(p.shapedLabel)
+			? shapedAppMove(shapedLabelFor(personaInternalElo(p)))
 			: p?.retro
 				? retroMove(game.fen, p.retro).catch(() => null)
 				: p?.dalaBand
