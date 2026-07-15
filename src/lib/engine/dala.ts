@@ -68,12 +68,20 @@ function boot(band: number): Promise<Session> {
 	return promise;
 }
 
+// Each boot gets a UNIQUE bridge id. With a shared id ("dala"), a new
+// session's listeners — registered before engine_start — caught the OLD
+// process's engine-exit event (fired when engine_start killed it) and
+// treated it as their own engine dying, poisoning every band switch and
+// every retry. A dead session's ghost must not reach the living one.
+let bootSeq = 0;
+
 async function bootFresh(band: number): Promise<Session> {
 	session?.pipe.dispose();
 	session = null;
 
 	// may download 59-330MB on first use (onDalaDownload surfaces it in the UI)
 	const weights = await invoke<string>('dala_ensure_weights', { band });
+	console.info(`[dala] weights ready for ${band}: ${weights}`);
 
 	const s: Session = { band, pipe: null as unknown as NativeUci, ready: Promise.resolve(), onLine: null };
 	let resolveReady!: () => void;
@@ -84,21 +92,32 @@ async function bootFresh(band: number): Promise<Session> {
 	});
 	s.ready.catch(() => {}); // avoid unhandled rejection from fire-and-forget preloads
 
+	const pipeId = `dala-${++bootSeq}`;
 	const timer = setTimeout(() => rejectReady(new Error('dala boot timeout')), 30_000);
 	s.pipe = await openNativeUci(
-		'dala',
+		pipeId,
 		(line) => {
 			if (line === 'uciok') {
+				console.info(`[dala] ${pipeId} uciok`);
 				clearTimeout(timer);
 				resolveReady();
 			}
 			s.onLine?.(line);
 		},
-		() => rejectReady(new Error('dala engine error')),
+		(message) => {
+			console.warn(`[dala] ${pipeId} error: ${message}`);
+			rejectReady(new Error(`dala engine error: ${message}`));
+		},
 		{ engine: 'lc0', args: [`--weights=${weights}`] }
 	);
-	await s.pipe.send('uci');
-	await s.pipe.send('setoption name VerboseMoveStats value true');
+	try {
+		await s.pipe.send('uci');
+		await s.pipe.send('setoption name VerboseMoveStats value true');
+		await s.ready; // surface handshake failure HERE so we can clean up
+	} catch (e) {
+		s.pipe.dispose(); // no orphaned lc0 processes from failed boots
+		throw e;
+	}
 	session = s;
 	return s;
 }
@@ -121,7 +140,10 @@ export async function dalaMove(fen: string, band: number): Promise<string | null
 		};
 		// generous: lc0 loads the net lazily at the FIRST search, and the 330MB
 		// BT4 takes a while to come off disk into Metal
-		const timer = setTimeout(() => finish(null), 60_000);
+		const timer = setTimeout(() => {
+			console.warn(`[dala] move timeout (band ${band}) — falling back`);
+			finish(null);
+		}, 60_000);
 		s.onLine = (line) => {
 			// "info string e2e4 (322 ) N: 0 (+ 0) (P:  4.05%) ..."
 			const m = line.match(/^info string ([a-h][1-8][a-h][1-8][qrbn]?)\s.*\(P:\s*([\d.]+)%\)/);
