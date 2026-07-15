@@ -53,6 +53,7 @@
 	} from '$lib/engine/stockfish';
 	import { botSpec, botEloMax, botEloMin } from '$lib/engine/botRecipe';
 	import { maiaMove, inMaiaRange, preloadMaia } from '$lib/engine/maia';
+	import { retroMove, preloadRetro } from '$lib/engine/retro';
 	import { computeControl } from '$lib/engine/control';
 	import { findThreat, type Threat } from '$lib/engine/threats';
 	import {
@@ -432,10 +433,11 @@
 		if (botSettingsLoaded) localStorage.setItem(BOT_KEY, JSON.stringify(settings));
 	});
 
-	// warm the Maia net ahead of the first move when human-like play is armed
+	// warm the Maia net / retro wasm ahead of the first move
 	$effect(() => {
 		if (!botEnabled) return;
 		if (botPersona?.maiaBand) preloadMaia(botPersona.maiaBand);
+		else if (botPersona?.retro) preloadRetro(botPersona.retro);
 		else if (!botPersona && botHuman && inMaiaRange(botElo)) preloadMaia(botElo);
 	});
 
@@ -583,19 +585,23 @@
 		// Maia falls back to Stockfish at the persona's strength if its net
 		// can't load.
 		const p = botPersona;
-		const wantMaia = p ? !!p.maiaBand : botHuman && inMaiaRange(botElo);
+		// engines that can fail to produce a move (net not loaded, worker down)
+		// fall back to Stockfish at the persona's strength
+		const fallible = p ? !!p.maiaBand || !!p.retro : botHuman && inMaiaRange(botElo);
 		const compute = p?.shapedLabel
 			? shapedAppMove(p.shapedLabel)
-			: p?.maiaBand
-				? maiaMove(maiaFenHistory(), p.maiaBand).catch(() => null)
-				: p
-					? stockfishBotMove(personaInternalElo(p))
-					: wantMaia
-						? maiaMove(maiaFenHistory(), botElo).catch(() => null)
-						: stockfishBotMove();
+			: p?.retro
+				? retroMove(game.fen, p.retro).catch(() => null)
+				: p?.maiaBand
+					? maiaMove(maiaFenHistory(), p.maiaBand).catch(() => null)
+					: p
+						? stockfishBotMove(personaInternalElo(p))
+						: fallible
+							? maiaMove(maiaFenHistory(), botElo).catch(() => null)
+							: stockfishBotMove();
 		const [primary] = await Promise.all([compute, new Promise((r) => setTimeout(r, botDelay()))]);
 		let uci = primary;
-		if (wantMaia && !uci) uci = await stockfishBotMove(p ? personaInternalElo(p) : botElo);
+		if (fallible && !uci) uci = await stockfishBotMove(p ? personaInternalElo(p) : botElo);
 		botThinking = false;
 		botConsidering = null;
 		if (token !== analysisToken || !botEnabled || mode !== 'play') return;

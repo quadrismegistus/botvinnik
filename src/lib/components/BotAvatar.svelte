@@ -52,6 +52,15 @@
 		<circle cx="12" cy="12" r="8" fill="none" stroke={fg} stroke-width="1.6" />
 		<circle cx="12" cy="12" r="4.5" fill="none" stroke={fg} stroke-width="1.4" opacity="0.75" />
 		<circle cx={12 + ((h >> 3) % 3) - 1} cy={12 + ((h >> 5) % 3) - 1} r="1.8" fill={fg} />
+	{:else if persona.family === 'retro'}
+		<!-- punch card: the medium these minds originally lived on -->
+		<rect x="4" y="5" width="16" height="14" rx="1.2" fill="none" stroke={fg} stroke-width="1.4" />
+		<path d="M4 5 h4 l2 2.5 h10" fill="none" stroke={fg} stroke-width="1.1" opacity="0.7" />
+		{#each [0, 1, 2, 3, 4, 5, 6, 7] as i (i)}
+			{#if (h >> i) & 1}
+				<rect x={6.2 + (i % 4) * 3.4} y={10.5 + Math.floor(i / 4) * 3.6} width="1.8" height="2.4" rx="0.4" fill={fg} />
+			{/if}
+		{/each}
 	{:else}
 		<polygon points="12,3 20,12 12,21 4,12" fill="none" stroke={fg} stroke-width="1.6" />
 		<polygon points="12,7.5 16.2,12 12,16.5 7.8,12" fill={fg} opacity="0.85" />

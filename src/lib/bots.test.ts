@@ -2,9 +2,10 @@ import { describe, it, expect } from 'vitest';
 import { PERSONAS, personaById, personaInternalElo, SCALE_OFFSET } from './bots';
 
 describe('bot roster', () => {
-	it('has 23 personas: 12 Squares + 3 Maias + 8 Fish', () => {
-		expect(PERSONAS.length).toBe(23);
+	it('has 26 personas: 12 Squares + 3 retros + 3 Maias + 8 Fish', () => {
+		expect(PERSONAS.length).toBe(26);
 		expect(PERSONAS.filter((p) => p.family === 'square').length).toBe(12);
+		expect(PERSONAS.filter((p) => p.family === 'retro').length).toBe(3);
 		expect(PERSONAS.filter((p) => p.family === 'maia').length).toBe(3);
 		expect(PERSONAS.filter((p) => p.family === 'fish').length).toBe(8);
 	});
@@ -17,14 +18,22 @@ describe('bot roster', () => {
 
 	it('binds each family to exactly one mechanism', () => {
 		for (const p of PERSONAS) {
-			const bindings = [p.shapedLabel, p.maiaBand, p.numericElo].filter(
+			const bindings = [p.shapedLabel, p.maiaBand, p.numericElo, p.retro].filter(
 				(x) => x !== undefined
 			).length;
 			expect(bindings, p.id).toBe(1);
 			if (p.family === 'square') expect(p.shapedLabel).toBeDefined();
 			if (p.family === 'maia') expect(p.maiaBand).toBeDefined();
 			if (p.family === 'fish') expect(p.numericElo).toBeDefined();
+			if (p.family === 'retro') expect(p.retro).toBeDefined();
 		}
+	});
+
+	it('retro personas carry the morlock lichess-bot ratings and configs', () => {
+		expect(personaById('retro-bernstein-2')?.elo).toBe(1200);
+		expect(personaById('retro-sargon-1')?.elo).toBe(1230);
+		expect(personaById('retro-turochamp-1')?.elo).toBe(1300);
+		expect(personaById('retro-bernstein-2')?.retro).toEqual({ engine: 'bernstein', ply: 2 });
 	});
 
 	it('square labels come from the measured curve and stay in the calibrated range', () => {

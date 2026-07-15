@@ -41,5 +41,17 @@
 		"options": { "VerboseMoveStats": "true" },
 		"go": "go nodes 1",
 		"select": "policy"
+	},
+	"bernstein:2ply": {
+		"cmd": "scripts/engines/retro/bernstein --ply=2",
+		"go": "go movetime 500"
+	},
+	"sargon:1ply": {
+		"cmd": "scripts/engines/retro/sargon --ply=1",
+		"go": "go movetime 500"
+	},
+	"turochamp:1ply": {
+		"cmd": "scripts/engines/retro/turochamp --ply=1",
+		"go": "go movetime 500"
 	}
 }

@@ -19,11 +19,12 @@
 //    top of the ladder, where its play is near-best and honest.
 
 import { shapedLabelFor, shapedParams } from './bot';
+import type { RetroSpec } from './engine/retro';
 
 /** WASM-numeric scale ≈ lichess-rapid + 240 (maia1 bridge, club-range anchors). */
 export const SCALE_OFFSET = 240;
 
-export type BotFamily = 'square' | 'maia' | 'fish';
+export type BotFamily = 'square' | 'maia' | 'fish' | 'retro';
 
 export interface BotPersona {
 	id: string; // stable key: persisted in settings and stored games
@@ -37,6 +38,8 @@ export interface BotPersona {
 	maiaBand?: number;
 	/** fish: elo on the app's internal WASM scale (drives the numeric recipe) */
 	numericElo?: number;
+	/** retro: historical engine + ply (morlock re-implementations, wasm worker) */
+	retro?: RetroSpec;
 }
 
 function square(displayElo: number): BotPersona {
@@ -74,10 +77,50 @@ function fish(displayElo: number): BotPersona {
 	};
 }
 
-// 12 Squares (600-1700) + 3 Maias (real @maia lichess ratings) + 8 Fish
-// (1800-2500; internal 2040-2740, inside the WASM honest ceiling 2800) = 23.
+// Historical engines (morlock re-implementations, wasm). Display elo = the
+// morlock lichess bots' REAL human-pool rapid ratings at the same config
+// (bernstein-2ply 1198 over 15k games, sargon-1ply 1228 over 48k,
+// turochamp-1ply ~1300) — the best-anchored numbers on the whole roster.
+function retro(
+	displayElo: number,
+	engine: RetroSpec['engine'],
+	ply: number,
+	name: string,
+	blurb: string
+): BotPersona {
+	return { id: `retro-${engine}-${ply}`, name, elo: displayElo, family: 'retro', blurb, retro: { engine, ply } };
+}
+
+const RETROS: BotPersona[] = [
+	retro(
+		1200,
+		'bernstein',
+		2,
+		'Bernstein 1957',
+		'The first complete chess program (IBM 704, 8 minutes a move). Considers only 7 "plausible moves" — beat it and you beat the dawn of computing.'
+	),
+	retro(
+		1230,
+		'sargon',
+		1,
+		'Sargon 1978',
+		"Dan and Kathe Spracklen's Z80 classic that launched home-computer chess, at its easiest setting: one ply plus exchange sense."
+	),
+	retro(
+		1300,
+		'turochamp',
+		1,
+		'Turochamp 1948',
+		"Alan Turing and David Champernowne's paper machine — written before computers existed to run it. Turing executed it by hand, one move per half hour."
+	)
+];
+
+// 12 Squares (600-1700) + 3 Maias (real @maia lichess ratings) + 3 retro
+// engines (real morlock-bot lichess ratings) + 8 Fish (1800-2500; internal
+// 2040-2740, inside the WASM honest ceiling 2800) = 26.
 export const PERSONAS: BotPersona[] = [
 	...[600, 700, 800, 900, 1000, 1100, 1200, 1300, 1400, 1500, 1600, 1700].map(square),
+	...RETROS,
 	maia(1570, 1100, 'I'),
 	maia(1640, 1500, 'V'),
 	maia(1700, 1900, 'IX'),
