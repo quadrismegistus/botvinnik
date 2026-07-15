@@ -4,6 +4,7 @@
 	import { botDelay, selectBotMove, shapedBotMove, shapedLabelFor, shapedSearchDepth } from '$lib/bot';
 	import { personaById, personaInternalElo, type BotPersona } from '$lib/bots';
 	import { estimatePlayerElo } from '$lib/playerElo';
+	import { avoidRepetition } from '$lib/repetition';
 	import Board from '$lib/components/Board.svelte';
 	import MaterialBar from '$lib/components/MaterialBar.svelte';
 	import BottomSheet from '$lib/components/BottomSheet.svelte';
@@ -665,7 +666,10 @@
 		botConsidering = null;
 		if (token !== analysisToken || !botEnabled || mode !== 'play') return;
 		if (game.isGameOver || game.turn !== botColor) return;
-		if (uci) applyUci(uci);
+		// engines see FEN snapshots, never game history — a winning bot can't
+		// perceive the threefold it's shuffling into, so the app vetoes the
+		// donation at the choice layer (full-strength lines as the escape)
+		if (uci) applyUci(avoidRepetition(uci, maiaFenHistory(), engineMoves));
 	}
 
 	// kick the bot when it's enabled (or switched sides) mid-position
@@ -1463,6 +1467,7 @@
 				downloading={botDownloading}
 				thinking={botThinking}
 				onchangebot={() => (rosterOpen = true)}
+				onnewgame={handleReset}
 			/>
 		{/snippet}
 
@@ -1519,7 +1524,6 @@
 				onundo={handleUndo}
 				onredo={redoStack.length > 0 ? handleRedo : undefined}
 				onresign={game.moves.length >= 2 && !game.isGameOver ? handleResign : undefined}
-				onreset={handleReset}
 				startOpen={isNarrow}
 			/>
 		{/snippet}
