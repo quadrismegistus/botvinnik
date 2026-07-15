@@ -35,7 +35,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { Chess } from 'chess.js';
-import { selectBotMove } from '../src/lib/bot';
+import { selectBotMove, shapedBotMove, shapedSearchDepth } from '../src/lib/bot';
 import {
 	botResetOptions,
 	parseSpec,
@@ -44,6 +44,8 @@ import {
 	type Substrate
 } from '../src/lib/engine/botRecipe';
 import type { EngineMove } from '../src/lib/engine/stockfish';
+import { isMaiaId, maiaBandOf, maiaMoveNode, maiaTempOf, preloadMaiaBands } from './maia-node.mts';
+import { isMaia3Id, maia3EloOf, maiaMove3Node, preloadMaia3 } from './maia3-node.mts';
 
 // ---------- args ----------
 const args = process.argv.slice(2);
@@ -55,8 +57,10 @@ function optStr(name: string, dflt: string): string {
 	const i = args.indexOf(`--${name}`);
 	return i >= 0 ? args[i + 1] : dflt;
 }
-// points are requested-ELO numbers (mapped through the app's botSpec) or raw
-// spec ids like "sampler:a2:d2" / "skill:1:d2" / "ucielo:2400:mt400"
+// points are requested-ELO numbers (mapped through the app's botSpec), raw
+// spec ids like "sampler:a2:d2" / "skill:1:d2" / "ucielo:2400:mt400", or Maia
+// nets "maia:1500" (human-imitation, lichess-anchored — see maia-node.mts).
+// Pit our bands against Maia to read our scale in human-rating terms.
 const POINTS = optStr('points', '100,300,500,700,800,1000,1200,1320,1600,2000')
 	.split(',')
 	.sort((a, b) => (Number(a) || 1e9) - (Number(b) || 1e9));
@@ -86,6 +90,28 @@ console.log(`engine: ${ENGINE} · substrate: ${SUBSTRATE}`);
 const SEARCH_TIMEOUT_MS = 60_000;
 const OUT = optStr('out', 'data/bot-calibration.json');
 const STATE = `${OUT}.state.json`;
+
+// ---------- external UCI engines ----------
+// Third-party engines join the gym via --ext-config <file.json>: a map from
+// bot id to { cmd, options?, go? }. The id is used directly in --pairs. Each
+// worker lazily spawns its own instance per engine (parallel games). Example:
+//   { "jsce:1": { "cmd": "node scripts/shims/jsce-uci.mjs",
+//                 "options": { "Level": "1" }, "go": "go" } }
+interface ExtSpec {
+	cmd: string;
+	options?: Record<string, string>;
+	go?: string;
+	/** "policy": sample the move from lc0 VerboseMoveStats policy priors
+	 *  (weighted random — how the dala lichess bots play) instead of bestmove */
+	select?: 'bestmove' | 'policy';
+}
+const EXT_CONFIG_PATH = optStr('ext-config', '');
+const EXT: Record<string, ExtSpec> = EXT_CONFIG_PATH
+	? JSON.parse(readFileSync(EXT_CONFIG_PATH, 'utf8'))
+	: {};
+function isExtId(id: string): boolean {
+	return id in EXT;
+}
 
 // probe mode: explicit pairs; otherwise ladder neighbours + long-range
 // sanity pairs (fit stiffness across seams)
@@ -137,6 +163,8 @@ const OPENINGS = [
 interface SearchOut {
 	moves: EngineMove[];
 	bestmove: string;
+	/** lc0 VerboseMoveStats policy priors (move → P as a fraction), when emitted */
+	policy: Map<string, number>;
 }
 
 class Engine {
@@ -145,17 +173,22 @@ class Engine {
 	private buffer = '';
 	private resolve: ((r: SearchOut) => void) | null = null;
 	private byMultipv = new Map<number, EngineMove>();
+	private policy = new Map<string, number>();
 	private watchdog: NodeJS.Timeout | null = null;
+	private readonly cmd: string;
 
-	constructor() {
+	constructor(cmd: string = ENGINE) {
+		this.cmd = cmd;
 		this.start();
 	}
 
 	private start() {
 		this.buffer = '';
-		this.proc = spawn(ENGINE);
+		// ext commands may carry args ("node scripts/shims/jsce-uci.mjs")
+		const parts = this.cmd.split(/\s+/);
+		this.proc = spawn(parts[0], parts.slice(1));
 		this.proc.on('error', (e) => {
-			console.error(`cannot start engine "${ENGINE}": ${e.message}`);
+			console.error(`cannot start engine "${this.cmd}": ${e.message}`);
 			process.exit(1);
 		});
 		this.proc.stdout.on('data', (d) => this.onData(String(d)));
@@ -167,6 +200,12 @@ class Engine {
 		const lines = this.buffer.split('\n');
 		this.buffer = lines.pop() ?? '';
 		for (const line of lines) {
+			// lc0 VerboseMoveStats: "info string e2e4 (322 ) N: 0 (+ 0) (P:  4.05%) ..."
+			if (line.startsWith('info string ')) {
+				const m = line.match(/^info string ([a-h][1-8][a-h][1-8][qrbn]?)\s.*\(P:\s*([\d.]+)%\)/);
+				if (m) this.policy.set(m[1], Number(m[2]) / 100);
+				continue;
+			}
 			if (line.startsWith('info ') && line.includes(' pv ')) {
 				const depth = Number(line.match(/ depth (\d+)/)?.[1] ?? 0);
 				const multipv = Number(line.match(/ multipv (\d+)/)?.[1] ?? 1);
@@ -190,7 +229,7 @@ class Engine {
 				const r = this.resolve;
 				this.resolve = null;
 				this.busy = false;
-				r?.({ moves, bestmove: best });
+				r?.({ moves, bestmove: best, policy: this.policy });
 			}
 		}
 	}
@@ -202,6 +241,7 @@ class Engine {
 	search(fen: string, options: [string, string][], go: string): Promise<SearchOut> {
 		this.busy = true;
 		this.byMultipv = new Map();
+		this.policy = new Map();
 		const opts = options.map(([k, v]) => `setoption name ${k} value ${v}`).join('\n');
 		return new Promise((resolve) => {
 			this.resolve = resolve;
@@ -216,7 +256,7 @@ class Engine {
 					// already gone
 				}
 				this.start();
-				r?.({ moves: [], bestmove: '' });
+				r?.({ moves: [], bestmove: '', policy: new Map() });
 			}, SEARCH_TIMEOUT_MS);
 			this.proc.stdin.write(`${opts}\nposition fen ${fen}\n${go}\n`);
 		});
@@ -245,6 +285,62 @@ async function botMove(engine: Engine, fen: string, id: string): Promise<string 
 	return res.moves[0]?.pv[0] ?? null;
 }
 
+// Shaped-blunder bot: a MultiPV search whose move is then chosen by
+// shapedBotMove's human-error model. Ids look like "shaped:900". Search depth
+// scales with ELO (600→6 … 1500+→12, capped by --shaped-depth): a flat
+// depth-12 backbone proved to be a beginner superpower — eval ordering and
+// punishment lines stayed master-strength regardless of the choice layer. The
+// per-game seed makes tactic-misses STICKY across moves (see shapedBotMove).
+const SHAPED_DEPTH = opt('--shaped-depth', 12);
+const SHAPED_MULTIPV = opt('--shaped-multipv', 12);
+
+function isShapedId(id: string): boolean {
+	return id.startsWith('shaped:');
+}
+function shapedEloOf(id: string): number {
+	return Number(id.split(':')[1]);
+}
+function shapedDepth(elo: number): number {
+	// canonical ramp lives in bot.ts (the app must reproduce it exactly);
+	// --shaped-depth only caps it for harness-speed experiments
+	return Math.min(SHAPED_DEPTH, shapedSearchDepth(elo));
+}
+async function shapedMove(
+	engine: Engine,
+	fen: string,
+	elo: number,
+	seed: string
+): Promise<string | null> {
+	const res = await engine.search(
+		fen,
+		botResetOptions(SHAPED_MULTIPV),
+		`go depth ${shapedDepth(elo)}`
+	);
+	return shapedBotMove(res.moves, elo, undefined, seed);
+}
+
+// external UCI engine: its own process plays its own move. select:"policy"
+// samples from lc0's VerboseMoveStats policy priors instead — weighted random
+// over the imitation net's move distribution, which is how the dala lichess
+// bots play (argmax would inflate an imitation net far above its bracket).
+async function extMove(engine: Engine, id: string, fen: string): Promise<string | null> {
+	const spec = EXT[id];
+	const options = Object.entries(spec.options ?? {}) as [string, string][];
+	const res = await engine.search(fen, options, spec.go ?? 'go movetime 400');
+	if (spec.select === 'policy' && res.policy.size > 0) {
+		const entries = [...res.policy.entries()];
+		const total = entries.reduce((a, [, p]) => a + p, 0);
+		let r = Math.random() * total;
+		for (const [move, p] of entries) {
+			r -= p;
+			if (r <= 0) return move;
+		}
+		return entries[entries.length - 1][0];
+	}
+	if (res.bestmove && res.bestmove !== '(none)' && res.bestmove !== '0000') return res.bestmove;
+	return res.moves[0]?.pv[0] ?? null;
+}
+
 // full-strength eval for adjudicating games the ply cap cuts off
 async function adjudicate(engine: Engine, fen: string): Promise<number> {
 	const res = await engine.search(fen, botResetOptions(1), 'go depth 12');
@@ -254,13 +350,21 @@ async function adjudicate(engine: Engine, fen: string): Promise<number> {
 	return fen.split(' ')[1] === 'w' ? cp : -cp; // white POV
 }
 
+// the game's FENs oldest-first, for Maia's history planes
+function fenHistory(chess: Chess): string[] {
+	const ms = chess.history({ verbose: true });
+	return ms.length === 0 ? [chess.fen()] : [ms[0].before, ...ms.map((m) => m.after)];
+}
+
 // one game; returns the score for `a` (1 / 0.5 / 0)
 async function playGame(
 	engine: Engine,
 	a: string,
 	b: string,
 	opening: string,
-	aIsWhite: boolean
+	aIsWhite: boolean,
+	gameSeed: string,
+	ext: (id: string) => Engine
 ): Promise<number> {
 	engine.newGame();
 	const chess = new Chess();
@@ -268,7 +372,17 @@ async function playGame(
 	let plies = 0;
 	while (!chess.isGameOver() && plies < MAX_PLIES) {
 		const mover = (chess.turn() === 'w') === aIsWhite ? a : b;
-		const uci = await botMove(engine, chess.fen(), mover);
+		// Maia nets move from their own ONNX (Maia-1 with history, Maia-3 from the
+		// current position + ELO dial); everyone else goes through Stockfish
+		const uci = isMaia3Id(mover)
+			? await maiaMove3Node(chess.fen(), maia3EloOf(mover))
+			: isMaiaId(mover)
+				? await maiaMoveNode(fenHistory(chess), maiaBandOf(mover), maiaTempOf(mover))
+				: isShapedId(mover)
+					? await shapedMove(engine, chess.fen(), shapedEloOf(mover), `${gameSeed}:${mover}`)
+					: isExtId(mover)
+						? await extMove(ext(mover), mover, chess.fen())
+						: await botMove(engine, chess.fen(), mover);
 		if (!uci) break;
 		try {
 			chess.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci[4] });
@@ -365,30 +479,63 @@ console.log(
 );
 
 // ---------- run ----------
+// download/warm any Maia nets in the run up front (one shared session per band)
+const maiaBands = [...new Set(allIds.filter(isMaiaId).map(maiaBandOf))];
+if (maiaBands.length) {
+	console.log(`preloading Maia bands: ${maiaBands.join(', ')}`);
+	await preloadMaiaBands(maiaBands);
+}
+if (allIds.some(isMaia3Id)) {
+	console.log('preloading Maia-3 (one net, ELO-dialed)');
+	await preloadMaia3();
+}
+
 const engines = Array.from({ length: WORKERS }, () => new Engine());
 let played = 0;
 const t0 = Date.now();
 
 async function worker(engine: Engine) {
-	for (;;) {
-		const job = jobs.shift();
-		if (!job) return;
-		const opening = OPENINGS[Math.floor(job.gameIdx / 2) % OPENINGS.length];
-		const aIsWhite = job.gameIdx % 2 === 0;
-		const score = await playGame(engine, job.a, job.b, opening, aIsWhite);
-		const k = key(job.a, job.b);
-		const r = (state.results[k] ??= { games: 0, aScore: 0 });
-		r.games++;
-		r.aScore += score;
-		saveState();
-		played++;
-		if (played % 10 === 0 || played === toPlay) {
-			const rate = played / ((Date.now() - t0) / 60000);
-			console.log(
-				`${played}/${toPlay} games · ${rate.toFixed(1)}/min · ` +
-					`eta ${((toPlay - played) / Math.max(rate, 0.1)).toFixed(0)}min`
-			);
+	// each worker owns its own instances of any external engines it meets
+	const extEngines = new Map<string, Engine>();
+	const ext = (id: string): Engine => {
+		let e = extEngines.get(id);
+		if (!e) {
+			e = new Engine(EXT[id].cmd);
+			extEngines.set(id, e);
 		}
+		return e;
+	};
+	try {
+		for (;;) {
+			const job = jobs.shift();
+			if (!job) break;
+			const opening = OPENINGS[Math.floor(job.gameIdx / 2) % OPENINGS.length];
+			const aIsWhite = job.gameIdx % 2 === 0;
+			const score = await playGame(
+				engine,
+				job.a,
+				job.b,
+				opening,
+				aIsWhite,
+				`${job.a}~${job.b}#${job.gameIdx}`,
+				ext
+			);
+			const k = key(job.a, job.b);
+			const r = (state.results[k] ??= { games: 0, aScore: 0 });
+			r.games++;
+			r.aScore += score;
+			saveState();
+			played++;
+			if (played % 10 === 0 || played === toPlay) {
+				const rate = played / ((Date.now() - t0) / 60000);
+				console.log(
+					`${played}/${toPlay} games · ${rate.toFixed(1)}/min · ` +
+						`eta ${((toPlay - played) / Math.max(rate, 0.1)).toFixed(0)}min`
+				);
+			}
+		}
+	} finally {
+		for (const e of extEngines.values()) e.quit();
 	}
 }
 

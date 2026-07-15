@@ -96,6 +96,148 @@ Shipped so far:
   `maybeBotMove`) — human-imitation, characteristic beginner errors, small net,
   no search, runs via onnxruntime-web alongside Stockfish. Stockfish stays for
   analysis/hints and the strong bands. GPL-3.0 weights — check licensing.
+- **Maia-3 in-browser port** — fill the roster's 1750–2100 slots with
+  human-style opponents (currently a jump from Maia IX 1700 straight to
+  Fish 1800). Maia-3 is one skill-conditioned net with a real ~600-pt ELO
+  dial, measured ~1500–2100 lichess-equiv in the anchoring runs. Different
+  pipeline from the shipped Maia-1: token input (64×12 one-hot) + two
+  scalar ELO inputs, 4352-move policy, single 44MB ONNX
+  (CSSLab/maia-platform-frontend `public/maia3/`, encoding in that repo's
+  `src/lib/engine/tensor.ts`). Already works in the calibration harness
+  (`scripts/maia-node.mts`); the port is the browser side: encoding module,
+  IndexedDB model cache, Worker inference (44MB on the main thread would
+  jank). Not urgent — the staircase action is at 1200–1500 where coverage
+  is already good.
+- **Engine scouting — third-party engines for rulers and personas.**
+  Two distinct needs: (a) an honest RULER below SF-1320 to cross-check the
+  shaped curve's low end; (b) roster PERSONAS with genuinely distinct
+  styles. General lesson so far: minimal-competent search floors at ~1900
+  from below, imitation floors at ~1500 from above — nothing off the
+  shelf reaches the beginner range honestly, which is why the shaped
+  choice-layer exists.
+
+  | engine | strength (anchor) | weak dial | web app | harness | license | role |
+  |---|---|---|---|---|---|---|
+  | Patricia | CCRL ~3500; @PatriciaBot 2741b/2705r, @littlePatricia 1800b/2069r (11k games). **GYM VERDICT: Skill 1/3/5/7 all ≥2370 our scale, internal pairs ~50% — the dial is a NO-OP down low; v5 dropped UCI_Elo, the "500 floor" is gone** | ~~UCI_Elo 500~~ (v3-era); Skill 1–21 ineffective at the low end | emscripten build needed (hard) | built, scripts/engines/ (gitignored) | MIT | NOT a low-end ruler. At most an aggressive ~2400 native persona someday |
+  | Maia-3 | ~1500–2100 lichess-equiv (our anchoring runs) | real ELO-dial input | 44MB ONNX port, pipeline known (medium) | done (`maia-node.mts`) | GPL-3 weights | human-style personas 1750–2100 |
+  | sunfish | @sunfish-engine ~1957b/1961r (~1000 games) | none | JS port / pyodide (medium-hard) | today (UCI stdin) | GPL-3 | readable ~1950 character |
+  | Garbochess-JS | **@GarboBot: 1931 blitz / 2021 rapid, 90k+ lichess games** — measured! | none | **native JS + WebWorkers — zero port** | thin node UCI shim (~half-day, own API not UCI) | BSD-3 (LICENSE file; GitHub misclassifies) | web-native ~2000 persona, now lichess-anchored |
+  | js-chess-engine | **MEASURED (gym n=80, data/bot-gym-ext.json): L1≈775, L2≈1102, L3≈1344, L4≈1661, L5≈1910 our scale (≈535/860/1105/1420/1670 lichess-equiv)** — clean monotonic ladder, ruler-consistent | levels 1–5 + depth/quiescence knobs | **npm import — easiest of all** (TS, zero deps, maintained 2026) | done: `scripts/shims/jsce-uci.mjs` | MIT | the real thing: full-rules engines genuinely in the beginner range; corroborates the shaped curve (Square 600 beats L1 73-27, L2 edges Square 900 — the ladders interleave). Persona family candidate 500-1700 |
+  | Wasabi (mhonert/chess) | unmeasured | 6 levels | **already WASM + WebWorkers** (AssemblyScript; that's its point) | standalone UCI build exists (WASI — needs wasmtime or node WASI) | GPL-3 | web-native persona; author's stronger successor is Velvet (Rust) |
+  | VanillaJSChess | author: "under 1300"; Ryan easily beat it (he's ~1300 on our ladder) | none | engine tangled into the page — no module, no npm | no UCI; extraction needed | GPL-3, dead 2021 | PASS — same class as jsce (shallow JS minimax) with worse packaging; revisit only if jsce disappoints |
+  | sameshi | ~1170 ±60 (honest: 240 games vs SF 1320–1600 — but under CONSTRAINED rules) | none | 2KB C | no castling/en-passant/PROMOTION — can't play full chess | none (unlicensed) | PASS — doesn't play real endgames; useful only as a datum (material-only depth-5 ≈ 1170: search alone defends the beginner floor) |
+  | chessJS | claim: "beat SF Level-6 (2300+)" — single-game anecdote, GUI level ≠ ELO | none | page-welded JS minimax | no UCI | custom ToU (NOASSERTION) | PASS — jsce covers the class; unverifiable strength, murky license |
+
+  Per-engine notes:
+  - **Patricia** (https://github.com/Adam-Kulju/Patricia): the only
+    candidate aimed at the sub-1320 gap. Caution: its `human.h` is a
+    cp-loss budget accumulator (multipv + budget + sacrifice bonus) — the
+    frequent-small-bounded-errors design we measured at 2000+ and
+    abandoned; their own comments bottom out at "80cp/move ≈ 1200". So
+    verify UCI_Elo ≤1200 labels against ucielo:1320 before trusting;
+    ruler-vs-ruler disagreement is itself data. macOS = build from source.
+  - **Maia-3** (CSSLab): not strictly scouting — port task above.
+  - **sunfish** (https://github.com/thomasahle/sunfish): 131 lines of
+    Python; weakness is ARCHITECTURAL (horizon-blind, materialist,
+    bookless), not randomized — a different ~2000 opponent from
+    limiter-weakened Fish, and the one bot whose entire mind is readable.
+    No dial: starving its clock reopens the weakening-design problem.
+  - **Garbochess-JS** (https://github.com/glinscott/Garbochess-JS): Gary
+    Linscott (fishtest/Leela founder), 2011-era JS, Fruit-style eval
+    (PSQ+mobility+bishop pair, pre-NNUE), WebWorkers built in. Runs in
+    the web app as-is; zero strength evidence (no lichess account, no
+    CCRL entry for the JS version) and no dial, so measure in the harness
+    first. Unmaintained (2012 code, last push 2023); would need a small
+    protocol shim both for the harness (node) and for our
+    TransportFactory (its worker speaks its own message format, not UCI).
+  - **js-chess-engine** (https://github.com/josefjadrny/js-chess-engine):
+    the sleeper. Probe: level 1 played Qxf6?? hanging the queen — no
+    quiescence at low levels ⇒ horizon-effect blunders, i.e. weak the way
+    the shaped bot is DESIGNED to be weak, but architecturally. If the
+    gym confirms level 1-2 land sub-1500 honest, it's both a web persona
+    (npm import) and independent corroboration for the shaped curve's
+    low end. UCI shim done (scripts/shims/jsce-uci.mjs, devDependency).
+  - **Wasabi** (https://github.com/mhonert/chess): AssemblyScript engine
+    already built for browser WebWorkers, 6 levels, GPL-3, ships a
+    standalone WASI UCI binary (run via wasmtime/node WASI) — gym-ready
+    with minor runner glue. Unmeasured; author moved on to Velvet.
+
+- **Gym for third-party engines — BUILT 2026-07-15.** The calibration
+  harness accepts external UCI engines via `--ext-config <json>` (per-id
+  cmd/options/go; each worker spawns its own instances). First cohort:
+  js-chess-engine levels 1–5 + Patricia 5.0 Skill 1/3/5/7 (built from
+  source; NB v5 dropped UCI_Elo for Skill_Level 1–21, so the README's
+  "500 floor" table is v3-era folklore until measured) —
+  `scripts/run-gym-overnight.sh` → data/bot-gym-ext.json.
+
+- **THE LICHESS BOT LADDER (found by Ryan 2026-07-15, via
+  lichess.org/player/bots) — the sub-1320 "desert" has real oases.**
+  Human-anchored bot accounts, rapid ratings, big samples:
+  uSunfish-l0 **1029** (6.5k games, MicroPython sunfish easiest setting) ·
+  dala-900 **1095** (1.5k, BT4 transformer trained ONLY on ~900-band human
+  games — imitation still runs ~+150-200 hot, but lands far below Maia's
+  argmax floor) · bernstein-2ply **1198** (15.5k, re-impl of the 1957
+  Bernstein IBM 704 program) · sargon-1ply **1228** (48k, re-impl of 1978
+  SARGON at 1 ply) · Humaia **1379** (23k, maia-1400 SAMPLED — see below) ·
+  maia1 1572 · sunfish 1961 · GarboBot 2021 · littlePatricia 2069.
+  TODO: find the sargon/bernstein/uSunfish sources (they're
+  re-implementations, likely on GitHub) — any that run locally become
+  two-sided bridges: same config in our gym + real lichess rating.
+- **DALA — GYM DONE (data/bot-dala-gym.json, n=60).** The two-sided
+  bridges read: dala:700 engine-pool ~780 ↔ human 911 (gap ~130);
+  dala:900 ~845 ↔ 1095 (~250); dala:1300 ~945 ↔ 1315 (~370). The
+  imitation pool-penalty SHRINKS toward the bottom (maia-1500 was ~400)
+  → our engine-pool scale approximates the human scale within ~150-250
+  in exactly the beginner range the app serves. Engine pool compresses
+  imitation ladders (600 label-pts → ~160 engine-pts). Square 900 beat
+  dala:900 65-35: Squares' engine backbone exploits never-calculating
+  nets, so the dala bridge reads Squares ~1-2 notches hot vs human-style
+  play — while Ryan's own staircase supports the current labels.
+  DOCTRINE: no single scale; within-family placement is clean,
+  cross-family readings carry ±150-400 predictable pool offsets. Roster
+  numbers stay anchored to HUMAN-pool sources (maia bridge + player
+  games); the definitive instrument is SquareFish-on-lichess.
+  Web-app dala use still open: 59MB nets, BT4→ONNX conversion, NO
+  license on weights — email hrschubert first (their modified
+  lichess-bot client is also the SquareFish deployment reference).
+  Setup for reruns: lc0 MASTER built from source
+  (scripts/engines/lc0-src — brew 0.32 can't read 2026-format nets),
+  nets in scripts/engines/dala/, select:"policy" in gym-ext.json.
+- **slowmate_bot** (~1144 blitz/1312 rapid, few k games): educational UCI
+  engine allegedly written entirely by Copilot agents. Gym-ready anchor
+  candidate in the 1150-1300 band + a conversation piece. Find repo.
+- **ailedbot** (~850 rapid, only ~150 games — provisional): "engine with
+  feelings" gimmick, but the buried good idea is STATE-DEPENDENT play:
+  human missProb isn't fixed, it spikes after losing material (tilt). A
+  per-game tilt multiplier on shapedParams is a cheap future experiment
+  for feel.
+- **SAMPLED MAIA — MEASURED (data/bot-maia-sampled.json, n=60).**
+  Sampling = **−260 Elo** on the same net (direct control pair). But the
+  run's bigger lesson is **pool-dependence**: argmax maia:1500 measures
+  1455 vs honest engine rulers while @maia5 rates 1643 rapid vs humans
+  (≈1880 our scale) — a ~400-pt gap. Imitation bots are tactically blind;
+  engines punish that far above their human-pool rating. There is no
+  single "true rating" for an imitation bot, only pool-relative ones.
+  DECISIONS: roster Maias keep their lichess (human-pool) ratings — the
+  player is a human, those are the right numbers. Sampled Maias are a
+  roster opportunity at human-bridged ≈1310/1380/1440 (argmax lichess
+  − 260; inferred — ship as "estimated" and let the player's games
+  refine), filling the 1300-1550 gap. App still plays argmax
+  (temperature 0); flip to 1 only when shipping sampled personas.
+  Squares look less pool-sensitive: they interleave with jsce + SF
+  rulers, and Ryan's staircase tracks the engine-pool scale so far.
+- **Put our bots ON lichess (the calibration endgame).** A BOT account
+  per Square (e.g. Square-900): create fresh account → upgrade via
+  `/api/bot/account/upgrade` (irreversible, needs 0 games played) → run
+  the standard `lichess-bot` bridge (Python, wraps any UCI engine) →
+  wrap our shaped bot as a UCI engine ("SquareFish": node script = WASM
+  lite-single engine + shapedBotMove choice layer, exactly the harness's
+  shapedMove logic; ~100 lines, same pattern as jsce-uci.mjs). Weak bots
+  farm games fast on lichess (that's how maia1 got 8M) → after ~100
+  rated games our Square has a REAL lichess rating — a self-made human
+  anchor in the sub-1320 desert where no reference bot exists, replacing
+  every borrowed anchor (maia/sunfish/patricia). Needs: a machine that
+  stays up (Mac awake or cheap VPS), token with bot:play scope.
 - **File System Access autosave** — beyond Export/Import: write backups
   directly to a user-chosen local file (Chromium-only).
 - **Engine settings panel** — a small "Engine" section (sidebar SidePanel,

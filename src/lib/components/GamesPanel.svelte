@@ -2,6 +2,7 @@
 	import type { CcImportProgress } from '$lib/chesscomImport';
 	import { winChance } from '$lib/engine/insights';
 	import type { StoredGame, StoredMove } from '$lib/gameStore';
+	import { personaById } from '$lib/bots';
 	import { CLASS, LABEL_ORDER } from '$lib/classifications';
 	import LineHover from './LineHover.svelte';
 
@@ -55,10 +56,17 @@
 		return (m.evalPawns >= 0 ? '+' : '') + m.evalPawns.toFixed(2);
 	}
 
+	// user-facing bot label: roster personas by name + DISPLAY elo; slider/
+	// legacy games fall back to the stored internal-scale number
+	function botLabel(g: StoredGame): string {
+		const p = personaById(g.botPersona);
+		return p ? `${p.name}` : `bot (${g.botElo})`;
+	}
+
 	function opponent(g: StoredGame): string {
 		if (g.white || g.black) return `${g.white ?? '?'} vs ${g.black ?? '?'}`;
 		if (g.botElo === null) return 'solo analysis';
-		return `vs bot (${g.botElo}) as ${g.botColor === 'w' ? 'Black' : 'White'}`;
+		return `vs ${botLabel(g)} as ${g.botColor === 'w' ? 'Black' : 'White'}`;
 	}
 
 	function mistakes(g: StoredGame, color: 'w' | 'b'): string {
@@ -67,6 +75,23 @@
 		if (c.mistake) parts.push(`${c.mistake}M`);
 		if (c.blunder) parts.push(`${c.blunder}B`);
 		return parts.length ? parts.join(' ') : '·';
+	}
+
+	// spelled-out tooltip for the cryptic "2B / 1M 2B" column, naming the sides
+	function mistakesTitle(g: StoredGame): string {
+		const side = (color: 'w' | 'b') => {
+			const c = g.labelCounts[color];
+			const parts: string[] = [];
+			if (c.mistake) parts.push(`${c.mistake} mistake${c.mistake > 1 ? 's' : ''}`);
+			if (c.blunder) parts.push(`${c.blunder} blunder${c.blunder > 1 ? 's' : ''}`);
+			const who = `${sideName(g, color)} (${color === 'w' ? 'White' : 'Black'})`;
+			return `${who}: ${parts.length ? parts.join(', ') : 'no mistakes'}`;
+		};
+		return `${side('w')} · ${side('b')}`;
+	}
+
+	function accTitle(g: StoredGame): string {
+		return `accuracy — ${sideName(g, 'w')} (White): ${fmtAcc(g.whiteAccuracy)} · ${sideName(g, 'b')} (Black): ${fmtAcc(g.blackAccuracy)}`;
 	}
 
 	const selected: StoredMove | null = $derived(
@@ -87,7 +112,9 @@
 		const explicit = color === 'w' ? g.white : g.black;
 		if (explicit) return explicit;
 		if (g.botElo === null) return color === 'w' ? 'White' : 'Black';
-		return g.botColor === color ? `Bot ${g.botElo}` : 'You';
+		if (g.botColor !== color) return 'You';
+		const p = personaById(g.botPersona);
+		return p ? p.name : `Bot ${g.botElo}`;
 	}
 
 	// two-column move table rows: [moveNo, whiteMove?, blackMove?]
@@ -190,10 +217,10 @@
 						<span class="opp">{opponent(g)}</span>
 						<span class="result">{g.result}</span>
 						<span class="len">{Math.ceil(g.moveCount / 2)} moves</span>
-						<span class="acc" title="accuracy White / Black">
+						<span class="acc" title={accTitle(g)}>
 							{fmtAcc(g.whiteAccuracy)} / {fmtAcc(g.blackAccuracy)}
 						</span>
-						<span class="errs" title="mistakes (M) and blunders (B), White / Black">
+						<span class="errs" title={mistakesTitle(g)}>
 							{mistakes(g, 'w')} / {mistakes(g, 'b')}
 						</span>
 						<button class="primary" onclick={() => onreview(g)}>Review</button>

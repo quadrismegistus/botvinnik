@@ -4,7 +4,9 @@ import {
 	enPassantSetup,
 	itemDataFromStoredMove,
 	loadItems,
+	masteryStats,
 	nextItem,
+	puzzleDifficulty,
 	puzzleSetupMove,
 	recordResult,
 	type PracticeItem
@@ -287,5 +289,36 @@ describe('loadItems motif backfill', () => {
 		// persisted, so the next load doesn't recompute again
 		const raw = JSON.parse(localStorage.getItem(KEY)!);
 		expect(raw[0].tagV).toBeGreaterThanOrEqual(2);
+	});
+});
+
+describe('puzzleDifficulty', () => {
+	it('rates a fresh big blunder or a tactical motif as easy', () => {
+		expect(puzzleDifficulty(practiceItem({ drop: 30 }))).toBe('easy');
+		expect(puzzleDifficulty(practiceItem({ drop: 15, motifs: ['free capture'] }))).toBe('easy');
+	});
+	it('rates a subtle fresh drop with no motif as hard', () => {
+		expect(puzzleDifficulty(practiceItem({ drop: 6 }))).toBe('hard');
+	});
+	it('lets personal history override position features', () => {
+		// nailed it repeatedly → easy despite a subtle drop
+		expect(
+			puzzleDifficulty(practiceItem({ drop: 6, attempts: 4, correct: 4, box: 3 }))
+		).toBe('easy');
+		// keeps failing → hard despite a big drop
+		expect(
+			puzzleDifficulty(practiceItem({ drop: 30, attempts: 3, correct: 0, lastResult: 'fail' }))
+		).toBe('hard');
+	});
+});
+
+describe('masteryStats', () => {
+	it('buckets items into mastered / learning / fresh', () => {
+		const s = masteryStats([
+			practiceItem({ id: 'a', attempts: 0 }), // fresh
+			practiceItem({ id: 'b', attempts: 2, box: 1 }), // learning
+			practiceItem({ id: 'c', attempts: 4, box: 3 }) // mastered
+		]);
+		expect(s).toEqual({ fresh: 1, learning: 1, mastered: 1, total: 3 });
 	});
 });

@@ -37,3 +37,6 @@ src-tauri/gen/
 /test-results
 /playwright-report
 scripts/wasm-engine/
+scripts/maia-spike/
+scripts/maia3-spike/
+scripts/engines/

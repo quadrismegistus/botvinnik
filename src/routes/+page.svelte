@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { onMount, untrack } from 'svelte';
-	import { botDelay, selectBotMove } from '$lib/bot';
+	import { botDelay, selectBotMove, shapedBotMove, shapedSearchDepth } from '$lib/bot';
+	import { personaById, personaInternalElo, type BotPersona } from '$lib/bots';
+	import { estimatePlayerElo } from '$lib/playerElo';
 	import Board from '$lib/components/Board.svelte';
 	import MaterialBar from '$lib/components/MaterialBar.svelte';
 	import BottomSheet from '$lib/components/BottomSheet.svelte';
@@ -19,7 +21,7 @@
 	import SidePanel from '$lib/components/SidePanel.svelte';
 	import UnifiedMovesPanel from '$lib/components/UnifiedMovesPanel.svelte';
 	import { getCommentary, type CommentaryEntry } from '$lib/commentary';
-	import { getPgn, getSan, getState, isPromotionMove, loadFen, makeMove, reset, undo } from '$lib/engine/chess';
+	import { getFenAfter, getPgn, getSan, getState, isPromotionMove, loadFen, makeMove, reset, undo } from '$lib/engine/chess';
 	import {
 		deleteGame,
 		gameAccuracy,
@@ -44,11 +46,14 @@
 		analyze,
 		analyzeBotMove,
 		analyzeMove,
+		analyzeShapedMove,
 		getAnalysisBudget,
 		stopEngine,
 		type EngineMove
 	} from '$lib/engine/stockfish';
 	import { botSpec, botEloMax, botEloMin } from '$lib/engine/botRecipe';
+	import { maiaMove, inMaiaRange, preloadMaia } from '$lib/engine/maia';
+	import { retroMove, preloadRetro } from '$lib/engine/retro';
 	import { computeControl } from '$lib/engine/control';
 	import { findThreat, type Threat } from '$lib/engine/threats';
 	import {
@@ -191,6 +196,16 @@
 	let revealBest = $state(false);
 	let practiceMotif: string | null = $state(null); // drill filter: only items with this motif
 	let hintTier = $state(0); // 0 none, 1 text, 2 origin square, 3 full reveal
+	// drill kind: 'find-best' = the classic "find the strong move" puzzle;
+	// 'blundercheck' = the DEFENSIVE drill — from the position after your played
+	// mistake, find how the opponent punishes it (trains the pre-move scan).
+	let drill: 'find-best' | 'blundercheck' = $state('find-best');
+	let blundercheckActive = $state(false); // this puzzle is currently a blundercheck
+	let puzzleLoading = $state(false); // computing the refutation for a blundercheck
+	let puzzleToken = 0; // guards the async blundercheck load against supersession
+	let easeIn = $state(true); // bias each session toward easier puzzles first (morale on-ramp)
+	let sessionSolved = $state(0); // passes this practice session (for the progress readout)
+	let sessionStreak = $state(0); // consecutive cold passes this session
 	const practiceDue = $derived(dueCount(practiceItems));
 
 	// tier-1 hint text, drawn from the same motif detectors — names the fact
@@ -342,10 +357,22 @@
 	const BOT_KEY = 'botvinnik-bot-v1';
 	let botEnabled = $state(false);
 	let botColor: 'w' | 'b' = $state('b'); // side the bot plays
-	let botElo = $state(1500);
+	let botElo = $state(1500); // custom-mode slider (app-internal WASM scale)
+	let botHuman = $state(false); // custom mode: human-like (Maia) in the 1100–1900 band
+	let botPersonaId: string | null = $state('square-1000'); // roster bot; null = custom slider
 	let botThinking = $state(false);
 	let botConsidering: string | null = $state(null); // uci the bot is eyeing right now
+	// true once ANY move this game came from the Stockfish stand-in rather than
+	// the persona's own engine (net failed to load, worker died…) — shown in the
+	// panel and recorded on the saved game so those results can be excluded
+	let botFellBack = $state(false);
 	let botSettingsLoaded = false;
+	const botPersona: BotPersona | null = $derived(personaById(botPersonaId));
+	// player rating fit from persona-game results (display scale, bots fixed)
+	const playerEloEstimate = $derived(estimatePlayerElo(storedGames));
+	// per-game seed for the shaped bot's sticky tactic-misses (what it doesn't
+	// see this game, it keeps not seeing); re-rolled on every board reset
+	let botGameSeed = $state(`s${Math.floor(Math.random() * 1e9)}`);
 
 	$effect(() => {
 		practiceItems = loadItems();
@@ -360,10 +387,16 @@
 				// (the old slider went to 3600; the honest ceiling is now botEloMax)
 				if (typeof bot.elo === 'number' && bot.elo >= 100)
 					botElo = Math.max(botEloMin(), Math.min(botEloMax(), bot.elo));
+				botHuman = !!bot.human;
+				// personaId absent in legacy settings ⇒ they were using the slider
+				botPersonaId =
+					'personaId' in bot && personaById(bot.personaId) ? bot.personaId : null;
 			}
 		} catch {
 			// ignore malformed settings
 		}
+		drill = localStorage.getItem('botvinnik-practice-drill') === 'blundercheck' ? 'blundercheck' : 'find-best';
+		easeIn = localStorage.getItem('botvinnik-practice-easein') !== '0';
 		blindMode = localStorage.getItem('botvinnik-blind') === '1';
 		showThreats = localStorage.getItem('botvinnik-threats') !== '0';
 		showControl = localStorage.getItem('botvinnik-control') === '1';
@@ -394,8 +427,22 @@
 
 
 	$effect(() => {
-		const settings = { enabled: botEnabled, color: botColor, elo: botElo };
+		const settings = {
+			enabled: botEnabled,
+			color: botColor,
+			elo: botElo,
+			human: botHuman,
+			personaId: botPersonaId
+		};
 		if (botSettingsLoaded) localStorage.setItem(BOT_KEY, JSON.stringify(settings));
+	});
+
+	// warm the Maia net / retro wasm ahead of the first move
+	$effect(() => {
+		if (!botEnabled) return;
+		if (botPersona?.maiaBand) preloadMaia(botPersona.maiaBand);
+		else if (botPersona?.retro) preloadRetro(botPersona.retro);
+		else if (!botPersona && botHuman && inMaiaRange(botElo)) preloadMaia(botElo);
 	});
 
 	function setCollectThreshold(n: number) {
@@ -501,30 +548,71 @@
 	// pick the bot's reply with a dedicated strength-limited search (runs
 	// concurrently with the thinking delay); softmax over the full-strength
 	// lines is the fallback if that search yields nothing
+	// the game's FENs oldest-first, for Maia's history planes (chess.js moves
+	// carry before/after FENs, so no replay needed)
+	function maiaFenHistory(): string[] {
+		const ms = game.moves;
+		return ms.length === 0 ? [game.fen] : [ms[0].before, ...ms.map((m) => m.after)];
+	}
+
+	// the Stockfish path: strength-limited search, then sample per the band spec
+	async function stockfishBotMove(elo: number = botElo): Promise<string | null> {
+		const res = await analyzeBotMove(game.fen, elo, (moves) => {
+			botConsidering = moves[0]?.pv[0] ?? null;
+		});
+		botConsidering = null;
+		const spec = botSpec(elo);
+		const specAlpha = spec.kind === 'sampler' ? spec.alpha : undefined;
+		return spec.kind === 'sampler' && res.moves.length > 0
+			? selectBotMove(res.moves, elo, spec.alpha)
+			: res.bestmove && res.bestmove !== '(none)'
+				? res.bestmove
+				: selectBotMove(engineMoves, elo, specAlpha);
+	}
+
+	// the shaped path (Squares): full-strength wide search at the label's
+	// calibrated depth, then the miss-the-tactic choice layer with this game's
+	// sticky-miss seed
+	async function shapedAppMove(label: number): Promise<string | null> {
+		const res = await analyzeShapedMove(game.fen, shapedSearchDepth(label), (moves) => {
+			botConsidering = moves[0]?.pv[0] ?? null;
+		});
+		botConsidering = null;
+		return shapedBotMove(res.moves, label, undefined, botGameSeed);
+	}
+
 	async function maybeBotMove(token: number) {
 		if (!botEnabled || mode !== 'play' || game.isGameOver || game.turn !== botColor) return;
 		botThinking = true;
-		const [res] = await Promise.all([
-			analyzeBotMove(game.fen, botElo, (moves) => {
-				botConsidering = moves[0]?.pv[0] ?? null;
-			}),
-			new Promise((r) => setTimeout(r, botDelay()))
-		]);
+		// roster personas bind the mechanism directly; custom mode keeps the old
+		// slider behavior (Maia toggle in its band, else numeric Stockfish).
+		// Maia falls back to Stockfish at the persona's strength if its net
+		// can't load.
+		const p = botPersona;
+		// engines that can fail to produce a move (net not loaded, worker down)
+		// fall back to Stockfish at the persona's strength
+		const fallible = p ? !!p.maiaBand || !!p.retro : botHuman && inMaiaRange(botElo);
+		const compute = p?.shapedLabel
+			? shapedAppMove(p.shapedLabel)
+			: p?.retro
+				? retroMove(game.fen, p.retro).catch(() => null)
+				: p?.maiaBand
+					? maiaMove(maiaFenHistory(), p.maiaBand).catch(() => null)
+					: p
+						? stockfishBotMove(personaInternalElo(p))
+						: fallible
+							? maiaMove(maiaFenHistory(), botElo).catch(() => null)
+							: stockfishBotMove();
+		const [primary] = await Promise.all([compute, new Promise((r) => setTimeout(r, botDelay()))]);
+		let uci = primary;
+		if (fallible && !uci) {
+			uci = await stockfishBotMove(p ? personaInternalElo(p) : botElo);
+			botFellBack = true; // surface it — a silent stand-in corrupts the rating fit
+		}
 		botThinking = false;
 		botConsidering = null;
 		if (token !== analysisToken || !botEnabled || mode !== 'play') return;
 		if (game.isGameOver || game.turn !== botColor) return;
-		// sampler band: flat-softmax over the wide shallow eval, with the
-		// spec's calibrated exponent; otherwise trust the strength-limited
-		// search's own choice
-		const spec = botSpec(botElo);
-		const specAlpha = spec.kind === 'sampler' ? spec.alpha : undefined;
-		const uci =
-			spec.kind === 'sampler' && res.moves.length > 0
-				? selectBotMove(res.moves, botElo, spec.alpha)
-				: res.bestmove && res.bestmove !== '(none)'
-					? res.bestmove
-					: selectBotMove(engineMoves, botElo, specAlpha);
 		if (uci) applyUci(uci);
 	}
 
@@ -575,8 +663,68 @@
 
 	// ---- practice mode ----
 
-	function loadPuzzle(item: PracticeItem) {
+	async function loadPuzzle(item: PracticeItem, forceDrill?: 'find-best' | 'blundercheck') {
+		const token = ++puzzleToken;
 		currentItem = item;
+		lineDepth = 0;
+		attempt = null;
+		attemptGrade = null;
+		lineNote = null;
+		revealBest = false;
+		hintTier = 0;
+
+		// Blundercheck: set up the position AFTER the played mistake and make the
+		// opponent's best reply (the punishment) the target — the whole grade /
+		// hint / explain / spaced-rep path then works unchanged, just from the
+		// defensive side. Needs a live search for the refutation (not stored).
+		if ((forceDrill ?? drill) === 'blundercheck') {
+			const afterFen = getFenAfter(item.fen, item.playedUci);
+			if (afterFen) {
+				blundercheckActive = true;
+				practiceRef = null;
+				puzzleLoading = true;
+				// show the position BEFORE your mistake (opponent's setup highlighted)…
+				loadFen(item.fen);
+				const setup = puzzleSetupMove(item);
+				lastMove = setup ? [setup.slice(0, 2), setup.slice(2, 4)] : null;
+				refresh();
+				const searchP = analyze(afterFen, 16, () => {}); // find the punishment meanwhile
+				// …then animate YOUR mistake sliding into place, so you SEE what you played
+				await new Promise((r) => setTimeout(r, 550));
+				if (token !== puzzleToken) return; // a newer puzzle superseded this load
+				const pm = makeMove(
+					item.playedUci.slice(0, 2),
+					item.playedUci.slice(2, 4),
+					item.playedUci.length > 4 ? item.playedUci[4] : undefined
+				);
+				if (pm) {
+					lastMove = [pm.from, pm.to];
+					refresh();
+				}
+				const res = await searchP;
+				if (token !== puzzleToken) return;
+				puzzleLoading = false;
+				const top = res.moves[0];
+				if (pm && top?.pv[0]) {
+					practiceRef = {
+						fen: afterFen,
+						bestUci: top.pv[0],
+						bestSan: getSan(afterFen, top.pv[0]),
+						evalBest: top.mate === null ? top.score : top.mate > 0 ? 15 : -15,
+						mateBest: top.mate,
+						wcBest: winChance(top.mate === null ? top.score : null, top.mate),
+						bestPv: top.pv,
+						depth: top.depth
+					};
+					return;
+				}
+				// no usable reply / illegal replay — fall through to the classic puzzle
+			}
+			blundercheckActive = false;
+		} else {
+			blundercheckActive = false;
+		}
+
 		practiceRef = {
 			fen: item.fen,
 			bestUci: item.bestUci,
@@ -587,12 +735,6 @@
 			bestPv: item.bestPv ?? [item.bestUci],
 			depth: item.depth
 		};
-		lineDepth = 0;
-		attempt = null;
-		attemptGrade = null;
-		lineNote = null;
-		revealBest = false;
-		hintTier = 0;
 		loadFen(item.fen);
 		// replay the opponent's last move so the setup is visible — essential for
 		// en-passant puzzles, where the legal capture is otherwise unknowable
@@ -601,9 +743,24 @@
 		refresh();
 	}
 
+	function setDrill(d: 'find-best' | 'blundercheck') {
+		if (d === drill) return;
+		drill = d;
+		if (botSettingsLoaded) localStorage.setItem('botvinnik-practice-drill', d);
+		if (mode === 'practice' && currentItem) void loadPuzzle(currentItem);
+	}
+
+	// after nailing the punishment, drop into the classic puzzle on the SAME
+	// position: "now find the move you should have played instead"
+	function learnBest() {
+		if (currentItem) void loadPuzzle(currentItem, 'find-best');
+	}
+
 	function startPractice() {
-		const item = nextItem(practiceItems, undefined, undefined, practiceMotif ?? undefined);
+		const item = nextItem(practiceItems, undefined, undefined, practiceMotif ?? undefined, Math.random, easeIn);
 		if (!item) return;
+		sessionSolved = 0;
+		sessionStreak = 0;
 		analysisToken++; // orphan any in-flight play analysis
 		stopEngine();
 		analyzing = false;
@@ -626,7 +783,7 @@
 
 	async function practiceAttempt(from: string, to: string, promotion?: string) {
 		const ref = practiceRef;
-		if (!currentItem || !ref || attempt || grading || continuing) return;
+		if (!currentItem || !ref || attempt || grading || continuing || puzzleLoading) return;
 		const move = makeMove(from, to, promotion);
 		if (!move) return;
 		lastMove = [from, to];
@@ -698,8 +855,16 @@
 		};
 		// only the stored puzzle counts toward spaced repetition, not line continuations;
 		// a hinted pass holds its box rather than promoting
-		if (lineDepth === 0)
+		if (lineDepth === 0) {
 			practiceItems = recordResult(practiceItems, currentItem.id, pass, hintTier > 0);
+			// session progress: solves count passes; the streak is COLD passes only
+			if (pass) {
+				sessionSolved++;
+				sessionStreak = hintTier > 0 ? 0 : sessionStreak + 1;
+			} else {
+				sessionStreak = 0;
+			}
+		}
 	}
 
 	// an InsightsPanel-compatible grade for a practice attempt; pctBest is the
@@ -802,7 +967,7 @@
 	}
 
 	function nextPuzzle() {
-		const item = nextItem(practiceItems, currentItem?.id, undefined, practiceMotif ?? undefined);
+		const item = nextItem(practiceItems, currentItem?.id, undefined, practiceMotif ?? undefined, Math.random, easeIn);
 		if (item) loadPuzzle(item);
 		else {
 			currentItem = null;
@@ -823,7 +988,11 @@
 	function retryPuzzle() {
 		if (!practiceRef) return;
 		loadFen(practiceRef.fen);
-		lastMove = null;
+		// keep the played move on the board as context in a blundercheck drill
+		lastMove =
+			blundercheckActive && currentItem
+				? [currentItem.playedUci.slice(0, 2), currentItem.playedUci.slice(2, 4)]
+				: null;
 		attempt = null;
 		attemptGrade = null;
 		revealBest = false;
@@ -993,7 +1162,11 @@
 		});
 		const result = resultOverride ?? game.result ?? '*';
 		const youAre = botEnabled ? (botColor === 'w' ? 'Black' : 'White') : null;
-		const botName = botEnabled ? `Bot (${botElo})` : 'Analysis';
+		const botName = botEnabled
+			? botPersona
+				? `${botPersona.name} (${botPersona.elo})`
+				: `Bot (${botElo})`
+			: 'Analysis';
 		const record: StoredGame = {
 			id: `g-${Date.now()}-${moves.length}`,
 			endedAt: new Date().toISOString(),
@@ -1004,7 +1177,11 @@
 				Date: new Date().toISOString().slice(0, 10).replaceAll('-', '.'),
 				Result: result
 			}),
-			botElo: botEnabled ? botElo : null,
+			// always the app-internal WASM scale, persona or slider — one scale
+			// for the future player-ELO fit over stored results
+			botElo: botEnabled ? (botPersona ? personaInternalElo(botPersona) : botElo) : null,
+			botPersona: botEnabled && botPersona ? botPersona.id : undefined,
+			botFallback: botEnabled && botFellBack ? true : undefined,
 			botColor: botEnabled ? botColor : null,
 			moveCount: moves.length,
 			whiteAccuracy: gameAccuracy(stored, 'w'),
@@ -1035,6 +1212,8 @@
 		// archive abandoned games of meaningful length before wiping them
 		if (mode === 'play' && !gameSaved && game.moves.length >= 10) void saveCurrentGame();
 		reset();
+		botGameSeed = `s${Math.floor(Math.random() * 1e9)}`; // fresh eyes for the shaped bot
+		botFellBack = false;
 		gameSaved = false;
 		lastMove = null;
 		refresh();
@@ -1161,6 +1340,10 @@
 				bind:elo={botElo}
 				minElo={botEloMin()}
 				maxElo={botEloMax()}
+				bind:human={botHuman}
+				bind:personaId={botPersonaId}
+				playerElo={playerEloEstimate}
+				fellBack={botFellBack}
 				thinking={botThinking}
 				startOpen={isNarrow}
 			/>
@@ -1234,9 +1417,23 @@
 				{continuing}
 				{hintTier}
 				{hint}
+				{drill}
+				blundercheck={blundercheckActive}
+				loading={puzzleLoading}
+				playedSan={currentItem?.playedSan ?? null}
+				drop={currentItem?.drop ?? null}
+				{easeIn}
+				{sessionSolved}
+				{sessionStreak}
 				threshold={collectThreshold}
 				motif={practiceMotif}
 				onmotif={(m) => (practiceMotif = m)}
+				oneasein={(on) => {
+					easeIn = on;
+					if (botSettingsLoaded) localStorage.setItem('botvinnik-practice-easein', on ? '1' : '0');
+				}}
+				ondrill={setDrill}
+				onlearnbest={learnBest}
 				onstart={startPractice}
 				onexit={exitPractice}
 				onnext={nextPuzzle}

@@ -161,6 +161,45 @@ export function dueCount(items: PracticeItem[], now: number = Date.now()): numbe
 	return items.filter((i) => Date.parse(i.dueAt) <= now).length;
 }
 
+export type Difficulty = 'easy' | 'medium' | 'hard';
+const TACTICAL_MOTIFS = ['mate', 'free capture', 'material', 'fork', 'pin', 'skewer'];
+
+// Difficulty FOR THIS PLAYER: grounded in their own attempt history once there
+// is any, falling back to position features (a bigger blunder or a concrete
+// tactical motif is more findable) for fresh items. Drives the list badges and
+// the optional ease-in ordering.
+export function puzzleDifficulty(item: PracticeItem): Difficulty {
+	if (item.attempts >= 2) {
+		const rate = item.correct / item.attempts;
+		if (item.lastResult === 'fail' && rate < 0.5) return 'hard';
+		if (rate >= 0.75 || item.box >= 3) return 'easy';
+		return 'medium';
+	}
+	if (item.box >= 3) return 'easy';
+	const tactical = item.motifs?.some((m) => TACTICAL_MOTIFS.includes(m)) ?? false;
+	if (item.drop >= 25 || (tactical && item.drop >= 12)) return 'easy';
+	if (item.drop < 10 && !tactical) return 'hard';
+	return 'medium';
+}
+
+export interface MasteryStats {
+	mastered: number; // reached box ≥3 (survived a few cold passes)
+	learning: number; // attempted but not yet mastered
+	fresh: number; // never attempted
+	total: number;
+}
+export function masteryStats(items: PracticeItem[]): MasteryStats {
+	let mastered = 0,
+		learning = 0,
+		fresh = 0;
+	for (const i of items) {
+		if (i.attempts === 0) fresh++;
+		else if (i.box >= 3) mastered++;
+		else learning++;
+	}
+	return { mastered, learning, fresh, total: items.length };
+}
+
 // Pick a due item at random, weighted toward the more overdue, so the
 // spaced-repetition priority still holds but you don't replay the exact same
 // order every session. Falls back to the soonest-due upcoming item when
@@ -170,7 +209,8 @@ export function nextItem(
 	excludeId?: string,
 	now: number = Date.now(),
 	motif?: string,
-	rand: () => number = Math.random
+	rand: () => number = Math.random,
+	easyFirst = false
 ): PracticeItem | null {
 	let pool = items.filter((i) => i.id !== excludeId);
 	if (motif) pool = pool.filter((i) => i.motifs?.includes(motif));
@@ -183,8 +223,16 @@ export function nextItem(
 	}
 
 	// weight = minutes overdue + 1, so every due item has a real chance but the
-	// long-overdue ones surface more often
-	const weights = due.map((i) => Math.max(1, (now - Date.parse(i.dueAt)) / 60_000 + 1));
+	// long-overdue ones surface more often; ease-in additionally tilts toward the
+	// easier ones (they still all appear — hard ones just come up less early)
+	const weights = due.map((i) => {
+		let w = Math.max(1, (now - Date.parse(i.dueAt)) / 60_000 + 1);
+		if (easyFirst) {
+			const d = puzzleDifficulty(i);
+			w *= d === 'easy' ? 3 : d === 'hard' ? 0.5 : 1;
+		}
+		return w;
+	});
 	const total = weights.reduce((a, b) => a + b, 0);
 	let r = rand() * total;
 	for (let k = 0; k < due.length; k++) {
