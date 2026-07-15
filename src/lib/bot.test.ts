@@ -129,6 +129,19 @@ describe('shapedBotMove', () => {
 		expect(counts.get('d1h5')! / 4000).toBeGreaterThan(0.9);
 	});
 
+	it('short mates are far more visible than deep tactics (no donated M1s)', () => {
+		// mate-in-1 as the only winning move: second-best is LOSING (win < 85 ⇒
+		// tactical branch, not conversion). At 600 the flat missProb is 60%, but
+		// the mate-visibility discount cuts it to ~15%.
+		const mate1 = [line('d8h4', 0, 1, 1), line('g7g6', -3.0, 2), line('f7f6', -5.0, 3)];
+		const counts = tally(() => shapedBotMove(mate1, 600));
+		expect(counts.get('d8h4')! / 4000).toBeGreaterThan(0.78);
+		// same shape but a quiet win instead of mate ⇒ full miss rate applies
+		const deep = [line('d8h4', 9.0, 1), line('g7g6', -3.0, 2), line('f7f6', -5.0, 3)];
+		const deepCounts = tally(() => shapedBotMove(deep, 600));
+		expect(deepCounts.get('d8h4')! / 4000).toBeLessThan(0.6);
+	});
+
 	it('sticky misses: with a seed, the same tactic stays seen or unseen all game', () => {
 		// Without a seed the per-move re-roll makes eventually-capturing a hanging
 		// piece a certainty; with a per-game seed the decision is a function of
@@ -157,14 +170,14 @@ describe('shapedBotMove', () => {
 
 describe('shapedLabelFor', () => {
 	it('inverts the measured curve at the knots', () => {
-		expect(shapedLabelFor(770)).toBe(600);
-		expect(shapedLabelFor(1330)).toBe(1200);
-		expect(shapedLabelFor(1935)).toBe(1500);
+		expect(shapedLabelFor(768)).toBe(600);
+		expect(shapedLabelFor(1357)).toBe(1200);
+		expect(shapedLabelFor(1971)).toBe(1500);
 	});
 
 	it('interpolates between knots and clamps outside the measured range', () => {
-		// halfway 1000→1156 strength ⇒ halfway 900→1050 label
-		expect(shapedLabelFor(1078)).toBe(975);
+		// halfway 1048→1225 strength ⇒ halfway 900→1050 label
+		expect(shapedLabelFor(1136.5)).toBe(975);
 		expect(shapedLabelFor(200)).toBe(600); // below floor
 		expect(shapedLabelFor(2500)).toBe(1500); // above ceiling
 	});
@@ -184,12 +197,12 @@ describe('shapedLabelFor per substrate', () => {
 		const { setBotSubstrate } = await import('./engine/botRecipe');
 		try {
 			setBotSubstrate('native');
-			expect(shapedLabelFor(691)).toBe(600); // native knot
-			expect(shapedLabelFor(1955)).toBe(1500);
+			expect(shapedLabelFor(756)).toBe(600); // native knot
+			expect(shapedLabelFor(2024)).toBe(1500);
 			// same target maps to different labels per substrate near the seams
 			setBotSubstrate('wasm');
-			expect(shapedLabelFor(1955)).toBe(1500); // clamped above wasm ceiling 1935
-			expect(shapedLabelFor(770)).toBe(600);
+			expect(shapedLabelFor(2024)).toBe(1500); // clamped above wasm ceiling 1971
+			expect(shapedLabelFor(768)).toBe(600);
 		} finally {
 			setBotSubstrate('wasm');
 		}

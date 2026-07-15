@@ -211,8 +211,15 @@ export function shapedBotMove(
 		// focal point (the best move's destination square): a hanging piece
 		// missed this move stays unseen while it sits there; the bot only "takes
 		// a fresh look" when the tactical focus moves elsewhere.
+		//
+		// VISIBILITY: a flat missProb had Squares donating mate-in-1s (observed
+		// live — Ryan's Square 1300 game). Short mates are the one tactic even
+		// beginners reliably scan for (checks first!), so they're ~4× more
+		// visible; deeper tactics keep the full miss rate.
+		const mateSoon = best.mate !== null && best.mate > 0 && best.mate <= 2;
+		const p = mateSoon ? missProb * 0.25 : missProb;
 		const roll = seed !== undefined ? hash01(`${seed}:${best.pv[0].slice(2, 4)}`) : Math.random();
-		if (roll >= missProb) return best.pv[0];
+		if (roll >= p) return best.pv[0];
 		// …or it doesn't. Choose among the REST as if the best move didn't exist —
 		// still preferring the more plausible of what it can see. No severity cap:
 		// missing the only defence is exactly how a won game gets lost.
@@ -236,10 +243,12 @@ export function shapedBotMove(
 // The label→strength curves, measured per substrate on the honest UCI_Elo
 // ruler (n=50/pair: internal ladder at 150-pt label steps + upper bands vs
 // ucielo:1320/1600/2000:mt400, BT fit rebased so ucielo:1320 = 1320).
-//   wasm:   data/bot-shaped-calib.json (2026-07-14, with directional
-//           conversion) — the web lite-single engine.
-//   native: data/bot-shaped-native-calib.json (2026-07-15) — the EXACT
-//           big-net sidecar the Tauri app ships.
+//   wasm:   data/bot-shaped-calib.json — the web lite-single engine.
+//   native: data/bot-shaped-native-calib.json — the EXACT big-net sidecar
+//           the Tauri app ships.
+//   both:   remeasured 2026-07-15 WITH the mate-visibility discount
+//           (short mates ~4x more visible), which nudged the middle bands
+//           up ~30-70 — the price of not donating mate-in-1s.
 // The two curves agree within cross-run noise (±60-80): the miss-the-tactic
 // choice layer dominates so completely that backbone net quality barely
 // moves strength — the weakening really does live in the choice, not the
@@ -247,22 +256,22 @@ export function shapedBotMove(
 // so the app inverts: given a target ELO, find the label that MEASURES there.
 const SHAPED_KNOTS: Record<Substrate, { label: number; strength: number }[]> = {
 	wasm: [
-		{ label: 600, strength: 770 },
-		{ label: 750, strength: 870 },
-		{ label: 900, strength: 1000 },
-		{ label: 1050, strength: 1156 },
-		{ label: 1200, strength: 1330 },
-		{ label: 1350, strength: 1654 },
-		{ label: 1500, strength: 1935 }
+		{ label: 600, strength: 768 },
+		{ label: 750, strength: 904 },
+		{ label: 900, strength: 1048 },
+		{ label: 1050, strength: 1225 },
+		{ label: 1200, strength: 1357 },
+		{ label: 1350, strength: 1641 },
+		{ label: 1500, strength: 1971 }
 	],
 	native: [
-		{ label: 600, strength: 691 },
-		{ label: 750, strength: 856 },
-		{ label: 900, strength: 942 },
-		{ label: 1050, strength: 1141 },
-		{ label: 1200, strength: 1290 },
-		{ label: 1350, strength: 1591 },
-		{ label: 1500, strength: 1955 }
+		{ label: 600, strength: 756 },
+		{ label: 750, strength: 815 },
+		{ label: 900, strength: 982 },
+		{ label: 1050, strength: 1153 },
+		{ label: 1200, strength: 1368 },
+		{ label: 1350, strength: 1639 },
+		{ label: 1500, strength: 2024 }
 	]
 };
 
