@@ -121,7 +121,7 @@ Shipped so far:
   | Patricia | CCRL ~3500; @PatriciaBot 2741b/2705r, @littlePatricia 1800b/2069r (11k games) | UCI_Elo **500**–3000 (claimed calibrated) + Skill 1–20 | emscripten build needed (hard) | native build, UCI (easy) | MIT | low-end ruler (VERIFY first); aggressive persona (Tauri) |
   | Maia-3 | ~1500–2100 lichess-equiv (our anchoring runs) | real ELO-dial input | 44MB ONNX port, pipeline known (medium) | done (`maia-node.mts`) | GPL-3 weights | human-style personas 1750–2100 |
   | sunfish | @sunfish-engine ~1957b/1961r (~1000 games) | none | JS port / pyodide (medium-hard) | today (UCI stdin) | GPL-3 | readable ~1950 character |
-  | Garbochess-JS | unmeasured (~2200–2500?; harness can measure) | none | **native JS + WebWorkers — zero port** | thin node UCI shim (~half-day, own API not UCI) | BSD-3 (LICENSE file; GitHub misclassifies) | web-native strong persona; JS engine substrate for experiments |
+  | Garbochess-JS | **@GarboBot: 1931 blitz / 2021 rapid, 90k+ lichess games** — measured! | none | **native JS + WebWorkers — zero port** | thin node UCI shim (~half-day, own API not UCI) | BSD-3 (LICENSE file; GitHub misclassifies) | web-native ~2000 persona, now lichess-anchored |
   | js-chess-engine | unmeasured — IN THE GYM (overnight run 2026-07-15) | levels 1–5 + depth/quiescence knobs | **npm import — easiest of all** (TS, zero deps, maintained 2026) | done: `scripts/shims/jsce-uci.mjs` | MIT | level 1 hangs pieces (no quiescence = horizon effect) — possibly the first ARCHITECTURALLY beginner-weak engine; measure, then maybe persona AND low-end corroboration |
   | Wasabi (mhonert/chess) | unmeasured | 6 levels | **already WASM + WebWorkers** (AssemblyScript; that's its point) | standalone UCI build exists (WASI — needs wasmtime or node WASI) | GPL-3 | web-native persona; author's stronger successor is Velvet (Rust) |
   | VanillaJSChess | author: "under 1300"; Ryan easily beat it (he's ~1300 on our ladder) | none | engine tangled into the page — no module, no npm | no UCI; extraction needed | GPL-3, dead 2021 | PASS — same class as jsce (shallow JS minimax) with worse packaging; revisit only if jsce disappoints |
@@ -170,6 +170,30 @@ Shipped so far:
   "500 floor" table is v3-era folklore until measured) —
   `scripts/run-gym-overnight.sh` → data/bot-gym-ext.json.
 
+- **THE LICHESS BOT LADDER (found by Ryan 2026-07-15, via
+  lichess.org/player/bots) — the sub-1320 "desert" has real oases.**
+  Human-anchored bot accounts, rapid ratings, big samples:
+  uSunfish-l0 **1029** (6.5k games, MicroPython sunfish easiest setting) ·
+  dala-900 **1095** (1.5k, BT4 transformer trained ONLY on ~900-band human
+  games — imitation still runs ~+150-200 hot, but lands far below Maia's
+  argmax floor) · bernstein-2ply **1198** (15.5k, re-impl of the 1957
+  Bernstein IBM 704 program) · sargon-1ply **1228** (48k, re-impl of 1978
+  SARGON at 1 ply) · Humaia **1379** (23k, maia-1400 SAMPLED — see below) ·
+  maia1 1572 · sunfish 1961 · GarboBot 2021 · littlePatricia 2069.
+  TODO: find the sargon/bernstein/uSunfish sources (they're
+  re-implementations, likely on GitHub) — any that run locally become
+  two-sided bridges: same config in our gym + real lichess rating.
+- **SAMPLED MAIA (the Humaia insight) — argmax was the compression.**
+  Our Maia bands all measured ~1850 because both call sites default to
+  temperature 0 = play the policy's argmax: the population's consensus
+  move every time, far stronger than any individual in the population.
+  @Humaia runs the same class of net with moves SAMPLED from the policy
+  and rates AT LABEL (1330-1380, 20k+ games). Harness now supports
+  `maia-t1:BAND` (temperature-1 sampling); `run-maia-sampled.sh` measures
+  the sampled ladder vs shaped bands + rulers, with a maia-t1 vs argmax
+  control pair. If sampling recovers the nominal ladder, the roster's
+  Maias drop to their true bands and cover 1100-1900 honestly (app change:
+  pass temperature 1 in maybeBotMove's maiaMove call).
 - **Put our bots ON lichess (the calibration endgame).** A BOT account
   per Square (e.g. Square-900): create fresh account → upgrade via
   `/api/bot/account/upgrade` (irreversible, needs 0 games played) → run

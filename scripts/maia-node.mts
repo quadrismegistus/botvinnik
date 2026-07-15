@@ -16,11 +16,21 @@ const MODEL_DIR = 'data/maia-models'; // gitignored, like the other calibration 
 const modelUrl = (band: number) =>
 	`https://huggingface.co/shermansiu/maia-${band}/resolve/main/model.onnx`;
 
+// "maia:1500" plays the ARGMAX (most-likely human) move; "maia-t1:1500" SAMPLES
+// from the policy at temperature 1. The distinction is everything: lichess's
+// @Humaia (maia-1400 net, sampled) rates 1330-1380 — at label — over 20k+
+// human games, while our argmax bands all measured ~1850 (strength-compressed).
+// Argmax plays the population's consensus move every time, which is far
+// stronger than any individual in the population; sampling reproduces the
+// population itself.
 export function isMaiaId(id: string): boolean {
-	return id.startsWith('maia:');
+	return id.startsWith('maia:') || id.startsWith('maia-t1:');
 }
 export function maiaBandOf(id: string): number {
 	return Number(id.split(':')[1]);
+}
+export function maiaTempOf(id: string): number {
+	return id.startsWith('maia-t1:') ? 1 : 0;
 }
 
 interface Loaded {

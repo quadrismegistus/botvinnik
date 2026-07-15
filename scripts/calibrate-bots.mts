@@ -44,7 +44,7 @@ import {
 	type Substrate
 } from '../src/lib/engine/botRecipe';
 import type { EngineMove } from '../src/lib/engine/stockfish';
-import { isMaiaId, maiaBandOf, maiaMoveNode, preloadMaiaBands } from './maia-node.mts';
+import { isMaiaId, maiaBandOf, maiaMoveNode, maiaTempOf, preloadMaiaBands } from './maia-node.mts';
 import { isMaia3Id, maia3EloOf, maiaMove3Node, preloadMaia3 } from './maia3-node.mts';
 
 // ---------- args ----------
@@ -351,7 +351,7 @@ async function playGame(
 		const uci = isMaia3Id(mover)
 			? await maiaMove3Node(chess.fen(), maia3EloOf(mover))
 			: isMaiaId(mover)
-				? await maiaMoveNode(fenHistory(chess), maiaBandOf(mover))
+				? await maiaMoveNode(fenHistory(chess), maiaBandOf(mover), maiaTempOf(mover))
 				: isShapedId(mover)
 					? await shapedMove(engine, chess.fen(), shapedEloOf(mover), `${gameSeed}:${mover}`)
 					: isExtId(mover)
