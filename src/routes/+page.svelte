@@ -55,6 +55,7 @@
 	import { maiaMove, inMaiaRange, preloadMaia } from '$lib/engine/maia';
 	import { retroMove, preloadRetro } from '$lib/engine/retro';
 	import { dalaMove, preloadDala, onDalaDownload } from '$lib/engine/dala';
+	import { jsceMove } from '$lib/engine/jsce';
 	import { computeControl } from '$lib/engine/control';
 	import { findThreat, type Threat } from '$lib/engine/threats';
 	import {
@@ -598,7 +599,7 @@
 		// engines that can fail to produce a move (net not loaded, worker down)
 		// fall back to Stockfish at the persona's strength
 		const fallible = p
-			? !!p.maiaBand || !!p.retro || !!p.dalaBand
+			? !!p.maiaBand || !!p.retro || !!p.dalaBand || !!p.jsceLevel
 			: botHuman && inMaiaRange(botElo);
 		// square labels resolve at MOVE time, not roster-build time: the label
 		// depends on the active substrate's measured curve (web wasm vs the
@@ -607,6 +608,8 @@
 			? shapedAppMove(shapedLabelFor(personaInternalElo(p)))
 			: p?.retro
 				? retroMove(game.fen, p.retro).catch(() => null)
+				: p?.jsceLevel
+					? jsceMove(game.fen, p.jsceLevel).catch(() => null)
 				: p?.dalaBand
 					? dalaMove(game.fen, p.dalaBand).catch(() => null)
 					: p?.maiaBand

@@ -24,7 +24,7 @@ import type { RetroSpec } from './engine/retro';
 /** WASM-numeric scale ≈ lichess-rapid + 240 (maia1 bridge, club-range anchors). */
 export const SCALE_OFFSET = 240;
 
-export type BotFamily = 'square' | 'maia' | 'fish' | 'retro' | 'dala';
+export type BotFamily = 'square' | 'maia' | 'fish' | 'retro' | 'dala' | 'horizon';
 
 export interface BotPersona {
 	id: string; // stable key: persisted in settings and stored games
@@ -44,6 +44,8 @@ export interface BotPersona {
 	retro?: RetroSpec;
 	/** dala: imitation-net bracket (700/900/1300) — native (Tauri) only */
 	dalaBand?: number;
+	/** horizon: js-chess-engine difficulty level (1-2 shipped) */
+	jsceLevel?: number;
 	/** persona needs the native shell (lc0 sidecar); hidden in the web roster */
 	nativeOnly?: boolean;
 }
@@ -155,11 +157,31 @@ function dala(displayElo: number, band: number): BotPersona {
 	};
 }
 
+// The Horizon personas: js-chess-engine at levels 1-2 — no quiescence, so it
+// starts exchanges it can't see the end of (the horizon effect). Gym-measured
+// 535/860 lichess-equiv vs honest rulers; search-family, so no pool gap (the
+// retro finding). Extends the roster BELOW the Squares' floor.
+function horizon(displayElo: number, level: number): BotPersona {
+	return {
+		id: `horizon-${level}`,
+		name: `Horizon ${displayElo}`,
+		elo: displayElo,
+		family: 'horizon',
+		blurb:
+			level === 1
+				? 'A tiny JavaScript engine that cannot see past its own captures — it takes, you take back, it is surprised. The weakest honest engine we could find.'
+				: 'One ply deeper than its little sibling: still starts exchanges it cannot finish, but needs slightly more convincing.',
+		jsceLevel: level
+	};
+}
+
 // 12 Squares (600-1700) + 3 Maias (real @maia lichess ratings) + 3 retro
 // engines (real morlock-bot lichess ratings) + 3 Dalas (desktop only, real
 // dala-bot lichess ratings) + 8 Fish (1800-2500; internal 2040-2740, inside
 // the WASM honest ceiling 2800) = 29 (26 on the web).
 export const PERSONAS: BotPersona[] = [
+	horizon(550, 1),
+	horizon(860, 2),
 	...[600, 700, 800, 900, 1000, 1100, 1200, 1300, 1400, 1500, 1600, 1700].map(square),
 	...RETROS,
 	dala(911, 700),
