@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { ROOK_TAKES_QUEEN_ITEM, waitForEngineReady } from './helpers';
+import { openMode, ROOK_TAKES_QUEEN_ITEM, waitForEngineReady } from './helpers';
 
 test('backup exports, imports into a fresh profile, and dedupes', async ({ browser }) => {
 	// context A: seeded data, export
@@ -28,7 +28,9 @@ test('backup exports, imports into a fresh profile, and dedupes', async ({ brows
 
 	await pageB.locator('.data-row input[type=file]').setInputFiles(file);
 	await expect(pageB.locator('.import-msg')).toContainText('Imported 1 practice position');
-	await expect(pageB.locator('.side-panel .badge', { hasText: 'due' })).toContainText('1 due / 1');
+	await openMode(pageB, 'Practice');
+	await expect(pageB.locator('.practice-panel')).toContainText('1 position · 1 due');
+	await openMode(pageB, 'Play');
 
 	// re-import is a no-op
 	await pageB.locator('.data-row input[type=file]').setInputFiles(file);

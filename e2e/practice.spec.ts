@@ -1,11 +1,11 @@
 import { expect, test } from '@playwright/test';
-import { clickSquare, openSidePanel, seedPracticeItem, waitForApp } from './helpers';
+import { clickSquare, openMode, seedPracticeItem, waitForApp } from './helpers';
 
 test('practice loop: fail, retry, pass with insight card, continue the line', async ({ page }) => {
 	await seedPracticeItem(page);
 	await waitForApp(page);
 
-	await openSidePanel(page, 'Practice');
+	await openMode(page, 'Practice');
 	await page.locator('.practice-panel button', { hasText: 'Start practice' }).click();
 	await page.waitForSelector('.practice-panel .toolbar');
 
