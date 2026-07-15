@@ -170,14 +170,14 @@ describe('shapedBotMove', () => {
 
 describe('shapedLabelFor', () => {
 	it('inverts the measured curve at the knots', () => {
-		expect(shapedLabelFor(770)).toBe(600);
-		expect(shapedLabelFor(1330)).toBe(1200);
-		expect(shapedLabelFor(1935)).toBe(1500);
+		expect(shapedLabelFor(768)).toBe(600);
+		expect(shapedLabelFor(1357)).toBe(1200);
+		expect(shapedLabelFor(1971)).toBe(1500);
 	});
 
 	it('interpolates between knots and clamps outside the measured range', () => {
-		// halfway 1000→1156 strength ⇒ halfway 900→1050 label
-		expect(shapedLabelFor(1078)).toBe(975);
+		// halfway 1048→1225 strength ⇒ halfway 900→1050 label
+		expect(shapedLabelFor(1136.5)).toBe(975);
 		expect(shapedLabelFor(200)).toBe(600); // below floor
 		expect(shapedLabelFor(2500)).toBe(1500); // above ceiling
 	});
@@ -197,12 +197,12 @@ describe('shapedLabelFor per substrate', () => {
 		const { setBotSubstrate } = await import('./engine/botRecipe');
 		try {
 			setBotSubstrate('native');
-			expect(shapedLabelFor(691)).toBe(600); // native knot
-			expect(shapedLabelFor(1955)).toBe(1500);
+			expect(shapedLabelFor(756)).toBe(600); // native knot
+			expect(shapedLabelFor(2024)).toBe(1500);
 			// same target maps to different labels per substrate near the seams
 			setBotSubstrate('wasm');
-			expect(shapedLabelFor(1955)).toBe(1500); // clamped above wasm ceiling 1935
-			expect(shapedLabelFor(770)).toBe(600);
+			expect(shapedLabelFor(2024)).toBe(1500); // clamped above wasm ceiling 1971
+			expect(shapedLabelFor(768)).toBe(600);
 		} finally {
 			setBotSubstrate('wasm');
 		}
