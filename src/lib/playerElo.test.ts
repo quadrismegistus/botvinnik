@@ -70,3 +70,25 @@ describe('estimatePlayerElo', () => {
 		expect(eight.se).toBeLessThan(two.se);
 	});
 });
+
+describe('fallback exclusion', () => {
+	it('games where the stand-in moved are off the ruler', async () => {
+		const { estimatePlayerElo } = await import('./playerElo');
+		const g = {
+			id: 't-fb',
+			endedAt: '2026-07-15T00:00:00Z',
+			result: '0-1',
+			pgn: '',
+			botElo: 0,
+			botPersona: 'retro-bernstein-2',
+			botFallback: true,
+			botColor: 'w' as const,
+			moveCount: 30,
+			whiteAccuracy: null,
+			blackAccuracy: null,
+			labelCounts: { w: {}, b: {} },
+			moves: []
+		};
+		expect(estimatePlayerElo([g])).toBeNull();
+	});
+});

@@ -362,6 +362,10 @@
 	let botPersonaId: string | null = $state('square-1000'); // roster bot; null = custom slider
 	let botThinking = $state(false);
 	let botConsidering: string | null = $state(null); // uci the bot is eyeing right now
+	// true once ANY move this game came from the Stockfish stand-in rather than
+	// the persona's own engine (net failed to load, worker died…) — shown in the
+	// panel and recorded on the saved game so those results can be excluded
+	let botFellBack = $state(false);
 	let botSettingsLoaded = false;
 	const botPersona: BotPersona | null = $derived(personaById(botPersonaId));
 	// player rating fit from persona-game results (display scale, bots fixed)
@@ -601,7 +605,10 @@
 							: stockfishBotMove();
 		const [primary] = await Promise.all([compute, new Promise((r) => setTimeout(r, botDelay()))]);
 		let uci = primary;
-		if (fallible && !uci) uci = await stockfishBotMove(p ? personaInternalElo(p) : botElo);
+		if (fallible && !uci) {
+			uci = await stockfishBotMove(p ? personaInternalElo(p) : botElo);
+			botFellBack = true; // surface it — a silent stand-in corrupts the rating fit
+		}
 		botThinking = false;
 		botConsidering = null;
 		if (token !== analysisToken || !botEnabled || mode !== 'play') return;
@@ -1174,6 +1181,7 @@
 			// for the future player-ELO fit over stored results
 			botElo: botEnabled ? (botPersona ? personaInternalElo(botPersona) : botElo) : null,
 			botPersona: botEnabled && botPersona ? botPersona.id : undefined,
+			botFallback: botEnabled && botFellBack ? true : undefined,
 			botColor: botEnabled ? botColor : null,
 			moveCount: moves.length,
 			whiteAccuracy: gameAccuracy(stored, 'w'),
@@ -1205,6 +1213,7 @@
 		if (mode === 'play' && !gameSaved && game.moves.length >= 10) void saveCurrentGame();
 		reset();
 		botGameSeed = `s${Math.floor(Math.random() * 1e9)}`; // fresh eyes for the shaped bot
+		botFellBack = false;
 		gameSaved = false;
 		lastMove = null;
 		refresh();
@@ -1334,6 +1343,7 @@
 				bind:human={botHuman}
 				bind:personaId={botPersonaId}
 				playerElo={playerEloEstimate}
+				fellBack={botFellBack}
 				thinking={botThinking}
 				startOpen={isNarrow}
 			/>

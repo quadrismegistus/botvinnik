@@ -12,6 +12,7 @@
 		human?: boolean; // custom mode: human-like (Maia) in the 1100–1900 band
 		personaId: string | null; // selected roster bot; null = custom slider
 		playerElo?: PlayerEloEstimate | null; // fit from stored persona games
+		fellBack?: boolean; // this game used the Stockfish stand-in at least once
 		thinking: boolean;
 		startOpen?: boolean;
 	}
@@ -25,6 +26,7 @@
 		human = $bindable(false),
 		personaId = $bindable(),
 		playerElo = null,
+		fellBack = false,
 		thinking,
 		startOpen = true
 	}: Props = $props();
@@ -51,6 +53,12 @@
 		</button>
 		{#if enabled}
 			<span class="status">
+				{#if fellBack}
+					<span
+						class="fallback"
+						title="The persona's engine failed at least once this game — a Stockfish stand-in moved instead. This game won't count toward your rating.">⚠ stand-in</span
+					>
+				{/if}
 				{thinking ? 'thinking…' : persona ? `${persona.name} · ${persona.elo}` : `${elo} ELO`}
 			</span>
 		{/if}
@@ -170,6 +178,11 @@
 	.status {
 		font-size: 12px;
 		color: var(--text-secondary);
+	}
+	.fallback {
+		color: var(--color-loss, #d66);
+		margin-right: 6px;
+		cursor: help;
 	}
 	.body {
 		margin-top: 8px;

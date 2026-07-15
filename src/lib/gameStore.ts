@@ -37,6 +37,7 @@ export interface StoredGame {
 	pgn: string;
 	botElo: number | null; // app-internal WASM scale (persona games store personaInternalElo)
 	botPersona?: string; // roster persona id (bots.ts); absent for slider/legacy games
+	botFallback?: boolean; // some moves came from the Stockfish stand-in, not the persona's engine
 	botColor: 'w' | 'b' | null; // side the human did NOT play (drives review orientation)
 	moveCount: number;
 	whiteAccuracy: number | null;

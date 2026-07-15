@@ -44,6 +44,7 @@ export function estimatePlayerElo(gamesList: StoredGame[]): PlayerEloEstimate | 
 	for (const g of gamesList) {
 		const p = personaById(g.botPersona);
 		if (!p) continue;
+		if (g.botFallback) continue; // opponent wasn't really the persona — off the ruler
 		const score = playerScore(g);
 		if (score === null) continue;
 		outcomes.push({ opp: p.elo, score });
