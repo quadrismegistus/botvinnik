@@ -54,7 +54,9 @@
 			{#if onresign}
 				<button onclick={onresign}>Resign</button>
 			{/if}
-			<button onclick={onreset}>New</button>
+			{#if onreset}
+				<button onclick={onreset}>New</button>
+			{/if}
 		</div>
 	</div>
 	{#if open}

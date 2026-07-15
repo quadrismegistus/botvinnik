@@ -21,6 +21,7 @@
 		downloading?: boolean; // a dala net is being fetched (59-330MB, first use)
 		thinking: boolean;
 		onchangebot: () => void; // open the roster picker
+		onnewgame: () => void; // reset the board (lives here, not in Moves)
 	}
 
 	let {
@@ -36,7 +37,8 @@
 		fellBack = false,
 		downloading = false,
 		thinking,
-		onchangebot
+		onchangebot,
+		onnewgame
 	}: Props = $props();
 
 	const humanApplies = $derived(elo >= 1100 && elo <= 1900);
@@ -85,7 +87,10 @@
 				{/if}
 			</div>
 		</div>
-		<button class="change" onclick={onchangebot}>Change</button>
+		<div class="actions">
+			<button class="change" onclick={onchangebot}>Change</button>
+			<button class="newgame" onclick={onnewgame}>New game</button>
+		</div>
 	</div>
 
 	{#if persona}
@@ -167,7 +172,14 @@
 	.sub b {
 		color: var(--text-primary);
 	}
-	.change {
+	.actions {
+		display: flex;
+		flex-direction: column;
+		gap: 5px;
+		flex-shrink: 0;
+	}
+	.change,
+	.newgame {
 		background: var(--bg-button);
 		color: var(--text-primary);
 		border: 1px solid var(--border);
@@ -175,7 +187,12 @@
 		padding: 3px 12px;
 		font-size: 12px;
 		cursor: pointer;
-		flex-shrink: 0;
+	}
+	.newgame {
+		background: var(--color-win);
+		border-color: var(--color-win);
+		color: var(--bg-panel);
+		font-weight: 600;
 	}
 	.blurb {
 		font-size: 12px;
