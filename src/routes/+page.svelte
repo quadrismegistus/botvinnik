@@ -697,6 +697,7 @@
 		const sansBefore = playedSans;
 		const move = makeMove(from, to, promotion);
 		if (move) {
+			redoStack = []; // a new move kills the undone future
 			lastMove = [from, to];
 			refresh();
 			recordGrade(from + to + (move.promotion ?? ''), move.san, move.color, fenBefore, linesBefore);
@@ -1172,6 +1173,7 @@
 		const sansBefore = playedSans;
 		const move = makeMove(uci.slice(0, 2), uci.slice(2, 4), uci.length > 4 ? uci[4] : undefined);
 		if (move) {
+			redoStack = []; // a new move kills the undone future
 			lastMove = [move.from, move.to];
 			refresh();
 			recordGrade(uci, move.san, move.color, fenBefore, linesBefore);
@@ -1250,16 +1252,58 @@
 		storedGames = [plain, ...storedGames];
 	}
 
+	// undone plies wait here for redo (→ / the Redo button); any NEW move burns
+	// this future. Each entry keeps its discarded grades so redo restores them
+	// without re-searching, and remembers whether the undo counted as a takeback.
+	interface RedoEntry {
+		plies: { from: string; to: string; promotion?: string }[];
+		grades: MoveGrade[];
+		botUndoCounted: boolean;
+	}
+	let redoStack: RedoEntry[] = $state([]);
+
 	function handleUndo() {
+		const before = getState().moves.slice();
 		if (!undo()) return;
 		gameSaved = false; // game continues — allow re-archiving at its new end
-		if (mode === 'play' && botEnabled) botUndos++;
+		const counted = mode === 'play' && botEnabled;
+		if (counted) botUndos++;
 		// vs the bot, take back its reply too so it's your turn again
 		if (botEnabled && getState().turn === botColor) undo();
+		const after = getState().moves.length;
+		redoStack.push({
+			plies: before.slice(after).map((m) => ({ from: m.from, to: m.to, promotion: m.promotion })),
+			grades: moveHistory.filter((g) => g.ply > after),
+			botUndoCounted: counted
+		});
 		const last = getState().moves.at(-1);
 		lastMove = last ? [last.from, last.to] : null;
 		refresh();
 		moveHistory = moveHistory.filter((g) => g.ply <= game.moves.length);
+		runAnalysis();
+	}
+
+	function handleRedo() {
+		if (mode !== 'play') return;
+		if (botEnabled && game.turn === botColor) return; // bot mid-reply
+		const entry = redoStack.at(-1);
+		if (!entry) return;
+		redoStack.pop();
+		for (const p of entry.plies) {
+			if (!makeMove(p.from, p.to, p.promotion)) {
+				redoStack = []; // desynced with the game — drop the stale future
+				refresh();
+				return;
+			}
+		}
+		// a pure undo→redo roundtrip taught you nothing: take the takeback back
+		if (entry.botUndoCounted) botUndos = Math.max(0, botUndos - 1);
+		gameSaved = false;
+		moveHistory = [...moveHistory, ...entry.grades];
+		const last = getState().moves.at(-1);
+		lastMove = last ? [last.from, last.to] : null;
+		refresh();
+		if (game.isGameOver) void saveCurrentGame();
 		runAnalysis();
 	}
 
@@ -1270,6 +1314,7 @@
 		botGameSeed = `s${Math.floor(Math.random() * 1e9)}`; // fresh eyes for the shaped bot
 		botFellBack = false;
 		botUndos = 0;
+		redoStack = [];
 		gameSaved = false;
 		lastMove = null;
 		refresh();
@@ -1312,6 +1357,9 @@
 		} else if (e.key === 'ArrowLeft') {
 			e.preventDefault();
 			handleUndo();
+		} else if (e.key === 'ArrowRight') {
+			e.preventDefault();
+			handleRedo();
 		}
 	}
 
@@ -1464,6 +1512,7 @@
 			<MoveList
 				moves={game.moves}
 				onundo={handleUndo}
+				onredo={redoStack.length > 0 ? handleRedo : undefined}
 				onresign={game.moves.length >= 2 && !game.isGameOver ? handleResign : undefined}
 				onreset={handleReset}
 				startOpen={isNarrow}
