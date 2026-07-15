@@ -55,6 +55,8 @@
 	import { maiaMove, inMaiaRange, preloadMaia } from '$lib/engine/maia';
 	import { retroMove, preloadRetro } from '$lib/engine/retro';
 	import { dalaMove, preloadDala, onDalaDownload } from '$lib/engine/dala';
+	import { jsceMove } from '$lib/engine/jsce';
+	import { garboMove, preloadGarbo } from '$lib/engine/garbo';
 	import { computeControl } from '$lib/engine/control';
 	import { findThreat, type Threat } from '$lib/engine/threats';
 	import {
@@ -377,6 +379,10 @@
 	// a dala net is downloading (Rust emits start/done around the fetch) —
 	// shown as "downloading…" in the panel instead of a mute stall
 	let botDownloading = $state(false);
+	// takebacks used against the bot this game — an assisted result is real
+	// practice but not a clean measurement (chess.com's crowns distinction),
+	// so it's recorded on the game and excluded from the rating fit
+	let botUndos = $state(0);
 	$effect(() => onDalaDownload((active) => (botDownloading = active)));
 
 	$effect(() => {
@@ -448,6 +454,7 @@
 		if (botPersona?.maiaBand) preloadMaia(botPersona.maiaBand);
 		else if (botPersona?.retro) preloadRetro(botPersona.retro);
 		else if (botPersona?.dalaBand) preloadDala(botPersona.dalaBand);
+		else if (botPersona?.garboMs) preloadGarbo();
 		else if (!botPersona && botHuman && inMaiaRange(botElo)) preloadMaia(botElo);
 	});
 
@@ -598,7 +605,7 @@
 		// engines that can fail to produce a move (net not loaded, worker down)
 		// fall back to Stockfish at the persona's strength
 		const fallible = p
-			? !!p.maiaBand || !!p.retro || !!p.dalaBand
+			? !!p.maiaBand || !!p.retro || !!p.dalaBand || !!p.jsceLevel || !!p.garboMs
 			: botHuman && inMaiaRange(botElo);
 		// square labels resolve at MOVE time, not roster-build time: the label
 		// depends on the active substrate's measured curve (web wasm vs the
@@ -607,10 +614,14 @@
 			? shapedAppMove(shapedLabelFor(personaInternalElo(p)))
 			: p?.retro
 				? retroMove(game.fen, p.retro).catch(() => null)
+				: p?.jsceLevel
+					? jsceMove(game.fen, p.jsceLevel).catch(() => null)
+					: p?.garboMs
+						? garboMove(game.fen, p.garboMs).catch(() => null)
 				: p?.dalaBand
 					? dalaMove(game.fen, p.dalaBand).catch(() => null)
 					: p?.maiaBand
-						? maiaMove(maiaFenHistory(), p.maiaBand).catch(() => null)
+						? maiaMove(maiaFenHistory(), p.maiaBand, p.maiaTemp ?? 0).catch(() => null)
 						: p
 							? stockfishBotMove(personaInternalElo(p))
 							: fallible
@@ -1195,6 +1206,7 @@
 			botElo: botEnabled ? (botPersona ? personaInternalElo(botPersona) : botElo) : null,
 			botPersona: botEnabled && botPersona ? botPersona.id : undefined,
 			botFallback: botEnabled && botFellBack ? true : undefined,
+			botUndos: botEnabled && botUndos > 0 ? botUndos : undefined,
 			botColor: botEnabled ? botColor : null,
 			moveCount: moves.length,
 			whiteAccuracy: gameAccuracy(stored, 'w'),
@@ -1212,6 +1224,7 @@
 	function handleUndo() {
 		if (!undo()) return;
 		gameSaved = false; // game continues — allow re-archiving at its new end
+		if (mode === 'play' && botEnabled) botUndos++;
 		// vs the bot, take back its reply too so it's your turn again
 		if (botEnabled && getState().turn === botColor) undo();
 		const last = getState().moves.at(-1);
@@ -1227,6 +1240,7 @@
 		reset();
 		botGameSeed = `s${Math.floor(Math.random() * 1e9)}`; // fresh eyes for the shaped bot
 		botFellBack = false;
+		botUndos = 0;
 		gameSaved = false;
 		lastMove = null;
 		refresh();

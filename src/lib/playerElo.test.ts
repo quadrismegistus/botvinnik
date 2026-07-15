@@ -71,6 +71,28 @@ describe('estimatePlayerElo', () => {
 	});
 });
 
+describe('takeback exclusion', () => {
+	it('assisted games (takebacks used) are off the ruler', async () => {
+		const { estimatePlayerElo } = await import('./playerElo');
+		const g = {
+			id: 't-undo',
+			endedAt: '2026-07-15T00:00:00Z',
+			result: '0-1',
+			pgn: '',
+			botElo: 0,
+			botPersona: 'maia-s-1500',
+			botUndos: 1,
+			botColor: 'w' as const,
+			moveCount: 40,
+			whiteAccuracy: null,
+			blackAccuracy: null,
+			labelCounts: { w: {}, b: {} },
+			moves: []
+		};
+		expect(estimatePlayerElo([g])).toBeNull();
+	});
+});
+
 describe('fallback exclusion', () => {
 	it('games where the stand-in moved are off the ruler', async () => {
 		const { estimatePlayerElo } = await import('./playerElo');

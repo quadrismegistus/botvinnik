@@ -66,7 +66,8 @@
 	function opponent(g: StoredGame): string {
 		if (g.white || g.black) return `${g.white ?? '?'} vs ${g.black ?? '?'}`;
 		if (g.botElo === null) return 'solo analysis';
-		return `vs ${botLabel(g)} as ${g.botColor === 'w' ? 'Black' : 'White'}`;
+		const undos = g.botUndos ? ` · ↩${g.botUndos}` : '';
+		return `vs ${botLabel(g)} as ${g.botColor === 'w' ? 'Black' : 'White'}${undos}`;
 	}
 
 	function mistakes(g: StoredGame, color: 'w' | 'b'): string {

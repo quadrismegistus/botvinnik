@@ -2,19 +2,29 @@ import { describe, it, expect } from 'vitest';
 import { availablePersonas, PERSONAS, personaById, personaInternalElo, SCALE_OFFSET } from './bots';
 
 describe('bot roster', () => {
-	it('has 29 personas: 12 Squares + 3 retros + 3 Dalas + 3 Maias + 8 Fish', () => {
-		expect(PERSONAS.length).toBe(29);
+	it('has 35 personas: 2 Horizons + 12 Squares + 3 retros + 3 Dalas + 6 Maias + Garbo + 8 Fish', () => {
+		expect(PERSONAS.length).toBe(35);
+		expect(PERSONAS.filter((p) => p.family === 'garbo').length).toBe(1);
+		expect(PERSONAS.filter((p) => p.family === 'horizon').length).toBe(2);
 		expect(PERSONAS.filter((p) => p.family === 'square').length).toBe(12);
 		expect(PERSONAS.filter((p) => p.family === 'retro').length).toBe(3);
 		expect(PERSONAS.filter((p) => p.family === 'dala').length).toBe(3);
-		expect(PERSONAS.filter((p) => p.family === 'maia').length).toBe(3);
+		expect(PERSONAS.filter((p) => p.family === 'maia').length).toBe(6);
 		expect(PERSONAS.filter((p) => p.family === 'fish').length).toBe(8);
+	});
+
+	it('sampled Maias: same nets, temperature 1, estimated ratings 260 below argmax', () => {
+		expect(personaById('maia-s-1100')?.maiaTemp).toBe(1);
+		expect(personaById('maia-s-1100')?.elo).toBe(1310);
+		expect(personaById('maia-s-1500')?.elo).toBe(1380);
+		expect(personaById('maia-s-1900')?.elo).toBe(1440);
+		expect(personaById('maia-1100')?.maiaTemp).toBeUndefined(); // argmax untouched
 	});
 
 	it('dala is native-only: hidden from the web roster, present on desktop', () => {
 		expect(availablePersonas(false).filter((p) => p.family === 'dala').length).toBe(0);
-		expect(availablePersonas(false).length).toBe(26);
-		expect(availablePersonas(true).length).toBe(29);
+		expect(availablePersonas(false).length).toBe(32);
+		expect(availablePersonas(true).length).toBe(35);
 	});
 
 	it('dala personas carry the dala lichess bots real human-pool ratings', () => {
@@ -31,7 +41,7 @@ describe('bot roster', () => {
 
 	it('binds each family to exactly one mechanism', () => {
 		for (const p of PERSONAS) {
-			const bindings = [p.shapedLabel, p.maiaBand, p.numericElo, p.retro, p.dalaBand].filter(
+			const bindings = [p.shapedLabel, p.maiaBand, p.numericElo, p.retro, p.dalaBand, p.jsceLevel, p.garboMs].filter(
 				(x) => x !== undefined
 			).length;
 			expect(bindings, p.id).toBe(1);
@@ -40,6 +50,8 @@ describe('bot roster', () => {
 			if (p.family === 'fish') expect(p.numericElo).toBeDefined();
 			if (p.family === 'retro') expect(p.retro).toBeDefined();
 			if (p.family === 'dala') expect(p.dalaBand).toBeDefined();
+			if (p.family === 'horizon') expect(p.jsceLevel).toBeDefined();
+			if (p.family === 'garbo') expect(p.garboMs).toBeDefined();
 		}
 	});
 

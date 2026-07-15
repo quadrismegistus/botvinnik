@@ -57,6 +57,20 @@
 		<path d="M5 9 Q12 5 19 9 M5 12 Q12 8 19 12 M5 15 Q12 11 19 15" fill="none" stroke={fg} stroke-width="1.3" opacity="0.8" />
 		<path d="M8 6 Q12 12 8 18 M12 5.5 Q16 12 12 18.5 M16 6 Q20 12 16 18" fill="none" stroke={fg} stroke-width="1.1" opacity="0.55" />
 		<circle cx={9 + ((h >> 2) % 7)} cy={9 + ((h >> 6) % 6)} r="1.7" fill={fg} />
+	{:else if persona.family === 'horizon'}
+		<!-- a sun sinking below the horizon: it cannot see past the line -->
+		<line x1="4" y1="14" x2="20" y2="14" stroke={fg} stroke-width="1.5" />
+		<path d="M 7.5 14 A 4.5 4.5 0 0 1 16.5 14 Z" fill={fg} opacity="0.9" />
+		<line x1="12" y1="6" x2="12" y2="8" stroke={fg} stroke-width="1.2" opacity="0.6" />
+		<line x1="6.5" y1="8.5" x2="8" y2="10" stroke={fg} stroke-width="1.2" opacity="0.6" />
+		<line x1="17.5" y1="8.5" x2="16" y2="10" stroke={fg} stroke-width="1.2" opacity="0.6" />
+	{:else if persona.family === 'garbo'}
+		<!-- a 2011 browser window: the engine that lived in one -->
+		<rect x="4" y="5" width="16" height="14" rx="1.5" fill="none" stroke={fg} stroke-width="1.4" />
+		<line x1="4" y1="9" x2="20" y2="9" stroke={fg} stroke-width="1.2" opacity="0.7" />
+		<circle cx="6.5" cy="7" r="0.9" fill={fg} />
+		<circle cx="9.3" cy="7" r="0.9" fill={fg} opacity="0.7" />
+		<path d="M8 12 l3 2.5 -3 2.5 M13 17 h4" fill="none" stroke={fg} stroke-width="1.3" />
 	{:else if persona.family === 'retro'}
 		<!-- punch card: the medium these minds originally lived on -->
 		<rect x="4" y="5" width="16" height="14" rx="1.2" fill="none" stroke={fg} stroke-width="1.4" />
