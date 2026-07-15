@@ -183,6 +183,27 @@ Shipped so far:
   TODO: find the sargon/bernstein/uSunfish sources (they're
   re-implementations, likely on GitHub) — any that run locally become
   two-sided bridges: same config in our gym + real lichess rating.
+- **DALA (hrschubert/dala-training) — the low-end human-imitation family
+  that already works.** BT4 transformer nets trained per lichess bracket
+  (700/900/1100/1300/1600/2000, games 2024–2026), deployed with WEIGHTED
+  RANDOM sampling (their README independently formalizes the Humaia/argmax
+  insight, citing Maia's inflation directly). Measured lichess ratings
+  track labels: 700→911, 900→1095, 1300→1315 rapid. Weights in Releases
+  (700/900 ≈ 59MB, others ≈ 330MB, lc0 format). NEXT GYM COHORT: brew
+  install lc0 + sample at temp 1 / 1 node → local bots with KNOWN lichess
+  ratings at 911/1095/1315 = two-sided bridges in exactly our extrapolated
+  range. Web-app use: 59MB pair is Maia-3-sized but needs BT4→ONNX
+  conversion AND weights have NO license — email the author first
+  (3-star repo, May 2026; also ships a modified lichess-bot client we can
+  crib for SquareFish deployment).
+- **slowmate_bot** (~1144 blitz/1312 rapid, few k games): educational UCI
+  engine allegedly written entirely by Copilot agents. Gym-ready anchor
+  candidate in the 1150-1300 band + a conversation piece. Find repo.
+- **ailedbot** (~850 rapid, only ~150 games — provisional): "engine with
+  feelings" gimmick, but the buried good idea is STATE-DEPENDENT play:
+  human missProb isn't fixed, it spikes after losing material (tilt). A
+  per-game tilt multiplier on shapedParams is a cheap future experiment
+  for feel.
 - **SAMPLED MAIA (the Humaia insight) — argmax was the compression.**
   Our Maia bands all measured ~1850 because both call sites default to
   temperature 0 = play the policy's argmax: the population's consensus
