@@ -204,17 +204,21 @@ Shipped so far:
   human missProb isn't fixed, it spikes after losing material (tilt). A
   per-game tilt multiplier on shapedParams is a cheap future experiment
   for feel.
-- **SAMPLED MAIA (the Humaia insight) — argmax was the compression.**
-  Our Maia bands all measured ~1850 because both call sites default to
-  temperature 0 = play the policy's argmax: the population's consensus
-  move every time, far stronger than any individual in the population.
-  @Humaia runs the same class of net with moves SAMPLED from the policy
-  and rates AT LABEL (1330-1380, 20k+ games). Harness now supports
-  `maia-t1:BAND` (temperature-1 sampling); `run-maia-sampled.sh` measures
-  the sampled ladder vs shaped bands + rulers, with a maia-t1 vs argmax
-  control pair. If sampling recovers the nominal ladder, the roster's
-  Maias drop to their true bands and cover 1100-1900 honestly (app change:
-  pass temperature 1 in maybeBotMove's maiaMove call).
+- **SAMPLED MAIA — MEASURED (data/bot-maia-sampled.json, n=60).**
+  Sampling = **−260 Elo** on the same net (direct control pair). But the
+  run's bigger lesson is **pool-dependence**: argmax maia:1500 measures
+  1455 vs honest engine rulers while @maia5 rates 1643 rapid vs humans
+  (≈1880 our scale) — a ~400-pt gap. Imitation bots are tactically blind;
+  engines punish that far above their human-pool rating. There is no
+  single "true rating" for an imitation bot, only pool-relative ones.
+  DECISIONS: roster Maias keep their lichess (human-pool) ratings — the
+  player is a human, those are the right numbers. Sampled Maias are a
+  roster opportunity at human-bridged ≈1310/1380/1440 (argmax lichess
+  − 260; inferred — ship as "estimated" and let the player's games
+  refine), filling the 1300-1550 gap. App still plays argmax
+  (temperature 0); flip to 1 only when shipping sampled personas.
+  Squares look less pool-sensitive: they interleave with jsce + SF
+  rulers, and Ryan's staircase tracks the engine-pool scale so far.
 - **Put our bots ON lichess (the calibration endgame).** A BOT account
   per Square (e.g. Square-900): create fresh account → upgrade via
   `/api/bot/account/upgrade` (irreversible, needs 0 games played) → run
