@@ -8,6 +8,9 @@
 	import MaterialBar from '$lib/components/MaterialBar.svelte';
 	import BottomSheet from '$lib/components/BottomSheet.svelte';
 	import BotPanel from '$lib/components/BotPanel.svelte';
+	import ModeBar, { type SideView } from '$lib/components/ModeBar.svelte';
+	import RosterPicker, { type PersonaRecord } from '$lib/components/RosterPicker.svelte';
+	import { CLASS } from '$lib/classifications';
 	import AnalysisPanel from '$lib/components/AnalysisPanel.svelte';
 	import InsightsPanel from '$lib/components/InsightsPanel.svelte';
 	import MoveList from '$lib/components/MoveList.svelte';
@@ -80,15 +83,28 @@
 	let showArrows = $state(true);
 	let lastMove: [string, string] | null = $state(null);
 	let panelsHidden = $state(false);
-	// sidebar panels collapse by default (only Insights stays open); contextual
-	// actions still auto-open the relevant panel (e.g. starting practice)
+	// which sidebar the user is looking at — the app's three modes as real
+	// navigation (ModeBar). Distinct from `mode`: sideView 'practice' shows the
+	// practice lobby while mode is still 'play'; Start flips mode to 'practice'.
+	let sideView: SideView = $state('play');
+	let rosterOpen = $state(false); // the grouped opponent picker (RosterPicker)
+	let gearOpen = $state(false); // narrow: board-toggle popover in the sheet header
+	// remaining collapsibles: the engine-lines tree and the opening book
 	let treeOpen = $state(false);
 	let bookOpen = $state(false);
-	let wcChartOpen = $state(false);
-	let practiceOpen = $state(false);
-	let gamesOpen = $state(false);
-	let commentaryOpen = $state(false);
+	let commentaryOpen = $state(false); // desktop play: commentary card via footer link
 	let commentary: CommentaryEntry[] = $state([]);
+
+	// switching away from an active practice/review session ends it (the mode
+	// switcher is the only way in AND out; the guards keep a lobby visit from
+	// resetting a live game)
+	function setView(v: SideView) {
+		if (v === sideView) return;
+		if (mode === 'review') exitReview();
+		if (mode === 'practice') exitPractice();
+		sideView = v;
+		gearOpen = false;
+	}
 
 	// human commentary for the position on the board (placement-keyed, lazy-loaded)
 	$effect(() => {
@@ -119,7 +135,7 @@
 
 	// bottom-sheet shell (narrow layout only)
 	type SheetDetent = 'peek' | 'half' | 'full';
-	const SHEET_PEEK = 64; // collapsed sheet: grab handle + tab strip
+	const SHEET_PEEK = 118; // collapsed sheet: handle + grade strip + mode bar + view tabs
 	let sheetDetent: SheetDetent = $state('peek');
 	let sheetTab = $state('insights');
 	// the board shrinks so the sheet's resting position never hides a rank.
@@ -139,31 +155,16 @@
 					)
 				)
 	);
-	const narrowTabs = $derived.by(() => {
-		if (mode === 'practice') return [{ id: 'practice', label: 'Practice' }];
-		if (mode === 'review')
-			return [
-				{ id: 'review', label: 'Review' },
-				{ id: 'chart', label: 'Chart' },
-				{ id: 'commentary', label: 'Commentary' }
-			];
-		return [
-			{ id: 'insights', label: 'Insights' },
-			{ id: 'engine', label: 'Engine' },
-			{ id: 'lines', label: 'Lines' },
-			{ id: 'book', label: 'Book' },
-			{ id: 'moves', label: 'Moves' },
-			{ id: 'chart', label: 'Chart' },
-			{ id: 'commentary', label: 'Commentary' },
-			{ id: 'practice', label: 'Practice' },
-			{ id: 'games', label: 'Games' },
-			{ id: 'bot', label: 'Bot' }
-		];
-	});
-	// falls back to the first tab whenever a mode switch drops the selected one
-	const activeTab = $derived(
-		narrowTabs.some((t) => t.id === sheetTab) ? sheetTab : narrowTabs[0].id
-	);
+	// narrow-layout view tabs: readouts only. Modes live in the ModeBar, the
+	// board toggles behind the gear, the bot card is pinned above the tab body.
+	const narrowTabs = [
+		{ id: 'insights', label: 'Insights' },
+		{ id: 'lines', label: 'Lines' },
+		{ id: 'chart', label: 'Chart' },
+		{ id: 'moves', label: 'Moves' },
+		{ id: 'book', label: 'Book' }
+	];
+	const activeTab = $derived(narrowTabs.some((t) => t.id === sheetTab) ? sheetTab : 'insights');
 	function selectTab(id: string) {
 		sheetTab = id;
 		if (sheetDetent === 'peek') sheetDetent = 'half';
@@ -176,6 +177,31 @@
 	let moveHistory: MoveGrade[] = $state([]);
 	const insightWhite = $derived(moveHistory.findLast((g) => g.color === 'w') ?? null);
 	const insightBlack = $derived(moveHistory.findLast((g) => g.color === 'b') ?? null);
+
+	// the sheet's one-line grade strip: your latest graded move (vs a bot), or
+	// simply the last move in free analysis — visible at peek height so the
+	// move → verdict loop survives on a phone without lifting the sheet
+	const lastGrade = $derived.by(() => {
+		if (mode !== 'play' || moveHistory.length === 0) return null;
+		if (!botEnabled) return moveHistory.at(-1) ?? null;
+		const humanSide = botColor === 'w' ? 'b' : 'w';
+		return moveHistory.findLast((g) => g.color === humanSide) ?? null;
+	});
+
+	// your W–L–D per persona, from the archive (display only — the rating fit
+	// applies its own exclusions in playerElo.ts)
+	const personaRecords = $derived.by(() => {
+		const rec: Record<string, PersonaRecord> = {};
+		for (const g of storedGames) {
+			if (!g.botPersona || g.botColor === null) continue;
+			if (g.result !== '1-0' && g.result !== '0-1' && g.result !== '1/2-1/2') continue;
+			const r = (rec[g.botPersona] ??= { w: 0, l: 0, d: 0 });
+			if (g.result === '1/2-1/2') r.d++;
+			else if ((g.result === '1-0') === (g.botColor === 'b')) r.w++;
+			else r.l++;
+		}
+		return rec;
+	});
 
 	// White-POV win chance per played move, for the win-chance chart
 	const wcChartPoints = $derived(
@@ -793,12 +819,13 @@
 		analyzing = false;
 		engineMoves = [];
 		mode = 'practice';
-		practiceOpen = true;
+		sideView = 'practice';
 		loadPuzzle(item);
 	}
 
 	function exitPractice() {
 		mode = 'play';
+		sideView = 'play';
 		currentItem = null;
 		practiceRef = null;
 		attempt = null;
@@ -1050,8 +1077,8 @@
 		analyzing = false;
 		engineMoves = [];
 		mode = 'review';
+		sideView = 'review';
 		reviewGame = g;
-		gamesOpen = true;
 		gotoReviewPly(g.moves.length);
 	}
 
@@ -1325,6 +1352,12 @@
 				onmove={handleMove}
 			/>
 			<MaterialBar fen={game.fen} color={bottomColor} />
+			{#if !isNarrow && mode === 'play'}
+				<!-- the board toggles live with the board they modify -->
+				<div class="quick-toggles under-board">
+					{@render toggleRow()}
+				</div>
+			{/if}
 		</div>
 
 		{#if pendingPromotion}
@@ -1373,11 +1406,24 @@
 				bind:human={botHuman}
 				bind:personaId={botPersonaId}
 				playerElo={playerEloEstimate}
+				record={botPersonaId ? (personaRecords[botPersonaId] ?? null) : null}
 				fellBack={botFellBack}
 				downloading={botDownloading}
 				thinking={botThinking}
-				startOpen={isNarrow}
+				onchangebot={() => (rosterOpen = true)}
 			/>
+		{/snippet}
+
+		<!-- the engine's top-3 with the full tree folded behind a toggle: one
+		     Lines card instead of Engine Analysis + Lines Tree showing the same
+		     data two ways -->
+		{#snippet treeToggle()}
+			<button class="tree-toggle" onclick={() => (treeOpen = !treeOpen)}>
+				{treeOpen ? '▾ hide tree' : '▸ expand tree'}
+			</button>
+			{#if treeOpen}
+				{@render linesBody()}
+			{/if}
 		{/snippet}
 
 		{#snippet engineBody()}
@@ -1386,8 +1432,42 @@
 				fen={game.fen}
 				{analyzing}
 				orientation={boardOrientation}
-				startOpen={isNarrow}
+				footer={treeToggle}
 			/>
+		{/snippet}
+
+		{#snippet toggleRow()}
+			<button
+				class:on={showArrows && !blindMode}
+				disabled={blindMode}
+				onclick={() => (showArrows = !showArrows)}
+				title="Draw the engine's top moves on the board"
+			>
+				Arrows
+			</button>
+			<button
+				class:on={blindMode}
+				onclick={() => (blindMode = !blindMode)}
+				title="Hide engine hints until you've moved"
+			>
+				Blind
+			</button>
+			<button
+				class:on={showThreats && !blindMode}
+				disabled={blindMode}
+				onclick={() => (showThreats = !showThreats)}
+				title="Draw what your opponent threatens (a move that wins material or mates) in red"
+			>
+				Threats
+			</button>
+			<button
+				class:on={showControl && !blindMode}
+				disabled={blindMode}
+				onclick={() => (showControl = !showControl)}
+				title="Tint squares by who can safely use them: green = you'd win or hold the exchange there, red = they would"
+			>
+				Control
+			</button>
 		{/snippet}
 
 		{#snippet movesBody()}
@@ -1528,76 +1608,97 @@
 		{#if isNarrow}
 			<BottomSheet bind:detent={sheetDetent} peek={SHEET_PEEK}>
 				{#snippet header()}
-					<nav class="tab-strip">
-						{#each narrowTabs as t (t.id)}
-							<button class:active={activeTab === t.id} onclick={() => selectTab(t.id)}>
-								{t.label}
-							</button>
-						{/each}
-						{#if mode === 'play'}
+					<!-- the move → verdict loop survives at peek height: last graded
+					     move on one line, board still fully visible above -->
+					{#if sideView === 'play'}
+						<button
+							class="grade-strip"
+							onclick={() => {
+								sheetTab = 'insights';
+								if (sheetDetent === 'peek') sheetDetent = 'half';
+							}}
+						>
+							{#if lastGrade}
+								<span class="gs-san">{lastGrade.san}</span>
+								{#if lastGrade.label}
+									<span class="gs-verdict" style:color={CLASS[lastGrade.label].color}>
+										{CLASS[lastGrade.label].glyph}
+										{CLASS[lastGrade.label].noun}
+									</span>
+								{:else}
+									<span class="gs-verdict muted">grading…</span>
+								{/if}
+								{#if lastGrade.pctBest !== null}
+									<span class="gs-pct">{Math.round(lastGrade.pctBest)}% of best</span>
+								{/if}
+							{:else}
+								<span class="gs-verdict muted">
+									{botEnabled ? 'your moves are graded as you play' : 'play a move to see its grade'}
+								</span>
+							{/if}
+						</button>
+					{/if}
+					<div class="sheet-head">
+						<ModeBar
+							view={sideView}
+							practiceBadge={practiceDue > 0 ? String(practiceDue) : ''}
+							onchange={(v) => {
+								setView(v);
+								if (sheetDetent === 'peek' && v !== 'play') sheetDetent = 'half';
+							}}
+						/>
+						{#if sideView === 'play' && mode === 'play'}
 							<button
-								class="toggle"
-								class:on={showArrows && !blindMode}
-								disabled={blindMode}
-								onclick={() => (showArrows = !showArrows)}
+								class="gear"
+								class:on={gearOpen}
+								onclick={() => (gearOpen = !gearOpen)}
+								title="Board options"
 							>
-								Arrows
-							</button>
-							<button class="toggle" class:on={blindMode} onclick={() => (blindMode = !blindMode)}>
-								Blind
-							</button>
-							<button
-								class="toggle"
-								class:on={showThreats && !blindMode}
-								disabled={blindMode}
-								onclick={() => (showThreats = !showThreats)}
-							>
-								Threats
-							</button>
-							<button
-								class="toggle"
-								class:on={showControl && !blindMode}
-								disabled={blindMode}
-								onclick={() => (showControl = !showControl)}
-							>
-								Control
+								⚙
 							</button>
 						{/if}
-					</nav>
-				{/snippet}
-				{#if mode === 'practice'}
-					<div class="practice-note">Practicing — analysis is hidden until you move.</div>
-					{@render practiceBody()}
-					{@render insightsBody()}
-				{:else if mode === 'review'}
-					{#if activeTab === 'chart'}
-						{@render chartBody()}
-					{:else if activeTab === 'commentary'}
-						{@render commentaryBody()}
-					{:else}
-						{@render gamesBody()}
+					</div>
+					{#if gearOpen && sideView === 'play'}
+						<div class="toggle-pop quick-toggles">
+							{@render toggleRow()}
+						</div>
 					{/if}
+					{#if sideView === 'play'}
+						<nav class="tab-strip">
+							{#each narrowTabs as t (t.id)}
+								<button class:active={activeTab === t.id} onclick={() => selectTab(t.id)}>
+									{t.label}
+								</button>
+							{/each}
+						</nav>
+					{/if}
+				{/snippet}
+				{#if sideView === 'practice'}
+					{#if mode === 'practice'}
+						<div class="practice-note">Practicing — analysis is hidden until you move.</div>
+					{/if}
+					{@render practiceBody()}
+					{#if mode === 'practice'}
+						{@render insightsBody()}
+					{/if}
+				{:else if sideView === 'review'}
+					{@render gamesBody()}
+					{#if reviewGame && reviewGame.moves.length > 1}
+						{@render chartBody()}
+					{/if}
+					{@render commentaryBody()}
+					{@render dataRow()}
 				{:else}
 					{@render gameOverNote()}
-					{#if activeTab === 'engine'}
+					{@render botBody()}
+					{#if activeTab === 'lines'}
 						{@render engineBody()}
-					{:else if activeTab === 'lines'}
-						{@render linesBody()}
 					{:else if activeTab === 'book'}
 						{@render bookBody()}
 					{:else if activeTab === 'moves'}
 						{@render movesBody()}
 					{:else if activeTab === 'chart'}
 						{@render chartBody()}
-					{:else if activeTab === 'commentary'}
-						{@render commentaryBody()}
-					{:else if activeTab === 'practice'}
-						{@render practiceBody()}
-					{:else if activeTab === 'games'}
-						{@render gamesBody()}
-						{@render dataRow()}
-					{:else if activeTab === 'bot'}
-						{@render botBody()}
 					{:else}
 						{@render insightsBody()}
 					{/if}
@@ -1606,40 +1707,12 @@
 		{:else}
 		<div class="sidebar" class:collapsed={panelsHidden}>
 			<div class="sidebar-top">
-				{#if !panelsHidden && mode === 'play'}
-					<div class="quick-toggles">
-						<button
-							class:on={showArrows && !blindMode}
-							disabled={blindMode}
-							onclick={() => (showArrows = !showArrows)}
-							title="Draw the engine's top moves on the board"
-						>
-							Arrows
-						</button>
-						<button
-							class:on={blindMode}
-							onclick={() => (blindMode = !blindMode)}
-							title="Hide engine hints until you've moved"
-						>
-							Blind mode
-						</button>
-						<button
-							class:on={showThreats && !blindMode}
-							disabled={blindMode}
-							onclick={() => (showThreats = !showThreats)}
-							title="Draw what your opponent threatens (a move that wins material or mates) in red"
-						>
-							Threats
-						</button>
-						<button
-							class:on={showControl && !blindMode}
-							disabled={blindMode}
-							onclick={() => (showControl = !showControl)}
-							title="Tint squares by who can safely use them: green = you'd win or hold the exchange there, red = they would"
-						>
-							Control
-						</button>
-					</div>
+				{#if !panelsHidden}
+					<ModeBar
+						view={sideView}
+						practiceBadge={practiceDue > 0 ? String(practiceDue) : ''}
+						onchange={setView}
+					/>
 				{/if}
 				<button
 					class="collapse-btn"
@@ -1651,57 +1724,51 @@
 			</div>
 
 			{#if !panelsHidden}
-				{#if mode === 'play'}
-					{@render insightsBody()}
+				{#if sideView === 'play'}
 					{@render botBody()}
-					{@render engineBody()}
 					{@render movesBody()}
-
-					<SidePanel title="Lines Tree" bind:open={treeOpen}>
-						{@render linesBody()}
+					{@render insightsBody()}
+					{@render engineBody()}
+					<SidePanel title="Win chance" open={true}>
+						{@render chartBody()}
 					</SidePanel>
 					<SidePanel title="Opening Book" bind:open={bookOpen}>
 						{@render bookBody()}
 					</SidePanel>
-					<SidePanel title="Win chance" bind:open={wcChartOpen}>
-						{@render chartBody()}
-					</SidePanel>
-					<SidePanel
-						title="Practice"
-						badge={practiceItems.length > 0 ? `${practiceDue} due / ${practiceItems.length}` : ''}
-						bind:open={practiceOpen}
-					>
-						{#snippet action()}
-							<button onclick={startPractice} disabled={practiceItems.length === 0}>Start</button>
-						{/snippet}
-						{@render practiceBody()}
-					</SidePanel>
-					<SidePanel
-						title="Games"
-						badge={storedGames.length > 0 ? String(storedGames.length) : ''}
-						bind:open={gamesOpen}
-					>
-						{@render gamesBody()}
-					</SidePanel>
-					<!-- Commentary sits at the bottom: it's passive reference, not an action -->
-					<SidePanel
-						title="Commentary"
-						badge={commentary.length > 0 ? `${commentary.length} from YouTube` : ''}
-						bind:open={commentaryOpen}
-					>
-						{@render commentaryBody()}
-					</SidePanel>
 
 					{@render gameOverNote()}
-					{@render dataRow()}
-				{:else if mode === 'practice'}
-					<div class="practice-note">
-						Practicing — analysis is hidden until you move.
+
+					{#if commentaryOpen}
+						<SidePanel
+							title="Commentary"
+							badge={commentary.length > 0 ? `${commentary.length} from YouTube` : ''}
+							open={true}
+						>
+							{@render commentaryBody()}
+						</SidePanel>
+					{/if}
+					<!-- the quiet footer: archives and plumbing, out of the scroll -->
+					<div class="library">
+						<button onclick={() => setView('review')}>
+							Games{storedGames.length > 0 ? ` (${storedGames.length})` : ''}
+						</button>
+						<button class:lit={commentaryOpen} onclick={() => (commentaryOpen = !commentaryOpen)}>
+							Commentary{commentary.length > 0 ? ` (${commentary.length})` : ''}
+						</button>
+						{@render dataRow()}
 					</div>
+				{:else if sideView === 'practice'}
+					{#if mode === 'practice'}
+						<div class="practice-note">
+							Practicing — analysis is hidden until you move.
+						</div>
+					{/if}
 					<SidePanel title="Practice">
 						{@render practiceBody()}
 					</SidePanel>
-					{@render insightsBody()}
+					{#if mode === 'practice'}
+						{@render insightsBody()}
+					{/if}
 				{:else}
 					{#if reviewGame && reviewGame.moves.length > 1}
 						<SidePanel title="Win chance">
@@ -1714,16 +1781,26 @@
 					<SidePanel
 						title="Commentary"
 						badge={commentary.length > 0 ? `${commentary.length} from YouTube` : ''}
-						bind:open={commentaryOpen}
+						open={commentary.length > 0}
 					>
 						{@render commentaryBody()}
 					</SidePanel>
+					{@render dataRow()}
 				{/if}
 			{/if}
 		</div>
 		{/if}
 	</div>
 </div>
+
+<RosterPicker
+	open={rosterOpen}
+	personaId={botPersonaId}
+	records={personaRecords}
+	playerElo={playerEloEstimate}
+	onpick={(id) => (botPersonaId = id)}
+	onclose={() => (rosterOpen = false)}
+/>
 
 <style>
 	.app {
@@ -1780,10 +1857,53 @@
 		justify-content: flex-end;
 		gap: 8px;
 	}
+	.sidebar-top :global(.modebar) {
+		flex: 1;
+	}
 	.quick-toggles {
 		display: flex;
 		gap: 6px;
 		margin-right: auto;
+	}
+	.quick-toggles.under-board {
+		margin: 6px 0 0;
+		justify-content: flex-end;
+		width: 100%;
+	}
+	/* the play sidebar's quiet footer: archives and plumbing */
+	.library {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 10px;
+		flex-wrap: wrap;
+		padding: 4px 0;
+	}
+	.library > button {
+		background: transparent;
+		color: var(--text-secondary);
+		border: none;
+		border-bottom: 1px dotted var(--text-secondary);
+		border-radius: 0;
+		font-size: 12px;
+		padding: 0 0 1px;
+		cursor: pointer;
+	}
+	.library > button:hover,
+	.library > button.lit {
+		color: var(--text-primary);
+	}
+	/* the expand-tree toggle inside the Lines card */
+	:global(.tree-toggle) {
+		background: transparent;
+		color: var(--text-secondary);
+		border: none;
+		font-size: 12px;
+		padding: 6px 0 2px;
+		cursor: pointer;
+	}
+	:global(.tree-toggle:hover) {
+		color: var(--text-primary);
 	}
 	.quick-toggles button {
 		background: transparent;
@@ -1814,6 +1934,68 @@
 	.collapse-btn:hover {
 		color: var(--text-primary);
 	}
+	/* the bottom sheet's header (narrow layout): grade strip, mode bar + gear,
+	   then the view tabs — all visible at peek height */
+	.grade-strip {
+		display: flex;
+		align-items: baseline;
+		gap: 8px;
+		width: 100%;
+		background: transparent;
+		border: none;
+		padding: 0 14px 6px;
+		font-size: 13px;
+		text-align: left;
+		cursor: pointer;
+		box-sizing: border-box;
+	}
+	.gs-san {
+		font-weight: 700;
+		color: var(--text-primary);
+	}
+	.gs-verdict {
+		font-weight: 600;
+	}
+	.gs-verdict.muted {
+		color: var(--text-secondary);
+		font-weight: 400;
+	}
+	.gs-pct {
+		margin-left: auto;
+		color: var(--text-secondary);
+		font-size: 12px;
+		font-variant-numeric: tabular-nums;
+	}
+	.sheet-head {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		padding: 0 10px 8px;
+		flex-shrink: 0;
+	}
+	.sheet-head :global(.modebar) {
+		flex: 1;
+	}
+	.gear {
+		flex-shrink: 0;
+		width: 34px;
+		height: 34px;
+		background: var(--bg-panel);
+		color: var(--text-secondary);
+		border: 1px solid var(--border);
+		border-radius: 8px;
+		font-size: 15px;
+		line-height: 1;
+		cursor: pointer;
+	}
+	.gear.on {
+		color: var(--color-win);
+		border-color: var(--color-win);
+	}
+	.toggle-pop {
+		padding: 0 10px 8px;
+		flex-wrap: wrap;
+	}
 	/* tab strip inside the bottom sheet's header (narrow layout) */
 	.tab-strip {
 		display: flex;
@@ -1838,21 +2020,6 @@
 		color: var(--text-primary);
 		border-color: var(--text-secondary);
 	}
-	.tab-strip button.toggle {
-		margin-left: auto;
-	}
-	.tab-strip button.toggle ~ button.toggle {
-		margin-left: 0;
-	}
-	.tab-strip button.toggle.on {
-		color: var(--color-win);
-		border-color: var(--color-win);
-	}
-	.tab-strip button.toggle:disabled {
-		opacity: 0.4;
-		cursor: default;
-	}
-
 	@media (max-width: 860px) {
 		/* board pinned at the top; the bottom sheet owns all scrolling */
 		.app.narrow {

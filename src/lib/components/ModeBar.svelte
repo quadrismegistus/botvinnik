@@ -1,0 +1,77 @@
+<script module lang="ts">
+	// The app's three modes as first-class navigation: a segmented control
+	// instead of Practice/Games hiding inside collapsible panels.
+	export type SideView = 'play' | 'practice' | 'review';
+</script>
+
+<script lang="ts">
+	interface Props {
+		view: SideView;
+		practiceBadge?: string; // due count, shown on the Practice segment
+		onchange: (v: SideView) => void;
+	}
+
+	let { view, practiceBadge = '', onchange }: Props = $props();
+
+	const SEGMENTS: { id: SideView; label: string }[] = [
+		{ id: 'play', label: 'Play' },
+		{ id: 'practice', label: 'Practice' },
+		{ id: 'review', label: 'Review' }
+	];
+</script>
+
+<div class="modebar" role="tablist">
+	{#each SEGMENTS as s (s.id)}
+		<button
+			role="tab"
+			aria-selected={view === s.id}
+			class:on={view === s.id}
+			onclick={() => onchange(s.id)}
+		>
+			{s.label}
+			{#if s.id === 'practice' && practiceBadge}
+				<span class="badge">{practiceBadge}</span>
+			{/if}
+		</button>
+	{/each}
+</div>
+
+<style>
+	.modebar {
+		display: grid;
+		grid-template-columns: 1fr 1fr 1fr;
+		gap: 3px;
+		background: var(--bg-panel);
+		border: 1px solid var(--border);
+		border-radius: 8px;
+		padding: 3px;
+		font-family: system-ui, sans-serif;
+	}
+	button {
+		position: relative;
+		border: none;
+		border-radius: 6px;
+		background: transparent;
+		color: var(--text-secondary);
+		font-size: 13px;
+		font-weight: 600;
+		padding: 6px 0;
+		cursor: pointer;
+	}
+	button.on {
+		background: var(--text-primary);
+		color: var(--bg-panel);
+	}
+	.badge {
+		position: absolute;
+		top: -6px;
+		right: 6px;
+		background: var(--color-lose, #d66);
+		color: #fff;
+		font-size: 9px;
+		font-weight: 700;
+		border-radius: 999px;
+		padding: 1px 5px;
+		line-height: 1.3;
+	}
+</style>

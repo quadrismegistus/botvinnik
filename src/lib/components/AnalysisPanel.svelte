@@ -3,15 +3,18 @@
 	import { getFenAfter, getNumberedSanLine, getSan } from '$lib/engine/chess';
 	import LineHover from './LineHover.svelte';
 
+	import type { Snippet } from 'svelte';
+
 	interface Props {
 		moves: EngineMove[];
 		fen: string;
 		analyzing: boolean;
 		orientation?: 'white' | 'black'; // main-board orientation, for line previews
 		startOpen?: boolean;
+		footer?: Snippet; // rendered under the lines (e.g. the expand-tree toggle)
 	}
 
-	let { moves, fen, analyzing, orientation = 'white', startOpen = true }: Props = $props();
+	let { moves, fen, analyzing, orientation = 'white', startOpen = true, footer }: Props = $props();
 	// svelte-ignore state_referenced_locally — startOpen is deliberately initial-only
 	let open = $state(startOpen);
 
@@ -32,7 +35,7 @@
 	<div class="header">
 		<button class="title-btn" onclick={() => (open = !open)}>
 			<span class="chevron">{open ? '▾' : '▸'}</span>
-			<span class="title">Engine Analysis</span>
+			<span class="title">Lines</span>
 		</button>
 		{#if analyzing}
 			<span class="status">depth {moves[0]?.depth ?? '…'}…</span>
@@ -57,6 +60,9 @@
 					</LineHover>
 				</div>
 			{/each}
+		{/if}
+		{#if footer}
+			{@render footer()}
 		{/if}
 	{/if}
 </div>
