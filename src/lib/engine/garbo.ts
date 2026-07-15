@@ -41,6 +41,7 @@ export function garboMove(fen: string, movetimeMs = 1000): Promise<string | null
 		const finish = (move: string | null) => {
 			clearTimeout(timer);
 			w.removeEventListener('message', onMsg);
+			w.removeEventListener('error', onErr);
 			resolve(move);
 		};
 		const timer = setTimeout(() => finish(null), movetimeMs + 10_000);
@@ -50,7 +51,20 @@ export function garboMove(fen: string, movetimeMs = 1000): Promise<string | null
 			// anything else is the move, in UCI (FormatMove)
 			finish(/^[a-h][1-8][a-h][1-8][qrbn]?$/.test(e.data) ? e.data : null);
 		};
+		const onErr = () => {
+			// load failure or an in-worker crash (2011 code paths call alert(),
+			// undefined in workers) — fall back NOW rather than after the
+			// timeout, and scrap the worker so the next call starts fresh
+			worker = null;
+			try {
+				w.terminate();
+			} catch {
+				// already gone
+			}
+			finish(null);
+		};
 		w.addEventListener('message', onMsg);
+		w.addEventListener('error', onErr);
 		w.postMessage(`position ${fen}`);
 		w.postMessage(`search ${movetimeMs}`);
 	});
