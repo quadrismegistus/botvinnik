@@ -19,6 +19,7 @@
 		personaId: string | null; // selected roster bot; null = custom slider
 		playerElo?: PlayerEloEstimate | null; // fit from stored persona games
 		fellBack?: boolean; // this game used the Stockfish stand-in at least once
+		downloading?: boolean; // a dala net is being fetched (59-330MB, first use)
 		thinking: boolean;
 		startOpen?: boolean;
 	}
@@ -33,6 +34,7 @@
 		personaId = $bindable(),
 		playerElo = null,
 		fellBack = false,
+		downloading = false,
 		thinking,
 		startOpen = true
 	}: Props = $props();
@@ -65,7 +67,13 @@
 						title="The persona's engine failed at least once this game — a Stockfish stand-in moved instead. This game won't count toward your rating.">⚠ stand-in</span
 					>
 				{/if}
-				{thinking ? 'thinking…' : persona ? `${persona.name} · ${persona.elo}` : `${elo} ELO`}
+				{downloading
+					? 'downloading…'
+					: thinking
+						? 'thinking…'
+						: persona
+							? `${persona.name} · ${persona.elo}`
+							: `${elo} ELO`}
 			</span>
 		{/if}
 	</div>

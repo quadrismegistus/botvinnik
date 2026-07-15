@@ -54,7 +54,7 @@
 	import { botSpec, botEloMax, botEloMin } from '$lib/engine/botRecipe';
 	import { maiaMove, inMaiaRange, preloadMaia } from '$lib/engine/maia';
 	import { retroMove, preloadRetro } from '$lib/engine/retro';
-	import { dalaMove, preloadDala } from '$lib/engine/dala';
+	import { dalaMove, preloadDala, onDalaDownload } from '$lib/engine/dala';
 	import { computeControl } from '$lib/engine/control';
 	import { findThreat, type Threat } from '$lib/engine/threats';
 	import {
@@ -374,6 +374,10 @@
 	// per-game seed for the shaped bot's sticky tactic-misses (what it doesn't
 	// see this game, it keeps not seeing); re-rolled on every board reset
 	let botGameSeed = $state(`s${Math.floor(Math.random() * 1e9)}`);
+	// a dala net is downloading (Rust emits start/done around the fetch) —
+	// shown as "downloading…" in the panel instead of a mute stall
+	let botDownloading = $state(false);
+	$effect(() => onDalaDownload((active) => (botDownloading = active)));
 
 	$effect(() => {
 		practiceItems = loadItems();
@@ -1350,6 +1354,7 @@
 				bind:personaId={botPersonaId}
 				playerElo={playerEloEstimate}
 				fellBack={botFellBack}
+				downloading={botDownloading}
 				thinking={botThinking}
 				startOpen={isNarrow}
 			/>

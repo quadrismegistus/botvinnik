@@ -10,10 +10,32 @@
 // above its bracket.
 
 import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import { openNativeUci, type NativeUci } from './nativeTransport';
 
 export function dalaAvailable(): boolean {
 	return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+}
+
+/**
+ * Notify while a dala net is downloading (the Rust side emits "dala-download"
+ * start/done around the fetch — 59MB for the 700/900 brackets, 330MB for
+ * 1300). Returns an unsubscribe function. No-op outside the native shell.
+ */
+export function onDalaDownload(cb: (downloading: boolean, band: number) => void): () => void {
+	if (!dalaAvailable()) return () => {};
+	let disposed = false;
+	let unlisten: (() => void) | null = null;
+	void listen<{ id: string; line: string }>('dala-download', (e) => {
+		cb(e.payload.line === 'start', Number(e.payload.id));
+	}).then((un) => {
+		if (disposed) un();
+		else unlisten = un;
+	});
+	return () => {
+		disposed = true;
+		unlisten?.();
+	};
 }
 
 interface Session {
@@ -24,13 +46,33 @@ interface Session {
 }
 
 let session: Session | null = null;
+// Single-flight: preload and the first move both call boot(); without this
+// they raced — two concurrent 330MB downloads into the same temp file and a
+// second engine_start killing the first spawn mid-handshake (observed live:
+// Dala 1300 stand-in on first use).
+let booting: { band: number; promise: Promise<Session> } | null = null;
 
-async function boot(band: number): Promise<Session> {
-	if (session?.band === band) return session;
+function boot(band: number): Promise<Session> {
+	if (session?.band === band) return Promise.resolve(session);
+	if (booting?.band === band) return booting.promise;
+	const promise = bootFresh(band);
+	booting = { band, promise };
+	promise.then(
+		() => {
+			if (booting?.promise === promise) booting = null;
+		},
+		() => {
+			if (booting?.promise === promise) booting = null; // failed boots are retryable
+		}
+	);
+	return promise;
+}
+
+async function bootFresh(band: number): Promise<Session> {
 	session?.pipe.dispose();
 	session = null;
 
-	// may download 59-330MB on first use — the caller's thinking state covers it
+	// may download 59-330MB on first use (onDalaDownload surfaces it in the UI)
 	const weights = await invoke<string>('dala_ensure_weights', { band });
 
 	const s: Session = { band, pipe: null as unknown as NativeUci, ready: Promise.resolve(), onLine: null };
@@ -77,7 +119,9 @@ export async function dalaMove(fen: string, band: number): Promise<string | null
 			s.onLine = null;
 			resolve(move);
 		};
-		const timer = setTimeout(() => finish(null), 20_000);
+		// generous: lc0 loads the net lazily at the FIRST search, and the 330MB
+		// BT4 takes a while to come off disk into Metal
+		const timer = setTimeout(() => finish(null), 60_000);
 		s.onLine = (line) => {
 			// "info string e2e4 (322 ) N: 0 (+ 0) (P:  4.05%) ..."
 			const m = line.match(/^info string ([a-h][1-8][a-h][1-8][qrbn]?)\s.*\(P:\s*([\d.]+)%\)/);

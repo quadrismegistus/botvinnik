@@ -140,9 +140,13 @@ async fn dala_ensure_weights(app: AppHandle, band: u32) -> Result<String, String
     if !resp.status().is_success() {
         return Err(format!("download failed: HTTP {}", resp.status()));
     }
-    // stream to a temp file, rename on success (a torn download must not be
-    // mistaken for a cached net on the next launch)
-    let tmp = dir.join(format!("{asset}.part"));
+    // stream to a UNIQUE temp file, rename on success — a torn download must
+    // not be mistaken for a cached net, and two concurrent callers must not
+    // interleave writes into the same .part (rename is atomic; last one wins
+    // with a complete file either way)
+    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let seq = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let tmp = dir.join(format!("{asset}.{}.{seq}.part", std::process::id()));
     {
         use futures_util::StreamExt;
         let mut file = std::fs::File::create(&tmp).map_err(|e| e.to_string())?;
