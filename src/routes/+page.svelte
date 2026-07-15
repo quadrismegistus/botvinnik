@@ -56,6 +56,7 @@
 	import { retroMove, preloadRetro } from '$lib/engine/retro';
 	import { dalaMove, preloadDala, onDalaDownload } from '$lib/engine/dala';
 	import { jsceMove } from '$lib/engine/jsce';
+	import { garboMove, preloadGarbo } from '$lib/engine/garbo';
 	import { computeControl } from '$lib/engine/control';
 	import { findThreat, type Threat } from '$lib/engine/threats';
 	import {
@@ -449,6 +450,7 @@
 		if (botPersona?.maiaBand) preloadMaia(botPersona.maiaBand);
 		else if (botPersona?.retro) preloadRetro(botPersona.retro);
 		else if (botPersona?.dalaBand) preloadDala(botPersona.dalaBand);
+		else if (botPersona?.garboMs) preloadGarbo();
 		else if (!botPersona && botHuman && inMaiaRange(botElo)) preloadMaia(botElo);
 	});
 
@@ -599,7 +601,7 @@
 		// engines that can fail to produce a move (net not loaded, worker down)
 		// fall back to Stockfish at the persona's strength
 		const fallible = p
-			? !!p.maiaBand || !!p.retro || !!p.dalaBand || !!p.jsceLevel
+			? !!p.maiaBand || !!p.retro || !!p.dalaBand || !!p.jsceLevel || !!p.garboMs
 			: botHuman && inMaiaRange(botElo);
 		// square labels resolve at MOVE time, not roster-build time: the label
 		// depends on the active substrate's measured curve (web wasm vs the
@@ -610,6 +612,8 @@
 				? retroMove(game.fen, p.retro).catch(() => null)
 				: p?.jsceLevel
 					? jsceMove(game.fen, p.jsceLevel).catch(() => null)
+					: p?.garboMs
+						? garboMove(game.fen, p.garboMs).catch(() => null)
 				: p?.dalaBand
 					? dalaMove(game.fen, p.dalaBand).catch(() => null)
 					: p?.maiaBand

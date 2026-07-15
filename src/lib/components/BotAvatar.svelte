@@ -64,6 +64,13 @@
 		<line x1="12" y1="6" x2="12" y2="8" stroke={fg} stroke-width="1.2" opacity="0.6" />
 		<line x1="6.5" y1="8.5" x2="8" y2="10" stroke={fg} stroke-width="1.2" opacity="0.6" />
 		<line x1="17.5" y1="8.5" x2="16" y2="10" stroke={fg} stroke-width="1.2" opacity="0.6" />
+	{:else if persona.family === 'garbo'}
+		<!-- a 2011 browser window: the engine that lived in one -->
+		<rect x="4" y="5" width="16" height="14" rx="1.5" fill="none" stroke={fg} stroke-width="1.4" />
+		<line x1="4" y1="9" x2="20" y2="9" stroke={fg} stroke-width="1.2" opacity="0.7" />
+		<circle cx="6.5" cy="7" r="0.9" fill={fg} />
+		<circle cx="9.3" cy="7" r="0.9" fill={fg} opacity="0.7" />
+		<path d="M8 12 l3 2.5 -3 2.5 M13 17 h4" fill="none" stroke={fg} stroke-width="1.3" />
 	{:else if persona.family === 'retro'}
 		<!-- punch card: the medium these minds originally lived on -->
 		<rect x="4" y="5" width="16" height="14" rx="1.2" fill="none" stroke={fg} stroke-width="1.4" />

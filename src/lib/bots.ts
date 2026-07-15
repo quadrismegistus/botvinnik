@@ -24,7 +24,7 @@ import type { RetroSpec } from './engine/retro';
 /** WASM-numeric scale ≈ lichess-rapid + 240 (maia1 bridge, club-range anchors). */
 export const SCALE_OFFSET = 240;
 
-export type BotFamily = 'square' | 'maia' | 'fish' | 'retro' | 'dala' | 'horizon';
+export type BotFamily = 'square' | 'maia' | 'fish' | 'retro' | 'dala' | 'horizon' | 'garbo';
 
 export interface BotPersona {
 	id: string; // stable key: persisted in settings and stored games
@@ -46,6 +46,8 @@ export interface BotPersona {
 	dalaBand?: number;
 	/** horizon: js-chess-engine difficulty level (1-2 shipped) */
 	jsceLevel?: number;
+	/** garbo: Garbochess-JS movetime in ms */
+	garboMs?: number;
 	/** persona needs the native shell (lc0 sidecar); hidden in the web roster */
 	nativeOnly?: boolean;
 }
@@ -175,6 +177,20 @@ function horizon(displayElo: number, level: number): BotPersona {
 	};
 }
 
+// Garbochess-JS (2011, Gary Linscott — later of fishtest and Leela fame):
+// hand-written JS, Fruit-era eval, anchored by @GarboBot's ~2000 lichess
+// rating over 90k+ human games. Same strength slot as Fish 2000, entirely
+// different mind: sharp tactics, pre-neural positional judgment.
+const GARBO: BotPersona = {
+	id: 'garbo-2000',
+	name: 'Garbo 2011',
+	elo: 2020,
+	family: 'garbo',
+	blurb:
+		"Gary Linscott's 2011 JavaScript engine, verbatim — its author went on to build the tools modern chess engines are made with. Plays like 2011: sharp, material-minded, honestly pre-neural.",
+	garboMs: 1000
+};
+
 // 12 Squares (600-1700) + 3 Maias (real @maia lichess ratings) + 3 retro
 // engines (real morlock-bot lichess ratings) + 3 Dalas (desktop only, real
 // dala-bot lichess ratings) + 8 Fish (1800-2500; internal 2040-2740, inside
@@ -193,6 +209,7 @@ export const PERSONAS: BotPersona[] = [
 	maia(1570, 1100, 'I'),
 	maia(1640, 1500, 'V'),
 	maia(1700, 1900, 'IX'),
+	GARBO,
 	...[1800, 1900, 2000, 2100, 2200, 2300, 2400, 2500].map(fish)
 ].sort((a, b) => a.elo - b.elo || a.name.localeCompare(b.name));
 

@@ -2,8 +2,9 @@ import { describe, it, expect } from 'vitest';
 import { availablePersonas, PERSONAS, personaById, personaInternalElo, SCALE_OFFSET } from './bots';
 
 describe('bot roster', () => {
-	it('has 34 personas: 2 Horizons + 12 Squares + 3 retros + 3 Dalas + 6 Maias + 8 Fish', () => {
-		expect(PERSONAS.length).toBe(34);
+	it('has 35 personas: 2 Horizons + 12 Squares + 3 retros + 3 Dalas + 6 Maias + Garbo + 8 Fish', () => {
+		expect(PERSONAS.length).toBe(35);
+		expect(PERSONAS.filter((p) => p.family === 'garbo').length).toBe(1);
 		expect(PERSONAS.filter((p) => p.family === 'horizon').length).toBe(2);
 		expect(PERSONAS.filter((p) => p.family === 'square').length).toBe(12);
 		expect(PERSONAS.filter((p) => p.family === 'retro').length).toBe(3);
@@ -22,8 +23,8 @@ describe('bot roster', () => {
 
 	it('dala is native-only: hidden from the web roster, present on desktop', () => {
 		expect(availablePersonas(false).filter((p) => p.family === 'dala').length).toBe(0);
-		expect(availablePersonas(false).length).toBe(31);
-		expect(availablePersonas(true).length).toBe(34);
+		expect(availablePersonas(false).length).toBe(32);
+		expect(availablePersonas(true).length).toBe(35);
 	});
 
 	it('dala personas carry the dala lichess bots real human-pool ratings', () => {
@@ -40,7 +41,7 @@ describe('bot roster', () => {
 
 	it('binds each family to exactly one mechanism', () => {
 		for (const p of PERSONAS) {
-			const bindings = [p.shapedLabel, p.maiaBand, p.numericElo, p.retro, p.dalaBand, p.jsceLevel].filter(
+			const bindings = [p.shapedLabel, p.maiaBand, p.numericElo, p.retro, p.dalaBand, p.jsceLevel, p.garboMs].filter(
 				(x) => x !== undefined
 			).length;
 			expect(bindings, p.id).toBe(1);
@@ -50,6 +51,7 @@ describe('bot roster', () => {
 			if (p.family === 'retro') expect(p.retro).toBeDefined();
 			if (p.family === 'dala') expect(p.dalaBand).toBeDefined();
 			if (p.family === 'horizon') expect(p.jsceLevel).toBeDefined();
+			if (p.family === 'garbo') expect(p.garboMs).toBeDefined();
 		}
 	});
 
