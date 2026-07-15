@@ -4,6 +4,7 @@
 
 import type { EngineMove } from './engine/stockfish';
 import { winChance } from './engine/insights';
+import { getBotSubstrate, type Substrate } from './engine/botRecipe';
 
 function lineCp(l: EngineMove): number {
 	if (l.mate !== null) return l.mate > 0 ? 9999 : -9999;
@@ -232,34 +233,54 @@ export function shapedBotMove(
 
 // ─── Shaped label inversion ──────────────────────────────────────────────────
 //
-// The label→strength curve, measured on the honest UCI_Elo ruler
-// (data/bot-shaped-calib.json, n=50/pair, 2026-07-14 evening re-run WITH the
-// directional-conversion rule: internal ladder at 150-pt label steps + upper
-// bands vs ucielo:1320/1600/2000:mt400, BT fit rebased so ucielo:1320 = 1320).
-// Within noise of the pre-conversion-fix run at the bottom, mildly stronger
-// in the upper-middle (1350). shaped:LABEL plays HARDER than its label at the
-// top (1500→~1935) and roughly on-label at the bottom, so the app must
-// invert: given a target slider ELO, find the label whose measured strength
-// matches. WASM substrate only — native needs its own run.
-const SHAPED_KNOTS_WASM: { label: number; strength: number }[] = [
-	{ label: 600, strength: 770 },
-	{ label: 750, strength: 870 },
-	{ label: 900, strength: 1000 },
-	{ label: 1050, strength: 1156 },
-	{ label: 1200, strength: 1330 },
-	{ label: 1350, strength: 1654 },
-	{ label: 1500, strength: 1935 }
-];
+// The label→strength curves, measured per substrate on the honest UCI_Elo
+// ruler (n=50/pair: internal ladder at 150-pt label steps + upper bands vs
+// ucielo:1320/1600/2000:mt400, BT fit rebased so ucielo:1320 = 1320).
+//   wasm:   data/bot-shaped-calib.json (2026-07-14, with directional
+//           conversion) — the web lite-single engine.
+//   native: data/bot-shaped-native-calib.json (2026-07-15) — the EXACT
+//           big-net sidecar the Tauri app ships.
+// The two curves agree within cross-run noise (±60-80): the miss-the-tactic
+// choice layer dominates so completely that backbone net quality barely
+// moves strength — the weakening really does live in the choice, not the
+// search. shaped:LABEL plays HARDER than its label at the top (1500→~1950),
+// so the app inverts: given a target ELO, find the label that MEASURES there.
+const SHAPED_KNOTS: Record<Substrate, { label: number; strength: number }[]> = {
+	wasm: [
+		{ label: 600, strength: 770 },
+		{ label: 750, strength: 870 },
+		{ label: 900, strength: 1000 },
+		{ label: 1050, strength: 1156 },
+		{ label: 1200, strength: 1330 },
+		{ label: 1350, strength: 1654 },
+		{ label: 1500, strength: 1935 }
+	],
+	native: [
+		{ label: 600, strength: 691 },
+		{ label: 750, strength: 856 },
+		{ label: 900, strength: 942 },
+		{ label: 1050, strength: 1141 },
+		{ label: 1200, strength: 1290 },
+		{ label: 1350, strength: 1591 },
+		{ label: 1500, strength: 1955 }
+	]
+};
 
-/** Measured strength range the shaped bot can honestly cover (WASM). */
-export function shapedStrengthRange(): { min: number; max: number } {
-	const k = SHAPED_KNOTS_WASM;
+/** Measured strength range the shaped bot can honestly cover. */
+export function shapedStrengthRange(substrate: Substrate = getBotSubstrate()): {
+	min: number;
+	max: number;
+} {
+	const k = SHAPED_KNOTS[substrate];
 	return { min: k[0].strength, max: k[k.length - 1].strength };
 }
 
-/** Invert the measured curve: target strength on our WASM scale → shaped label. */
-export function shapedLabelFor(targetElo: number): number {
-	const k = SHAPED_KNOTS_WASM;
+/** Invert the measured curve: target strength on our scale → shaped label. */
+export function shapedLabelFor(
+	targetElo: number,
+	substrate: Substrate = getBotSubstrate()
+): number {
+	const k = SHAPED_KNOTS[substrate];
 	if (targetElo <= k[0].strength) return k[0].label;
 	if (targetElo >= k[k.length - 1].strength) return k[k.length - 1].label;
 	for (let i = 1; i < k.length; i++) {

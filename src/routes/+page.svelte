@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount, untrack } from 'svelte';
-	import { botDelay, selectBotMove, shapedBotMove, shapedSearchDepth } from '$lib/bot';
+	import { botDelay, selectBotMove, shapedBotMove, shapedLabelFor, shapedSearchDepth } from '$lib/bot';
 	import { personaById, personaInternalElo, type BotPersona } from '$lib/bots';
 	import { estimatePlayerElo } from '$lib/playerElo';
 	import Board from '$lib/components/Board.svelte';
@@ -54,6 +54,7 @@
 	import { botSpec, botEloMax, botEloMin } from '$lib/engine/botRecipe';
 	import { maiaMove, inMaiaRange, preloadMaia } from '$lib/engine/maia';
 	import { retroMove, preloadRetro } from '$lib/engine/retro';
+	import { dalaMove, preloadDala, onDalaDownload } from '$lib/engine/dala';
 	import { computeControl } from '$lib/engine/control';
 	import { findThreat, type Threat } from '$lib/engine/threats';
 	import {
@@ -373,6 +374,10 @@
 	// per-game seed for the shaped bot's sticky tactic-misses (what it doesn't
 	// see this game, it keeps not seeing); re-rolled on every board reset
 	let botGameSeed = $state(`s${Math.floor(Math.random() * 1e9)}`);
+	// a dala net is downloading (Rust emits start/done around the fetch) —
+	// shown as "downloading…" in the panel instead of a mute stall
+	let botDownloading = $state(false);
+	$effect(() => onDalaDownload((active) => (botDownloading = active)));
 
 	$effect(() => {
 		practiceItems = loadItems();
@@ -442,6 +447,7 @@
 		if (!botEnabled) return;
 		if (botPersona?.maiaBand) preloadMaia(botPersona.maiaBand);
 		else if (botPersona?.retro) preloadRetro(botPersona.retro);
+		else if (botPersona?.dalaBand) preloadDala(botPersona.dalaBand);
 		else if (!botPersona && botHuman && inMaiaRange(botElo)) preloadMaia(botElo);
 	});
 
@@ -591,18 +597,25 @@
 		const p = botPersona;
 		// engines that can fail to produce a move (net not loaded, worker down)
 		// fall back to Stockfish at the persona's strength
-		const fallible = p ? !!p.maiaBand || !!p.retro : botHuman && inMaiaRange(botElo);
+		const fallible = p
+			? !!p.maiaBand || !!p.retro || !!p.dalaBand
+			: botHuman && inMaiaRange(botElo);
+		// square labels resolve at MOVE time, not roster-build time: the label
+		// depends on the active substrate's measured curve (web wasm vs the
+		// desktop big-net sidecar), and the substrate flips after module load
 		const compute = p?.shapedLabel
-			? shapedAppMove(p.shapedLabel)
+			? shapedAppMove(shapedLabelFor(personaInternalElo(p)))
 			: p?.retro
 				? retroMove(game.fen, p.retro).catch(() => null)
-				: p?.maiaBand
-					? maiaMove(maiaFenHistory(), p.maiaBand).catch(() => null)
-					: p
-						? stockfishBotMove(personaInternalElo(p))
-						: fallible
-							? maiaMove(maiaFenHistory(), botElo).catch(() => null)
-							: stockfishBotMove();
+				: p?.dalaBand
+					? dalaMove(game.fen, p.dalaBand).catch(() => null)
+					: p?.maiaBand
+						? maiaMove(maiaFenHistory(), p.maiaBand).catch(() => null)
+						: p
+							? stockfishBotMove(personaInternalElo(p))
+							: fallible
+								? maiaMove(maiaFenHistory(), botElo).catch(() => null)
+								: stockfishBotMove();
 		const [primary] = await Promise.all([compute, new Promise((r) => setTimeout(r, botDelay()))]);
 		let uci = primary;
 		if (fallible && !uci) {
@@ -1344,6 +1357,7 @@
 				bind:personaId={botPersonaId}
 				playerElo={playerEloEstimate}
 				fellBack={botFellBack}
+				downloading={botDownloading}
 				thinking={botThinking}
 				startOpen={isNarrow}
 			/>

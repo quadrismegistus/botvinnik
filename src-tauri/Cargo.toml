@@ -24,3 +24,7 @@ log = "0.4"
 tauri = { version = "2.11.3", features = [] }
 tauri-plugin-log = "2"
 tauri-plugin-shell = "2"
+# dala weights download (fetched on demand from the dala-training GitHub
+# release into app-data — we point at the author's files, never redistribute)
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream"] }
+futures-util = "0.3"

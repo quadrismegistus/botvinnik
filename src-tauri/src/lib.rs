@@ -18,7 +18,18 @@ struct EngineLine {
 }
 
 #[tauri::command]
-fn engine_start(app: AppHandle, state: State<'_, Engines>, id: String) -> Result<(), String> {
+fn engine_start(
+    app: AppHandle,
+    state: State<'_, Engines>,
+    id: String,
+    engine: Option<String>,
+    args: Option<Vec<String>>,
+) -> Result<(), String> {
+    // only bundled sidecars may be spawned — never arbitrary paths from JS
+    let engine = engine.unwrap_or_else(|| "stockfish".to_string());
+    if engine != "stockfish" && engine != "lc0" {
+        return Err(format!("unknown engine: {engine}"));
+    }
     let mut slots = state.0.lock().map_err(|e| e.to_string())?;
     if let Some(mut old) = slots.remove(&id) {
         let _ = old.write(b"quit\n");
@@ -26,8 +37,9 @@ fn engine_start(app: AppHandle, state: State<'_, Engines>, id: String) -> Result
     }
     let (mut rx, child) = app
         .shell()
-        .sidecar("stockfish")
+        .sidecar(&engine)
         .map_err(|e| e.to_string())?
+        .args(args.unwrap_or_default())
         .spawn()
         .map_err(|e| e.to_string())?;
     slots.insert(id.clone(), child);
@@ -90,6 +102,68 @@ fn engine_send(state: State<'_, Engines>, id: String, command: String) -> Result
     send_impl(&state, &id, &command)
 }
 
+// The dala nets (hrschubert/dala-training): human-imitation lc0 networks with
+// real lichess ratings. Fetched on first use from the author's GitHub release
+// into app-data — the app never redistributes the weights. Filenames are
+// pinned to the exact release assets the calibration gym measured.
+fn dala_asset(band: u32) -> Option<&'static str> {
+    match band {
+        700 => Some("dala-700-00235000.pb.gz"),
+        900 => Some("dala-900-00285000.pb.gz"),
+        1300 => Some("dala-1300-00300000.pb.gz"),
+        _ => None,
+    }
+}
+
+#[tauri::command]
+async fn dala_ensure_weights(app: AppHandle, band: u32) -> Result<String, String> {
+    use tauri::Manager;
+    let asset = dala_asset(band).ok_or_else(|| format!("no dala net for band {band}"))?;
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?
+        .join("dala");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let dest = dir.join(asset);
+    if dest.exists() {
+        return Ok(dest.to_string_lossy().to_string());
+    }
+
+    let url =
+        format!("https://github.com/hrschubert/dala-training/releases/download/Release-v0/{asset}");
+    let _ = app.emit(
+        "dala-download",
+        EngineLine { id: band.to_string(), line: "start".to_string() },
+    );
+    let resp = reqwest::get(&url).await.map_err(|e| e.to_string())?;
+    if !resp.status().is_success() {
+        return Err(format!("download failed: HTTP {}", resp.status()));
+    }
+    // stream to a UNIQUE temp file, rename on success — a torn download must
+    // not be mistaken for a cached net, and two concurrent callers must not
+    // interleave writes into the same .part (rename is atomic; last one wins
+    // with a complete file either way)
+    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let seq = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let tmp = dir.join(format!("{asset}.{}.{seq}.part", std::process::id()));
+    {
+        use futures_util::StreamExt;
+        let mut file = std::fs::File::create(&tmp).map_err(|e| e.to_string())?;
+        let mut stream = resp.bytes_stream();
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk.map_err(|e| e.to_string())?;
+            std::io::Write::write_all(&mut file, &chunk).map_err(|e| e.to_string())?;
+        }
+    }
+    std::fs::rename(&tmp, &dest).map_err(|e| e.to_string())?;
+    let _ = app.emit(
+        "dala-download",
+        EngineLine { id: band.to_string(), line: "done".to_string() },
+    );
+    Ok(dest.to_string_lossy().to_string())
+}
+
 #[tauri::command]
 fn engine_stop(state: State<'_, Engines>, id: String) -> Result<(), String> {
     stop_impl(&state, &id)
@@ -118,7 +192,12 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .manage(Engines(Mutex::new(HashMap::new())))
-        .invoke_handler(tauri::generate_handler![engine_start, engine_send, engine_stop])
+        .invoke_handler(tauri::generate_handler![
+            engine_start,
+            engine_send,
+            engine_stop,
+            dala_ensure_weights
+        ])
         .setup(|app| {
             if cfg!(debug_assertions) {
                 app.handle().plugin(

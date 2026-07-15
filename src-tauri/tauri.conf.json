@@ -36,7 +36,8 @@
       "debugApplicationIdSuffix": ".debug"
     },
     "externalBin": [
-      "binaries/stockfish"
+      "binaries/stockfish",
+      "binaries/lc0"
     ]
   }
 }

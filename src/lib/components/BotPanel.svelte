@@ -1,7 +1,13 @@
 <script lang="ts">
-	import { PERSONAS, personaById } from '$lib/bots';
+	import { availablePersonas, personaById } from '$lib/bots';
 	import type { PlayerEloEstimate } from '$lib/playerElo';
 	import BotAvatar from './BotAvatar.svelte';
+
+	// dala personas need the native lc0 sidecar; the layout flips the shell
+	// state before any page mounts, so a plain check is stable here
+	const ROSTER = availablePersonas(
+		typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
+	);
 
 	interface Props {
 		enabled: boolean;
@@ -13,6 +19,7 @@
 		personaId: string | null; // selected roster bot; null = custom slider
 		playerElo?: PlayerEloEstimate | null; // fit from stored persona games
 		fellBack?: boolean; // this game used the Stockfish stand-in at least once
+		downloading?: boolean; // a dala net is being fetched (59-330MB, first use)
 		thinking: boolean;
 		startOpen?: boolean;
 	}
@@ -27,6 +34,7 @@
 		personaId = $bindable(),
 		playerElo = null,
 		fellBack = false,
+		downloading = false,
 		thinking,
 		startOpen = true
 	}: Props = $props();
@@ -34,7 +42,7 @@
 	const persona = $derived(personaById(personaId));
 	// index of the first roster chip stronger than the player ("you are here")
 	const youAt = $derived(
-		playerElo === null ? -1 : PERSONAS.findIndex((p) => p.elo > playerElo.elo)
+		playerElo === null ? -1 : ROSTER.findIndex((p) => p.elo > playerElo.elo)
 	);
 	// svelte-ignore state_referenced_locally — startOpen is deliberately initial-only
 	let open = $state(startOpen);
@@ -59,7 +67,13 @@
 						title="The persona's engine failed at least once this game — a Stockfish stand-in moved instead. This game won't count toward your rating.">⚠ stand-in</span
 					>
 				{/if}
-				{thinking ? 'thinking…' : persona ? `${persona.name} · ${persona.elo}` : `${elo} ELO`}
+				{downloading
+					? 'downloading…'
+					: thinking
+						? 'thinking…'
+						: persona
+							? `${persona.name} · ${persona.elo}`
+							: `${elo} ELO`}
 			</span>
 		{/if}
 	</div>
@@ -83,7 +97,7 @@
 			     strength (display scale ≈ lichess rapid). "Custom" restores the
 			     raw slider. -->
 			<div class="strip" use:revealSelected>
-				{#each PERSONAS as p, i (p.id)}
+				{#each ROSTER as p, i (p.id)}
 					{#if i === youAt}
 						<div class="you" title="Estimated from your {playerElo?.games} rated games">
 							<span class="you-line"></span>

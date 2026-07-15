@@ -11,6 +11,8 @@
 #
 #     bash scripts/run-shaped-calibration.sh            # full grid, ~1 hour
 #     bash scripts/run-shaped-calibration.sh --quick    # tuning loop, ~10 min
+#     bash scripts/run-shaped-calibration.sh --native   # full grid vs the Tauri
+#                                                       # sidecar (desktop knots)
 #
 # --quick plays a small n=30 set (shaped:600/900/1200 vs nearby numeric bands +
 # one anchor pair) into data/bot-shaped-quick.json — enough to eyeball whether
@@ -51,6 +53,19 @@ shaped:1350~ucielo:1600:mt400,shaped:1500~ucielo:1600:mt400,shaped:1500~ucielo:2
 GAMES=50
 OUT=data/bot-shaped-calib.json
 LABEL="full honest grid (n=50, ~25 min)"
+ENGINE=scripts/wasm-engine/run.sh
+SUBSTRATE=wasm
+
+# Desktop knots: measure against the EXACT binary the Tauri app ships (the
+# big-net sidecar — much stronger than the web's lite-single at equal depth,
+# so the WASM knot table mislabels desktop Squares).
+if [ "${1:-}" = "--native" ]; then
+	ENGINE=src-tauri/binaries/stockfish-aarch64-apple-darwin
+	[ -x "$ENGINE" ] || { echo "sidecar missing: $ENGINE"; exit 1; }
+	SUBSTRATE=native
+	OUT=data/bot-shaped-native-calib.json
+	LABEL="full honest grid vs Tauri sidecar (native substrate, n=50)"
+fi
 
 # Quick tuning mode. NB the numeric bands below the WASM seam (samplerMax 2485)
 # are the SOFTMAX SAMPLER — the exploitable thing shaped replaces — so playing
@@ -71,7 +86,7 @@ echo "============================================================"
 echo " Shaped-blunder calibration — $LABEL"
 echo "============================================================"
 npx tsx scripts/calibrate-bots.mts \
-	--engine scripts/wasm-engine/run.sh --substrate wasm \
+	--engine "$ENGINE" --substrate "$SUBSTRATE" \
 	--pairs "$PAIRS" \
 	--games "$GAMES" \
 	--shaped-depth 12 --shaped-multipv 12 \
