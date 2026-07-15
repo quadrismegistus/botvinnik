@@ -36,6 +36,8 @@ export interface BotPersona {
 	shapedLabel?: number;
 	/** maia: net band (1100..1900) */
 	maiaBand?: number;
+	/** maia: policy-sampling temperature (default argmax = consensus move) */
+	maiaTemp?: number;
 	/** fish: elo on the app's internal WASM scale (drives the numeric recipe) */
 	numericElo?: number;
 	/** retro: historical engine + ply (morlock re-implementations, wasm worker) */
@@ -67,6 +69,24 @@ function maia(displayElo: number, band: number, roman: string): BotPersona {
 		family: 'maia',
 		blurb: `A neural net trained to move like real ~${displayElo}-rated players — human habits, human mistakes.`,
 		maiaBand: band
+	};
+}
+
+// Sampled Maias: the same nets, but SAMPLING the policy distribution instead
+// of playing its argmax. Argmax plays the training population's consensus
+// move every time — far stronger than any individual in it (the Humaia
+// insight; measured −260 Elo in a same-net control pair). Display elos are
+// ESTIMATES (the argmax bots' lichess ratings − 260), refined by play — the
+// only roster numbers not directly measured, and labeled so in the blurb.
+function maiaSampled(displayElo: number, band: number, roman: string): BotPersona {
+	return {
+		id: `maia-s-${band}`,
+		name: `Maia ${roman} (sampled)`,
+		elo: displayElo,
+		family: 'maia',
+		blurb: `The same net as Maia ${roman}, but drawing from its whole move distribution instead of the consensus move — weaker, moodier, more like one player than an average. Rating estimated.`,
+		maiaBand: band,
+		maiaTemp: 1
 	};
 }
 
@@ -145,6 +165,9 @@ export const PERSONAS: BotPersona[] = [
 	dala(911, 700),
 	dala(1095, 900),
 	dala(1315, 1300),
+	maiaSampled(1310, 1100, 'I'),
+	maiaSampled(1380, 1500, 'V'),
+	maiaSampled(1440, 1900, 'IX'),
 	maia(1570, 1100, 'I'),
 	maia(1640, 1500, 'V'),
 	maia(1700, 1900, 'IX'),

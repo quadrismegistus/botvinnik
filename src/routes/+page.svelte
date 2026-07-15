@@ -610,7 +610,7 @@
 				: p?.dalaBand
 					? dalaMove(game.fen, p.dalaBand).catch(() => null)
 					: p?.maiaBand
-						? maiaMove(maiaFenHistory(), p.maiaBand).catch(() => null)
+						? maiaMove(maiaFenHistory(), p.maiaBand, p.maiaTemp ?? 0).catch(() => null)
 						: p
 							? stockfishBotMove(personaInternalElo(p))
 							: fallible
