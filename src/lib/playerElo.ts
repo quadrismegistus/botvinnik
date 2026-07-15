@@ -45,6 +45,7 @@ export function estimatePlayerElo(gamesList: StoredGame[]): PlayerEloEstimate | 
 		const p = personaById(g.botPersona);
 		if (!p) continue;
 		if (g.botFallback) continue; // opponent wasn't really the persona — off the ruler
+		if ((g.botUndos ?? 0) > 0) continue; // takebacks = assisted result — off the ruler
 		const score = playerScore(g);
 		if (score === null) continue;
 		outcomes.push({ opp: p.elo, score });

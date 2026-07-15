@@ -379,6 +379,10 @@
 	// a dala net is downloading (Rust emits start/done around the fetch) —
 	// shown as "downloading…" in the panel instead of a mute stall
 	let botDownloading = $state(false);
+	// takebacks used against the bot this game — an assisted result is real
+	// practice but not a clean measurement (chess.com's crowns distinction),
+	// so it's recorded on the game and excluded from the rating fit
+	let botUndos = $state(0);
 	$effect(() => onDalaDownload((active) => (botDownloading = active)));
 
 	$effect(() => {
@@ -1202,6 +1206,7 @@
 			botElo: botEnabled ? (botPersona ? personaInternalElo(botPersona) : botElo) : null,
 			botPersona: botEnabled && botPersona ? botPersona.id : undefined,
 			botFallback: botEnabled && botFellBack ? true : undefined,
+			botUndos: botEnabled && botUndos > 0 ? botUndos : undefined,
 			botColor: botEnabled ? botColor : null,
 			moveCount: moves.length,
 			whiteAccuracy: gameAccuracy(stored, 'w'),
@@ -1219,6 +1224,7 @@
 	function handleUndo() {
 		if (!undo()) return;
 		gameSaved = false; // game continues — allow re-archiving at its new end
+		if (mode === 'play' && botEnabled) botUndos++;
 		// vs the bot, take back its reply too so it's your turn again
 		if (botEnabled && getState().turn === botColor) undo();
 		const last = getState().moves.at(-1);
@@ -1234,6 +1240,7 @@
 		reset();
 		botGameSeed = `s${Math.floor(Math.random() * 1e9)}`; // fresh eyes for the shaped bot
 		botFellBack = false;
+		botUndos = 0;
 		gameSaved = false;
 		lastMove = null;
 		refresh();
