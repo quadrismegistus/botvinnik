@@ -89,8 +89,7 @@
 	let sideView: SideView = $state('play');
 	let rosterOpen = $state(false); // the grouped opponent picker (RosterPicker)
 	let gearOpen = $state(false); // narrow: board-toggle popover in the sheet header
-	// remaining collapsibles: the engine-lines tree and the opening book
-	let treeOpen = $state(false);
+	// the one remaining collapsible-by-default: the opening book
 	let bookOpen = $state(false);
 	let commentaryOpen = $state(false); // desktop play: commentary card via footer link
 	let commentary: CommentaryEntry[] = $state([]);
@@ -1414,25 +1413,16 @@
 			/>
 		{/snippet}
 
-		<!-- the engine's top-3 with the full tree folded behind a toggle: one
-		     Lines card instead of Engine Analysis + Lines Tree showing the same
-		     data two ways -->
-		{#snippet treeToggle()}
-			<button class="tree-toggle" onclick={() => (treeOpen = !treeOpen)}>
-				{treeOpen ? '▾ hide tree' : '▸ expand tree'}
-			</button>
-			{#if treeOpen}
-				{@render linesBody()}
-			{/if}
-		{/snippet}
-
+		<!-- one Lines card — the engine's top-3 with the tree below it — instead
+		     of Engine Analysis + Lines Tree showing the same data two ways.
+		     Collapsing the card hides both. -->
 		{#snippet engineBody()}
 			<AnalysisPanel
 				moves={visibleLines.slice(0, 3)}
 				fen={game.fen}
 				{analyzing}
 				orientation={boardOrientation}
-				footer={treeToggle}
+				footer={linesBody}
 			/>
 		{/snippet}
 
@@ -1726,12 +1716,12 @@
 			{#if !panelsHidden}
 				{#if sideView === 'play'}
 					{@render botBody()}
-					{@render movesBody()}
 					{@render insightsBody()}
 					{@render engineBody()}
 					<SidePanel title="Win chance" open={true}>
 						{@render chartBody()}
 					</SidePanel>
+					{@render movesBody()}
 					<SidePanel title="Opening Book" bind:open={bookOpen}>
 						{@render bookBody()}
 					</SidePanel>
@@ -1891,18 +1881,6 @@
 	}
 	.library > button:hover,
 	.library > button.lit {
-		color: var(--text-primary);
-	}
-	/* the expand-tree toggle inside the Lines card */
-	:global(.tree-toggle) {
-		background: transparent;
-		color: var(--text-secondary);
-		border: none;
-		font-size: 12px;
-		padding: 6px 0 2px;
-		cursor: pointer;
-	}
-	:global(.tree-toggle:hover) {
 		color: var(--text-primary);
 	}
 	.quick-toggles button {

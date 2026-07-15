@@ -46,7 +46,9 @@
 
 	{#if open}
 		{#if moves.length === 0}
-			<div class="empty">{analyzing ? 'Thinking…' : 'No analysis'}</div>
+			{#if analyzing}
+				<div class="empty">Thinking…</div>
+			{/if}
 		{:else}
 			{#each moves as move, i}
 				<div class="line" class:best={i === 0}>
