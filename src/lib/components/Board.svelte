@@ -190,6 +190,7 @@
 <style>
 	.board-wrap {
 		aspect-ratio: 1;
+		max-width: 100%; /* never wider than .board-col's viewport cap */
 	}
 	.board {
 		width: 100%;

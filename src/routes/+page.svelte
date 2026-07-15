@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount, untrack } from 'svelte';
+	import { browser } from '$app/environment';
 	import { botDelay, selectBotMove, shapedBotMove, shapedLabelFor, shapedSearchDepth } from '$lib/bot';
 	import { personaById, personaInternalElo, type BotPersona } from '$lib/bots';
 	import { estimatePlayerElo } from '$lib/playerElo';
@@ -102,8 +103,10 @@
 	let showControl = $state(false);
 	let pendingPromotion: { from: string; to: string } | null = $state(null);
 	let boardResetKey = $state(0);
-	let viewportH = $state(900);
-	let viewportW = $state(1280);
+	// seed from the real window: bind:innerWidth only corrects these on resize
+	// events, and a phone that never fires one would keep the SSR defaults
+	let viewportH = $state(browser ? window.innerHeight : 900);
+	let viewportW = $state(browser ? window.innerWidth : 1280);
 	// the board fills the window height; everything else lives in the right sidebar,
 	// which soaks up the remaining width
 	const TREE_HEIGHT = 200; // LinesTree svg
@@ -1752,6 +1755,11 @@
 		flex-direction: column;
 		gap: 2px;
 		flex-shrink: 0;
+		/* the SSR-rendered width comes from default viewport state; without this
+		   cap it overflows a phone, the browser expands the layout viewport to
+		   fit, and hydration then reads the inflated innerWidth — permanently,
+		   since bind:innerWidth only corrects on a resize event */
+		max-width: calc(100dvw - 16px);
 	}
 	.sidebar {
 		display: flex;
