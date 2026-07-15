@@ -21,6 +21,7 @@ import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Chess } from 'chess.js';
 import { shapedBotMove, shapedSearchDepth } from '../../src/lib/bot';
+import { avoidRepetition } from '../../src/lib/repetition';
 import type { EngineMove } from '../../src/lib/engine/stockfish';
 
 const argv = process.argv.slice(2);
@@ -129,10 +130,22 @@ function setPosition(args: string[]) {
 	}
 }
 
+// every position reached this game, oldest first, current last — the shape
+// avoidRepetition expects. The bridge always sends the full move list, so the
+// history is complete.
+function fenHistory(): string[] {
+	const h = chess.history({ verbose: true });
+	return h.length === 0 ? [chess.fen()] : [h[0].before, ...h.map((m) => m.after)];
+}
+
 async function go() {
 	const moves = await backend.search(chess.fen(), shapedSearchDepth(label));
 	const move = shapedBotMove(moves, label, undefined, gameSeed);
-	out(`bestmove ${move ?? moves[0]?.pv[0] ?? '(none)'}`);
+	// same guard the app applies: the shaped layer can't see game history, so
+	// a winning SquareFish could shuffle into threefold — bot opponents would
+	// farm that draw relentlessly
+	const safe = move ? avoidRepetition(move, fenHistory(), moves) : null;
+	out(`bestmove ${safe ?? moves[0]?.pv[0] ?? '(none)'}`);
 }
 
 const rl = createInterface({ input: process.stdin });
