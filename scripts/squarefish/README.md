@@ -69,3 +69,21 @@ that's how maia1 collected 8M games). Compare the account's rapid rating to
 the label's intended display elo: agreement within ~±100 validates the whole
 scale bottom; disagreement is the measurement we've been unable to make any
 other way.
+
+## VPS deployment (recommended — rating collection wants uptime)
+
+WASM is the right substrate for lichess: it's byte-identical to what the
+website runs (the rating anchors the public product), and it needs no
+compiled chess software on the server — Node 24 is the only requirement.
+
+```
+export LICHESS_TOKEN=<bot:play token>
+export SQUAREFISH_LABEL=<label from the current wasm knots>
+bash scripts/squarefish/deploy/setup-vps.sh
+# review ~/lichess-bot/config.yml, then:
+sudo systemctl enable --now squarefish
+journalctl -fu squarefish     # watch it accept its first challenges
+```
+
+The service restarts on failure and survives reboots. Expect ~1-3s/move on a
+modest VPS — keep bullet out of config.yml's time_controls.
