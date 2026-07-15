@@ -133,6 +133,12 @@ rl.on('line', (line) => {
 			out(`id name SquareFish ${label}`);
 			out('id author botvinnik-web (shaped bot over Stockfish lite-single)');
 			out('option name Label type spin default 1050 min 600 max 1500');
+			// declared so bridges (python-chess validates before sending) can set
+			// them; accepted and ignored — the label fixes the effort, the backend
+			// runs one thread, and moves take <1s regardless of clock
+			out('option name Move Overhead type spin default 100 min 0 max 10000');
+			out('option name Threads type spin default 1 min 1 max 1');
+			out('option name Hash type spin default 32 min 1 max 1024');
 			out('uciok');
 		} else if (cmd === 'isready') {
 			out('readyok');
