@@ -7,11 +7,10 @@
 <script lang="ts">
 	interface Props {
 		view: SideView;
-		practiceBadge?: string; // due count, shown on the Practice segment
 		onchange: (v: SideView) => void;
 	}
 
-	let { view, practiceBadge = '', onchange }: Props = $props();
+	let { view, onchange }: Props = $props();
 
 	const SEGMENTS: { id: SideView; label: string }[] = [
 		{ id: 'play', label: 'Play' },
@@ -29,9 +28,6 @@
 			onclick={() => onchange(s.id)}
 		>
 			{s.label}
-			{#if s.id === 'practice' && practiceBadge}
-				<span class="badge">{practiceBadge}</span>
-			{/if}
 		</button>
 	{/each}
 </div>
@@ -61,17 +57,5 @@
 	button.on {
 		background: var(--text-primary);
 		color: var(--bg-panel);
-	}
-	.badge {
-		position: absolute;
-		top: -6px;
-		right: 6px;
-		background: var(--color-lose, #d66);
-		color: #fff;
-		font-size: 9px;
-		font-weight: 700;
-		border-radius: 999px;
-		padding: 1px 5px;
-		line-height: 1.3;
 	}
 </style>

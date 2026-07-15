@@ -1680,7 +1680,6 @@
 					<div class="sheet-head">
 						<ModeBar
 							view={sideView}
-							practiceBadge={practiceDue > 0 ? String(practiceDue) : ''}
 							onchange={(v) => {
 								setView(v);
 								if (sheetDetent === 'peek' && v !== 'play') sheetDetent = 'half';
@@ -1747,11 +1746,7 @@
 		<div class="sidebar" class:collapsed={panelsHidden}>
 			<div class="sidebar-top">
 				{#if !panelsHidden}
-					<ModeBar
-						view={sideView}
-						practiceBadge={practiceDue > 0 ? String(practiceDue) : ''}
-						onchange={setView}
-					/>
+					<ModeBar view={sideView} onchange={setView} />
 				{/if}
 				<button
 					class="collapse-btn"
@@ -1883,7 +1878,10 @@
 		gap: 12px;
 		flex: 1 1 320px;
 		min-width: 320px;
-		max-height: calc(100vh - 88px);
+		/* 22px = the top material strip (20px, fixed) + the board-col gap, so
+		   the mode bar's top edge aligns with the board's top edge */
+		margin-top: 22px;
+		max-height: calc(100vh - 88px - 22px);
 		overflow-y: auto;
 	}
 	.sidebar.collapsed {
