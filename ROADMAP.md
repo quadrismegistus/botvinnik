@@ -183,19 +183,26 @@ Shipped so far:
   TODO: find the sargon/bernstein/uSunfish sources (they're
   re-implementations, likely on GitHub) — any that run locally become
   two-sided bridges: same config in our gym + real lichess rating.
-- **DALA (hrschubert/dala-training) — the low-end human-imitation family
-  that already works.** BT4 transformer nets trained per lichess bracket
-  (700/900/1100/1300/1600/2000, games 2024–2026), deployed with WEIGHTED
-  RANDOM sampling (their README independently formalizes the Humaia/argmax
-  insight, citing Maia's inflation directly). Measured lichess ratings
-  track labels: 700→911, 900→1095, 1300→1315 rapid. Weights in Releases
-  (700/900 ≈ 59MB, others ≈ 330MB, lc0 format). NEXT GYM COHORT: brew
-  install lc0 + sample at temp 1 / 1 node → local bots with KNOWN lichess
-  ratings at 911/1095/1315 = two-sided bridges in exactly our extrapolated
-  range. Web-app use: 59MB pair is Maia-3-sized but needs BT4→ONNX
-  conversion AND weights have NO license — email the author first
-  (3-star repo, May 2026; also ships a modified lichess-bot client we can
-  crib for SquareFish deployment).
+- **DALA — GYM DONE (data/bot-dala-gym.json, n=60).** The two-sided
+  bridges read: dala:700 engine-pool ~780 ↔ human 911 (gap ~130);
+  dala:900 ~845 ↔ 1095 (~250); dala:1300 ~945 ↔ 1315 (~370). The
+  imitation pool-penalty SHRINKS toward the bottom (maia-1500 was ~400)
+  → our engine-pool scale approximates the human scale within ~150-250
+  in exactly the beginner range the app serves. Engine pool compresses
+  imitation ladders (600 label-pts → ~160 engine-pts). Square 900 beat
+  dala:900 65-35: Squares' engine backbone exploits never-calculating
+  nets, so the dala bridge reads Squares ~1-2 notches hot vs human-style
+  play — while Ryan's own staircase supports the current labels.
+  DOCTRINE: no single scale; within-family placement is clean,
+  cross-family readings carry ±150-400 predictable pool offsets. Roster
+  numbers stay anchored to HUMAN-pool sources (maia bridge + player
+  games); the definitive instrument is SquareFish-on-lichess.
+  Web-app dala use still open: 59MB nets, BT4→ONNX conversion, NO
+  license on weights — email hrschubert first (their modified
+  lichess-bot client is also the SquareFish deployment reference).
+  Setup for reruns: lc0 MASTER built from source
+  (scripts/engines/lc0-src — brew 0.32 can't read 2026-format nets),
+  nets in scripts/engines/dala/, select:"policy" in gym-ext.json.
 - **slowmate_bot** (~1144 blitz/1312 rapid, few k games): educational UCI
   engine allegedly written entirely by Copilot agents. Gym-ready anchor
   candidate in the 1150-1300 band + a conversation piece. Find repo.
