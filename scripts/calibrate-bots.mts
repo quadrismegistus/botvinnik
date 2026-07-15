@@ -101,6 +101,9 @@ interface ExtSpec {
 	cmd: string;
 	options?: Record<string, string>;
 	go?: string;
+	/** "policy": sample the move from lc0 VerboseMoveStats policy priors
+	 *  (weighted random — how the dala lichess bots play) instead of bestmove */
+	select?: 'bestmove' | 'policy';
 }
 const EXT_CONFIG_PATH = optStr('ext-config', '');
 const EXT: Record<string, ExtSpec> = EXT_CONFIG_PATH
@@ -160,6 +163,8 @@ const OPENINGS = [
 interface SearchOut {
 	moves: EngineMove[];
 	bestmove: string;
+	/** lc0 VerboseMoveStats policy priors (move → P as a fraction), when emitted */
+	policy: Map<string, number>;
 }
 
 class Engine {
@@ -168,6 +173,7 @@ class Engine {
 	private buffer = '';
 	private resolve: ((r: SearchOut) => void) | null = null;
 	private byMultipv = new Map<number, EngineMove>();
+	private policy = new Map<string, number>();
 	private watchdog: NodeJS.Timeout | null = null;
 	private readonly cmd: string;
 
@@ -194,6 +200,12 @@ class Engine {
 		const lines = this.buffer.split('\n');
 		this.buffer = lines.pop() ?? '';
 		for (const line of lines) {
+			// lc0 VerboseMoveStats: "info string e2e4 (322 ) N: 0 (+ 0) (P:  4.05%) ..."
+			if (line.startsWith('info string ')) {
+				const m = line.match(/^info string ([a-h][1-8][a-h][1-8][qrbn]?)\s.*\(P:\s*([\d.]+)%\)/);
+				if (m) this.policy.set(m[1], Number(m[2]) / 100);
+				continue;
+			}
 			if (line.startsWith('info ') && line.includes(' pv ')) {
 				const depth = Number(line.match(/ depth (\d+)/)?.[1] ?? 0);
 				const multipv = Number(line.match(/ multipv (\d+)/)?.[1] ?? 1);
@@ -217,7 +229,7 @@ class Engine {
 				const r = this.resolve;
 				this.resolve = null;
 				this.busy = false;
-				r?.({ moves, bestmove: best });
+				r?.({ moves, bestmove: best, policy: this.policy });
 			}
 		}
 	}
@@ -229,6 +241,7 @@ class Engine {
 	search(fen: string, options: [string, string][], go: string): Promise<SearchOut> {
 		this.busy = true;
 		this.byMultipv = new Map();
+		this.policy = new Map();
 		const opts = options.map(([k, v]) => `setoption name ${k} value ${v}`).join('\n');
 		return new Promise((resolve) => {
 			this.resolve = resolve;
@@ -243,7 +256,7 @@ class Engine {
 					// already gone
 				}
 				this.start();
-				r?.({ moves: [], bestmove: '' });
+				r?.({ moves: [], bestmove: '', policy: new Map() });
 			}, SEARCH_TIMEOUT_MS);
 			this.proc.stdin.write(`${opts}\nposition fen ${fen}\n${go}\n`);
 		});
@@ -306,11 +319,24 @@ async function shapedMove(
 	return shapedBotMove(res.moves, elo, undefined, seed);
 }
 
-// external UCI engine: its own process plays its own move (no sampling layer)
+// external UCI engine: its own process plays its own move. select:"policy"
+// samples from lc0's VerboseMoveStats policy priors instead — weighted random
+// over the imitation net's move distribution, which is how the dala lichess
+// bots play (argmax would inflate an imitation net far above its bracket).
 async function extMove(engine: Engine, id: string, fen: string): Promise<string | null> {
 	const spec = EXT[id];
 	const options = Object.entries(spec.options ?? {}) as [string, string][];
 	const res = await engine.search(fen, options, spec.go ?? 'go movetime 400');
+	if (spec.select === 'policy' && res.policy.size > 0) {
+		const entries = [...res.policy.entries()];
+		const total = entries.reduce((a, [, p]) => a + p, 0);
+		let r = Math.random() * total;
+		for (const [move, p] of entries) {
+			r -= p;
+			if (r <= 0) return move;
+		}
+		return entries[entries.length - 1][0];
+	}
 	if (res.bestmove && res.bestmove !== '(none)' && res.bestmove !== '0000') return res.bestmove;
 	return res.moves[0]?.pv[0] ?? null;
 }

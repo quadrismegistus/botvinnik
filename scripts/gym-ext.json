@@ -23,5 +23,23 @@
 		"cmd": "scripts/engines/patricia-src/engine/patricia",
 		"options": { "Skill_Level": "7" },
 		"go": "go movetime 300"
+	},
+	"dala:700": {
+		"cmd": "scripts/engines/lc0-src/build/release/lc0 --weights=scripts/engines/dala/dala-700-00235000.pb.gz",
+		"options": { "VerboseMoveStats": "true" },
+		"go": "go nodes 1",
+		"select": "policy"
+	},
+	"dala:900": {
+		"cmd": "scripts/engines/lc0-src/build/release/lc0 --weights=scripts/engines/dala/dala-900-00285000.pb.gz",
+		"options": { "VerboseMoveStats": "true" },
+		"go": "go nodes 1",
+		"select": "policy"
+	},
+	"dala:1300": {
+		"cmd": "scripts/engines/lc0-src/build/release/lc0 --weights=scripts/engines/dala/dala-1300-00300000.pb.gz",
+		"options": { "VerboseMoveStats": "true" },
+		"go": "go nodes 1",
+		"select": "policy"
 	}
 }
