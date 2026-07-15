@@ -87,7 +87,18 @@ class Backend {
 	search(fen: string, depth: number): Promise<EngineMove[]> {
 		this.byMultipv = new Map();
 		return new Promise((res) => {
-			this.resolveSearch = res;
+			// Watchdog: a wedged backend must kill the whole process — dying
+			// loudly lets lichess-bot/systemd restart cleanly, where hanging
+			// mutely flags games while looking alive. Depth-12 MultiPV-12 takes
+			// ~1-3s; 30s is pathology, not patience.
+			const watchdog = setTimeout(() => {
+				process.stderr.write('backend search timeout — exiting for a clean restart\n');
+				process.exit(1);
+			}, 30_000);
+			this.resolveSearch = (moves) => {
+				clearTimeout(watchdog);
+				res(moves);
+			};
 			this.send(`position fen ${fen}`);
 			this.send(`go depth ${depth}`);
 		});
