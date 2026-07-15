@@ -211,8 +211,15 @@ export function shapedBotMove(
 		// focal point (the best move's destination square): a hanging piece
 		// missed this move stays unseen while it sits there; the bot only "takes
 		// a fresh look" when the tactical focus moves elsewhere.
+		//
+		// VISIBILITY: a flat missProb had Squares donating mate-in-1s (observed
+		// live — Ryan's Square 1300 game). Short mates are the one tactic even
+		// beginners reliably scan for (checks first!), so they're ~4× more
+		// visible; deeper tactics keep the full miss rate.
+		const mateSoon = best.mate !== null && best.mate > 0 && best.mate <= 2;
+		const p = mateSoon ? missProb * 0.25 : missProb;
 		const roll = seed !== undefined ? hash01(`${seed}:${best.pv[0].slice(2, 4)}`) : Math.random();
-		if (roll >= missProb) return best.pv[0];
+		if (roll >= p) return best.pv[0];
 		// …or it doesn't. Choose among the REST as if the best move didn't exist —
 		// still preferring the more plausible of what it can see. No severity cap:
 		// missing the only defence is exactly how a won game gets lost.

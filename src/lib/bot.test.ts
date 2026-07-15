@@ -129,6 +129,19 @@ describe('shapedBotMove', () => {
 		expect(counts.get('d1h5')! / 4000).toBeGreaterThan(0.9);
 	});
 
+	it('short mates are far more visible than deep tactics (no donated M1s)', () => {
+		// mate-in-1 as the only winning move: second-best is LOSING (win < 85 ⇒
+		// tactical branch, not conversion). At 600 the flat missProb is 60%, but
+		// the mate-visibility discount cuts it to ~15%.
+		const mate1 = [line('d8h4', 0, 1, 1), line('g7g6', -3.0, 2), line('f7f6', -5.0, 3)];
+		const counts = tally(() => shapedBotMove(mate1, 600));
+		expect(counts.get('d8h4')! / 4000).toBeGreaterThan(0.78);
+		// same shape but a quiet win instead of mate ⇒ full miss rate applies
+		const deep = [line('d8h4', 9.0, 1), line('g7g6', -3.0, 2), line('f7f6', -5.0, 3)];
+		const deepCounts = tally(() => shapedBotMove(deep, 600));
+		expect(deepCounts.get('d8h4')! / 4000).toBeLessThan(0.6);
+	});
+
 	it('sticky misses: with a seed, the same tactic stays seen or unseen all game', () => {
 		// Without a seed the per-move re-roll makes eventually-capturing a hanging
 		// piece a certainty; with a per-game seed the decision is a function of
