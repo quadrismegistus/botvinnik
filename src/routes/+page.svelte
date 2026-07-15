@@ -1259,11 +1259,13 @@
 		plies: { from: string; to: string; promotion?: string }[];
 		grades: MoveGrade[];
 		botUndoCounted: boolean;
+		gameWasSaved: boolean; // the position being undone was already archived
 	}
 	let redoStack: RedoEntry[] = $state([]);
 
 	function handleUndo() {
 		const before = getState().moves.slice();
+		const wasSaved = gameSaved;
 		if (!undo()) return;
 		gameSaved = false; // game continues — allow re-archiving at its new end
 		const counted = mode === 'play' && botEnabled;
@@ -1274,7 +1276,8 @@
 		redoStack.push({
 			plies: before.slice(after).map((m) => ({ from: m.from, to: m.to, promotion: m.promotion })),
 			grades: moveHistory.filter((g) => g.ply > after),
-			botUndoCounted: counted
+			botUndoCounted: counted,
+			gameWasSaved: wasSaved
 		});
 		const last = getState().moves.at(-1);
 		lastMove = last ? [last.from, last.to] : null;
@@ -1298,7 +1301,9 @@
 		}
 		// a pure undo→redo roundtrip taught you nothing: take the takeback back
 		if (entry.botUndoCounted) botUndos = Math.max(0, botUndos - 1);
-		gameSaved = false;
+		// restore the archive flag too — re-reaching an already-saved game end
+		// must not archive a duplicate (ids are timestamped, put() won't dedupe)
+		gameSaved = entry.gameWasSaved;
 		moveHistory = [...moveHistory, ...entry.grades];
 		const last = getState().moves.at(-1);
 		lastMove = last ? [last.from, last.to] : null;
