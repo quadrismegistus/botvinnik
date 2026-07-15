@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { openSidePanel, playMove, waitForApp, waitForEngineReady } from './helpers';
+import { openMode, playMove, waitForApp, waitForEngineReady } from './helpers';
 
 test('a finished game auto-saves and is reviewable with labels and explanations', async ({
 	page
@@ -12,9 +12,9 @@ test('a finished game auto-saves and is reviewable with labels and explanations'
 	await playMove(page, [6, 2], [6, 4], 5000); // g4 (the blunder needs its backfill)
 	await playMove(page, [3, 8], [7, 4], 2000); // Qh4#
 
-	await expect(page.locator('.side-panel .badge', { hasText: '1' }).first()).toBeVisible();
+	await expect(page.locator('.library button', { hasText: 'Games (1)' })).toBeVisible();
 
-	await openSidePanel(page, 'Games');
+	await openMode(page, 'Review');
 	const row = (await page.locator('.games-panel .row').first().textContent()) ?? '';
 	expect(row).toContain('0-1');
 	expect(row).toContain('2 moves');
@@ -34,7 +34,7 @@ test('a finished game auto-saves and is reviewable with labels and explanations'
 	// the archive survives a reload
 	await page.reload();
 	await waitForEngineReady(page);
-	await expect(page.locator('.side-panel .badge', { hasText: '1' }).first()).toBeVisible();
+	await expect(page.locator('.library button', { hasText: 'Games (1)' })).toBeVisible();
 
 	// and the stored PGN is a real game
 	const pgn = await page.evaluate(

@@ -4,8 +4,7 @@ import { clickSquare, waitForApp } from './helpers';
 test('analysis completes with full numbered PVs and a persistent depth chip', async ({ page }) => {
 	await waitForApp(page);
 
-	// open Engine Analysis (collapsed by default) and let the slice finish
-	await page.locator('.analysis-panel .title-btn').click();
+	// the Lines card is open by default; let the slice finish
 	await page.waitForSelector('.analysis-panel .line');
 	await page.waitForFunction(
 		() => /^d\d+$/.test(document.querySelector('.analysis-panel .status')?.textContent ?? ''),
@@ -29,7 +28,6 @@ test('analysis completes with full numbered PVs and a persistent depth chip', as
 
 test('hovering an engine line pops an animating preview board', async ({ page }) => {
 	await waitForApp(page);
-	await page.locator('.analysis-panel .title-btn').click();
 	await page.waitForSelector('.analysis-panel .line .line-hover');
 
 	await page.locator('.analysis-panel .line .line-hover').first().hover();
