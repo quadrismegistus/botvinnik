@@ -54,6 +54,7 @@
 	import { botSpec, botEloMax, botEloMin } from '$lib/engine/botRecipe';
 	import { maiaMove, inMaiaRange, preloadMaia } from '$lib/engine/maia';
 	import { retroMove, preloadRetro } from '$lib/engine/retro';
+	import { dalaMove, preloadDala } from '$lib/engine/dala';
 	import { computeControl } from '$lib/engine/control';
 	import { findThreat, type Threat } from '$lib/engine/threats';
 	import {
@@ -442,6 +443,7 @@
 		if (!botEnabled) return;
 		if (botPersona?.maiaBand) preloadMaia(botPersona.maiaBand);
 		else if (botPersona?.retro) preloadRetro(botPersona.retro);
+		else if (botPersona?.dalaBand) preloadDala(botPersona.dalaBand);
 		else if (!botPersona && botHuman && inMaiaRange(botElo)) preloadMaia(botElo);
 	});
 
@@ -591,18 +593,22 @@
 		const p = botPersona;
 		// engines that can fail to produce a move (net not loaded, worker down)
 		// fall back to Stockfish at the persona's strength
-		const fallible = p ? !!p.maiaBand || !!p.retro : botHuman && inMaiaRange(botElo);
+		const fallible = p
+			? !!p.maiaBand || !!p.retro || !!p.dalaBand
+			: botHuman && inMaiaRange(botElo);
 		const compute = p?.shapedLabel
 			? shapedAppMove(p.shapedLabel)
 			: p?.retro
 				? retroMove(game.fen, p.retro).catch(() => null)
-				: p?.maiaBand
-					? maiaMove(maiaFenHistory(), p.maiaBand).catch(() => null)
-					: p
-						? stockfishBotMove(personaInternalElo(p))
-						: fallible
-							? maiaMove(maiaFenHistory(), botElo).catch(() => null)
-							: stockfishBotMove();
+				: p?.dalaBand
+					? dalaMove(game.fen, p.dalaBand).catch(() => null)
+					: p?.maiaBand
+						? maiaMove(maiaFenHistory(), p.maiaBand).catch(() => null)
+						: p
+							? stockfishBotMove(personaInternalElo(p))
+							: fallible
+								? maiaMove(maiaFenHistory(), botElo).catch(() => null)
+								: stockfishBotMove();
 		const [primary] = await Promise.all([compute, new Promise((r) => setTimeout(r, botDelay()))]);
 		let uci = primary;
 		if (fallible && !uci) {

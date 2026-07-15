@@ -23,7 +23,8 @@ export interface NativeUci {
 export async function openNativeUci(
 	id: string,
 	onLine: (line: string) => void,
-	onError: (message: string) => void
+	onError: (message: string) => void,
+	opts?: { engine?: 'stockfish' | 'lc0'; args?: string[] }
 ): Promise<NativeUci> {
 	let closed = false;
 	const unlisteners: UnlistenFn[] = [];
@@ -44,7 +45,7 @@ export async function openNativeUci(
 			if (e.payload.id === id && !closed) onError('engine process exited');
 		})
 	);
-	await invoke('engine_start', { id });
+	await invoke('engine_start', { id, engine: opts?.engine, args: opts?.args });
 
 	return {
 		send: (command: string) => invoke('engine_send', { id, command }),

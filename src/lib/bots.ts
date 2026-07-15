@@ -24,7 +24,7 @@ import type { RetroSpec } from './engine/retro';
 /** WASM-numeric scale ≈ lichess-rapid + 240 (maia1 bridge, club-range anchors). */
 export const SCALE_OFFSET = 240;
 
-export type BotFamily = 'square' | 'maia' | 'fish' | 'retro';
+export type BotFamily = 'square' | 'maia' | 'fish' | 'retro' | 'dala';
 
 export interface BotPersona {
 	id: string; // stable key: persisted in settings and stored games
@@ -40,6 +40,10 @@ export interface BotPersona {
 	numericElo?: number;
 	/** retro: historical engine + ply (morlock re-implementations, wasm worker) */
 	retro?: RetroSpec;
+	/** dala: imitation-net bracket (700/900/1300) — native (Tauri) only */
+	dalaBand?: number;
+	/** persona needs the native shell (lc0 sidecar); hidden in the web roster */
+	nativeOnly?: boolean;
 }
 
 function square(displayElo: number): BotPersona {
@@ -115,17 +119,42 @@ const RETROS: BotPersona[] = [
 	)
 ];
 
+// Dala (desktop only): BT4 imitation nets trained exclusively on human games
+// in each bracket (hrschubert/dala-training), played by policy sampling — the
+// display elos are the dala lichess bots' REAL human-pool rapid ratings.
+// Native-gated: they run on an lc0 sidecar; weights download on first use.
+function dala(displayElo: number, band: number): BotPersona {
+	return {
+		id: `dala-${band}`,
+		name: `Dala ${band}`,
+		elo: displayElo,
+		family: 'dala',
+		blurb: `A neural net trained only on games by ~${band}-rated humans, playing their moves — habits, hopes, blind spots and all. (Downloads its brain on first use.)`,
+		dalaBand: band,
+		nativeOnly: true
+	};
+}
+
 // 12 Squares (600-1700) + 3 Maias (real @maia lichess ratings) + 3 retro
-// engines (real morlock-bot lichess ratings) + 8 Fish (1800-2500; internal
-// 2040-2740, inside the WASM honest ceiling 2800) = 26.
+// engines (real morlock-bot lichess ratings) + 3 Dalas (desktop only, real
+// dala-bot lichess ratings) + 8 Fish (1800-2500; internal 2040-2740, inside
+// the WASM honest ceiling 2800) = 29 (26 on the web).
 export const PERSONAS: BotPersona[] = [
 	...[600, 700, 800, 900, 1000, 1100, 1200, 1300, 1400, 1500, 1600, 1700].map(square),
 	...RETROS,
+	dala(911, 700),
+	dala(1095, 900),
+	dala(1315, 1300),
 	maia(1570, 1100, 'I'),
 	maia(1640, 1500, 'V'),
 	maia(1700, 1900, 'IX'),
 	...[1800, 1900, 2000, 2100, 2200, 2300, 2400, 2500].map(fish)
 ].sort((a, b) => a.elo - b.elo || a.name.localeCompare(b.name));
+
+/** The roster available in this runtime (dala needs the native lc0 sidecar). */
+export function availablePersonas(native: boolean): BotPersona[] {
+	return native ? PERSONAS : PERSONAS.filter((p) => !p.nativeOnly);
+}
 
 const byId = new Map(PERSONAS.map((p) => [p.id, p]));
 

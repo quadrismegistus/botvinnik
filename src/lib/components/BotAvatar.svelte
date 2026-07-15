@@ -52,6 +52,11 @@
 		<circle cx="12" cy="12" r="8" fill="none" stroke={fg} stroke-width="1.6" />
 		<circle cx="12" cy="12" r="4.5" fill="none" stroke={fg} stroke-width="1.4" opacity="0.75" />
 		<circle cx={12 + ((h >> 3) % 3) - 1} cy={12 + ((h >> 5) % 3) - 1} r="1.8" fill={fg} />
+	{:else if persona.family === 'dala'}
+		<!-- woven net: trained threads of human games -->
+		<path d="M5 9 Q12 5 19 9 M5 12 Q12 8 19 12 M5 15 Q12 11 19 15" fill="none" stroke={fg} stroke-width="1.3" opacity="0.8" />
+		<path d="M8 6 Q12 12 8 18 M12 5.5 Q16 12 12 18.5 M16 6 Q20 12 16 18" fill="none" stroke={fg} stroke-width="1.1" opacity="0.55" />
+		<circle cx={9 + ((h >> 2) % 7)} cy={9 + ((h >> 6) % 6)} r="1.7" fill={fg} />
 	{:else if persona.family === 'retro'}
 		<!-- punch card: the medium these minds originally lived on -->
 		<rect x="4" y="5" width="16" height="14" rx="1.2" fill="none" stroke={fg} stroke-width="1.4" />
