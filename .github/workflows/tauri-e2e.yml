@@ -43,10 +43,15 @@ jobs:
         if: steps.driver-cache.outputs.cache-hit != 'true'
         run: cargo install tauri-driver --locked
 
-      - name: Stage stockfish sidecar
+      - name: Stage engine sidecars
         run: |
           mkdir -p src-tauri/binaries
           cp "$(which stockfish)" src-tauri/binaries/stockfish-x86_64-unknown-linux-gnu
+          # externalBin entries are REQUIRED at build time. The e2e never
+          # exercises dala, so lc0 is a stub; if it were ever spawned it exits
+          # immediately -> engine-exit -> dala falls back to Stockfish with
+          # the stand-in flag, which is the designed degradation.
+          cp "$(which true)" src-tauri/binaries/lc0-x86_64-unknown-linux-gnu
 
       - run: npm ci
 

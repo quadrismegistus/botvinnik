@@ -52,19 +52,20 @@ let session: Session | null = null;
 // Dala 1300 stand-in on first use).
 let booting: { band: number; promise: Promise<Session> } | null = null;
 
+// the band most recently asked for — a boot that lands after the user has
+// switched away disposes itself instead of leaking an lc0 (1.7GB resident)
+let wantedBand = 0;
+
 function boot(band: number): Promise<Session> {
+	wantedBand = band;
 	if (session?.band === band) return Promise.resolve(session);
 	if (booting?.band === band) return booting.promise;
 	const promise = bootFresh(band);
 	booting = { band, promise };
-	promise.then(
-		() => {
-			if (booting?.promise === promise) booting = null;
-		},
-		() => {
-			if (booting?.promise === promise) booting = null; // failed boots are retryable
-		}
-	);
+	const clear = () => {
+		if (booting?.promise === promise) booting = null; // failed boots are retryable
+	};
+	promise.then(clear, clear);
 	return promise;
 }
 
@@ -76,8 +77,9 @@ function boot(band: number): Promise<Session> {
 let bootSeq = 0;
 
 async function bootFresh(band: number): Promise<Session> {
-	session?.pipe.dispose();
-	session = null;
+	// NB the old session is NOT disposed here — it keeps serving its band
+	// during a potentially long download, and is replaced only when the new
+	// boot actually wins (see the superseded check below).
 
 	// may download 59-330MB on first use (onDalaDownload surfaces it in the UI)
 	const weights = await invoke<string>('dala_ensure_weights', { band });
@@ -118,6 +120,12 @@ async function bootFresh(band: number): Promise<Session> {
 		s.pipe.dispose(); // no orphaned lc0 processes from failed boots
 		throw e;
 	}
+	if (wantedBand !== band) {
+		// user switched bands while this boot was downloading/handshaking
+		s.pipe.dispose();
+		throw new Error('dala boot superseded');
+	}
+	session?.pipe.dispose();
 	session = s;
 	return s;
 }
