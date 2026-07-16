@@ -40,6 +40,23 @@ interface Row {
 	perf: string;
 	rated: boolean;
 	status: string;
+	createdAt: number; // ms epoch — era-split against deployments.json
+}
+
+// model eras: deployments.json records each cutover; games split by timestamp
+// so the v3 anchor and the v4 measurement never blend
+interface Deployment {
+	from: string;
+	model: string;
+	label: number;
+}
+const DEPLOYMENTS: Deployment[] = JSON.parse(
+	readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), 'deployments.json'), 'utf8')
+);
+function eraOf(createdAt: number): string {
+	let era = DEPLOYMENTS[0];
+	for (const d of DEPLOYMENTS) if (createdAt >= Date.parse(d.from)) era = d;
+	return `${era.model} (label ${era.label})`;
 }
 
 async function fetchGames(): Promise<Row[]> {
@@ -63,7 +80,8 @@ async function fetchGames(): Promise<Row[]> {
 			oppRating: opp.rating,
 			perf: g.perf,
 			rated: !!g.rated,
-			status: g.status
+			status: g.status,
+			createdAt: g.createdAt ?? 0
 		});
 	}
 	return rows;
@@ -108,6 +126,20 @@ function report(label: string, rows: Row[]): { n: number; fit: ReturnType<typeof
 	const fit = fitElo(rated);
 	console.log(`   avg opponent ${Math.round(avg)} · performance ${perfR}`);
 	if (fit) console.log(`   MLE fit ${fit.elo} ± ${fit.se}`);
+	// era split — the anchor is per-MODEL; never blend across a cutover
+	const eras = [...new Set(rated.map((r) => eraOf(r.createdAt)))];
+	if (eras.length > 1 || DEPLOYMENTS.length > 1) {
+		for (const era of eras) {
+			const er = rated.filter((r) => eraOf(r.createdAt) === era);
+			const ef = fitElo(er);
+			const eW = er.filter((r) => r.score === 1).length;
+			const eL = er.filter((r) => r.score === 0).length;
+			console.log(
+				`     · ${era}: ${er.length} rated, ${eW}W ${eL}L ${er.length - eW - eL}D` +
+					(ef ? ` — fit ${ef.elo} ± ${ef.se}` : '')
+			);
+		}
+	}
 	return { n: rated.length, fit };
 }
 
