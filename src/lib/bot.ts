@@ -314,9 +314,17 @@ export function scanSkill(elo: number): number {
 	return clamp01((elo - 350) / 550); // 0 at ≤350 (no scan yet) → 1 at ≥900
 }
 
-/** Attenuate a scan-model multiplier/factor toward 1 (no effect) by skill. */
+/**
+ * Attenuate a scan-model factor toward 1 (no effect) by skill — but ONLY the
+ * discounts. A factor < 1 is a learned ability (spotting visible tactics,
+ * avoiding visible danger, opening rehearsal) that beginners lack; a factor
+ * > 1 is the tactic being objectively hard to see, which no lack of training
+ * relieves. Attenuating amplifiers made label-450 BEAT label-600 in the gym
+ * (the less-skilled bot missed FEWER subtle tactics) — monotonicity requires
+ * this asymmetry.
+ */
 function bySkill(factor: number, skill: number): number {
-	return 1 + (factor - 1) * skill;
+	return factor >= 1 ? factor : 1 + (factor - 1) * skill;
 }
 
 // Deterministic hash → [0,1). Used for STICKY miss decisions: a human who
