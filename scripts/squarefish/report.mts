@@ -126,6 +126,24 @@ function report(label: string, rows: Row[]): { n: number; fit: ReturnType<typeof
 	const fit = fitElo(rated);
 	console.log(`   avg opponent ${Math.round(avg)} · performance ${perfR}`);
 	if (fit) console.log(`   MLE fit ${fit.elo} ± ${fit.se}`);
+	// casual-inclusive fit: casual games carry the opponent's rating too, and
+	// our MLE never needed lichess to move anyone's rating — but casual play
+	// is lower-effort and self-selected (experimenters, exploit-probers,
+	// serial rematchers), so it reports as a SEPARATE line, never blended
+	// into the rated anchor. Unique-opponent count makes farming visible.
+	const casual = rows.filter((r) => !r.rated);
+	if (casual.length > 0) {
+		const all = rows;
+		const af = fitElo(all);
+		const uniq = new Set(all.map((r) => r.opp)).size;
+		const aW = all.filter((r) => r.score === 1).length;
+		const aL = all.filter((r) => r.score === 0).length;
+		console.log(
+			`   incl. ${casual.length} casual: ${all.length} games (${uniq} unique opps), ` +
+				`${aW}W ${aL}L ${all.length - aW - aL}D` +
+				(af ? ` — fit ${af.elo} ± ${af.se}` : '')
+		);
+	}
 	// era split — the anchor is per-MODEL; never blend across a cutover
 	const eras = [...new Set(rated.map((r) => eraOf(r.createdAt)))];
 	if (eras.length > 1 || DEPLOYMENTS.length > 1) {
