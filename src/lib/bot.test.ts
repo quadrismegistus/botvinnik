@@ -169,15 +169,21 @@ describe('shapedBotMove', () => {
 });
 
 describe('shapedLabelFor', () => {
-	it('inverts the measured curve at the knots', () => {
-		expect(shapedLabelFor(768)).toBe(600);
-		expect(shapedLabelFor(1357)).toBe(1200);
-		expect(shapedLabelFor(1971)).toBe(1500);
+	it('inverts the measured curve at the knots (v3 table)', () => {
+		expect(shapedLabelFor(768, 'wasm', 'v3')).toBe(600);
+		expect(shapedLabelFor(1357, 'wasm', 'v3')).toBe(1200);
+		expect(shapedLabelFor(1971, 'wasm', 'v3')).toBe(1500);
+	});
+
+	it('inverts the scan table at the knots (the shipped default)', () => {
+		expect(shapedLabelFor(673)).toBe(600);
+		expect(shapedLabelFor(1388)).toBe(1200);
+		expect(shapedLabelFor(2128)).toBe(1500);
 	});
 
 	it('interpolates between knots and clamps outside the measured range', () => {
-		// halfway 1048→1225 strength ⇒ halfway 900→1050 label
-		expect(shapedLabelFor(1136.5)).toBe(975);
+		// v3 table: halfway 1048→1225 strength ⇒ halfway 900→1050 label
+		expect(shapedLabelFor(1136.5, 'wasm', 'v3')).toBe(975);
 		expect(shapedLabelFor(200)).toBe(600); // below floor
 		expect(shapedLabelFor(2500)).toBe(1500); // above ceiling
 	});
@@ -197,12 +203,12 @@ describe('shapedLabelFor per substrate', () => {
 		const { setBotSubstrate } = await import('./engine/botRecipe');
 		try {
 			setBotSubstrate('native');
-			expect(shapedLabelFor(756)).toBe(600); // native knot
-			expect(shapedLabelFor(2024)).toBe(1500);
+			expect(shapedLabelFor(753)).toBe(600); // native scan knot (the default)
+			expect(shapedLabelFor(1900)).toBe(1500);
 			// same target maps to different labels per substrate near the seams
 			setBotSubstrate('wasm');
-			expect(shapedLabelFor(2024)).toBe(1500); // clamped above wasm ceiling 1971
-			expect(shapedLabelFor(768)).toBe(600);
+			expect(shapedLabelFor(2200)).toBe(1500); // clamped above wasm scan ceiling 2128
+			expect(shapedLabelFor(673)).toBe(600);
 		} finally {
 			setBotSubstrate('wasm');
 		}
@@ -431,8 +437,9 @@ describe('shapedLabelFor scan-model knots', () => {
 	it('native scan: same display target needs a slightly lower label', () => {
 		expect(shapedLabelFor(1140, 'native', 'scan')).toBe(985);
 	});
-	it('v3 default is untouched', () => {
-		expect(shapedLabelFor(1140, 'wasm')).toBe(shapedLabelFor(1140, 'wasm', 'v3'));
+	it('the default model is the shipped one (scan since 2026-07-16)', () => {
+		expect(shapedLabelFor(1140, 'wasm')).toBe(shapedLabelFor(1140, 'wasm', 'scan'));
+		expect(shapedLabelFor(1140, 'wasm')).toBe(1015); // = the lichess SquareFish label
 	});
 	it('scan floor sits far below the v3 floor (scanSkill restored the bottom)', () => {
 		expect(shapedStrengthRange('wasm', 'scan').min).toBeLessThan(

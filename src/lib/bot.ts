@@ -612,7 +612,7 @@ const SHAPED_KNOTS_SCAN: Record<Substrate, { label: number; strength: number }[]
  *  ship v4: square() picks labels off the scan knots and the app passes
  *  scan params + position at move time. The deployed SquareFish is pinned
  *  by its own env (label 1015 --scan) and ignores this. */
-export const BOT_MODEL: 'v3' | 'scan' = 'v3';
+export const BOT_MODEL: 'v3' | 'scan' = 'scan'; // v4 shipped 2026-07-16
 
 export type ShapedModel = 'v3' | 'scan';
 
