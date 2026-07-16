@@ -5,5 +5,12 @@
 		"label": 978,
 		"displayTarget": 900,
 		"notes": "initial deployment; shaped v3 (flat miss coin), wasm knots post-mate-visibility tune"
+	},
+	{
+		"from": "2026-07-16T12:44:02Z",
+		"model": "v4-scan",
+		"label": 1015,
+		"displayTarget": 900,
+		"notes": "scan model: visibility-weighted misses (swept mults), danger penalty, opening damp, recapture salience, scanSkill ramp; no discovery depth (matches gym config); label from merged wasm curve 2026-07-16 (900\u2192983, 1050\u21921188)"
 	}
 ]
