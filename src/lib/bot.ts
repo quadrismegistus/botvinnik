@@ -126,6 +126,8 @@ export interface ShapedParams {
 	 * calibrated behavior until the v4 knots are measured.
 	 */
 	scan?: boolean;
+	/** scan-model multiplier overrides (bench sweeps); defaults to SCAN_MULTS */
+	scanMults?: Partial<ScanMults>;
 }
 
 // Interpolated over ELO ~600..1600; above ~1600 it plays near-best throughout.
@@ -168,6 +170,45 @@ export interface TacticVisibility {
 	kind: string; // for logging/tests
 }
 
+/** The scan model's tunable multipliers — swept against the puzzle bench. */
+export interface ScanMults {
+	mateSoon: number; // mate in ≤2: checks are scanned first
+	grab: number; // first move takes a rook/queen and keeps it
+	capture: number; // any capture that wins material by line's end
+	check: number; // non-capture check
+	quiet: number; // no capture, no check — the human blind spot
+	quietShallow: number; // quiet but engine-preferred at depth 1 (d* known)
+	sac: number; // extra factor when material is given up before the payoff
+	deepBase: number; // d*≥2 multiplier = deepBase + deepSlope·(d*−1)
+	deepSlope: number;
+	deepCap: number;
+	pCap: number; // ceiling on the effective miss probability
+}
+
+// Bench-swept (scripts/puzzle-rating/sweep.mts, 122 configs on cached
+// searches — data/puzzle-sweep.json): winner at display-900 solves 96.4% of
+// <800 puzzles (v4.0: 87.6%, v3: 78.4%) and 21.6% of 2000+ (humans ~3%).
+// BOTH residuals are saturated — no multiplier moves them — because they're
+// BRANCH-ROUTING effects, not miss-coin effects: remaining easy fails come
+// from the conversion/quiet branches picking a DIFFERENT fine move that
+// lichess grades wrong (the "my move also wins" complaint), and the hard
+// floor is the 12-candidate quiet softmax guessing the answer ~1/5 of the
+// time when depth-7 eval rates it only narrowly best (gap < gate). Deeper
+// surgery if ever needed; the gym governs game strength either way.
+export const SCAN_MULTS: ScanMults = {
+	mateSoon: 0.04,
+	grab: 0.03,
+	capture: 0.08,
+	check: 0.1,
+	quiet: 2.8,
+	quietShallow: 0.98,
+	sac: 1.5,
+	deepBase: 0.96,
+	deepSlope: 0.5,
+	deepCap: 2.8,
+	pCap: 0.97
+};
+
 /**
  * Visibility of the best line's tactic, from the mover's perspective.
  *
@@ -183,16 +224,17 @@ export function tacticVisibility(
 	fen: string,
 	pv: string[],
 	mate: number | null,
-	discoveryDepth?: number
+	discoveryDepth?: number,
+	m: ScanMults = SCAN_MULTS
 ): TacticVisibility {
 	// short mates: even beginners scan checks first (v3's ×0.25 rule, kept)
-	if (mate !== null && mate > 0 && mate <= 2) return { multiplier: 0.2, kind: 'mate-soon' };
+	if (mate !== null && mate > 0 && mate <= 2) return { multiplier: m.mateSoon, kind: 'mate-soon' };
 	// deep-only tactics: only deep search prefers this move — the certified
 	// "hard to see" signal. Rises past baseline immediately and saturates at
 	// master-level invisibility (d*≥5 ideas are 2200+ puzzles).
 	if (discoveryDepth !== undefined && discoveryDepth >= 2) {
 		return {
-			multiplier: Math.min(0.6 + 0.5 * (discoveryDepth - 1), 2.5),
+			multiplier: Math.min(m.deepBase + m.deepSlope * (discoveryDepth - 1), m.deepCap),
 			kind: `deep-d${discoveryDepth}`
 		};
 	}
@@ -233,15 +275,15 @@ export function tacticVisibility(
 		const shallow = discoveryDepth !== undefined; // implies d* <= 1 here
 		let v: TacticVisibility;
 		if (firstCaptureVal >= 5 && finalGain >= 3)
-			v = { multiplier: 0.15, kind: 'grab' }; // free rook/queen: unmissable
+			v = { multiplier: m.grab, kind: 'grab' }; // free rook/queen: unmissable
 		else if (firstCaptureVal > 0 && finalGain >= 1)
-			v = { multiplier: 0.4, kind: 'winning-capture' };
-		else if (givesCheck) v = { multiplier: 0.5, kind: 'check' };
-		else v = { multiplier: shallow ? 1.0 : 1.6, kind: 'quiet' };
+			v = { multiplier: m.capture, kind: 'winning-capture' };
+		else if (givesCheck) v = { multiplier: m.check, kind: 'check' };
+		else v = { multiplier: shallow ? m.quietShallow : m.quiet, kind: 'quiet' };
 		if (settledMin <= -2 && !shallow) {
 			// gives up real material before the payoff: the brilliancy class
 			// (skipped when d* is known — late discovery already encodes it)
-			v = { multiplier: Math.min(v.multiplier * 1.5, 2.5), kind: `${v.kind}-sac` };
+			v = { multiplier: Math.min(v.multiplier * m.sac, m.deepCap), kind: `${v.kind}-sac` };
 		}
 		return v;
 	} catch {
@@ -297,7 +339,7 @@ export function shapedBotMove(
 	const best = sorted[0];
 	if (sorted.length === 1) return best.pv[0];
 
-	const { missProb, tacticalGapPct, temperature, quietWindowPct, scan } = {
+	const { missProb, tacticalGapPct, temperature, quietWindowPct, scan, scanMults } = {
 		...shapedParams(elo),
 		...params
 	};
@@ -349,8 +391,12 @@ export function shapedBotMove(
 		const mateSoon = best.mate !== null && best.mate > 0 && best.mate <= 2;
 		let p = mateSoon ? missProb * 0.25 : missProb;
 		if (scanning) {
-			p = missProb * tacticVisibility(fen!, best.pv, best.mate, discoveryDepth).multiplier * damp;
-			p = Math.min(p, 0.92);
+			const mults = { ...SCAN_MULTS, ...scanMults };
+			p =
+				missProb *
+				tacticVisibility(fen!, best.pv, best.mate, discoveryDepth, mults).multiplier *
+				damp;
+			p = Math.min(p, mults.pCap);
 		}
 		const roll = seed !== undefined ? hash01(`${seed}:${best.pv[0].slice(2, 4)}`) : Math.random();
 		if (roll >= p) return best.pv[0];
