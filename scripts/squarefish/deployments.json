@@ -12,5 +12,12 @@
 		"label": 1015,
 		"displayTarget": 900,
 		"notes": "scan model: visibility-weighted misses (swept mults), danger penalty, opening damp, recapture salience, scanSkill ramp; no discovery depth (matches gym config); label from merged wasm curve 2026-07-16 (900\u2192983, 1050\u21921188)"
+	},
+	{
+		"from": "2026-07-16T15:18:35Z",
+		"model": "v4.1-scan",
+		"label": 1015,
+		"displayTarget": 900,
+		"notes": "saturated-loss fix: grab/recapture coin runs before the win%-gap gate \u2014 takes the queen even in lost positions (V8emJhj7 class). Calibration-neutral in live positions."
 	}
 ]
