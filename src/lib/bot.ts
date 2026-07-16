@@ -457,6 +457,35 @@ export function shapedBotMove(
 	const wins = sorted.map(moveWin); // win% per candidate, mover POV
 	const bestWin = wins[0];
 
+	// SATURATED-LOSS blindness (observed live, twice — Ryan's game V8emJhj7 and
+	// three API-scanned games within two hours of the v4 cutover): when every
+	// line is LOST, win% compresses to 2-4% across the board, the tactical gap
+	// vanishes, and the position routes to the quiet branch — where none of the
+	// grab/recapture salience runs. The model says "nothing to see" precisely
+	// when there's a queen to take, because taking it doesn't save the game.
+	// True for the engine, false for the human: people in lost positions still
+	// take the queen. So the unmissable-capture tier (grab, recapture) is
+	// checked BEFORE any win%-gap routing: if the best move is one of those,
+	// the miss coin applies directly, whatever the gap says. In the tactical
+	// branch this is probabilistically identical to the old path (same seeded
+	// roll, same p), so the calibration curve is untouched where games are
+	// still live; only decided positions change behavior.
+	let missedVisibleBest = false;
+	if (scanning) {
+		const mults = { ...SCAN_MULTS, ...scanMults };
+		const vis = tacticVisibility(fen!, best.pv, best.mate, discoveryDepth, mults, lastMoveTo);
+		if (vis.kind === 'recapture' || vis.kind === 'grab') {
+			const s = vis.kind === 'recapture' ? Math.max(skill, 0.7) : skill;
+			const p = Math.min(missProb * bySkill(vis.multiplier, s) * damp, mults.pCap);
+			const roll = seed !== undefined ? hash01(`${seed}:${best.pv[0].slice(2, 4)}`) : Math.random();
+			if (roll >= p) return best.pv[0];
+			// blind to it: exclude the best move from whatever branch follows —
+			// a player who hasn't registered the queen can't "accidentally"
+			// sample the move that takes it
+			missedVisibleBest = true;
+		}
+	}
+
 	// Decided-and-WINNING: the ±1500cp clamp saturates win% (~95) so the
 	// gradient vanishes — +9, +12 and mate-in-16 all look alike, and quiet
 	// temperature sampling becomes an aimless shuffle that can walk into a
@@ -474,6 +503,7 @@ export function shapedBotMove(
 	if (bestWin >= 90 && wins[1] >= 85) {
 		const cands: { move: string; win: number }[] = [];
 		for (let i = 0; i < sorted.length; i++) {
+			if (i === 0 && missedVisibleBest) continue; // unseen is unplayable
 			if (wins[i] < 85) continue; // never gamble the win itself away
 			const l = sorted[i];
 			const v = l.mate !== null && l.mate > 0 ? 25 - Math.min(l.mate, 15) : l.score;
@@ -500,19 +530,23 @@ export function shapedBotMove(
 		// beginners reliably scan for (checks first!), so they're ~4× more
 		// visible; deeper tactics keep the full miss rate. The v4 scan model
 		// generalizes this to the whole scan order (see tacticVisibility).
-		const mateSoon = best.mate !== null && best.mate > 0 && best.mate <= 2;
-		let p = mateSoon ? missProb * 0.25 : missProb;
-		if (scanning) {
-			const mults = { ...SCAN_MULTS, ...scanMults };
-			const vis = tacticVisibility(fen!, best.pv, best.mate, discoveryDepth, mults, lastMoveTo);
-			// recapture salience is perceptual, not trained — even a beginner
-			// looks at the square where their queen just died. Floor the skill.
-			const s = vis.kind === 'recapture' ? Math.max(skill, 0.7) : skill;
-			p = missProb * bySkill(vis.multiplier, s) * damp;
-			p = Math.min(p, mults.pCap);
+		// the grab/recapture tier already flipped its coin pre-gate; a second
+		// roll here would let unseeded runs rescue half the misses
+		if (!missedVisibleBest) {
+			const mateSoon = best.mate !== null && best.mate > 0 && best.mate <= 2;
+			let p = mateSoon ? missProb * 0.25 : missProb;
+			if (scanning) {
+				const mults = { ...SCAN_MULTS, ...scanMults };
+				const vis = tacticVisibility(fen!, best.pv, best.mate, discoveryDepth, mults, lastMoveTo);
+				// recapture salience is perceptual, not trained — even a beginner
+				// looks at the square where their queen just died. Floor the skill.
+				const s = vis.kind === 'recapture' ? Math.max(skill, 0.7) : skill;
+				p = missProb * bySkill(vis.multiplier, s) * damp;
+				p = Math.min(p, mults.pCap);
+			}
+			const roll = seed !== undefined ? hash01(`${seed}:${best.pv[0].slice(2, 4)}`) : Math.random();
+			if (roll >= p) return best.pv[0];
 		}
-		const roll = seed !== undefined ? hash01(`${seed}:${best.pv[0].slice(2, 4)}`) : Math.random();
-		if (roll >= p) return best.pv[0];
 		// …or it doesn't. Choose among the REST as if the best move didn't exist —
 		// still preferring the more plausible of what it can see. No severity cap
 		// on MISSED DEFENCES (that's how won games get lost) — but under scan
@@ -531,8 +565,10 @@ export function shapedBotMove(
 	// model's opening damp tightens this too — rehearsed moves, less mush.
 	const cands: { move: string; win: number }[] = [];
 	for (let i = 0; i < sorted.length; i++) {
+		if (i === 0 && missedVisibleBest) continue; // unseen is unplayable
 		if (bestWin - wins[i] <= quietWindowPct) cands.push({ move: sorted[i].pv[0], win: wins[i] });
 	}
+	if (cands.length === 0) return sorted[1].pv[0]; // window held only the unseen best
 	return softmaxPick(
 		cands,
 		temperature * damp,

@@ -382,3 +382,42 @@ describe('recapture salience', () => {
 		expect(1 - (noCue.get('a1d1') ?? 0) / 3000).toBeGreaterThan(missRate + 0.15);
 	});
 });
+
+describe('saturated-loss blindness (V8emJhj7 class)', () => {
+	// the live reproduction: knight took SquareFish's queen on d3, pawn c2 can
+	// recapture, but the bot is DEAD LOST either way — every line compresses to
+	// 2-4% win, the tactical gap reads ~1, and the position routes to the quiet
+	// branch where (pre-fix) no salience ran. Measured at depth 8 on the real
+	// position: recapture picked only ~14% of the time.
+	const FEN = 'r1bq1rk1/ppp2p2/3p1bp1/1N5p/3pPP1P/3n4/P1P5/R4KNR w - - 0 19';
+	const LINES = [
+		line('c2d3', -8.97, 1), // the recapture — best, but still lost
+		line('g1e2', -9.95, 2),
+		line('e4e5', -10.03, 3),
+		line('f4f5', -10.03, 4),
+		line('g1h3', -10.18, 5)
+	];
+
+	it('recaptures the queen even in a lost position', () => {
+		const t = tally(
+			() => shapedBotMove(LINES, 1015, { scan: true }, undefined, FEN, undefined, 'd3'),
+			2000
+		);
+		expect((t.get('c2d3') ?? 0) / 2000).toBeGreaterThan(0.9);
+	});
+
+	it('grabs a hanging queen even when the game is lost (no last-move cue)', () => {
+		// same routing pathology via the grab tier: best move takes a queen
+		// outright, all lines lost, gap ~1
+		const HANG_LOST = 'k2q4/8/8/8/8/8/3R4/K7 w - - 0 20';
+		const L = [line('d2d8', -8.5, 1), line('d2d4', -9.2, 2), line('a1b1', -9.4, 3)];
+		const t = tally(() => shapedBotMove(L, 1015, { scan: true }, undefined, HANG_LOST), 2000);
+		expect((t.get('d2d8') ?? 0) / 2000).toBeGreaterThan(0.85);
+	});
+
+	it('v3 behavior in the same position is unchanged (no scan)', () => {
+		const t = tally(() => shapedBotMove(LINES, 1015, undefined, undefined), 2000);
+		// quiet-branch mush: recapture NOT reliably chosen — the v3 baseline
+		expect((t.get('c2d3') ?? 0) / 2000).toBeLessThan(0.6);
+	});
+});
