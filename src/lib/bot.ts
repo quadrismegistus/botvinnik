@@ -300,6 +300,25 @@ export function openingDamp(fen: string): number {
 	return clamp01(0.3 + (0.7 * (moveNo - 1)) / 8);
 }
 
+// THE SCAN IS A LEARNED SKILL. The visibility discounts encode "nobody misses
+// a free queen" — true at 900, false at 500: checks-captures-threats is the
+// first discipline chess teachers drill, and beginners haven't internalized
+// it. Without this, v4's floor rose to ~display-618 (the gym: label-600
+// measured 858 internal) because even maximal missProb was neutered by the
+// grab/capture discounts. scanSkill fades every scan-model effect — tactic
+// visibility, the danger penalty, opening rehearsal — toward the flat v3
+// coin as the label drops toward beginner, restoring the ladder's bottom and
+// making sub-600 labels meaningful again (shapedParams saturates at 600, but
+// scan discipline keeps declining below it).
+export function scanSkill(elo: number): number {
+	return clamp01((elo - 350) / 550); // 0 at ≤350 (no scan yet) → 1 at ≥900
+}
+
+/** Attenuate a scan-model multiplier/factor toward 1 (no effect) by skill. */
+function bySkill(factor: number, skill: number): number {
+	return 1 + (factor - 1) * skill;
+}
+
 // Deterministic hash → [0,1). Used for STICKY miss decisions: a human who
 // doesn't see a tactic keeps not seeing it on later moves — without this the
 // per-move re-roll makes eventually-punishing-a-hanging-piece a certainty
@@ -400,7 +419,9 @@ export function shapedBotMove(
 	};
 	// v4 scan model needs the position; without it, fall back to v3 exactly
 	const scanning = !!scan && !!fen;
-	const damp = scanning ? openingDamp(fen!) : 1;
+	const skill = scanning ? scanSkill(elo) : 1;
+	// opening rehearsal is itself part of scan discipline: beginners have no book
+	const damp = scanning ? bySkill(openingDamp(fen!), skill) : 1;
 
 	const wins = sorted.map(moveWin); // win% per candidate, mover POV
 	const bestWin = wins[0];
@@ -432,7 +453,7 @@ export function shapedBotMove(
 			return softmaxPick(
 				cands,
 				temperature / 4,
-				scanning ? cands.map((c) => dangerVisibility(fen!, c.move)) : undefined
+				scanning ? cands.map((c) => bySkill(dangerVisibility(fen!, c.move), skill)) : undefined
 			);
 	}
 
@@ -452,10 +473,8 @@ export function shapedBotMove(
 		let p = mateSoon ? missProb * 0.25 : missProb;
 		if (scanning) {
 			const mults = { ...SCAN_MULTS, ...scanMults };
-			p =
-				missProb *
-				tacticVisibility(fen!, best.pv, best.mate, discoveryDepth, mults).multiplier *
-				damp;
+			const vis = tacticVisibility(fen!, best.pv, best.mate, discoveryDepth, mults).multiplier;
+			p = missProb * bySkill(vis, skill) * damp;
 			p = Math.min(p, mults.pCap);
 		}
 		const roll = seed !== undefined ? hash01(`${seed}:${best.pv[0].slice(2, 4)}`) : Math.random();
@@ -469,7 +488,7 @@ export function shapedBotMove(
 		return softmaxPick(
 			rest,
 			temperature,
-			scanning ? rest.map((c) => dangerVisibility(fen!, c.move)) : undefined
+			scanning ? rest.map((c) => bySkill(dangerVisibility(fen!, c.move), skill)) : undefined
 		);
 	}
 
@@ -483,7 +502,7 @@ export function shapedBotMove(
 	return softmaxPick(
 		cands,
 		temperature * damp,
-		scanning ? cands.map((c) => dangerVisibility(fen!, c.move)) : undefined
+		scanning ? cands.map((c) => bySkill(dangerVisibility(fen!, c.move), skill)) : undefined
 	);
 }
 

@@ -219,7 +219,7 @@ describe('shapedSearchDepth', () => {
 });
 
 // ─── v4 scan model ───────────────────────────────────────────────────────────
-import { tacticVisibility, openingDamp, dangerVisibility } from './bot';
+import { tacticVisibility, openingDamp, dangerVisibility, scanSkill } from './bot';
 
 describe('tacticVisibility', () => {
 	// black queen hangs on d8; Rxd8 wins it outright
@@ -321,5 +321,29 @@ describe('dangerVisibility — the "is my move safe?" scan', () => {
 		const hangRate = (t: Map<string, number>) => (t.get('d1d5') ?? 0) / 2000;
 		expect(hangRate(v3)).toBeGreaterThan(0.2); // temp 8: freely sampled
 		expect(hangRate(v4)).toBeLessThan(0.05); // ×0.05 danger penalty
+	});
+});
+
+describe('scanSkill — the scan is a learned skill', () => {
+	const HANG_LINES = [line('d2d8', 9.0, 1), line('d2d4', 0.0, 2), line('a1b1', -0.2, 3)];
+	const HANG = 'k2q4/8/8/8/8/8/3R4/K7 w - - 0 20';
+
+	it('saturates at club level and vanishes at beginner', () => {
+		expect(scanSkill(900)).toBe(1);
+		expect(scanSkill(1500)).toBe(1);
+		expect(scanSkill(350)).toBe(0);
+		expect(scanSkill(625)).toBeCloseTo(0.5, 2);
+	});
+
+	it('a beginner label misses the hanging queen far more than a club label', () => {
+		const p = { missProb: 0.6, temperature: 8, tacticalGapPct: 15, quietWindowPct: 30, scan: true };
+		const miss = (elo: number) => {
+			const t = tally(() => shapedBotMove(HANG_LINES, elo, p, undefined, HANG), 3000);
+			return 1 - (t.get('d2d8') ?? 0) / 3000;
+		};
+		const at900 = miss(900); // full scan: 0.6 × 0.03 ≈ 2%
+		const at450 = miss(450); // skill ≈ 0.18: 0.6 × (1 − 0.97×0.18) ≈ 50%
+		expect(at900).toBeLessThan(0.06);
+		expect(at450).toBeGreaterThan(0.35);
 	});
 });
