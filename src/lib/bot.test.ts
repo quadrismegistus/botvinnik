@@ -217,3 +217,79 @@ describe('shapedSearchDepth', () => {
 		expect(shapedSearchDepth(2000)).toBe(12); // capped
 	});
 });
+
+// ─── v4 scan model ───────────────────────────────────────────────────────────
+import { tacticVisibility, openingDamp } from './bot';
+
+describe('tacticVisibility', () => {
+	// black queen hangs on d8; Rxd8 wins it outright
+	const HANG = 'k2q4/8/8/8/8/8/3R4/K7 w - - 0 20';
+	it('grabbing a hanging queen is near-unmissable', () => {
+		const v = tacticVisibility(HANG, ['d2d8', 'a8b7'], null);
+		expect(v.kind).toBe('grab');
+		expect(v.multiplier).toBeLessThan(0.2);
+	});
+
+	it('short mates keep their visibility discount', () => {
+		const v = tacticVisibility(HANG, ['d2d8'], 2);
+		expect(v.kind).toBe('mate-soon');
+		expect(v.multiplier).toBeLessThanOrEqual(0.25);
+	});
+
+	it('a check is easy to see', () => {
+		// Rd2-a2 is check on the a-file king... use Rd2-d8+? d8 occupied by queen (capture).
+		// Kasparov-simple: white rook checks black king on a8 via a-file: Ra2+
+		const v = tacticVisibility('k7/8/8/8/8/8/3R4/K7 w - - 0 20', ['d2a2', 'a8b8'], null);
+		expect(v.kind).toBe('check');
+		expect(v.multiplier).toBeLessThan(1);
+	});
+
+	it('a quiet move whose payoff is deep is the human blind spot', () => {
+		const v = tacticVisibility('k7/8/8/8/8/8/3R4/K7 w - - 0 20', ['d2d4', 'a8b7', 'd4c4'], null);
+		expect(v.kind).toBe('quiet');
+		expect(v.multiplier).toBeGreaterThan(1);
+	});
+
+	it('sacrifices are the least visible of all', () => {
+		// white gives the exchange: Rd2xd7(no capture)... craft: rook takes defended pawn
+		// k2r4/3p4/8/8/8/8/3R4/K7: Rxd7 pd7? d7 pawn defended by rook d8: RxP, RxR — settled -4
+		const v = tacticVisibility(
+			'k2r4/3p4/8/8/8/8/3R4/K7 w - - 0 20',
+			['d2d7', 'd8d7'],
+			null
+		);
+		expect(v.kind).toContain('sac');
+		expect(v.multiplier).toBeGreaterThan(1.5);
+	});
+});
+
+describe('openingDamp', () => {
+	it('ramps from rehearsed to full error rate over the opening', () => {
+		const START = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+		expect(openingDamp(START)).toBeCloseTo(0.3, 5);
+		expect(openingDamp(START.replace(/1$/, '5'))).toBeCloseTo(0.65, 2);
+		expect(openingDamp(START.replace(/1$/, '9'))).toBe(1);
+		expect(openingDamp(START.replace(/1$/, '30'))).toBe(1);
+	});
+});
+
+describe('shapedBotMove scan mode', () => {
+	const HANG_LINES = [line('d2d8', 9.0, 1), line('d2d4', 0.0, 2), line('a1b1', -0.2, 3)];
+	const HANG = 'k2q4/8/8/8/8/8/3R4/K7 w - - 0 20';
+
+	it('v3 misses the hanging queen at full missProb; scan mode almost never does', () => {
+		const p = { missProb: 0.5, temperature: 4, tacticalGapPct: 15, quietWindowPct: 10 };
+		const v3 = tally(() => shapedBotMove(HANG_LINES, 900, p), 3000);
+		const v4 = tally(() => shapedBotMove(HANG_LINES, 900, { ...p, scan: true }, undefined, HANG), 3000);
+		const missRate = (t: Map<string, number>) => 1 - (t.get('d2d8') ?? 0) / 3000;
+		expect(missRate(v3)).toBeGreaterThan(0.4); // ~0.5
+		expect(missRate(v4)).toBeLessThan(0.12); // ~0.5 × 0.15 = 0.075
+	});
+
+	it('scan mode without a fen falls back to v3 exactly-shaped behavior', () => {
+		const p = { missProb: 0.5, temperature: 4, tacticalGapPct: 15, quietWindowPct: 10, scan: true };
+		const t = tally(() => shapedBotMove(HANG_LINES, 900, p), 3000);
+		const missRate = 1 - (t.get('d2d8') ?? 0) / 3000;
+		expect(missRate).toBeGreaterThan(0.4);
+	});
+});

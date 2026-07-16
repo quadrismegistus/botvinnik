@@ -2,6 +2,7 @@
 // softmax sampling over move confidence, sharpened by ELO, with
 // mate-spotting probability, an only-move rule, and blunder penalties.
 
+import { Chess } from 'chess.js';
 import type { EngineMove } from './engine/stockfish';
 import { winChance } from './engine/insights';
 import { getBotSubstrate, type Substrate } from './engine/botRecipe';
@@ -117,6 +118,14 @@ export interface ShapedParams {
 	temperature: number;
 	/** Quiet positions only: ignore moves giving up more win% than this. */
 	quietWindowPct: number;
+	/**
+	 * v4 (scan model): weight the miss coin by the tactic's VISIBILITY (human
+	 * scan order: checks, captures, threats, then quiet moves) and damp errors
+	 * over the rehearsed opening moves. Needs the fen passed to shapedBotMove.
+	 * OFF by default — v3 personas and the deployed SquareFish keep their
+	 * calibrated behavior until the v4 knots are measured.
+	 */
+	scan?: boolean;
 }
 
 // Interpolated over ELO ~600..1600; above ~1600 it plays near-best throughout.
@@ -132,6 +141,121 @@ export function shapedParams(elo: number): ShapedParams {
 		temperature: 1.5 + 10.5 * t, // 1.5 at 1600 → 12 at 600
 		quietWindowPct: 6 + 24 * t // 6 at 1600 → 30 at 600
 	};
+}
+
+// ─── v4 scan model: how visible is the tactic? ──────────────────────────────
+//
+// The puzzle bench exposed v3's structural flaw: the miss coin fires on a
+// hanging queen as often as on a five-move quiet win, because the tactical
+// gate measures IMPORTANCE (win% at stake), not DIFFICULTY (how hard to see).
+// Measured: Square 900 solves only 78% of 400-800-rated puzzles (humans ~99%)
+// yet 14% of 2400+ (humans ~0%) — a flat difficulty curve where humans are
+// steep. Corroborated by feel ("bot misses obvious captures" — Ryan) and folk
+// testimony (blunders happen under pressure, not on free pieces — 1350 USCF).
+//
+// The fix is the human scan order — checks, captures, threats, then quiet
+// moves — as a multiplier on missProb, computed from the best line's PV:
+// grabbing a big piece is near-unmissable; a winning capture is easy; a check
+// is easy; a QUIET move whose payoff lands deep in the line is where real
+// club players go blind; a line that gives up material first (a sacrifice)
+// is the least visible of all. Averages redistribute rather than shift, but
+// the knots get remeasured before any v4 persona ships (see SHAPED_KNOTS).
+
+const PIECE_VAL: Record<string, number> = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 0 };
+
+export interface TacticVisibility {
+	multiplier: number; // scales missProb; <1 = more visible, >1 = subtler
+	kind: string; // for logging/tests
+}
+
+/**
+ * Visibility of the best line's tactic, from the mover's perspective.
+ *
+ * `discoveryDepth` (d*) is the PRIMARY signal when available: the first
+ * search depth at which this move took the lead during iterative deepening.
+ * Validated against 1469 human-rated puzzles (Spearman ρ = 0.859 vs puzzle
+ * rating, data/puzzle-discovery.json): trivial puzzles are uniformly d*=1,
+ * 2400+ ideas average d*≈4.5. d*≥2 sets the multiplier outright; within
+ * d*=1 (67% of tactics, ratings 400-1800) the scan-order categories still
+ * discriminate the free queen from the subtle-but-shallow shot.
+ */
+export function tacticVisibility(
+	fen: string,
+	pv: string[],
+	mate: number | null,
+	discoveryDepth?: number
+): TacticVisibility {
+	// short mates: even beginners scan checks first (v3's ×0.25 rule, kept)
+	if (mate !== null && mate > 0 && mate <= 2) return { multiplier: 0.2, kind: 'mate-soon' };
+	// deep-only tactics: only deep search prefers this move — the certified
+	// "hard to see" signal. Rises past baseline immediately and saturates at
+	// master-level invisibility (d*≥5 ideas are 2200+ puzzles).
+	if (discoveryDepth !== undefined && discoveryDepth >= 2) {
+		return {
+			multiplier: Math.min(0.6 + 0.5 * (discoveryDepth - 1), 2.5),
+			kind: `deep-d${discoveryDepth}`
+		};
+	}
+	try {
+		const c = new Chess(fen);
+		const mover = c.turn();
+		const balance = () => {
+			let v = 0;
+			for (const row of c.board())
+				for (const sq of row) if (sq) v += (sq.color === mover ? 1 : -1) * PIECE_VAL[sq.type];
+			return v;
+		};
+		const start = balance();
+		let firstCaptureVal = 0;
+		let givesCheck = false;
+		let settledMin = 0; // worst settled material swing (after opponent replies)
+		let finalGain = 0;
+		for (let i = 0; i < Math.min(pv.length, 10); i++) {
+			const uci = pv[i];
+			const m = c.move({
+				from: uci.slice(0, 2),
+				to: uci.slice(2, 4),
+				promotion: uci.length > 4 ? uci[4] : undefined
+			});
+			if (i === 0) {
+				firstCaptureVal = m.captured ? PIECE_VAL[m.captured] : 0;
+				givesCheck = c.inCheck();
+			}
+			const gain = balance() - start;
+			// material only counts as spent/won once the opponent has replied
+			if (i % 2 === 1) settledMin = Math.min(settledMin, gain);
+			finalGain = gain;
+		}
+		// d* told us it's shallow (or is unknown): the scan-order categories
+		// spread the d*=1 mass. With a KNOWN-shallow move, quiet caps at
+		// baseline — the engine already prefers it at depth 1, so it can't be
+		// harder to see than an ordinary tactic.
+		const shallow = discoveryDepth !== undefined; // implies d* <= 1 here
+		let v: TacticVisibility;
+		if (firstCaptureVal >= 5 && finalGain >= 3)
+			v = { multiplier: 0.15, kind: 'grab' }; // free rook/queen: unmissable
+		else if (firstCaptureVal > 0 && finalGain >= 1)
+			v = { multiplier: 0.4, kind: 'winning-capture' };
+		else if (givesCheck) v = { multiplier: 0.5, kind: 'check' };
+		else v = { multiplier: shallow ? 1.0 : 1.6, kind: 'quiet' };
+		if (settledMin <= -2 && !shallow) {
+			// gives up real material before the payoff: the brilliancy class
+			// (skipped when d* is known — late discovery already encodes it)
+			v = { multiplier: Math.min(v.multiplier * 1.5, 2.5), kind: `${v.kind}-sac` };
+		}
+		return v;
+	} catch {
+		return { multiplier: 1, kind: 'unknown' };
+	}
+}
+
+// Openings are rehearsed, not calculated: real club players play the first
+// ~8 moves near-perfectly and start erring as positions leave known ground
+// (1350 USCF testimony; every opening-explorer stat agrees). Ramp errors in
+// from 30% strength at move 1 to full by move 9.
+export function openingDamp(fen: string): number {
+	const moveNo = Number(fen.split(' ')[5]) || 20;
+	return clamp01(0.3 + (0.7 * (moveNo - 1)) / 8);
 }
 
 // Deterministic hash → [0,1). Used for STICKY miss decisions: a human who
@@ -164,17 +288,22 @@ export function shapedBotMove(
 	lines: EngineMove[],
 	elo: number,
 	params?: Partial<ShapedParams>,
-	seed?: string | number
+	seed?: string | number,
+	fen?: string,
+	discoveryDepth?: number
 ): string | null {
 	if (lines.length === 0) return null;
 	const sorted = [...lines].sort((a, b) => a.multipv - b.multipv);
 	const best = sorted[0];
 	if (sorted.length === 1) return best.pv[0];
 
-	const { missProb, tacticalGapPct, temperature, quietWindowPct } = {
+	const { missProb, tacticalGapPct, temperature, quietWindowPct, scan } = {
 		...shapedParams(elo),
 		...params
 	};
+	// v4 scan model needs the position; without it, fall back to v3 exactly
+	const scanning = !!scan && !!fen;
+	const damp = scanning ? openingDamp(fen!) : 1;
 
 	const wins = sorted.map(moveWin); // win% per candidate, mover POV
 	const bestWin = wins[0];
@@ -215,9 +344,14 @@ export function shapedBotMove(
 		// VISIBILITY: a flat missProb had Squares donating mate-in-1s (observed
 		// live — Ryan's Square 1300 game). Short mates are the one tactic even
 		// beginners reliably scan for (checks first!), so they're ~4× more
-		// visible; deeper tactics keep the full miss rate.
+		// visible; deeper tactics keep the full miss rate. The v4 scan model
+		// generalizes this to the whole scan order (see tacticVisibility).
 		const mateSoon = best.mate !== null && best.mate > 0 && best.mate <= 2;
-		const p = mateSoon ? missProb * 0.25 : missProb;
+		let p = mateSoon ? missProb * 0.25 : missProb;
+		if (scanning) {
+			p = missProb * tacticVisibility(fen!, best.pv, best.mate, discoveryDepth).multiplier * damp;
+			p = Math.min(p, 0.92);
+		}
 		const roll = seed !== undefined ? hash01(`${seed}:${best.pv[0].slice(2, 4)}`) : Math.random();
 		if (roll >= p) return best.pv[0];
 		// …or it doesn't. Choose among the REST as if the best move didn't exist —
@@ -230,12 +364,13 @@ export function shapedBotMove(
 	}
 
 	// Quiet: nothing to see, just play sound-but-imperfect chess. Bounded so the
-	// leakage is steady small stuff, never a howler out of nowhere.
+	// leakage is steady small stuff, never a howler out of nowhere. The scan
+	// model's opening damp tightens this too — rehearsed moves, less mush.
 	const cands: { move: string; win: number }[] = [];
 	for (let i = 0; i < sorted.length; i++) {
 		if (bestWin - wins[i] <= quietWindowPct) cands.push({ move: sorted[i].pv[0], win: wins[i] });
 	}
-	return softmaxPick(cands, temperature);
+	return softmaxPick(cands, temperature * damp);
 }
 
 // ─── Shaped label inversion ──────────────────────────────────────────────────
