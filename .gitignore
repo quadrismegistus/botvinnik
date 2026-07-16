@@ -40,3 +40,4 @@ scripts/wasm-engine/
 scripts/maia-spike/
 scripts/maia3-spike/
 scripts/engines/
+data/puzzles/*.zst
