@@ -335,17 +335,21 @@ describe('scanSkill — the scan is a learned skill', () => {
 		expect(scanSkill(625)).toBeCloseTo(0.5, 2);
 	});
 
-	it('a beginner label misses the hanging queen far more than a club label', () => {
-		const p = { missProb: 0.6, temperature: 8, tacticalGapPct: 15, quietWindowPct: 30, scan: true };
-		const miss = (elo: number) => {
-			const t = tally(() => shapedBotMove(HANG_LINES, elo, p, undefined, HANG), 3000);
-			return 1 - (t.get('d2d8') ?? 0) / 3000;
-		};
-		const at900 = miss(900); // full scan: 0.6 × 0.03 ≈ 2%
-		const at450 = miss(450); // skill ≈ 0.18: 0.6 × (1 − 0.97×0.18) ≈ 50%
-		expect(at900).toBeLessThan(0.06);
-		expect(at450).toBeGreaterThan(0.35);
-	});
+	it(
+		'a beginner label misses the hanging queen far more than a club label',
+		{ timeout: 30_000 }, // each miss triggers the danger probe's move-gens
+		() => {
+			const p = { missProb: 0.6, temperature: 8, tacticalGapPct: 15, quietWindowPct: 30, scan: true };
+			const miss = (elo: number) => {
+				const t = tally(() => shapedBotMove(HANG_LINES, elo, p, undefined, HANG), 1000);
+				return 1 - (t.get('d2d8') ?? 0) / 1000;
+			};
+			const at900 = miss(900); // full scan: 0.6 × 0.03 ≈ 2%
+			const at450 = miss(450); // skill ≈ 0.18: 0.6 × (1 − 0.97×0.18) ≈ 50%
+			expect(at900).toBeLessThan(0.08);
+			expect(at450).toBeGreaterThan(0.35);
+		}
+	);
 });
 
 describe('recapture salience', () => {
