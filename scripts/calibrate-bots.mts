@@ -293,6 +293,10 @@ async function botMove(engine: Engine, fen: string, id: string): Promise<string 
 // per-game seed makes tactic-misses STICKY across moves (see shapedBotMove).
 const SHAPED_DEPTH = opt('--shaped-depth', 12);
 const SHAPED_MULTIPV = opt('--shaped-multipv', 12);
+// --scan: the v4 scan model (visibility-weighted misses, opening damp,
+// danger penalty). d* is omitted here — the puzzle bench showed discovery
+// depth is mostly priced in by the label-scaled search depth at these depths.
+const SHAPED_SCAN = process.argv.includes('--scan');
 
 function isShapedId(id: string): boolean {
 	return id.startsWith('shaped:');
@@ -316,7 +320,13 @@ async function shapedMove(
 		botResetOptions(SHAPED_MULTIPV),
 		`go depth ${shapedDepth(elo)}`
 	);
-	return shapedBotMove(res.moves, elo, undefined, seed);
+	return shapedBotMove(
+		res.moves,
+		elo,
+		SHAPED_SCAN ? { scan: true } : undefined,
+		seed,
+		SHAPED_SCAN ? fen : undefined
+	);
 }
 
 // external UCI engine: its own process plays its own move. select:"policy"

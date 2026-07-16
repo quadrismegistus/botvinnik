@@ -67,6 +67,15 @@ if [ "${1:-}" = "--native" ]; then
 	LABEL="full honest grid vs Tauri sidecar (native substrate, n=50)"
 fi
 
+# v4 scan-model knots: same grid, shapedBotMove in scan mode (visibility-
+# weighted misses + opening damp + danger penalty — see bot.ts SCAN_MULTS).
+# SEPARATE output/state so the v3 baselines stay untouched and comparable.
+if [ "${1:-}" = "--scan" ]; then
+	OUT=data/bot-shaped-scan-calib.json
+	SCAN_ARG="--scan"
+	LABEL="v4 scan model, full honest grid (n=50, ~25 min)"
+fi
+
 # Quick tuning mode. NB the numeric bands below the WASM seam (samplerMax 2485)
 # are the SOFTMAX SAMPLER — the exploitable thing shaped replaces — so playing
 # shaped against them measures the sampler's exploitability, not shaped's
@@ -90,6 +99,7 @@ npx tsx scripts/calibrate-bots.mts \
 	--pairs "$PAIRS" \
 	--games "$GAMES" \
 	--shaped-depth 12 --shaped-multipv 12 \
+	${SCAN_ARG:-} \
 	--out "$OUT"
 
 echo "============================================================"
