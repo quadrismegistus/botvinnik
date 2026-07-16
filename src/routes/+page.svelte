@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount, untrack } from 'svelte';
 	import { browser } from '$app/environment';
-	import { botDelay, selectBotMove, shapedBotMove, shapedLabelFor, shapedSearchDepth } from '$lib/bot';
+	import { BOT_MODEL, botDelay, selectBotMove, shapedBotMove, shapedLabelFor, shapedSearchDepth } from '$lib/bot';
 	import { personaById, personaInternalElo, type BotPersona } from '$lib/bots';
 	import { estimatePlayerElo } from '$lib/playerElo';
 	import { avoidRepetition } from '$lib/repetition';
@@ -616,11 +616,23 @@
 	// calibrated depth, then the miss-the-tactic choice layer with this game's
 	// sticky-miss seed
 	async function shapedAppMove(label: number): Promise<string | null> {
-		const res = await analyzeShapedMove(game.fen, shapedSearchDepth(label), (moves) => {
+		const fen = game.fen;
+		const lastTo = game.moves.at(-1)?.to; // recapture salience (scan model)
+		const res = await analyzeShapedMove(fen, shapedSearchDepth(label), (moves) => {
 			botConsidering = moves[0]?.pv[0] ?? null;
 		});
 		botConsidering = null;
-		return shapedBotMove(res.moves, label, undefined, botGameSeed);
+		// BOT_MODEL selects the choice-layer generation app-wide (knots follow
+		// automatically via shapedLabelFor's default): flip to 'scan' to ship v4
+		return shapedBotMove(
+			res.moves,
+			label,
+			BOT_MODEL === 'scan' ? { scan: true } : undefined,
+			botGameSeed,
+			BOT_MODEL === 'scan' ? fen : undefined,
+			undefined,
+			BOT_MODEL === 'scan' ? lastTo : undefined
+		);
 	}
 
 	async function maybeBotMove(token: number) {
