@@ -59,21 +59,31 @@ SUBSTRATE=wasm
 # Desktop knots: measure against the EXACT binary the Tauri app ships (the
 # big-net sidecar — much stronger than the web's lite-single at equal depth,
 # so the WASM knot table mislabels desktop Squares).
-if [ "${1:-}" = "--native" ]; then
+# flags combine: --native picks the substrate, --scan picks the model, and
+# each (out, state) pairing stays distinct so no baseline is ever overwritten
+for arg in "$@"; do
+case "$arg" in
+--native)
 	ENGINE=src-tauri/binaries/stockfish-aarch64-apple-darwin
 	[ -x "$ENGINE" ] || { echo "sidecar missing: $ENGINE"; exit 1; }
 	SUBSTRATE=native
 	OUT=data/bot-shaped-native-calib.json
-	LABEL="full honest grid vs Tauri sidecar (native substrate, n=50)"
-fi
-
-# v4 scan-model knots: same grid, shapedBotMove in scan mode (visibility-
-# weighted misses + opening damp + danger penalty — see bot.ts SCAN_MULTS).
-# SEPARATE output/state so the v3 baselines stay untouched and comparable.
-if [ "${1:-}" = "--scan" ]; then
-	OUT=data/bot-shaped-scan-calib.json
+	LABEL="full honest grid vs Tauri sidecar (native substrate)"
+	;;
+--scan)
 	SCAN_ARG="--scan"
-	LABEL="v4 scan model, full honest grid (n=50, ~25 min)"
+	LABEL="v4 scan model, $LABEL"
+	;;
+--games=*)
+	GAMES="${arg#--games=}"
+	;;
+esac
+done
+# v4 runs write scan-suffixed outputs per substrate
+if [ -n "${SCAN_ARG:-}" ]; then
+	OUT="${OUT%.json}"; OUT="${OUT%-calib}"
+	case "$OUT" in *shaped) OUT="$OUT-scan-calib.json";; *) OUT="$OUT-scan-calib.json";; esac
+	OUT=$(echo "$OUT" | sed 's/shaped-native-scan/shaped-scan-native/')
 fi
 
 # Quick tuning mode. NB the numeric bands below the WASM seam (samplerMax 2485)
