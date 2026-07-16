@@ -504,6 +504,7 @@ if (allIds.some(isMaia3Id)) {
 }
 
 const engines = Array.from({ length: WORKERS }, () => new Engine());
+const wdl: Record<string, { w: number; d: number; l: number }> = {};
 let played = 0;
 const t0 = Date.now();
 
@@ -537,6 +538,12 @@ async function worker(engine: Engine) {
 			const r = (state.results[k] ??= { games: 0, aScore: 0 });
 			r.games++;
 			r.aScore += score;
+			// session-local W/D/L (state only keeps aScore): the kink hunt needs
+			// to see whether a lopsided pair is decisive games or adjudication mush
+			const w = (wdl[k] ??= { w: 0, d: 0, l: 0 });
+			if (score === 1) w.w++;
+			else if (score === 0.5) w.d++;
+			else w.l++;
 			saveState();
 			played++;
 			if (played % 10 === 0 || played === toPlay) {
@@ -565,9 +572,11 @@ console.log('\npairwise results (a vs b, a-score):');
 for (const r of results) {
 	const p = r.aScore / r.games;
 	const se = Math.sqrt(Math.max(p * (1 - p), 0.01) / r.games);
+	const w = wdl[key(r.a, r.b)];
 	console.log(
 		`  ${String(r.a).padStart(4)} vs ${String(r.b).padStart(4)}: ` +
-			`${r.aScore}/${r.games} (${(p * 100).toFixed(0)}% ±${(se * 100).toFixed(0)})`
+			`${r.aScore}/${r.games} (${(p * 100).toFixed(0)}% ±${(se * 100).toFixed(0)})` +
+			(w ? ` [this session: +${w.w} =${w.d} -${w.l}]` : '')
 	);
 }
 
