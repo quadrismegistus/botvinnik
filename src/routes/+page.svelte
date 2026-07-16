@@ -412,6 +412,9 @@
 	// practice but not a clean measurement (chess.com's crowns distinction),
 	// so it's recorded on the game and excluded from the rating fit
 	let botUndos = $state(0);
+	// hint overlays visible on any human move this game — the other half of
+	// the crowns distinction: a win in blind mode with no takebacks is CLEAN
+	let botHintsUsed = $state(false);
 	$effect(() => onDalaDownload((active) => (botDownloading = active)));
 
 	$effect(() => {
@@ -702,6 +705,8 @@
 		const move = makeMove(from, to, promotion);
 		if (move) {
 			redoStack = []; // a new move kills the undone future
+			if (mode === 'play' && botEnabled && !blindMode && (showArrows || showThreats || showControl))
+				botHintsUsed = true;
 			lastMove = [from, to];
 			refresh();
 			recordGrade(from + to + (move.promotion ?? ''), move.san, move.color, fenBefore, linesBefore);
@@ -1178,6 +1183,9 @@
 		const move = makeMove(uci.slice(0, 2), uci.slice(2, 4), uci.length > 4 ? uci[4] : undefined);
 		if (move) {
 			redoStack = []; // a new move kills the undone future
+			// clicking an engine line IS following a hint (bot's own replies come
+			// through here too, but only human-turn clicks reach handlePlayUci)
+			if (mode === 'play' && botEnabled && game.turn !== botColor) botHintsUsed = true;
 			lastMove = [move.from, move.to];
 			refresh();
 			recordGrade(uci, move.san, move.color, fenBefore, linesBefore);
@@ -1242,6 +1250,7 @@
 			botPersona: botEnabled && botPersona ? botPersona.id : undefined,
 			botFallback: botEnabled && botFellBack ? true : undefined,
 			botUndos: botEnabled && botUndos > 0 ? botUndos : undefined,
+			botHintsUsed: botEnabled ? botHintsUsed : undefined,
 			botColor: botEnabled ? botColor : null,
 			moveCount: moves.length,
 			whiteAccuracy: gameAccuracy(stored, 'w'),
@@ -1323,6 +1332,7 @@
 		botGameSeed = `s${Math.floor(Math.random() * 1e9)}`; // fresh eyes for the shaped bot
 		botFellBack = false;
 		botUndos = 0;
+		botHintsUsed = false;
 		redoStack = [];
 		gameSaved = false;
 		lastMove = null;

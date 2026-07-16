@@ -39,6 +39,10 @@ export interface StoredGame {
 	botPersona?: string; // roster persona id (bots.ts); absent for slider/legacy games
 	botFallback?: boolean; // some moves came from the Stockfish stand-in, not the persona's engine
 	botUndos?: number; // takebacks the human used — assisted result, off the rating ruler
+	// hint overlays (arrows/threats/control, i.e. not blind) were visible on any
+	// human move. ABSENT on games saved before tracking began (2026-07-16):
+	// hints unknown — those games can never earn a clean crown.
+	botHintsUsed?: boolean;
 	botColor: 'w' | 'b' | null; // side the human did NOT play (drives review orientation)
 	moveCount: number;
 	whiteAccuracy: number | null;
