@@ -70,6 +70,25 @@
 		return `vs ${botLabel(g)} as ${g.botColor === 'w' ? 'Black' : 'White'}${undos}`;
 	}
 
+	// the crowns distinction: did the human WIN, and how clean was it?
+	// clean = no takebacks, no engine stand-in, hint overlays off (blind) —
+	// only games saved after hint-tracking began (botHintsUsed present) can
+	// earn the solid crown; older wins show the outline with 'hints unknown'.
+	function crown(g: StoredGame): { glyph: string; cls: string; title: string } | null {
+		if (g.botElo === null || g.botColor === null || g.white) return null; // not a bot game
+		const humanWon =
+			(g.result === '1-0' && g.botColor === 'b') || (g.result === '0-1' && g.botColor === 'w');
+		if (!humanWon) return null;
+		const help: string[] = [];
+		if (g.botUndos) help.push(`${g.botUndos} takeback${g.botUndos === 1 ? '' : 's'}`);
+		if (g.botFallback) help.push('engine stand-in');
+		if (g.botHintsUsed === true) help.push('hint overlays');
+		if (g.botHintsUsed === undefined) help.push('hints unknown (pre-tracking)');
+		if (help.length === 0)
+			return { glyph: '♛', cls: 'clean', title: 'Won clean — blind, no takebacks' };
+		return { glyph: '♛', cls: 'helped', title: `Won with help: ${help.join(', ')}` };
+	}
+
 	function mistakes(g: StoredGame, color: 'w' | 'b'): string {
 		const c = g.labelCounts[color];
 		const parts: string[] = [];
@@ -216,6 +235,10 @@
 					<div class="row">
 						<span class="when">{new Date(g.endedAt).toLocaleString()}</span>
 						<span class="opp">{opponent(g)}</span>
+						{#if crown(g)}
+							{@const c = crown(g)!}
+							<span class="crown {c.cls}" title={c.title}>{c.glyph}</span>
+						{/if}
 						<span class="result">{g.result}</span>
 						<span class="len">{Math.ceil(g.moveCount / 2)} moves</span>
 						<span class="acc" title={accTitle(g)}>
@@ -236,6 +259,10 @@
 						Show more ({games.length - visibleCount} older games)
 					</button>
 				{/if}
+				<div class="legend">
+					<span class="crown clean">♛</span> won clean (blind, no takebacks) ·
+					<span class="crown helped">♛</span> won with help · ↩n takebacks
+				</div>
 			</div>
 		{/if}
 	{:else}
@@ -748,5 +775,25 @@
 	.rv-mvglyph {
 		font-weight: 800;
 		font-size: 12px;
+	}
+	.crown {
+		font-size: 13px;
+		cursor: help;
+		line-height: 1;
+	}
+	.crown.clean {
+		color: #d4a017; /* the solid gold crown: blind, unassisted, won */
+	}
+	.crown.helped {
+		color: var(--text-secondary);
+		opacity: 0.7;
+	}
+	.legend {
+		font-size: 11px;
+		color: var(--text-secondary);
+		padding: 6px 2px 0;
+	}
+	.legend .crown {
+		cursor: default;
 	}
 </style>
