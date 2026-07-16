@@ -219,7 +219,7 @@ describe('shapedSearchDepth', () => {
 });
 
 // ─── v4 scan model ───────────────────────────────────────────────────────────
-import { tacticVisibility, openingDamp } from './bot';
+import { tacticVisibility, openingDamp, dangerVisibility } from './bot';
 
 describe('tacticVisibility', () => {
 	// black queen hangs on d8; Rxd8 wins it outright
@@ -291,5 +291,35 @@ describe('shapedBotMove scan mode', () => {
 		const t = tally(() => shapedBotMove(HANG_LINES, 900, p), 3000);
 		const missRate = 1 - (t.get('d2d8') ?? 0) / 3000;
 		expect(missRate).toBeGreaterThan(0.4);
+	});
+});
+
+describe('dangerVisibility — the "is my move safe?" scan', () => {
+	// White queen on d1; d5 is covered by black's c6 pawn. Qd5?? hangs to a pawn.
+	const FEN = 'k7/8/2p5/8/8/8/8/K2Q4 w - - 0 20';
+
+	it('queen onto a pawn-covered square is glaring', () => {
+		expect(dangerVisibility(FEN, 'd1d5')).toBeLessThanOrEqual(0.05);
+	});
+
+	it('queen to a safe square is fine', () => {
+		expect(dangerVisibility(FEN, 'd1d4')).toBe(1);
+	});
+
+	it('scan mode almost never hangs the queen after a miss; v3 sometimes does', () => {
+		// tactical moment (best +5 towers), missProb 1 => always miss; the rest
+		// are a safe quiet move and the pawn-covered queen-hang, close in win%
+		// so the temperature would happily sample both
+		const lines = [
+			line('a1b1', 5.0, 1), // the "unseen" best
+			line('d1d4', 0.0, 2), // safe
+			line('d1d5', -0.5, 3) // queen hangs to the c6 pawn
+		];
+		const p = { missProb: 1, temperature: 8, tacticalGapPct: 15, quietWindowPct: 30 };
+		const v3 = tally(() => shapedBotMove(lines, 900, p), 2000);
+		const v4 = tally(() => shapedBotMove(lines, 900, { ...p, scan: true }, undefined, FEN), 2000);
+		const hangRate = (t: Map<string, number>) => (t.get('d1d5') ?? 0) / 2000;
+		expect(hangRate(v3)).toBeGreaterThan(0.2); // temp 8: freely sampled
+		expect(hangRate(v4)).toBeLessThan(0.05); // ×0.05 danger penalty
 	});
 });

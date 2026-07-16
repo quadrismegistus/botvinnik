@@ -313,10 +313,17 @@ function hash01(key: string): number {
 	return (h >>> 0) / 4294967296;
 }
 
-// Softmax-sample over candidate win%s with the given temperature.
-function softmaxPick(cands: { move: string; win: number }[], temperature: number): string {
+// Softmax-sample over candidate win%s with the given temperature. Optional
+// per-candidate weight factors (the scan model's danger penalty).
+function softmaxPick(
+	cands: { move: string; win: number }[],
+	temperature: number,
+	factors?: number[]
+): string {
 	const maxWin = Math.max(...cands.map((c) => c.win));
-	const weights = cands.map((c) => Math.exp((c.win - maxWin) / Math.max(temperature, 0.1)));
+	const weights = cands.map(
+		(c, i) => Math.exp((c.win - maxWin) / Math.max(temperature, 0.1)) * (factors?.[i] ?? 1)
+	);
 	const total = weights.reduce((a, b) => a + b, 0);
 	let r = Math.random() * total;
 	for (let k = 0; k < cands.length; k++) {
@@ -324,6 +331,54 @@ function softmaxPick(cands: { move: string; win: number }[], temperature: number
 		if (r <= 0) return cands[k].move;
 	}
 	return cands[cands.length - 1].move;
+}
+
+// ─── The defensive scan: "is my move safe?" ─────────────────────────────────
+//
+// Observed live (SquareFish-900 on lichess): a missed tactical moment routes
+// the choice through an UNCAPPED softmax over the remaining lines, which
+// occasionally samples an unprovoked queen-hang. Real 900s miss SUBTLE
+// refutations constantly but almost never move a piece onto a square a pawn
+// attacks in plain sight — the "is it safe?" check is the scan order applied
+// to one's own move. This is its mirror: candidates whose refutation is
+// VISIBLE (moved piece immediately capturable by a cheaper attacker, or
+// capturable while undefended) get their sampling weight slashed. Subtle
+// multi-move refutations keep full weight — falling for those is authentic.
+export function dangerVisibility(fen: string, uci: string): number {
+	try {
+		const c = new Chess(fen);
+		const moved = c.move({
+			from: uci.slice(0, 2),
+			to: uci.slice(2, 4),
+			promotion: uci.length > 4 ? uci[4] : undefined
+		});
+		const dest = moved.to;
+		const movedVal = PIECE_VAL[moved.promotion ?? moved.piece];
+		// opponent's cheapest immediate capture of the moved piece
+		let cheapest = Infinity;
+		let canRecapture = false;
+		for (const reply of c.moves({ verbose: true })) {
+			if (reply.to === dest && reply.captured)
+				cheapest = Math.min(cheapest, PIECE_VAL[reply.piece]);
+		}
+		if (cheapest === Infinity) return 1; // not capturable at all
+		// is the moved piece defended? (any of OUR replies recaptures on dest)
+		const probe = new Chess(c.fen());
+		const attacker = probe
+			.moves({ verbose: true })
+			.find((m) => m.to === dest && m.captured);
+		if (attacker) {
+			probe.move(attacker);
+			canRecapture = probe.moves({ verbose: true }).some((m) => m.to === dest && m.captured);
+		}
+		// glaring: taken by a cheaper piece (queen to a pawn-covered square), or
+		// taken for free (undefended). Even trades and defended pieces are fine.
+		if (cheapest < movedVal - 1) return 0.05;
+		if (!canRecapture && movedVal >= 3) return 0.1;
+		return 1;
+	} catch {
+		return 1;
+	}
 }
 
 export function shapedBotMove(
@@ -373,7 +428,12 @@ export function shapedBotMove(
 			cands.push({ move: l.pv[0], win: v });
 		}
 		// temperature is in win% points; evals are in pawns — rescale
-		if (cands.length > 0) return softmaxPick(cands, temperature / 4);
+		if (cands.length > 0)
+			return softmaxPick(
+				cands,
+				temperature / 4,
+				scanning ? cands.map((c) => dangerVisibility(fen!, c.move)) : undefined
+			);
 	}
 
 	if (bestWin - wins[1] >= tacticalGapPct) {
@@ -401,11 +461,15 @@ export function shapedBotMove(
 		const roll = seed !== undefined ? hash01(`${seed}:${best.pv[0].slice(2, 4)}`) : Math.random();
 		if (roll >= p) return best.pv[0];
 		// …or it doesn't. Choose among the REST as if the best move didn't exist —
-		// still preferring the more plausible of what it can see. No severity cap:
-		// missing the only defence is exactly how a won game gets lost.
+		// still preferring the more plausible of what it can see. No severity cap
+		// on MISSED DEFENCES (that's how won games get lost) — but under scan
+		// mode, candidates with a VISIBLE refutation are near-unplayable: a
+		// human who missed the tactic still doesn't hang a queen to a pawn.
+		const rest = sorted.slice(1).map((l, i) => ({ move: l.pv[0], win: wins[i + 1] }));
 		return softmaxPick(
-			sorted.slice(1).map((l, i) => ({ move: l.pv[0], win: wins[i + 1] })),
-			temperature
+			rest,
+			temperature,
+			scanning ? rest.map((c) => dangerVisibility(fen!, c.move)) : undefined
 		);
 	}
 
@@ -416,7 +480,11 @@ export function shapedBotMove(
 	for (let i = 0; i < sorted.length; i++) {
 		if (bestWin - wins[i] <= quietWindowPct) cands.push({ move: sorted[i].pv[0], win: wins[i] });
 	}
-	return softmaxPick(cands, temperature * damp);
+	return softmaxPick(
+		cands,
+		temperature * damp,
+		scanning ? cands.map((c) => dangerVisibility(fen!, c.move)) : undefined
+	);
 }
 
 // ─── Shaped label inversion ──────────────────────────────────────────────────
