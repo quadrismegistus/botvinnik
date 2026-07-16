@@ -173,6 +173,7 @@ export interface TacticVisibility {
 /** The scan model's tunable multipliers — swept against the puzzle bench. */
 export interface ScanMults {
 	mateSoon: number; // mate in ≤2: checks are scanned first
+	recapture: number; // capture on the square the opponent JUST moved to
 	grab: number; // first move takes a rook/queen and keeps it
 	capture: number; // any capture that wins material by line's end
 	check: number; // non-capture check
@@ -197,6 +198,7 @@ export interface ScanMults {
 // surgery if ever needed; the gym governs game strength either way.
 export const SCAN_MULTS: ScanMults = {
 	mateSoon: 0.04,
+	recapture: 0.02,
 	grab: 0.03,
 	capture: 0.08,
 	check: 0.1,
@@ -225,10 +227,30 @@ export function tacticVisibility(
 	pv: string[],
 	mate: number | null,
 	discoveryDepth?: number,
-	m: ScanMults = SCAN_MULTS
+	m: ScanMults = SCAN_MULTS,
+	lastMoveTo?: string
 ): TacticVisibility {
 	// short mates: even beginners scan checks first (v3's ×0.25 rule, kept)
 	if (mate !== null && mate > 0 && mate <= 2) return { multiplier: m.mateSoon, kind: 'mate-soon' };
+	// recapture on the square the opponent JUST moved to: salient in a
+	// pre-chess way — attention goes to where their piece landed before any
+	// trained scan order exists (observed live: SquareFish let a queen live
+	// after QxQ; the sticky miss then kept it alive). Checked before d* and
+	// the categories: if the recapture IS the best move, nothing about being
+	// deep-to-verify makes it less noticeable.
+	if (lastMoveTo && pv[0]?.slice(2, 4) === lastMoveTo) {
+		try {
+			const probe = new Chess(fen);
+			const mv = probe.move({
+				from: pv[0].slice(0, 2),
+				to: pv[0].slice(2, 4),
+				promotion: pv[0].length > 4 ? pv[0][4] : undefined
+			});
+			if (mv.captured) return { multiplier: m.recapture, kind: 'recapture' };
+		} catch {
+			// fall through to the normal classification
+		}
+	}
 	// deep-only tactics: only deep search prefers this move — the certified
 	// "hard to see" signal. Rises past baseline immediately and saturates at
 	// master-level invisibility (d*≥5 ideas are 2200+ puzzles).
@@ -414,7 +436,8 @@ export function shapedBotMove(
 	params?: Partial<ShapedParams>,
 	seed?: string | number,
 	fen?: string,
-	discoveryDepth?: number
+	discoveryDepth?: number,
+	lastMoveTo?: string
 ): string | null {
 	if (lines.length === 0) return null;
 	const sorted = [...lines].sort((a, b) => a.multipv - b.multipv);
@@ -481,8 +504,11 @@ export function shapedBotMove(
 		let p = mateSoon ? missProb * 0.25 : missProb;
 		if (scanning) {
 			const mults = { ...SCAN_MULTS, ...scanMults };
-			const vis = tacticVisibility(fen!, best.pv, best.mate, discoveryDepth, mults).multiplier;
-			p = missProb * bySkill(vis, skill) * damp;
+			const vis = tacticVisibility(fen!, best.pv, best.mate, discoveryDepth, mults, lastMoveTo);
+			// recapture salience is perceptual, not trained — even a beginner
+			// looks at the square where their queen just died. Floor the skill.
+			const s = vis.kind === 'recapture' ? Math.max(skill, 0.7) : skill;
+			p = missProb * bySkill(vis.multiplier, s) * damp;
 			p = Math.min(p, mults.pCap);
 		}
 		const roll = seed !== undefined ? hash01(`${seed}:${best.pv[0].slice(2, 4)}`) : Math.random();

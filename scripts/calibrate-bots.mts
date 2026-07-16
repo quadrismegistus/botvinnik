@@ -313,7 +313,8 @@ async function shapedMove(
 	engine: Engine,
 	fen: string,
 	elo: number,
-	seed: string
+	seed: string,
+	lastMoveTo?: string
 ): Promise<string | null> {
 	const res = await engine.search(
 		fen,
@@ -325,7 +326,9 @@ async function shapedMove(
 		elo,
 		SHAPED_SCAN ? { scan: true } : undefined,
 		seed,
-		SHAPED_SCAN ? fen : undefined
+		SHAPED_SCAN ? fen : undefined,
+		undefined,
+		SHAPED_SCAN ? lastMoveTo : undefined
 	);
 }
 
@@ -389,7 +392,7 @@ async function playGame(
 			: isMaiaId(mover)
 				? await maiaMoveNode(fenHistory(chess), maiaBandOf(mover), maiaTempOf(mover))
 				: isShapedId(mover)
-					? await shapedMove(engine, chess.fen(), shapedEloOf(mover), `${gameSeed}:${mover}`)
+					? await shapedMove(engine, chess.fen(), shapedEloOf(mover), `${gameSeed}:${mover}`, chess.history({ verbose: true }).at(-1)?.to)
 					: isExtId(mover)
 						? await extMove(ext(mover), mover, chess.fen())
 						: await botMove(engine, chess.fen(), mover);

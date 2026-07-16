@@ -347,3 +347,34 @@ describe('scanSkill — the scan is a learned skill', () => {
 		expect(at450).toBeGreaterThan(0.35);
 	});
 });
+
+describe('recapture salience', () => {
+	// black queen just captured on d1 (lastMoveTo=d1); Ra1xd1 recaptures
+	const FEN = 'k7/8/8/8/8/8/1K6/R2q4 w - - 0 20';
+
+	it('a recapture on the just-moved square is the most visible tactic', () => {
+		const v = tacticVisibility(FEN, ['a1d1', 'a8b7'], null, undefined, undefined, 'd1');
+		expect(v.kind).toBe('recapture');
+		expect(v.multiplier).toBeLessThanOrEqual(0.02);
+	});
+
+	it('without the last-move cue it is a plain grab', () => {
+		const v = tacticVisibility(FEN, ['a1d1', 'a8b7'], null);
+		expect(v.kind).toBe('grab');
+	});
+
+	it('even a beginner label rarely lets the queen live after QxQ', () => {
+		const lines = [line('a1d1', 9.0, 1), line('b2b3', -8.0, 2), line('b2c2', -8.2, 3)];
+		const p = { missProb: 0.6, temperature: 8, tacticalGapPct: 15, quietWindowPct: 30, scan: true };
+		const t = tally(
+			() => shapedBotMove(lines, 450, p, undefined, FEN, undefined, 'd1'),
+			3000
+		);
+		const missRate = 1 - (t.get('a1d1') ?? 0) / 3000;
+		// perceptual floor: skill ≥ 0.7 for recaptures → p ≈ 0.6 × 0.31 ≈ 0.19
+		expect(missRate).toBeLessThan(0.3);
+		// but WITHOUT the cue, a 450 misses the same capture far more often
+		const noCue = tally(() => shapedBotMove(lines, 450, p, undefined, FEN), 3000);
+		expect(1 - (noCue.get('a1d1') ?? 0) / 3000).toBeGreaterThan(missRate + 0.15);
+	});
+});
