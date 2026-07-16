@@ -30,6 +30,11 @@ function opt(name: string, dflt: number): number {
 	return i >= 0 ? Number(argv[i + 1]) : dflt;
 }
 let label = opt('label', 1050);
+// --scan: the v4 scan model (visibility-weighted misses, danger penalty,
+// opening damp — bot.ts). Deployed WITHOUT discovery depth: the gym curve
+// that sets the label was measured without it, and the deployed bot must be
+// the calibrated configuration exactly.
+const SCAN = argv.includes('--scan');
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const ENGINE = resolve(ROOT, 'scripts/wasm-engine/run.sh');
@@ -140,7 +145,16 @@ function fenHistory(): string[] {
 
 async function go() {
 	const moves = await backend.search(chess.fen(), shapedSearchDepth(label));
-	const move = shapedBotMove(moves, label, undefined, gameSeed);
+	const lastTo = chess.history({ verbose: true }).at(-1)?.to;
+	const move = shapedBotMove(
+		moves,
+		label,
+		SCAN ? { scan: true } : undefined,
+		gameSeed,
+		SCAN ? chess.fen() : undefined,
+		undefined,
+		SCAN ? lastTo : undefined
+	);
 	// same guard the app applies: the shaped layer can't see game history, so
 	// a winning SquareFish could shuffle into threefold — bot opponents would
 	// farm that draw relentlessly
@@ -154,7 +168,7 @@ rl.on('line', (line) => {
 	const cmd = parts[0];
 	try {
 		if (cmd === 'uci') {
-			out(`id name SquareFish ${label}`);
+			out(`id name SquareFish ${label}${SCAN ? ' (v4-scan)' : ''}`);
 			out('id author botvinnik-web (shaped bot over Stockfish lite-single)');
 			out('option name Label type spin default 1050 min 600 max 1500');
 			// declared so bridges (python-chess validates before sending) can set

@@ -219,7 +219,7 @@ describe('shapedSearchDepth', () => {
 });
 
 // ─── v4 scan model ───────────────────────────────────────────────────────────
-import { tacticVisibility, openingDamp } from './bot';
+import { tacticVisibility, openingDamp, dangerVisibility, scanSkill } from './bot';
 
 describe('tacticVisibility', () => {
 	// black queen hangs on d8; Rxd8 wins it outright
@@ -291,5 +291,94 @@ describe('shapedBotMove scan mode', () => {
 		const t = tally(() => shapedBotMove(HANG_LINES, 900, p), 3000);
 		const missRate = 1 - (t.get('d2d8') ?? 0) / 3000;
 		expect(missRate).toBeGreaterThan(0.4);
+	});
+});
+
+describe('dangerVisibility — the "is my move safe?" scan', () => {
+	// White queen on d1; d5 is covered by black's c6 pawn. Qd5?? hangs to a pawn.
+	const FEN = 'k7/8/2p5/8/8/8/8/K2Q4 w - - 0 20';
+
+	it('queen onto a pawn-covered square is glaring', () => {
+		expect(dangerVisibility(FEN, 'd1d5')).toBeLessThanOrEqual(0.05);
+	});
+
+	it('queen to a safe square is fine', () => {
+		expect(dangerVisibility(FEN, 'd1d4')).toBe(1);
+	});
+
+	it('scan mode almost never hangs the queen after a miss; v3 sometimes does', () => {
+		// tactical moment (best +5 towers), missProb 1 => always miss; the rest
+		// are a safe quiet move and the pawn-covered queen-hang, close in win%
+		// so the temperature would happily sample both
+		const lines = [
+			line('a1b1', 5.0, 1), // the "unseen" best
+			line('d1d4', 0.0, 2), // safe
+			line('d1d5', -0.5, 3) // queen hangs to the c6 pawn
+		];
+		const p = { missProb: 1, temperature: 8, tacticalGapPct: 15, quietWindowPct: 30 };
+		const v3 = tally(() => shapedBotMove(lines, 900, p), 2000);
+		const v4 = tally(() => shapedBotMove(lines, 900, { ...p, scan: true }, undefined, FEN), 2000);
+		const hangRate = (t: Map<string, number>) => (t.get('d1d5') ?? 0) / 2000;
+		expect(hangRate(v3)).toBeGreaterThan(0.2); // temp 8: freely sampled
+		expect(hangRate(v4)).toBeLessThan(0.05); // ×0.05 danger penalty
+	});
+});
+
+describe('scanSkill — the scan is a learned skill', () => {
+	const HANG_LINES = [line('d2d8', 9.0, 1), line('d2d4', 0.0, 2), line('a1b1', -0.2, 3)];
+	const HANG = 'k2q4/8/8/8/8/8/3R4/K7 w - - 0 20';
+
+	it('saturates at club level and vanishes at beginner', () => {
+		expect(scanSkill(900)).toBe(1);
+		expect(scanSkill(1500)).toBe(1);
+		expect(scanSkill(350)).toBe(0);
+		expect(scanSkill(625)).toBeCloseTo(0.5, 2);
+	});
+
+	it(
+		'a beginner label misses the hanging queen far more than a club label',
+		{ timeout: 30_000 }, // each miss triggers the danger probe's move-gens
+		() => {
+			const p = { missProb: 0.6, temperature: 8, tacticalGapPct: 15, quietWindowPct: 30, scan: true };
+			const miss = (elo: number) => {
+				const t = tally(() => shapedBotMove(HANG_LINES, elo, p, undefined, HANG), 1000);
+				return 1 - (t.get('d2d8') ?? 0) / 1000;
+			};
+			const at900 = miss(900); // full scan: 0.6 × 0.03 ≈ 2%
+			const at450 = miss(450); // skill ≈ 0.18: 0.6 × (1 − 0.97×0.18) ≈ 50%
+			expect(at900).toBeLessThan(0.08);
+			expect(at450).toBeGreaterThan(0.35);
+		}
+	);
+});
+
+describe('recapture salience', () => {
+	// black queen just captured on d1 (lastMoveTo=d1); Ra1xd1 recaptures
+	const FEN = 'k7/8/8/8/8/8/1K6/R2q4 w - - 0 20';
+
+	it('a recapture on the just-moved square is the most visible tactic', () => {
+		const v = tacticVisibility(FEN, ['a1d1', 'a8b7'], null, undefined, undefined, 'd1');
+		expect(v.kind).toBe('recapture');
+		expect(v.multiplier).toBeLessThanOrEqual(0.02);
+	});
+
+	it('without the last-move cue it is a plain grab', () => {
+		const v = tacticVisibility(FEN, ['a1d1', 'a8b7'], null);
+		expect(v.kind).toBe('grab');
+	});
+
+	it('even a beginner label rarely lets the queen live after QxQ', () => {
+		const lines = [line('a1d1', 9.0, 1), line('b2b3', -8.0, 2), line('b2c2', -8.2, 3)];
+		const p = { missProb: 0.6, temperature: 8, tacticalGapPct: 15, quietWindowPct: 30, scan: true };
+		const t = tally(
+			() => shapedBotMove(lines, 450, p, undefined, FEN, undefined, 'd1'),
+			3000
+		);
+		const missRate = 1 - (t.get('a1d1') ?? 0) / 3000;
+		// perceptual floor: skill ≥ 0.7 for recaptures → p ≈ 0.6 × 0.31 ≈ 0.19
+		expect(missRate).toBeLessThan(0.3);
+		// but WITHOUT the cue, a 450 misses the same capture far more often
+		const noCue = tally(() => shapedBotMove(lines, 450, p, undefined, FEN), 3000);
+		expect(1 - (noCue.get('a1d1') ?? 0) / 3000).toBeGreaterThan(missRate + 0.15);
 	});
 });

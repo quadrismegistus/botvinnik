@@ -136,6 +136,7 @@ async function solve(backend: Backend, p: Puzzle, label: number): Promise<boolea
 	const apply = (uci: string) =>
 		c.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci[4] });
 	apply(p.moves[0]); // opponent's setup move
+	let lastMoveTo = p.moves[0].slice(2, 4);
 	for (let i = 1; i < p.moves.length; i += 2) {
 		const expected = p.moves[i];
 		const lines = await backend.search(c.fen(), shapedSearchDepth(label));
@@ -145,7 +146,8 @@ async function solve(backend: Backend, p: Puzzle, label: number): Promise<boolea
 			SCAN ? { scan: true } : undefined,
 			`${p.id}:${label}`,
 			c.fen(),
-			SCAN ? backend.lastDiscoveryDepth : undefined
+			SCAN ? backend.lastDiscoveryDepth : undefined,
+			SCAN ? lastMoveTo : undefined
 		);
 		if (!picked) return false;
 		if (picked !== expected) {
@@ -155,7 +157,10 @@ async function solve(backend: Backend, p: Puzzle, label: number): Promise<boolea
 			return true;
 		}
 		apply(expected);
-		if (i + 1 < p.moves.length) apply(p.moves[i + 1]); // opponent's reply
+		if (i + 1 < p.moves.length) {
+			apply(p.moves[i + 1]); // opponent's reply
+			lastMoveTo = p.moves[i + 1].slice(2, 4);
+		}
 	}
 	return true;
 }

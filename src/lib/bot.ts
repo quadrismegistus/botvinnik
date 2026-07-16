@@ -126,6 +126,8 @@ export interface ShapedParams {
 	 * calibrated behavior until the v4 knots are measured.
 	 */
 	scan?: boolean;
+	/** scan-model multiplier overrides (bench sweeps); defaults to SCAN_MULTS */
+	scanMults?: Partial<ScanMults>;
 }
 
 // Interpolated over ELO ~600..1600; above ~1600 it plays near-best throughout.
@@ -168,6 +170,47 @@ export interface TacticVisibility {
 	kind: string; // for logging/tests
 }
 
+/** The scan model's tunable multipliers — swept against the puzzle bench. */
+export interface ScanMults {
+	mateSoon: number; // mate in ≤2: checks are scanned first
+	recapture: number; // capture on the square the opponent JUST moved to
+	grab: number; // first move takes a rook/queen and keeps it
+	capture: number; // any capture that wins material by line's end
+	check: number; // non-capture check
+	quiet: number; // no capture, no check — the human blind spot
+	quietShallow: number; // quiet but engine-preferred at depth 1 (d* known)
+	sac: number; // extra factor when material is given up before the payoff
+	deepBase: number; // d*≥2 multiplier = deepBase + deepSlope·(d*−1)
+	deepSlope: number;
+	deepCap: number;
+	pCap: number; // ceiling on the effective miss probability
+}
+
+// Bench-swept (scripts/puzzle-rating/sweep.mts, 122 configs on cached
+// searches — data/puzzle-sweep.json): winner at display-900 solves 96.4% of
+// <800 puzzles (v4.0: 87.6%, v3: 78.4%) and 21.6% of 2000+ (humans ~3%).
+// BOTH residuals are saturated — no multiplier moves them — because they're
+// BRANCH-ROUTING effects, not miss-coin effects: remaining easy fails come
+// from the conversion/quiet branches picking a DIFFERENT fine move that
+// lichess grades wrong (the "my move also wins" complaint), and the hard
+// floor is the 12-candidate quiet softmax guessing the answer ~1/5 of the
+// time when depth-7 eval rates it only narrowly best (gap < gate). Deeper
+// surgery if ever needed; the gym governs game strength either way.
+export const SCAN_MULTS: ScanMults = {
+	mateSoon: 0.04,
+	recapture: 0.02,
+	grab: 0.03,
+	capture: 0.08,
+	check: 0.1,
+	quiet: 2.8,
+	quietShallow: 0.98,
+	sac: 1.5,
+	deepBase: 0.96,
+	deepSlope: 0.5,
+	deepCap: 2.8,
+	pCap: 0.97
+};
+
 /**
  * Visibility of the best line's tactic, from the mover's perspective.
  *
@@ -183,16 +226,37 @@ export function tacticVisibility(
 	fen: string,
 	pv: string[],
 	mate: number | null,
-	discoveryDepth?: number
+	discoveryDepth?: number,
+	m: ScanMults = SCAN_MULTS,
+	lastMoveTo?: string
 ): TacticVisibility {
 	// short mates: even beginners scan checks first (v3's ×0.25 rule, kept)
-	if (mate !== null && mate > 0 && mate <= 2) return { multiplier: 0.2, kind: 'mate-soon' };
+	if (mate !== null && mate > 0 && mate <= 2) return { multiplier: m.mateSoon, kind: 'mate-soon' };
+	// recapture on the square the opponent JUST moved to: salient in a
+	// pre-chess way — attention goes to where their piece landed before any
+	// trained scan order exists (observed live: SquareFish let a queen live
+	// after QxQ; the sticky miss then kept it alive). Checked before d* and
+	// the categories: if the recapture IS the best move, nothing about being
+	// deep-to-verify makes it less noticeable.
+	if (lastMoveTo && pv[0]?.slice(2, 4) === lastMoveTo) {
+		try {
+			const probe = new Chess(fen);
+			const mv = probe.move({
+				from: pv[0].slice(0, 2),
+				to: pv[0].slice(2, 4),
+				promotion: pv[0].length > 4 ? pv[0][4] : undefined
+			});
+			if (mv.captured) return { multiplier: m.recapture, kind: 'recapture' };
+		} catch {
+			// fall through to the normal classification
+		}
+	}
 	// deep-only tactics: only deep search prefers this move — the certified
 	// "hard to see" signal. Rises past baseline immediately and saturates at
 	// master-level invisibility (d*≥5 ideas are 2200+ puzzles).
 	if (discoveryDepth !== undefined && discoveryDepth >= 2) {
 		return {
-			multiplier: Math.min(0.6 + 0.5 * (discoveryDepth - 1), 2.5),
+			multiplier: Math.min(m.deepBase + m.deepSlope * (discoveryDepth - 1), m.deepCap),
 			kind: `deep-d${discoveryDepth}`
 		};
 	}
@@ -233,15 +297,15 @@ export function tacticVisibility(
 		const shallow = discoveryDepth !== undefined; // implies d* <= 1 here
 		let v: TacticVisibility;
 		if (firstCaptureVal >= 5 && finalGain >= 3)
-			v = { multiplier: 0.15, kind: 'grab' }; // free rook/queen: unmissable
+			v = { multiplier: m.grab, kind: 'grab' }; // free rook/queen: unmissable
 		else if (firstCaptureVal > 0 && finalGain >= 1)
-			v = { multiplier: 0.4, kind: 'winning-capture' };
-		else if (givesCheck) v = { multiplier: 0.5, kind: 'check' };
-		else v = { multiplier: shallow ? 1.0 : 1.6, kind: 'quiet' };
+			v = { multiplier: m.capture, kind: 'winning-capture' };
+		else if (givesCheck) v = { multiplier: m.check, kind: 'check' };
+		else v = { multiplier: shallow ? m.quietShallow : m.quiet, kind: 'quiet' };
 		if (settledMin <= -2 && !shallow) {
 			// gives up real material before the payoff: the brilliancy class
 			// (skipped when d* is known — late discovery already encodes it)
-			v = { multiplier: Math.min(v.multiplier * 1.5, 2.5), kind: `${v.kind}-sac` };
+			v = { multiplier: Math.min(v.multiplier * m.sac, m.deepCap), kind: `${v.kind}-sac` };
 		}
 		return v;
 	} catch {
@@ -258,6 +322,33 @@ export function openingDamp(fen: string): number {
 	return clamp01(0.3 + (0.7 * (moveNo - 1)) / 8);
 }
 
+// THE SCAN IS A LEARNED SKILL. The visibility discounts encode "nobody misses
+// a free queen" — true at 900, false at 500: checks-captures-threats is the
+// first discipline chess teachers drill, and beginners haven't internalized
+// it. Without this, v4's floor rose to ~display-618 (the gym: label-600
+// measured 858 internal) because even maximal missProb was neutered by the
+// grab/capture discounts. scanSkill fades every scan-model effect — tactic
+// visibility, the danger penalty, opening rehearsal — toward the flat v3
+// coin as the label drops toward beginner, restoring the ladder's bottom and
+// making sub-600 labels meaningful again (shapedParams saturates at 600, but
+// scan discipline keeps declining below it).
+export function scanSkill(elo: number): number {
+	return clamp01((elo - 350) / 550); // 0 at ≤350 (no scan yet) → 1 at ≥900
+}
+
+/**
+ * Attenuate a scan-model factor toward 1 (no effect) by skill — but ONLY the
+ * discounts. A factor < 1 is a learned ability (spotting visible tactics,
+ * avoiding visible danger, opening rehearsal) that beginners lack; a factor
+ * > 1 is the tactic being objectively hard to see, which no lack of training
+ * relieves. Attenuating amplifiers made label-450 BEAT label-600 in the gym
+ * (the less-skilled bot missed FEWER subtle tactics) — monotonicity requires
+ * this asymmetry.
+ */
+function bySkill(factor: number, skill: number): number {
+	return factor >= 1 ? factor : 1 + (factor - 1) * skill;
+}
+
 // Deterministic hash → [0,1). Used for STICKY miss decisions: a human who
 // doesn't see a tactic keeps not seeing it on later moves — without this the
 // per-move re-roll makes eventually-punishing-a-hanging-piece a certainty
@@ -271,10 +362,17 @@ function hash01(key: string): number {
 	return (h >>> 0) / 4294967296;
 }
 
-// Softmax-sample over candidate win%s with the given temperature.
-function softmaxPick(cands: { move: string; win: number }[], temperature: number): string {
+// Softmax-sample over candidate win%s with the given temperature. Optional
+// per-candidate weight factors (the scan model's danger penalty).
+function softmaxPick(
+	cands: { move: string; win: number }[],
+	temperature: number,
+	factors?: number[]
+): string {
 	const maxWin = Math.max(...cands.map((c) => c.win));
-	const weights = cands.map((c) => Math.exp((c.win - maxWin) / Math.max(temperature, 0.1)));
+	const weights = cands.map(
+		(c, i) => Math.exp((c.win - maxWin) / Math.max(temperature, 0.1)) * (factors?.[i] ?? 1)
+	);
 	const total = weights.reduce((a, b) => a + b, 0);
 	let r = Math.random() * total;
 	for (let k = 0; k < cands.length; k++) {
@@ -284,26 +382,77 @@ function softmaxPick(cands: { move: string; win: number }[], temperature: number
 	return cands[cands.length - 1].move;
 }
 
+// ─── The defensive scan: "is my move safe?" ─────────────────────────────────
+//
+// Observed live (SquareFish-900 on lichess): a missed tactical moment routes
+// the choice through an UNCAPPED softmax over the remaining lines, which
+// occasionally samples an unprovoked queen-hang. Real 900s miss SUBTLE
+// refutations constantly but almost never move a piece onto a square a pawn
+// attacks in plain sight — the "is it safe?" check is the scan order applied
+// to one's own move. This is its mirror: candidates whose refutation is
+// VISIBLE (moved piece immediately capturable by a cheaper attacker, or
+// capturable while undefended) get their sampling weight slashed. Subtle
+// multi-move refutations keep full weight — falling for those is authentic.
+export function dangerVisibility(fen: string, uci: string): number {
+	try {
+		const c = new Chess(fen);
+		const moved = c.move({
+			from: uci.slice(0, 2),
+			to: uci.slice(2, 4),
+			promotion: uci.length > 4 ? uci[4] : undefined
+		});
+		const dest = moved.to;
+		const movedVal = PIECE_VAL[moved.promotion ?? moved.piece];
+		// opponent's cheapest immediate capture of the moved piece
+		let cheapest = Infinity;
+		let canRecapture = false;
+		for (const reply of c.moves({ verbose: true })) {
+			if (reply.to === dest && reply.captured)
+				cheapest = Math.min(cheapest, PIECE_VAL[reply.piece]);
+		}
+		if (cheapest === Infinity) return 1; // not capturable at all
+		// is the moved piece defended? (any of OUR replies recaptures on dest)
+		const probe = new Chess(c.fen());
+		const attacker = probe
+			.moves({ verbose: true })
+			.find((m) => m.to === dest && m.captured);
+		if (attacker) {
+			probe.move(attacker);
+			canRecapture = probe.moves({ verbose: true }).some((m) => m.to === dest && m.captured);
+		}
+		// glaring: taken by a cheaper piece (queen to a pawn-covered square), or
+		// taken for free (undefended). Even trades and defended pieces are fine.
+		if (cheapest < movedVal - 1) return 0.05;
+		if (!canRecapture && movedVal >= 3) return 0.1;
+		return 1;
+	} catch {
+		return 1;
+	}
+}
+
 export function shapedBotMove(
 	lines: EngineMove[],
 	elo: number,
 	params?: Partial<ShapedParams>,
 	seed?: string | number,
 	fen?: string,
-	discoveryDepth?: number
+	discoveryDepth?: number,
+	lastMoveTo?: string
 ): string | null {
 	if (lines.length === 0) return null;
 	const sorted = [...lines].sort((a, b) => a.multipv - b.multipv);
 	const best = sorted[0];
 	if (sorted.length === 1) return best.pv[0];
 
-	const { missProb, tacticalGapPct, temperature, quietWindowPct, scan } = {
+	const { missProb, tacticalGapPct, temperature, quietWindowPct, scan, scanMults } = {
 		...shapedParams(elo),
 		...params
 	};
 	// v4 scan model needs the position; without it, fall back to v3 exactly
 	const scanning = !!scan && !!fen;
-	const damp = scanning ? openingDamp(fen!) : 1;
+	const skill = scanning ? scanSkill(elo) : 1;
+	// opening rehearsal is itself part of scan discipline: beginners have no book
+	const damp = scanning ? bySkill(openingDamp(fen!), skill) : 1;
 
 	const wins = sorted.map(moveWin); // win% per candidate, mover POV
 	const bestWin = wins[0];
@@ -331,7 +480,12 @@ export function shapedBotMove(
 			cands.push({ move: l.pv[0], win: v });
 		}
 		// temperature is in win% points; evals are in pawns — rescale
-		if (cands.length > 0) return softmaxPick(cands, temperature / 4);
+		if (cands.length > 0)
+			return softmaxPick(
+				cands,
+				temperature / 4,
+				scanning ? cands.map((c) => bySkill(dangerVisibility(fen!, c.move), skill)) : undefined
+			);
 	}
 
 	if (bestWin - wins[1] >= tacticalGapPct) {
@@ -349,17 +503,26 @@ export function shapedBotMove(
 		const mateSoon = best.mate !== null && best.mate > 0 && best.mate <= 2;
 		let p = mateSoon ? missProb * 0.25 : missProb;
 		if (scanning) {
-			p = missProb * tacticVisibility(fen!, best.pv, best.mate, discoveryDepth).multiplier * damp;
-			p = Math.min(p, 0.92);
+			const mults = { ...SCAN_MULTS, ...scanMults };
+			const vis = tacticVisibility(fen!, best.pv, best.mate, discoveryDepth, mults, lastMoveTo);
+			// recapture salience is perceptual, not trained — even a beginner
+			// looks at the square where their queen just died. Floor the skill.
+			const s = vis.kind === 'recapture' ? Math.max(skill, 0.7) : skill;
+			p = missProb * bySkill(vis.multiplier, s) * damp;
+			p = Math.min(p, mults.pCap);
 		}
 		const roll = seed !== undefined ? hash01(`${seed}:${best.pv[0].slice(2, 4)}`) : Math.random();
 		if (roll >= p) return best.pv[0];
 		// …or it doesn't. Choose among the REST as if the best move didn't exist —
-		// still preferring the more plausible of what it can see. No severity cap:
-		// missing the only defence is exactly how a won game gets lost.
+		// still preferring the more plausible of what it can see. No severity cap
+		// on MISSED DEFENCES (that's how won games get lost) — but under scan
+		// mode, candidates with a VISIBLE refutation are near-unplayable: a
+		// human who missed the tactic still doesn't hang a queen to a pawn.
+		const rest = sorted.slice(1).map((l, i) => ({ move: l.pv[0], win: wins[i + 1] }));
 		return softmaxPick(
-			sorted.slice(1).map((l, i) => ({ move: l.pv[0], win: wins[i + 1] })),
-			temperature
+			rest,
+			temperature,
+			scanning ? rest.map((c) => bySkill(dangerVisibility(fen!, c.move), skill)) : undefined
 		);
 	}
 
@@ -370,7 +533,11 @@ export function shapedBotMove(
 	for (let i = 0; i < sorted.length; i++) {
 		if (bestWin - wins[i] <= quietWindowPct) cands.push({ move: sorted[i].pv[0], win: wins[i] });
 	}
-	return softmaxPick(cands, temperature * damp);
+	return softmaxPick(
+		cands,
+		temperature * damp,
+		scanning ? cands.map((c) => bySkill(dangerVisibility(fen!, c.move), skill)) : undefined
+	);
 }
 
 // ─── Shaped label inversion ──────────────────────────────────────────────────

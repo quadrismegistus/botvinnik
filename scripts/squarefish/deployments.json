@@ -1,0 +1,9 @@
+[
+	{
+		"from": "2026-07-15T11:13:00Z",
+		"model": "v3",
+		"label": 978,
+		"displayTarget": 900,
+		"notes": "initial deployment; shaped v3 (flat miss coin), wasm knots post-mate-visibility tune"
+	}
+]
