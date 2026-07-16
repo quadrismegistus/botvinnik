@@ -35,6 +35,8 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const SAMPLE = resolve(ROOT, opt('sample', 'data/puzzles/sample.json'));
 const OUT = resolve(ROOT, opt('out', 'data/puzzle-rating.json'));
 const DISPLAYS = opt('displays', '600,900,1200,1500').split(',').map(Number);
+// --scan: the v4 visibility-weighted miss model (see bot.ts tacticVisibility)
+const SCAN = argv.includes('--scan');
 
 interface Puzzle {
 	id: string;
@@ -49,7 +51,10 @@ class Backend {
 	private proc: ChildProcessWithoutNullStreams;
 	private buffer = '';
 	private byMultipv = new Map<number, EngineMove>();
+	private leaderAtDepth = new Map<number, string>(); // multipv-1 move per depth
 	private resolveSearch: ((moves: EngineMove[]) => void) | null = null;
+	/** discovery depth of the last search's best move (sustained leadership) */
+	lastDiscoveryDepth: number | undefined;
 
 	constructor() {
 		this.proc = spawn(resolve(ROOT, 'scripts/wasm-engine/run.sh'));
@@ -72,7 +77,7 @@ class Backend {
 				const cp = line.match(/ score cp (-?\d+)/);
 				const mate = line.match(/ score mate (-?\d+)/);
 				const pv = line.split(' pv ')[1]?.trim().split(' ') ?? [];
-				if (pv.length)
+				if (pv.length) {
 					this.byMultipv.set(multipv, {
 						pv,
 						score: cp ? Number(cp[1]) / 100 : 0,
@@ -80,8 +85,22 @@ class Backend {
 						depth,
 						multipv
 					});
+					if (multipv === 1) this.leaderAtDepth.set(depth, pv[0]);
+				}
 			} else if (line.startsWith('bestmove')) {
 				const moves = [...this.byMultipv.values()].sort((a, b) => a.multipv - b.multipv);
+				// discovery depth: first depth from which the final best move led
+				// and KEPT leading through the end of the search
+				const final = moves[0]?.pv[0];
+				let d: number | undefined;
+				if (final) {
+					const depths = [...this.leaderAtDepth.keys()].sort((a, b) => a - b);
+					for (const depth of depths) {
+						if (this.leaderAtDepth.get(depth) === final) d = d ?? depth;
+						else d = undefined;
+					}
+				}
+				this.lastDiscoveryDepth = d;
 				this.resolveSearch?.(moves);
 				this.resolveSearch = null;
 			}
@@ -89,6 +108,7 @@ class Backend {
 	}
 	search(fen: string, depth: number): Promise<EngineMove[]> {
 		this.byMultipv = new Map();
+		this.leaderAtDepth = new Map();
 		return new Promise((res) => {
 			this.resolveSearch = res;
 			this.send(`position fen ${fen}`);
@@ -119,7 +139,14 @@ async function solve(backend: Backend, p: Puzzle, label: number): Promise<boolea
 	for (let i = 1; i < p.moves.length; i += 2) {
 		const expected = p.moves[i];
 		const lines = await backend.search(c.fen(), shapedSearchDepth(label));
-		const picked = shapedBotMove(lines, label, undefined, `${p.id}:${label}`);
+		const picked = shapedBotMove(
+			lines,
+			label,
+			SCAN ? { scan: true } : undefined,
+			`${p.id}:${label}`,
+			c.fen(),
+			SCAN ? backend.lastDiscoveryDepth : undefined
+		);
 		if (!picked) return false;
 		if (picked !== expected) {
 			// lichess rule: an alternative move is correct if it also mates
