@@ -576,6 +576,46 @@ export function shapedBotMove(
 	);
 }
 
+// ─── v4 (scan model) knots ───────────────────────────────────────────────────
+//
+// Same grid, same honest rulers, shapedBotMove in scan mode (n=50 wasm with
+// n=200 kink probes merged; n=100 native). data/bot-shaped-scan-calib.json /
+// data/bot-shaped-scan-native-calib.json, both rebased ucielo:1320 = 1320.
+// The substrates agree within noise through label 1200 (choice layer
+// dominates the backbone, as in v3); the native top runs cooler because the
+// big-net engine is far more drawish at near-parity (79/100 draws in
+// 1050-vs-ruler — see the W/D/L columns in the gym output).
+// The wasm floor reaches internal ~673 ≈ display ~430: scanSkill fades the
+// visibility discounts below 900, so sub-600 labels stay meaningful.
+const SHAPED_KNOTS_SCAN: Record<Substrate, { label: number; strength: number }[]> = {
+	wasm: [
+		{ label: 600, strength: 673 },
+		{ label: 750, strength: 840 },
+		{ label: 900, strength: 983 },
+		{ label: 1050, strength: 1188 },
+		{ label: 1200, strength: 1388 },
+		{ label: 1350, strength: 1748 },
+		{ label: 1500, strength: 2128 }
+	],
+	native: [
+		{ label: 600, strength: 753 },
+		{ label: 750, strength: 844 },
+		{ label: 900, strength: 1024 },
+		{ label: 1050, strength: 1229 },
+		{ label: 1200, strength: 1417 },
+		{ label: 1350, strength: 1650 },
+		{ label: 1500, strength: 1900 }
+	]
+};
+
+/** Which choice-layer generation the app's Squares run. Flip to 'scan' to
+ *  ship v4: square() picks labels off the scan knots and the app passes
+ *  scan params + position at move time. The deployed SquareFish is pinned
+ *  by its own env (label 1015 --scan) and ignores this. */
+export const BOT_MODEL: 'v3' | 'scan' = 'v3';
+
+export type ShapedModel = 'v3' | 'scan';
+
 // ─── Shaped label inversion ──────────────────────────────────────────────────
 //
 // The label→strength curves, measured per substrate on the honest UCI_Elo
@@ -614,20 +654,24 @@ const SHAPED_KNOTS: Record<Substrate, { label: number; strength: number }[]> = {
 };
 
 /** Measured strength range the shaped bot can honestly cover. */
-export function shapedStrengthRange(substrate: Substrate = getBotSubstrate()): {
+export function shapedStrengthRange(
+	substrate: Substrate = getBotSubstrate(),
+	model: ShapedModel = BOT_MODEL
+): {
 	min: number;
 	max: number;
 } {
-	const k = SHAPED_KNOTS[substrate];
+	const k = (model === 'scan' ? SHAPED_KNOTS_SCAN : SHAPED_KNOTS)[substrate];
 	return { min: k[0].strength, max: k[k.length - 1].strength };
 }
 
 /** Invert the measured curve: target strength on our scale → shaped label. */
 export function shapedLabelFor(
 	targetElo: number,
-	substrate: Substrate = getBotSubstrate()
+	substrate: Substrate = getBotSubstrate(),
+	model: ShapedModel = BOT_MODEL
 ): number {
-	const k = SHAPED_KNOTS[substrate];
+	const k = (model === 'scan' ? SHAPED_KNOTS_SCAN : SHAPED_KNOTS)[substrate];
 	if (targetElo <= k[0].strength) return k[0].label;
 	if (targetElo >= k[k.length - 1].strength) return k[k.length - 1].label;
 	for (let i = 1; i < k.length; i++) {

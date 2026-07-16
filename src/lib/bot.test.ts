@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { shapedBotMove, shapedParams, shapedLabelFor, shapedSearchDepth } from './bot';
+import { shapedBotMove, shapedParams, shapedLabelFor, shapedSearchDepth, shapedStrengthRange } from './bot';
 import type { EngineMove } from './engine/stockfish';
 
 // Build a MultiPV line. `score` is pawns from the mover's POV; the first token
@@ -419,5 +419,24 @@ describe('saturated-loss blindness (V8emJhj7 class)', () => {
 		const t = tally(() => shapedBotMove(LINES, 1015, undefined, undefined), 2000);
 		// quiet-branch mush: recapture NOT reliably chosen — the v3 baseline
 		expect((t.get('c2d3') ?? 0) / 2000).toBeLessThan(0.6);
+	});
+});
+
+describe('shapedLabelFor scan-model knots', () => {
+	it('wasm scan: display-900 inverts to the deployed SquareFish label', () => {
+		// internal 1140 between knots 900→983 and 1050→1188 ⇒ ~1015 — the label
+		// v4 SquareFish runs on lichess (deployments.json)
+		expect(shapedLabelFor(1140, 'wasm', 'scan')).toBe(1015);
+	});
+	it('native scan: same display target needs a slightly lower label', () => {
+		expect(shapedLabelFor(1140, 'native', 'scan')).toBe(985);
+	});
+	it('v3 default is untouched', () => {
+		expect(shapedLabelFor(1140, 'wasm')).toBe(shapedLabelFor(1140, 'wasm', 'v3'));
+	});
+	it('scan floor sits far below the v3 floor (scanSkill restored the bottom)', () => {
+		expect(shapedStrengthRange('wasm', 'scan').min).toBeLessThan(
+			shapedStrengthRange('wasm', 'v3').min - 50
+		);
 	});
 });
