@@ -183,6 +183,7 @@ function forkPoint(fenBefore: string, uci: string) {
 	const c = new Chess(fenBefore);
 	const m = apply(c, uci);
 	if (!m || m.piece === 'k') return undefined;
+	if (c.isCheckmate()) return undefined; // mate prose owns mating moves
 	const to = m.to as Square;
 	// cook.py's bad-spot rule: no fork from a square where the forker itself
 	// is takeable — by a cheaper piece (recapture doesn't matter), or by
@@ -255,6 +256,7 @@ export function pinOrSkewerPoint(fenBefore: string, uci: string): string | undef
 	const c = new Chess(fenBefore);
 	const m = apply(c, uci);
 	if (!m) return undefined;
+	if (c.isCheckmate()) return undefined; // mate prose owns mating moves
 	const dirs = sliderDirs(m.piece);
 	if (!dirs) return undefined;
 
@@ -267,6 +269,18 @@ export function pinOrSkewerPoint(fenBefore: string, uci: string): string | undef
 			if (!first) {
 				first = { sq: s, type: p.type };
 				continue;
+			}
+			// the "pinned" piece can often simply capture the pinner — the claim
+			// only stands when that capture loses material for the defender
+			// (pinner defended AND cheaper than the front piece; a king only
+			// ever takes an undefended pinner)
+			if (c.attackers(m.to as Square, p.color).includes(first.sq)) {
+				const pinnerDefended = c.attackers(m.to as Square, m.color).length > 0;
+				const refuted =
+					first.type === 'k'
+						? !pinnerDefended
+						: !pinnerDefended || VAL[m.piece] >= VAL[first.type];
+				if (refuted) break;
 			}
 			// second enemy piece on the same ray. Unless the king is behind
 			// (an absolute pin always binds), the claim is only real if
@@ -306,6 +320,7 @@ export function discoveredPoint(fenBefore: string, uci: string): string | undefi
 	const c = new Chess(fenBefore);
 	const m = apply(c, uci);
 	if (!m || m.flags.includes('k') || m.flags.includes('q')) return undefined; // not for castling
+	if (c.isCheckmate()) return undefined; // mate prose owns mating moves
 
 	for (const row of c.board()) {
 		for (const cell of row) {
@@ -344,6 +359,9 @@ export function trappedPoint(fenBefore: string, uci: string): string | undefined
 	const c = new Chess(fenBefore);
 	const m = apply(c, uci);
 	if (!m) return undefined;
+	// a checked opponent can't move anything else — "no safe square" would be
+	// vacuously true of every attacked piece (and mate prose owns mating moves)
+	if (c.isCheck()) return undefined;
 	const us = m.color;
 	const them: Color = us === 'w' ? 'b' : 'w';
 
@@ -425,6 +443,7 @@ function freeCapturePoint(fenBefore: string, uci: string) {
 	if (c.attackers(target, victim.color).length > 0) return undefined;
 	const m = apply(c, uci);
 	if (!m || !m.captured) return undefined;
+	if (c.isCheckmate()) return undefined; // mate prose owns mating moves
 	void mover;
 	return `${m.san} simply wins the ${NAME[victim.type]} — it's undefended.`;
 }
@@ -501,6 +520,14 @@ export function bestMovePoint(
 	bestUci: string,
 	bestPv: string[]
 ): string | undefined {
+	// callers without engine mate info (imports, sanitize) still deserve the
+	// real story when the move simply mates — and the detectors above stay
+	// silent on mating moves by design
+	{
+		const post = new Chess(fenBefore);
+		const m = apply(post, bestUci);
+		if (m && post.isCheckmate()) return `${m.san} is checkmate.`;
+	}
 	const point =
 		forkPoint(fenBefore, bestUci) ??
 		freeCapturePoint(fenBefore, bestUci) ??
@@ -535,7 +562,12 @@ export type Motif =
 // recomputed on load. 2: pins/skewers require a profitable capture behind.
 // 3: forker must not be en prise; no file-pins of pawns against non-kings;
 // trapped-piece escapes attacked only by the king count as safe when defended.
-export const MOTIF_TAGS_VERSION = 3;
+// 4: no motif claims on moves that deliver checkmate (mate detected from the
+// board itself, so mate-in-1 items tag 'mate' even when engine mate is null);
+// restraint tags (pin/skewer/trapped) dropped inside a known forced mate;
+// no trapped claims on checking moves (check makes "no safe square" vacuous);
+// no pin/skewer when the front piece profitably captures the pinner.
+export const MOTIF_TAGS_VERSION = 4;
 
 export function motifTags(
 	fenBefore: string,
@@ -544,13 +576,22 @@ export function motifTags(
 	mate: number | null
 ): Motif[] {
 	const tags: Motif[] = [];
-	if (mate !== null && mate > 0) tags.push('mate');
+	const post = new Chess(fenBefore);
+	const matesNow = !!apply(post, uci) && post.isCheckmate();
+	if (matesNow) return ['mate']; // game over — nothing else worth saying
+	const mateKnown = mate !== null && mate > 0;
+	if (mateKnown) tags.push('mate');
 	if (forkPoint(fenBefore, uci)) tags.push('fork');
 	if (freeCapturePoint(fenBefore, uci)) tags.push('free capture');
-	const ps = pinOrSkewerPoint(fenBefore, uci);
-	if (ps) tags.push(ps.includes('skewers') ? 'skewer' : 'pin');
+	// restraint claims about OTHER pieces ("Rd1+ also traps the b2 rook") are
+	// beside the point inside a forced mate and would file mate puzzles under
+	// the wrong drill — the move's own action (fork/capture/discovery) stays
+	if (!mateKnown) {
+		const ps = pinOrSkewerPoint(fenBefore, uci);
+		if (ps) tags.push(ps.includes('skewers') ? 'skewer' : 'pin');
+		if (trappedPoint(fenBefore, uci)) tags.push('trapped piece');
+	}
 	if (discoveredPoint(fenBefore, uci)) tags.push('discovered attack');
-	if (trappedPoint(fenBefore, uci)) tags.push('trapped piece');
 	if (
 		tags.length === 0 &&
 		pv.length > 1 &&
@@ -575,10 +616,15 @@ export function explainGoodMove(
 	playedMate: number | null
 ): GoodMovePoint | undefined {
 	const evidence = (plies: number) => ({ fen: fenBefore, ucis: playedPv.slice(0, plies) });
-	if (playedMate !== null && playedMate > 0) {
+	const post = new Chess(fenBefore);
+	const matesNow = !!apply(post, playedUci) && post.isCheckmate();
+	if ((playedMate !== null && playedMate > 0) || matesNow) {
 		const san = getSanLine(fenBefore, [playedUci])[0]?.san ?? playedUci;
 		return {
-			text: playedMate === 1 ? `${san} is checkmate.` : `${san} forces mate in ${playedMate}.`,
+			text:
+				matesNow || playedMate === 1
+					? `${san} is checkmate.`
+					: `${san} forces mate in ${playedMate}.`,
 			evidence: evidence(12)
 		};
 	}

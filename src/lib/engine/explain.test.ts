@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+	bestMovePoint,
 	discoveredPoint,
 	explainGoodMove,
 	explainMove,
@@ -112,11 +113,20 @@ describe('pinOrSkewerPoint', () => {
 	});
 
 	it('pins a pawn against an UNDEFENDED knight — the capture behind pays', () => {
-		// diagonal ray, so the pawn's push would genuinely expose the knight
-		const fen = '7k/8/4n3/3p4/8/8/8/5B1K w - - 0 1';
-		expect(pinOrSkewerPoint(fen, 'f1c4')).toBe(
-			'Bc4 pins the pawn on d5 against the knight on e6.'
+		// diagonal ray, so the pawn's push would genuinely expose the knight.
+		// (The pinner sits on b3, out of the pawn's reach — the old fixture put
+		// it on c4 where dxc4 just wins the bishop, which is no pin at all.)
+		const fen = '7k/8/4n3/3p4/8/8/2B5/7K w - - 0 1';
+		expect(pinOrSkewerPoint(fen, 'c2b3')).toBe(
+			'Bb3 pins the pawn on d5 against the knight on e6.'
 		);
+	});
+
+	it('does not call it a pin when the pinned piece just takes the pinner', () => {
+		// lichess 0XocP-style: Rxd8 "pins" the e8 rook against the king, but the
+		// pinner is undefended — Rxd8 in reply simply removes it
+		const fen = '3rr1k1/8/8/8/8/8/8/3R3K w - - 0 1';
+		expect(pinOrSkewerPoint(fen, 'd1d8')).toBeUndefined();
 	});
 
 	it('never calls a pawn on a file-ray pinned — its pushes stay on the ray', () => {
@@ -298,5 +308,63 @@ describe('explainGoodMove', () => {
 		// back-rank: 1.f3 e5 2.g4 and black to play Qh4#
 		const fen = 'rnbqkbnr/pppp1ppp/8/4p3/6P1/5P2/PPPPP2P/RNBQKBNR b KQkq - 0 2';
 		expect(explainGoodMove(fen, 'd8h4', ['d8h4'], 1)?.text).toBe('Qh4# is checkmate.');
+	});
+
+	it('says checkmate even when engine mate info is missing', () => {
+		const fen = 'rnbqkbnr/pppp1ppp/8/4p3/6P1/5P2/PPPPP2P/RNBQKBNR b KQkq - 0 2';
+		expect(explainGoodMove(fen, 'd8h4', ['d8h4'], null)?.text).toBe('Qh4# is checkmate.');
+	});
+});
+
+// Puzzle-audit regressions (explain-audit.mts vs lichess themes): the
+// geometric detectors used to narrate side facts about mating moves —
+// "Qxh7# traps the knight on d5" is true and absurd. A move that mates ends
+// the game; only the mate claim stands.
+describe('mating moves stay silent in the motif detectors', () => {
+	// lichess bEOuz: Qxh7# — the knight on d5 really is trapped, but who cares
+	const SMOTHER = 'r2q1rk1/pppn1ppp/3b4/3n2N1/2BP1pb1/3Q4/PPP3PP/R1B2RK1 w - - 0 12';
+	// lichess TUczR: Qxf7# — geometrically pins the c7 pawn against the b7 bishop
+	const F7 = 'r2qkb1r/pbp2ppp/1p2pn2/3pN2Q/8/1P2P3/PBPP1PPP/RN2K2R w KQkq - 2 9';
+	// lichess NywjU: Rd1# — "forks" the c1 bishop and the g1 king
+	const BACKRANK = '4r1k1/p2r3p/2p3p1/4p3/1P3p1Q/P6R/5PPP/2B3K1 b - - 0 33';
+
+	it('trappedPoint stays quiet on a mating move', () => {
+		expect(trappedPoint(SMOTHER, 'd3h7')).toBeUndefined();
+	});
+
+	it('pinOrSkewerPoint stays quiet on a mating move', () => {
+		expect(pinOrSkewerPoint(F7, 'h5f7')).toBeUndefined();
+	});
+
+	it('motifTags returns only mate, detected from the board itself', () => {
+		expect(motifTags(BACKRANK, 'd7d1', ['d7d1'], null)).toEqual(['mate']);
+		expect(motifTags(SMOTHER, 'd3h7', ['d3h7'], null)).toEqual(['mate']);
+	});
+
+	it('motifTags drops restraint side facts on the first move of a longer mate', () => {
+		// lichess p6sNk: Rd1+ starts mate in 2 — and incidentally "traps" the b2
+		// rook, which must not become the drill tag
+		const fen = '3k4/p2r2p1/Pp3p2/4b2p/8/4Q3/1R3PPP/6K1 b - - 0 33';
+		expect(motifTags(fen, 'd7d1', ['d7d1', 'e3e1', 'd1e1'], 2)).toEqual(['mate']);
+	});
+
+	it('motifTags keeps the move-own-action tag inside a mate line', () => {
+		// lichess Gfes3: Ra1+ genuinely forks the a7 bishop and the king while
+		// starting mate in 3 — a fine fork drill, cook.py co-tags it too
+		const fen = '3R1bk1/B4p1p/2B3p1/8/4b3/4R1P1/r4P1P/6K1 b - - 0 23';
+		const tags = motifTags(fen, 'a2a1', ['a2a1', 'd8d1', 'a1d1', 'e3e1', 'd1e1'], 3);
+		expect(tags).toContain('mate');
+		expect(tags).toContain('fork');
+		expect(tags).not.toContain('trapped piece');
+	});
+
+	it('bestMovePoint reports the mate instead of a side motif', () => {
+		expect(bestMovePoint(SMOTHER, 'd3h7', ['d3h7'])).toBe('Qxh7# is checkmate.');
+	});
+
+	it('check that is NOT mate still gets its motif', () => {
+		// Nc7+ forking king and queen — the classic royal fork
+		const fen = 'q3k3/8/8/1N6/8/8/8/4K3 w - - 0 1';
+		expect(motifTags(fen, 'b5c7', ['b5c7'], null)).toContain('fork');
 	});
 });

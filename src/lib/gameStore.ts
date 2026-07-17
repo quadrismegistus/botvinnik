@@ -154,12 +154,14 @@ export async function listGames(): Promise<StoredGame[]> {
 // Stored explanation prose is frozen at analysis time, so when a detector's
 // rules tighten, already-saved sentences can claim motifs the detectors no
 // longer stand behind. Re-verify the claim families whose rules have changed
-// (fork / pin / skewer) against the current detectors and rewrite or drop the
-// sentence. Only bestPoint/playedPoint can carry these claims, and their
-// detectors need nothing beyond fenBefore + the move — the material fallback
-// (which needs the full PV) can't fire with a 1-move line, so a dead claim
-// falls through to the remaining detectors or is dropped, never invented.
-const STALE_CLAIM = / (?:forks|pins|skewers) the /;
+// (fork / pin / skewer / trap / free capture / discovered) against the current
+// detectors and rewrite or drop the sentence. Only bestPoint/playedPoint can
+// carry these claims, and their detectors need nothing beyond fenBefore + the
+// move — the material fallback (which needs the full PV) can't fire with a
+// 1-move line, so a dead claim falls through to the remaining detectors or is
+// dropped, never invented.
+const STALE_CLAIM =
+	/ (?:forks|pins|skewers|traps) the | simply wins the | discovers check from | attack on the /;
 
 export function sanitizeExplanations(games: StoredGame[]): StoredGame[] {
 	const changed: StoredGame[] = [];
