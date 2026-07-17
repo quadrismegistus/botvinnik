@@ -14,6 +14,11 @@ test('a finished game auto-saves and is reviewable with labels and explanations'
 
 	await expect(page.locator('.library button', { hasText: 'Games (1)' })).toBeVisible();
 
+	// the game-over recap names the lapse (g4 allowed the mate)
+	await expect(page.locator('.game-over .recap')).toContainText('allowed mate', {
+		timeout: 15_000
+	});
+
 	await openMode(page, 'Review');
 	const row = (await page.locator('.games-panel .row').first().textContent()) ?? '';
 	expect(row).toContain('0-1');
