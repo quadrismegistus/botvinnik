@@ -84,14 +84,13 @@ function pickLine(lines: string[], ply: number): string {
 	return lines[ply % lines.length];
 }
 
-function winDelta(w: number): string {
-	const d = Math.round(w - 50);
-	return d >= 0 ? `w+${d}%` : `w${d}%`;
+function winPct(w: number): string {
+	return `w${Math.round(w)}%`;
 }
 
 function formatBracket(t: DecisionTrace): string {
-	const played = `${t.playedMove} (${winDelta(t.playedWin)})`;
-	const best = `${t.bestMove} (${winDelta(t.bestWin)})`;
+	const played = `${t.playedMove} (${winPct(t.playedWin)})`;
+	const best = `${t.bestMove} (${winPct(t.bestWin)})`;
 
 	if (t.branch === 'tactical-miss' && t.effectiveP !== undefined && t.roll !== undefined) {
 		const dc = Math.round(t.effectiveP * 10);
