@@ -1,7 +1,8 @@
 import { sveltekit } from '@sveltejs/kit/vite';
 import { defineConfig } from 'vite';
 
-// BASE_PATH=/botvinnik for GitHub Pages project-site builds
+// BASE_PATH is unset in production (botvinnik.app apex); kept for any future
+// subpath deploy
 const basePath = process.env.BASE_PATH;
 
 export default defineConfig({
