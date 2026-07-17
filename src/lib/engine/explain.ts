@@ -609,14 +609,19 @@ export function explainMove(input: {
 		out.playedIssue = hangingIssue(fenBefore, playedUci, refutationPv[0]);
 		if (!out.playedIssue && refutationPv.length > 0) {
 			const { net, plies } = quietMaterialOverLine(fenBefore, playedLine.slice(0, 9));
-			if (net <= -2) {
+			if (net <= -1) {
 				// quote only the continuation — the played move itself is already named
 				const fenAfter = getFenAfter(fenBefore, playedUci);
 				const continuation = fenAfter
 					? getNumberedSanLine(fenAfter, playedLine.slice(1, plies))
 					: '';
 				if (continuation) {
-					out.playedIssue = `This loses material — after ${continuation}, you're down ${-net} points.`;
+					// the one-point case is the modal amateur mistake and deserves
+					// its own words — "down 1 points" would read like a rounding bug
+					out.playedIssue =
+						net <= -2
+							? `This loses material — after ${continuation}, you're down ${-net} points.`
+							: `This loses a pawn — after ${continuation}, you're a pawn down.`;
 				}
 			}
 		}
@@ -682,7 +687,10 @@ export function bestMovePoint(
 		if (promo) return promo;
 		const { net, plies } = quietMaterialOverLine(fenBefore, bestPv.slice(0, 9));
 		if (net >= 2) {
-			return `Instead, ${sanLine(fenBefore, bestPv, plies)} wins ${net} point${net === 1 ? '' : 's'} of material.`;
+			return `Instead, ${sanLine(fenBefore, bestPv, plies)} wins ${net} points of material.`;
+		}
+		if (net === 1) {
+			return `Instead, ${sanLine(fenBefore, bestPv, plies)} wins a pawn.`;
 		}
 	}
 	return undefined;
@@ -801,11 +809,17 @@ export function explainGoodMove(
 		const promo = promotionPoint(fenBefore, playedPv);
 		if (promo) return { text: promo, evidence: evidence(9) };
 		const { net, plies } = quietMaterialOverLine(fenBefore, playedPv.slice(0, 9));
-		if (net >= 2) {
+		if (net >= 1) {
 			const fenAfter = getFenAfter(fenBefore, playedUci);
 			const continuation = fenAfter ? getNumberedSanLine(fenAfter, playedPv.slice(1, plies)) : '';
 			if (continuation) {
-				return { text: `It wins ${net} points of material (${continuation}).`, evidence: evidence(plies) };
+				return {
+					text:
+						net >= 2
+							? `It wins ${net} points of material (${continuation}).`
+							: `It wins a pawn (${continuation}).`,
+					evidence: evidence(plies)
+				};
 			}
 		}
 		const story = summarizeLine(fenBefore, playedPv.slice(0, 9));

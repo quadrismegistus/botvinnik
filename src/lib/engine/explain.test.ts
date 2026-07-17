@@ -446,3 +446,29 @@ describe('mate patterns, promotion, sacrifice', () => {
 		);
 	});
 });
+
+describe('the one-pawn material tier', () => {
+	it('names a clean pawn loss (the modal amateur mistake)', () => {
+		// d3?? just feeds the d-pawn to exd3, with quiet play after
+		const fen = 'k7/8/8/8/4p3/8/3P4/K7 w - - 0 1';
+		const out = explainMove({
+			fenBefore: fen,
+			playedUci: 'd2d3',
+			refutationPv: ['e4d3', 'a1b1', 'a8b8'],
+			bestUci: 'a1b1',
+			bestPv: ['a1b1'],
+			playedMate: null,
+			bestMate: null,
+			isBest: false
+		});
+		expect(out.playedIssue).toMatch(/^This loses a pawn — after .*, you're a pawn down\.$/);
+	});
+
+	it('says the best move wins a pawn', () => {
+		// exd5 grabs the pawn; quiet play follows, nothing recaptures
+		const fen = 'k7/8/8/3p4/4P3/8/8/K7 w - - 0 1';
+		expect(bestMovePoint(fen, 'e4d5', ['e4d5', 'a8b7', 'a1b1'])).toMatch(
+			/^Instead, exd5.* wins a pawn\.$/
+		);
+	});
+});
