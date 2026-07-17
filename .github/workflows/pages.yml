@@ -24,9 +24,8 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
+      # served at the botvinnik.app apex — root-relative paths, no base prefix
       - run: npm run build
-        env:
-          BASE_PATH: /botvinnik
       - uses: actions/upload-pages-artifact@v3
         with:
           path: build
