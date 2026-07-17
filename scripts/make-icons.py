@@ -13,4 +13,5 @@ flat.paste(src, (0, 0), src.getchannel('A'))
 flat.resize((1024, 1024), Image.LANCZOS).save('design/icon-1024-flat.png')
 for size, out in [(512, 'static/icons/icon-512.png'), (192, 'static/icons/icon-192.png'), (180, 'static/icons/apple-touch-icon.png')]:
     flat.resize((size, size), Image.LANCZOS).save(out)
+flat.save('static/favicon.ico', sizes=[(16, 16), (32, 32), (48, 48)])
 print('icons written')
