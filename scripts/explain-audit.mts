@@ -37,9 +37,15 @@ const THEME_TO_MOTIF: Record<string, Motif> = {
 	pin: 'pin',
 	skewer: 'skewer',
 	discoveredAttack: 'discovered attack',
+	discoveredCheck: 'discovered attack',
 	trappedPiece: 'trapped piece',
 	hangingPiece: 'free capture',
-	mate: 'mate'
+	mate: 'mate',
+	backRankMate: 'back-rank mate',
+	smotheredMate: 'smothered mate',
+	sacrifice: 'sacrifice',
+	promotion: 'promotion',
+	underPromotion: 'promotion'
 };
 
 // themes that describe the puzzle, not a detectable motif — excluded from the gap list

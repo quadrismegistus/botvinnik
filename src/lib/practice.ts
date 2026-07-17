@@ -162,7 +162,17 @@ export function dueCount(items: PracticeItem[], now: number = Date.now()): numbe
 }
 
 export type Difficulty = 'easy' | 'medium' | 'hard';
-const TACTICAL_MOTIFS = ['mate', 'free capture', 'material', 'fork', 'pin', 'skewer'];
+const TACTICAL_MOTIFS = [
+	'mate',
+	'back-rank mate',
+	'smothered mate',
+	'free capture',
+	'material',
+	'fork',
+	'pin',
+	'skewer',
+	'promotion'
+];
 
 // Difficulty FOR THIS PLAYER: grounded in their own attempt history once there
 // is any, falling back to position features (a bigger blunder or a concrete

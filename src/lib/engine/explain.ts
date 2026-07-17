@@ -340,7 +340,13 @@ export function discoveredPoint(fenBefore: string, uci: string): string | undefi
 					if (p.color !== m.color && p.type === 'k') {
 						return `${m.san} discovers check from the ${NAME[cell.type]} on ${cell.square}.`;
 					}
-					if (p.color !== m.color && VAL[p.type] >= 3 && VAL[p.type] > VAL[cell.type]) {
+					// worth uncovering: a higher-value target, or an equal one
+					// nobody defends (rook discovers on an undefended rook)
+					if (
+						p.color !== m.color &&
+						VAL[p.type] >= 3 &&
+						(VAL[p.type] > VAL[cell.type] || c.attackers(s, p.color).length === 0)
+					) {
 						return `${m.san} uncovers the ${NAME[cell.type]} on ${cell.square}'s attack on the ${NAME[p.type]} on ${s}.`;
 					}
 					break;
@@ -448,6 +454,131 @@ function freeCapturePoint(fenBefore: string, uci: string) {
 	return `${m.san} simply wins the ${NAME[victim.type]} — it's undefended.`;
 }
 
+// ---- mate patterns, promotion, sacrifice (cook.py ports, line-verified) ----
+
+// Walk an engine line to the checkmate it ends in (if it does) and return the
+// mated board. The caller decides whose mate it is via mated.turn().
+function mateBoard(fenBefore: string, pv: string[]): Chess | undefined {
+	const c = new Chess(fenBefore);
+	for (const u of pv.slice(0, 24)) {
+		if (!apply(c, u)) return undefined;
+		if (c.isCheckmate()) return c;
+	}
+	return undefined;
+}
+
+// The two named mate patterns common enough to be worth calling out.
+// Back-rank: king mated on its home rank by a major piece along that rank,
+// its forward squares all blocked by its OWN pieces. Smothered: a lone knight
+// mates a king whose every neighbouring square is occupied by its own pieces.
+export function matePattern(mated: Chess): 'back-rank' | 'smothered' | undefined {
+	const loser = mated.turn();
+	const winner: Color = loser === 'w' ? 'b' : 'w';
+	let ksq: Square | undefined;
+	for (const row of mated.board()) {
+		for (const cell of row) {
+			if (cell && cell.type === 'k' && cell.color === loser) ksq = cell.square as Square;
+		}
+	}
+	if (!ksq) return undefined;
+	const kf = ksq.charCodeAt(0) - 97;
+	const kr = Number(ksq[1]) - 1;
+	const ownBlocked = (s: Square) => {
+		const p = mated.get(s);
+		return !!p && p.color === loser;
+	};
+	const checkers = mated.attackers(ksq, winner);
+	// smothered: board edges count as blockers, so only on-board neighbours matter
+	if (checkers.length === 1 && mated.get(checkers[0])?.type === 'n') {
+		const neighbours: Square[] = [];
+		for (let df = -1; df <= 1; df++) {
+			for (let dr = -1; dr <= 1; dr++) {
+				if (!df && !dr) continue;
+				const s = toSquare(kf + df, kr + dr);
+				if (s) neighbours.push(s);
+			}
+		}
+		if (neighbours.every(ownBlocked)) return 'smothered';
+	}
+	const backRank = loser === 'w' ? 0 : 7;
+	if (kr !== backRank) return undefined;
+	const alongRank = checkers.some((s) => {
+		const t = mated.get(s)?.type;
+		return (t === 'r' || t === 'q') && Number(s[1]) - 1 === backRank;
+	});
+	if (!alongRank) return undefined;
+	const fwd = loser === 'w' ? 1 : -1;
+	for (let df = -1; df <= 1; df++) {
+		const s = toSquare(kf + df, kr + fwd);
+		if (s && !ownBlocked(s)) return undefined;
+	}
+	return 'back-rank';
+}
+
+// ", a back-rank mate" / ", a smothered mate" — or nothing.
+function mateGarnish(mated: Chess | undefined, sep = ' — a '): string {
+	const pat = mated ? matePattern(mated) : undefined;
+	return pat ? `${sep}${pat} mate` : '';
+}
+
+// The line promotes a pawn and the new piece survives the quoted window
+// (it may also move away — then it lives). cook.py's promotion theme,
+// claimed only when the pv proves it.
+export function promotionPoint(fenBefore: string, pv: string[]): string | undefined {
+	const c = new Chess(fenBefore);
+	const mover = c.turn();
+	const window = pv.slice(0, 9);
+	for (let i = 0; i < window.length; i++) {
+		const m = apply(c, window[i]);
+		if (!m) return undefined;
+		if (m.color !== mover || !m.promotion) continue;
+		let sq: string | null = m.to;
+		const probe = new Chess(c.fen());
+		for (const u of window.slice(i + 1)) {
+			const r = apply(probe, u);
+			if (!r) break;
+			if (sq && r.from === sq && r.color === mover) sq = null; // it moved on
+			else if (sq && r.to === sq && r.captured) return undefined;
+		}
+		return `${sanLine(fenBefore, pv, i + 1)} makes a new ${NAME[m.promotion]}.`;
+	}
+	return undefined;
+}
+
+// The line invests material before winning: the mover's running count dips
+// ≤ −2 after an opponent reply, and the line still ends well — mate, or the
+// quiet material count coming back ≥ +2. The given-up piece is named only in
+// the airtight case (the first move itself is captured on its square).
+export interface SacrificeStory {
+	piece?: string;
+	mates: boolean;
+	net: number;
+	plies: number;
+}
+export function sacrificeStory(fenBefore: string, pv: string[]): SacrificeStory | undefined {
+	const c = new Chess(fenBefore);
+	const mover = c.turn();
+	const window = pv.slice(0, 9);
+	let net = 0;
+	let minNet = 0;
+	let piece: string | undefined;
+	for (let i = 0; i < window.length; i++) {
+		const m = apply(c, window[i]);
+		if (!m) break;
+		if (m.captured) net += m.color === mover ? VAL[m.captured] : -VAL[m.captured];
+		if (m.color !== mover) {
+			if (i === 1 && m.captured && m.to === window[0]?.slice(2, 4)) piece = NAME[m.captured];
+			if (net < minNet) minNet = net;
+		}
+	}
+	if (minNet > -2) return undefined;
+	const mated = mateBoard(fenBefore, pv);
+	const mates = !!mated && mated.turn() !== mover;
+	const payoff = quietMaterialOverLine(fenBefore, window);
+	if (!mates && payoff.net < 2) return undefined;
+	return { piece, mates, net: payoff.net, plies: payoff.plies };
+}
+
 export function explainMove(input: {
 	fenBefore: string;
 	playedUci: string;
@@ -469,10 +600,11 @@ export function explainMove(input: {
 	if (playedMate !== null && playedMate < 0) {
 		const n = Math.abs(playedMate);
 		const refSans = getSanLine(fenBefore, playedLine.slice(0, 2)).map((s) => s.san);
+		const garnish = mateGarnish(mateBoard(fenBefore, playedLine), n === 1 ? ', a ' : ' — a ');
 		out.playedIssue =
 			n === 1 && refSans[1]
-				? `This allows immediate mate — ${refSans[1]}.`
-				: `This allows a forced mate in ${n}${refSans[1] ? `, starting with ${refSans[1]}` : ''}.`;
+				? `This allows immediate mate — ${refSans[1]}${garnish}.`
+				: `This allows a forced mate in ${n}${refSans[1] ? `, starting with ${refSans[1]}` : ''}${garnish}.`;
 	} else {
 		out.playedIssue = hangingIssue(fenBefore, playedUci, refutationPv[0]);
 		if (!out.playedIssue && refutationPv.length > 0) {
@@ -502,10 +634,13 @@ export function explainMove(input: {
 	// --- what the best move achieves (priority: mate > fork > free capture > material) ---
 	if (bestMate !== null && bestMate > 0 && !(playedMate !== null && playedMate > 0)) {
 		const bestSan = getSanLine(fenBefore, [bestUci])[0]?.san ?? bestUci;
+		const garnish = mateGarnish(mateBoard(fenBefore, bestPv));
+		const sac = bestMate > 1 ? sacrificeStory(fenBefore, bestPv) : undefined;
+		const sacTxt = sac ? `sacrifices ${sac.piece ? `the ${sac.piece}` : 'material'} and ` : '';
 		out.bestPoint =
 			bestMate === 1
-				? `${bestSan} was immediate checkmate.`
-				: `${bestSan} forces mate in ${bestMate}.`;
+				? `${bestSan} was immediate checkmate${garnish}.`
+				: `${bestSan} ${sacTxt}forces mate in ${bestMate}${garnish}.`;
 	} else {
 		out.bestPoint = bestMovePoint(fenBefore, bestUci, bestPv);
 	}
@@ -526,7 +661,7 @@ export function bestMovePoint(
 	{
 		const post = new Chess(fenBefore);
 		const m = apply(post, bestUci);
-		if (m && post.isCheckmate()) return `${m.san} is checkmate.`;
+		if (m && post.isCheckmate()) return `${m.san} is checkmate${mateGarnish(post)}.`;
 	}
 	const point =
 		forkPoint(fenBefore, bestUci) ??
@@ -536,6 +671,15 @@ export function bestMovePoint(
 		trappedPoint(fenBefore, bestUci);
 	if (point) return point;
 	if (bestPv.length > 1) {
+		// a sacrifice that pays in material is a better story than the count
+		// alone; the mate-ending kind needs engine mate info and lives in
+		// explainMove/explainGoodMove
+		const sac = sacrificeStory(fenBefore, bestPv);
+		if (sac && !sac.mates) {
+			return `Instead, ${sanLine(fenBefore, bestPv, sac.plies)} sacrifices ${sac.piece ? `the ${sac.piece}` : 'material'} but comes out ${sac.net} point${sac.net === 1 ? '' : 's'} ahead.`;
+		}
+		const promo = promotionPoint(fenBefore, bestPv);
+		if (promo) return promo;
 		const { net, plies } = quietMaterialOverLine(fenBefore, bestPv.slice(0, 9));
 		if (net >= 2) {
 			return `Instead, ${sanLine(fenBefore, bestPv, plies)} wins ${net} point${net === 1 ? '' : 's'} of material.`;
@@ -550,12 +694,16 @@ export function bestMovePoint(
 // what the prose detectors would claim.
 export type Motif =
 	| 'mate'
+	| 'back-rank mate'
+	| 'smothered mate'
 	| 'fork'
 	| 'free capture'
 	| 'pin'
 	| 'skewer'
 	| 'discovered attack'
 	| 'trapped piece'
+	| 'sacrifice'
+	| 'promotion'
 	| 'material';
 
 // Bump whenever a detector's semantics change so stored practice tags get
@@ -578,9 +726,13 @@ export function motifTags(
 	const tags: Motif[] = [];
 	const post = new Chess(fenBefore);
 	const matesNow = !!apply(post, uci) && post.isCheckmate();
-	if (matesNow) return ['mate']; // game over — nothing else worth saying
+	const patternTag = (mated: Chess | undefined): Motif[] => {
+		const pat = mated ? matePattern(mated) : undefined;
+		return pat ? [`${pat} mate` as Motif] : [];
+	};
+	if (matesNow) return ['mate', ...patternTag(post)]; // game over — nothing else worth saying
 	const mateKnown = mate !== null && mate > 0;
-	if (mateKnown) tags.push('mate');
+	if (mateKnown) tags.push('mate', ...patternTag(mateBoard(fenBefore, pv)));
 	if (forkPoint(fenBefore, uci)) tags.push('fork');
 	if (freeCapturePoint(fenBefore, uci)) tags.push('free capture');
 	// restraint claims about OTHER pieces ("Rd1+ also traps the b2 rook") are
@@ -592,6 +744,8 @@ export function motifTags(
 		if (trappedPoint(fenBefore, uci)) tags.push('trapped piece');
 	}
 	if (discoveredPoint(fenBefore, uci)) tags.push('discovered attack');
+	if (pv.length > 1 && sacrificeStory(fenBefore, pv)) tags.push('sacrifice');
+	if (pv.length > 0 && promotionPoint(fenBefore, pv)) tags.push('promotion');
 	if (
 		tags.length === 0 &&
 		pv.length > 1 &&
@@ -620,11 +774,12 @@ export function explainGoodMove(
 	const matesNow = !!apply(post, playedUci) && post.isCheckmate();
 	if ((playedMate !== null && playedMate > 0) || matesNow) {
 		const san = getSanLine(fenBefore, [playedUci])[0]?.san ?? playedUci;
+		const garnish = mateGarnish(matesNow ? post : mateBoard(fenBefore, playedPv));
 		return {
 			text:
 				matesNow || playedMate === 1
-					? `${san} is checkmate.`
-					: `${san} forces mate in ${playedMate}.`,
+					? `${san} is checkmate${garnish}.`
+					: `${san} forces mate in ${playedMate}${garnish}.`,
 			evidence: evidence(12)
 		};
 	}
@@ -636,6 +791,15 @@ export function explainGoodMove(
 		trappedPoint(fenBefore, playedUci);
 	if (point) return { text: point, evidence: evidence(1) };
 	if (playedPv.length > 1) {
+		const sac = sacrificeStory(fenBefore, playedPv);
+		if (sac && !sac.mates) {
+			return {
+				text: `It sacrifices ${sac.piece ? `the ${sac.piece}` : 'material'} but comes out ${sac.net} point${sac.net === 1 ? '' : 's'} ahead (${sanLine(fenBefore, playedPv, sac.plies)}).`,
+				evidence: evidence(sac.plies)
+			};
+		}
+		const promo = promotionPoint(fenBefore, playedPv);
+		if (promo) return { text: promo, evidence: evidence(9) };
 		const { net, plies } = quietMaterialOverLine(fenBefore, playedPv.slice(0, 9));
 		if (net >= 2) {
 			const fenAfter = getFenAfter(fenBefore, playedUci);
