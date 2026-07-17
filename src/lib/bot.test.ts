@@ -175,10 +175,10 @@ describe('shapedLabelFor', () => {
 		expect(shapedLabelFor(1971, 'wasm', 'v3')).toBe(1500);
 	});
 
-	it('inverts the scan table at the knots (the shipped default)', () => {
-		expect(shapedLabelFor(673)).toBe(600);
-		expect(shapedLabelFor(1388)).toBe(1200);
-		expect(shapedLabelFor(2128)).toBe(1500);
+	it('inverts the scan table at the knots (the shipped default, v4.1)', () => {
+		expect(shapedLabelFor(891)).toBe(600);
+		expect(shapedLabelFor(1528)).toBe(1200);
+		expect(shapedLabelFor(2319)).toBe(1500);
 	});
 
 	it('interpolates between knots and clamps outside the measured range', () => {
@@ -207,8 +207,8 @@ describe('shapedLabelFor per substrate', () => {
 			expect(shapedLabelFor(1900)).toBe(1500);
 			// same target maps to different labels per substrate near the seams
 			setBotSubstrate('wasm');
-			expect(shapedLabelFor(2200)).toBe(1500); // clamped above wasm scan ceiling 2128
-			expect(shapedLabelFor(673)).toBe(600);
+			expect(shapedLabelFor(2400)).toBe(1500); // clamped above wasm scan ceiling 2319
+			expect(shapedLabelFor(891)).toBe(600);
 		} finally {
 			setBotSubstrate('wasm');
 		}
@@ -429,21 +429,18 @@ describe('saturated-loss blindness (V8emJhj7 class)', () => {
 });
 
 describe('shapedLabelFor scan-model knots', () => {
-	it('wasm scan: display-900 inverts to the deployed SquareFish label', () => {
-		// internal 1140 between knots 900→983 and 1050→1188 ⇒ ~1015 — the label
-		// v4 SquareFish runs on lichess (deployments.json)
-		expect(shapedLabelFor(1140, 'wasm', 'scan')).toBe(1015);
+	it('wasm scan v4.1: display-900 inverts to ~849 on the engine pool', () => {
+		// internal 1140 between knots 750→1051 and 900→1186; the HUMAN-pool
+		// label is lower still (punish-rate premium — see hangs.mts findings)
+		expect(shapedLabelFor(1140, 'wasm', 'scan')).toBe(849);
 	});
 	it('native scan: same display target needs a slightly lower label', () => {
 		expect(shapedLabelFor(1140, 'native', 'scan')).toBe(985);
 	});
 	it('the default model is the shipped one (scan since 2026-07-16)', () => {
 		expect(shapedLabelFor(1140, 'wasm')).toBe(shapedLabelFor(1140, 'wasm', 'scan'));
-		expect(shapedLabelFor(1140, 'wasm')).toBe(1015); // = the lichess SquareFish label
 	});
-	it('scan floor sits far below the v3 floor (scanSkill restored the bottom)', () => {
-		expect(shapedStrengthRange('wasm', 'scan').min).toBeLessThan(
-			shapedStrengthRange('wasm', 'v3').min - 50
-		);
+	it('v4.1 floor: label-600 measures 891 (display-600 currently unreachable)', () => {
+		expect(shapedStrengthRange('wasm', 'scan').min).toBe(891);
 	});
 });

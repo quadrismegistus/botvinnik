@@ -588,15 +588,25 @@ export function shapedBotMove(
 // The wasm floor reaches internal ~673 ≈ display ~430: scanSkill fades the
 // visibility discounts below 900, so sub-600 labels stay meaningful.
 const SHAPED_KNOTS_SCAN: Record<Substrate, { label: number; strength: number }[]> = {
+	// v4.1 (saturated-loss fix INCLUDED — the fix measured +140-220 across the
+	// ladder vs the honest ruler; the earlier 'calibration-neutral' claim was
+	// falsified by the imitation-experiment's control pair, 2026-07-17).
+	// Fresh grid, n=100 everywhere. Floor note: label-600 measures 891
+	// internal ≈ display ~650 — display-600 is currently UNREACHABLE; the
+	// pre-gate captures ate scanSkill's restored bottom. Params extension
+	// below label 600 is the open fix if the roster wants true 600s back.
 	wasm: [
-		{ label: 600, strength: 673 },
-		{ label: 750, strength: 840 },
-		{ label: 900, strength: 983 },
-		{ label: 1050, strength: 1188 },
-		{ label: 1200, strength: 1388 },
-		{ label: 1350, strength: 1748 },
-		{ label: 1500, strength: 2128 }
+		{ label: 600, strength: 891 },
+		{ label: 750, strength: 1051 },
+		{ label: 900, strength: 1186 },
+		{ label: 1050, strength: 1327 },
+		{ label: 1200, strength: 1528 },
+		{ label: 1350, strength: 1904 },
+		{ label: 1500, strength: 2319 }
 	],
+	// STALE (v4.0): the native grid predates the saturated-loss fix; desktop
+	// Squares will play above label until the native re-grid runs. Web ships
+	// from the wasm table; re-measure before any Tauri release.
 	native: [
 		{ label: 600, strength: 753 },
 		{ label: 750, strength: 844 },
