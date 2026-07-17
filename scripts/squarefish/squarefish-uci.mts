@@ -166,6 +166,7 @@ async function go() {
 		const msg = formatChat(traced.trace, ply);
 		out(`info string CHAT:${msg}`);
 		chatState.budget--;
+		if (traced.trace.branch === 'quiet') chatState.quietBudget--;
 		chatState.lastChatPly = ply;
 	}
 

@@ -12,12 +12,13 @@ import type { DecisionTrace } from '../../src/lib/bot';
 
 export interface ChatState {
 	budget: number;
+	quietBudget: number;
 	lastChatPly: number; // half-move number of the last chat
 	ply: number;
 }
 
 export function newChatState(): ChatState {
-	return { budget: 8, lastChatPly: -10, ply: 0 };
+	return { budget: 8, quietBudget: 2, lastChatPly: -10, ply: 0 };
 }
 
 const COOLDOWN_PLIES = 6; // at least 3 full moves between chats
@@ -28,8 +29,7 @@ export function isChatWorthy(trace: DecisionTrace, state: ChatState): boolean {
 
 	if (trace.branch === 'tactical-miss') return true;
 	if (trace.branch === 'conversion' && trace.playedMove !== trace.bestMove) return true;
-	// quiet: only if the bot played something notably worse
-	if (trace.branch === 'quiet' && trace.bestWin - trace.playedWin >= 8) return true;
+	if (trace.branch === 'quiet' && trace.bestWin - trace.playedWin >= 12 && state.quietBudget > 0) return true;
 	return false;
 }
 
