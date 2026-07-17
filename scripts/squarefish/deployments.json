@@ -19,5 +19,12 @@
 		"label": 1015,
 		"displayTarget": 900,
 		"notes": "saturated-loss fix: grab/recapture coin runs before the win%-gap gate \u2014 takes the queen even in lost positions (V8emJhj7 class). Calibration-neutral in live positions."
+	},
+	{
+		"from": "2026-07-17T06:23:09Z",
+		"model": "v4.1-scan",
+		"label": 600,
+		"displayTarget": 900,
+		"notes": "label floor: v4.1 grid re-measure (+140-220/ladder, neutrality claim falsified by control) put display-900 at label 849 ENGINE-pool; human punish-premium (~+270 vs maia-t1, more vs humans) means NO v4.1 label reaches human-900 \u2014 floor (600) deployed as closest achievable while the sub-600 params extension is designed. Expect ~1200-1350 vs humans; measuring."
 	}
 ]
