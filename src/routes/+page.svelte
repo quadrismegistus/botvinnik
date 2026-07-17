@@ -204,9 +204,11 @@
 	// Counts the human side only when a bot holds the other one.
 	function lapseKind(g: MoveGrade): { kind: string; motif?: string } {
 		const t = g.explanation?.playedIssue ?? '';
-		if (t.includes('mate')) return { kind: 'allowed mate' };
+		// "allows … mate", NOT a bare /mate/ — "loses material" contains "mate"
+		if (t.includes('allows')) return { kind: 'allowed mate' };
 		if (t.includes('undefended —')) return { kind: 'hung a piece' };
 		const tag = motifTags(g.fenBefore, g.bestUci, g.bestPv ?? [g.bestUci], g.bestMate)[0];
+		if (tag === 'material') return { kind: 'missed material', motif: tag };
 		if (tag) return { kind: `missed a ${tag}`, motif: tag };
 		if (t.includes('loses a pawn')) return { kind: 'dropped a pawn' };
 		if (t.includes('loses material')) return { kind: 'lost material' };
@@ -227,10 +229,16 @@
 				drillMotif = motif;
 			}
 		}
+		// the game-ending move is never graded (analysis stops at game over), so
+		// "clean game" would be a lie when the ungraded final move was the throw
+		const lastMine = humanSide
+			? moveHistory.findLast((g) => g.color === humanSide)
+			: moveHistory.at(-1);
 		return {
 			missed: missed.length,
 			kinds: [...kinds.entries()].sort((a, b) => b[1] - a[1]),
-			drillMotif
+			drillMotif,
+			fullyGraded: !!lastMine?.label
 		};
 	});
 	function drillMissed(motif: string) {
@@ -903,6 +911,7 @@
 		attemptGrade = null;
 		lineNote = null;
 		revealBest = false;
+		practiceMotif = null; // a drill's filter must not silently narrow later sessions
 		handleReset();
 	}
 
@@ -1715,7 +1724,7 @@
 									Drill: {motif} ▸
 								</button>
 							{/if}
-						{:else}
+						{:else if gameRecap.fullyGraded}
 							<div class="recap">No mistakes or blunders — a clean game.</div>
 						{/if}
 					{/if}

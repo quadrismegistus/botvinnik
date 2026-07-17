@@ -18,5 +18,8 @@ test('mobile: the grade strip explains the mistake', async ({ page }) => {
 	await playMove(page, [6, 2], [6, 4]); // g4 — allows Qh4#
 
 	// the strip's second line carries the detector prose for the last move
-	await expect(page.locator('.gs-note')).toContainText('mate', { timeout: 20_000 });
+	// (the full phrase, not /mate/ — "loses material" contains "mate")
+	await expect(page.locator('.gs-note')).toContainText('allows immediate mate', {
+		timeout: 20_000
+	});
 });

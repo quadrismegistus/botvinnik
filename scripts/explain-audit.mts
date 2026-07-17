@@ -137,8 +137,13 @@ for (const p of puzzles) {
 	for (const t of p.themes) themeFreq.set(t, (themeFreq.get(t) ?? 0) + 1);
 
 	const band = BANDS.find(([, f]) => f(p.rating))![0];
+	const isMatePuzzle = themes.has('mate');
 	for (const [theme, motif] of Object.entries(THEME_TO_MOTIF)) {
 		if (!themes.has(theme)) continue;
+		// pin/skewer/trapped are deliberately suppressed inside mate lines
+		// (motifTags restraint rule) — scoring them on mate puzzles would
+		// conflate "missed" with "suppressed by design"
+		if (isMatePuzzle && ['pin', 'skewer', 'trappedPiece'].includes(theme)) continue;
 		let byBand = recall.get(theme);
 		if (!byBand) recall.set(theme, (byBand = new Map()));
 		for (const b of [band, 'all']) {
@@ -188,17 +193,25 @@ for (const [theme] of Object.entries(THEME_TO_MOTIF)) {
 	console.log(`  ${theme.padEnd(18)} ${cells.join(' ')}`);
 }
 
+console.log("  (mate row is circular — it scores the replay's mate detection, not a detector;");
+console.log('   pin/skewer/trappedPiece rows exclude mate puzzles, where those tags are suppressed by design)');
+
 console.log('\nAGREEMENT when we tag (does cook.py carry the matching theme?)');
 console.log(`  ${'motif'.padEnd(18)} ${'union'.padStart(16)} ${'first move only'.padStart(22)}  disagreement examples`);
+const MAPPED = new Set(Object.values(THEME_TO_MOTIF));
 for (const [motif, c] of [...ourTagCount.entries()].sort((a, b) => b[1].n - a[1].n)) {
+	// a motif no theme maps to (material) has UNDEFINED agreement, not 0%
+	const agree = (x: Agree) => (MAPPED.has(motif) ? pct(x.themed, x.n) : '   —');
 	const f = firstTagCount.get(motif);
-	const fCol = f ? `${String(f.n).padStart(4)}× ${pct(f.themed, f.n)}` : '—';
+	const fCol = f ? `${String(f.n).padStart(4)}× ${agree(f)}` : '—';
 	console.log(
-		`  ${motif.padEnd(18)} ${`${String(c.n).padStart(4)}× ${pct(c.themed, c.n)}`.padStart(16)} ${fCol.padStart(22)}  ${f?.examples.join(' ') ?? ''}`
+		`  ${motif.padEnd(18)} ${`${String(c.n).padStart(4)}× ${agree(c)}`.padStart(16)} ${fCol.padStart(22)}  ${f?.examples.join(' ') ?? ''}`
 	);
 }
 
-console.log('\nCOVERAGE (would explainGoodMove say anything about the first solver move?)');
+// motifTags is a LOWER bound on explainGoodMove: the prose layer also has the
+// wins-a-pawn tier and summarizeLine stories, which carry no tag
+console.log('\nCOVERAGE (first solver move gets ≥1 motif tag — lower bound for explainGoodMove)');
 console.log(`  overall: ${pct(firstTagged, total)} (${firstTagged}/${total})`);
 console.log(`  puzzles with NO mapped theme: ${pct(unthemedButTagged, unthemedTotal)} (${unthemedButTagged}/${unthemedTotal}) still get a claim`);
 

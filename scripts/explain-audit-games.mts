@@ -137,7 +137,8 @@ console.log(
 function issueFamily(e: Explanation): string | undefined {
 	const t = e.playedIssue;
 	if (!t) return undefined;
-	if (/mate/.test(t)) return 'mate allowed';
+	// "allows … mate", NOT a bare /mate/ — "loses material" contains "mate"
+	if (/allows/.test(t)) return 'mate allowed';
 	if (/undefended —/.test(t)) return 'hanging piece';
 	if (/loses material/.test(t)) return 'loses material';
 	if (/loses a pawn/.test(t)) return 'loses a pawn';

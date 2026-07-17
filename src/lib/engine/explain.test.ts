@@ -324,14 +324,14 @@ describe('explainGoodMove', () => {
 // the game; only the mate claim stands.
 describe('mating moves stay silent in the motif detectors', () => {
 	// lichess bEOuz: Qxh7# — the knight on d5 really is trapped, but who cares
-	const SMOTHER = 'r2q1rk1/pppn1ppp/3b4/3n2N1/2BP1pb1/3Q4/PPP3PP/R1B2RK1 w - - 0 12';
+	const QXH7 = 'r2q1rk1/pppn1ppp/3b4/3n2N1/2BP1pb1/3Q4/PPP3PP/R1B2RK1 w - - 0 12';
 	// lichess TUczR: Qxf7# — geometrically pins the c7 pawn against the b7 bishop
 	const F7 = 'r2qkb1r/pbp2ppp/1p2pn2/3pN2Q/8/1P2P3/PBPP1PPP/RN2K2R w KQkq - 2 9';
 	// lichess NywjU: Rd1# — "forks" the c1 bishop and the g1 king
 	const BACKRANK = '4r1k1/p2r3p/2p3p1/4p3/1P3p1Q/P6R/5PPP/2B3K1 b - - 0 33';
 
 	it('trappedPoint stays quiet on a mating move', () => {
-		expect(trappedPoint(SMOTHER, 'd3h7')).toBeUndefined();
+		expect(trappedPoint(QXH7, 'd3h7')).toBeUndefined();
 	});
 
 	it('pinOrSkewerPoint stays quiet on a mating move', () => {
@@ -340,7 +340,7 @@ describe('mating moves stay silent in the motif detectors', () => {
 
 	it('motifTags returns only mate facts, detected from the board itself', () => {
 		expect(motifTags(BACKRANK, 'd7d1', ['d7d1'], null)).toEqual(['mate', 'back-rank mate']);
-		expect(motifTags(SMOTHER, 'd3h7', ['d3h7'], null)).toEqual(['mate']);
+		expect(motifTags(QXH7, 'd3h7', ['d3h7'], null)).toEqual(['mate']);
 	});
 
 	it('motifTags drops restraint side facts on the first move of a longer mate', () => {
@@ -364,7 +364,7 @@ describe('mating moves stay silent in the motif detectors', () => {
 	});
 
 	it('bestMovePoint reports the mate instead of a side motif', () => {
-		expect(bestMovePoint(SMOTHER, 'd3h7', ['d3h7'])).toBe('Qxh7# is checkmate.');
+		expect(bestMovePoint(QXH7, 'd3h7', ['d3h7'])).toBe('Qxh7# is checkmate.');
 	});
 
 	it('check that is NOT mate still gets its motif', () => {
@@ -470,5 +470,49 @@ describe('the one-pawn material tier', () => {
 		expect(bestMovePoint(fen, 'e4d5', ['e4d5', 'a8b7', 'a1b1'])).toMatch(
 			/^Instead, exd5.* wins a pawn\.$/
 		);
+	});
+});
+
+// Adversarial-review regressions: positions where earlier versions of the
+// detectors produced prose that LIED about the position.
+describe('claims that used to lie', () => {
+	it('a promotion trade is not a queen sacrifice', () => {
+		// c8=Q Rxc8 Rxc8+ invests a pawn and wins a rook — the old net treated
+		// Rxc8 as a −9 queen sacrifice because promotions went uncounted
+		const fen = '3r3k/2P5/8/8/8/8/8/2R4K w - - 0 1';
+		const pv = ['c7c8q', 'd8c8', 'c1c8', 'h8h7'];
+		expect(sacrificeStory(fen, pv)).toBeUndefined();
+		expect(bestMovePoint(fen, 'c7c8q', pv)).toContain('wins 4 points of material');
+	});
+
+	it('queen-for-rook-and-knight (net −1) is not "a pawn"', () => {
+		// Qxd5?? Rxd5 Rxd5 sums to −1 with no pawn anywhere in the line
+		const fen = '3r3k/8/8/3n3Q/8/8/8/3R3K w - - 0 1';
+		const out = explainMove({
+			fenBefore: fen,
+			playedUci: 'h5d5',
+			refutationPv: ['d8d5', 'd1d5', 'h8g8'],
+			bestUci: 'd1d2',
+			bestPv: ['d1d2'],
+			playedMate: null,
+			bestMate: null,
+			isBest: false
+		});
+		expect(out.playedIssue).toContain('a point down');
+		expect(out.playedIssue).not.toContain('pawn');
+	});
+
+	it('no "new queen" claim when the promoted piece dies later in the window', () => {
+		// e8=Q Ka7 Qd8 Rxd8 — the queen moves away and is then captured; the
+		// old tracker stopped following once it moved
+		const fen = 'k1r5/4P3/8/8/8/8/8/6K1 w - - 0 1';
+		expect(promotionPoint(fen, ['e7e8q', 'a8a7', 'e8d8', 'c8d8'])).toBeUndefined();
+	});
+
+	it('no pin claim when the only "defender" of the pinner is itself pinned', () => {
+		// Rd3 blocks the queen check; Qxd3+ just wins the rook because Be2 is
+		// absolutely pinned by Bh5 and cannot legally recapture
+		const fen = '3k4/8/8/3q3b/8/7R/4B3/3K4 w - - 0 1';
+		expect(pinOrSkewerPoint(fen, 'h3d3')).toBeUndefined();
 	});
 });

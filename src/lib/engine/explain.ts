@@ -142,19 +142,30 @@ export function summarizeLine(fen: string, ucis: string[]): string | undefined {
 // Like materialOverLine, but the count stops at the last quiet ply — a window
 // ending mid-exchange would credit a capture the opponent recaptures next move.
 // Returns the plies actually counted so callers can quote exactly that line.
-export function quietMaterialOverLine(fen: string, ucis: string[]): { net: number; plies: number } {
+export function quietMaterialOverLine(
+	fen: string,
+	ucis: string[]
+): { net: number; plies: number; pawnsOnly: boolean } {
 	const c = new Chess(fen);
 	const mover = c.turn();
 	let net = 0;
 	let plies = 0;
-	let quiet = { net: 0, plies: 0 };
+	// pawnsOnly: every capture in the counted window took a pawn and nothing
+	// promoted — the only case where a ±1 net licenses the word "pawn"
+	// (queen-for-rook-and-knight also sums to 1, with no pawn in sight)
+	let pawnsOnly = true;
+	let quiet = { net: 0, plies: 0, pawnsOnly: true };
 	for (const uci of ucis) {
 		const m = apply(c, uci);
 		if (!m) break;
 		plies++;
 		if (m.captured) net += (m.color === mover ? 1 : -1) * VAL[m.captured];
-		if (m.promotion) net += (m.color === mover ? 1 : -1) * (VAL[m.promotion] - 1);
-		if (!m.captured && !m.promotion) quiet = { net, plies };
+		if (m.captured && m.captured !== 'p') pawnsOnly = false;
+		if (m.promotion) {
+			net += (m.color === mover ? 1 : -1) * (VAL[m.promotion] - 1);
+			pawnsOnly = false;
+		}
+		if (!m.captured && !m.promotion) quiet = { net, plies, pawnsOnly };
 	}
 	return quiet;
 }
@@ -271,16 +282,23 @@ export function pinOrSkewerPoint(fenBefore: string, uci: string): string | undef
 				continue;
 			}
 			// the "pinned" piece can often simply capture the pinner — the claim
-			// only stands when that capture loses material for the defender
-			// (pinner defended AND cheaper than the front piece; a king only
-			// ever takes an undefended pinner)
+			// only stands when that capture loses material for the defender.
+			// Probe by LEGAL moves: raw attacker counts lie both ways (a pinned
+			// front piece can't take; a pinned defender can't recapture)
 			if (c.attackers(m.to as Square, p.color).includes(first.sq)) {
-				const pinnerDefended = c.attackers(m.to as Square, m.color).length > 0;
-				const refuted =
-					first.type === 'k'
-						? !pinnerDefended
-						: !pinnerDefended || VAL[m.piece] >= VAL[first.type];
-				if (refuted) break;
+				const probe = new Chess(c.fen());
+				let takes = null;
+				try {
+					takes = probe.move({ from: first.sq, to: m.to, promotion: 'q' });
+				} catch {
+					takes = null; // the front piece is itself pinned — capture illegal
+				}
+				if (takes) {
+					const recaptured = probe
+						.moves({ verbose: true })
+						.some((r) => r.to === m.to && r.captured);
+					if (!recaptured || VAL[m.piece] >= VAL[first.type]) break;
+				}
 			}
 			// second enemy piece on the same ray. Unless the king is behind
 			// (an absolute pin always binds), the claim is only real if
@@ -537,8 +555,8 @@ export function promotionPoint(fenBefore: string, pv: string[]): string | undefi
 		for (const u of window.slice(i + 1)) {
 			const r = apply(probe, u);
 			if (!r) break;
-			if (sq && r.from === sq && r.color === mover) sq = null; // it moved on
-			else if (sq && r.to === sq && r.captured) return undefined;
+			if (sq && r.from === sq && r.color === mover) sq = r.to; // follow it
+			else if (sq && r.to === sq && r.captured) return undefined; // it dies
 		}
 		return `${sanLine(fenBefore, pv, i + 1)} makes a new ${NAME[m.promotion]}.`;
 	}
@@ -566,8 +584,15 @@ export function sacrificeStory(fenBefore: string, pv: string[]): SacrificeStory 
 		const m = apply(c, window[i]);
 		if (!m) break;
 		if (m.captured) net += m.color === mover ? VAL[m.captured] : -VAL[m.captured];
+		// promotions count too, or c8=Q Rxc8 Rxc8 reads as a −9 "queen
+		// sacrifice" when only a pawn was ever invested
+		if (m.promotion) net += (m.color === mover ? 1 : -1) * (VAL[m.promotion] - 1);
 		if (m.color !== mover) {
-			if (i === 1 && m.captured && m.to === window[0]?.slice(2, 4)) piece = NAME[m.captured];
+			// name the piece only when the first move itself is captured — and
+			// not when that move promoted (the "queen" existed for one ply)
+			if (i === 1 && m.captured && m.to === window[0]?.slice(2, 4) && window[0].length < 5) {
+				piece = NAME[m.captured];
+			}
 			if (net < minNet) minNet = net;
 		}
 	}
@@ -608,7 +633,7 @@ export function explainMove(input: {
 	} else {
 		out.playedIssue = hangingIssue(fenBefore, playedUci, refutationPv[0]);
 		if (!out.playedIssue && refutationPv.length > 0) {
-			const { net, plies } = quietMaterialOverLine(fenBefore, playedLine.slice(0, 9));
+			const { net, plies, pawnsOnly } = quietMaterialOverLine(fenBefore, playedLine.slice(0, 9));
 			if (net <= -1) {
 				// quote only the continuation — the played move itself is already named
 				const fenAfter = getFenAfter(fenBefore, playedUci);
@@ -617,11 +642,13 @@ export function explainMove(input: {
 					: '';
 				if (continuation) {
 					// the one-point case is the modal amateur mistake and deserves
-					// its own words — "down 1 points" would read like a rounding bug
+					// its own words — but only a pure pawn capture licenses "pawn"
 					out.playedIssue =
 						net <= -2
 							? `This loses material — after ${continuation}, you're down ${-net} points.`
-							: `This loses a pawn — after ${continuation}, you're a pawn down.`;
+							: pawnsOnly
+								? `This loses a pawn — after ${continuation}, you're a pawn down.`
+								: `This loses material — after ${continuation}, you come out a point down.`;
 				}
 			}
 		}
@@ -685,12 +712,14 @@ export function bestMovePoint(
 		}
 		const promo = promotionPoint(fenBefore, bestPv);
 		if (promo) return promo;
-		const { net, plies } = quietMaterialOverLine(fenBefore, bestPv.slice(0, 9));
+		const { net, plies, pawnsOnly } = quietMaterialOverLine(fenBefore, bestPv.slice(0, 9));
 		if (net >= 2) {
 			return `Instead, ${sanLine(fenBefore, bestPv, plies)} wins ${net} points of material.`;
 		}
 		if (net === 1) {
-			return `Instead, ${sanLine(fenBefore, bestPv, plies)} wins a pawn.`;
+			return pawnsOnly
+				? `Instead, ${sanLine(fenBefore, bestPv, plies)} wins a pawn.`
+				: `Instead, ${sanLine(fenBefore, bestPv, plies)} wins a point of material.`;
 		}
 	}
 	return undefined;
@@ -808,7 +837,7 @@ export function explainGoodMove(
 		}
 		const promo = promotionPoint(fenBefore, playedPv);
 		if (promo) return { text: promo, evidence: evidence(9) };
-		const { net, plies } = quietMaterialOverLine(fenBefore, playedPv.slice(0, 9));
+		const { net, plies, pawnsOnly } = quietMaterialOverLine(fenBefore, playedPv.slice(0, 9));
 		if (net >= 1) {
 			const fenAfter = getFenAfter(fenBefore, playedUci);
 			const continuation = fenAfter ? getNumberedSanLine(fenAfter, playedPv.slice(1, plies)) : '';
@@ -817,7 +846,9 @@ export function explainGoodMove(
 					text:
 						net >= 2
 							? `It wins ${net} points of material (${continuation}).`
-							: `It wins a pawn (${continuation}).`,
+							: pawnsOnly
+								? `It wins a pawn (${continuation}).`
+								: `It wins a point of material (${continuation}).`,
 					evidence: evidence(plies)
 				};
 			}
