@@ -430,6 +430,168 @@ export function dangerVisibility(fen: string, uci: string): number {
 	}
 }
 
+export interface DecisionTrace {
+	branch: 'tactical-miss' | 'tactical-seen' | 'quiet' | 'conversion' | 'only-move';
+	bestMove: string;
+	bestWin: number;
+	playedMove: string;
+	playedWin: number;
+	candidates: number;
+	temperature: number;
+	missProb?: number;
+	effectiveP?: number;
+	roll?: number;
+	visKind?: string;
+	visMult?: number;
+	openingDamp?: number;
+	quietWindow?: number;
+}
+
+export function shapedBotMoveTraced(
+	lines: EngineMove[],
+	elo: number,
+	params?: Partial<ShapedParams>,
+	seed?: string | number,
+	fen?: string,
+	discoveryDepth?: number,
+	lastMoveTo?: string
+): { move: string; trace: DecisionTrace } | null {
+	if (lines.length === 0) return null;
+	const sorted = [...lines].sort((a, b) => a.multipv - b.multipv);
+	const best = sorted[0];
+	const wins = sorted.map(moveWin);
+	const bestWin = wins[0];
+
+	function result(move: string, branch: DecisionTrace['branch'], extra: Partial<DecisionTrace> = {}): { move: string; trace: DecisionTrace } {
+		const playedIdx = sorted.findIndex((l) => l.pv[0] === move);
+		return {
+			move,
+			trace: {
+				branch,
+				bestMove: best.pv[0],
+				bestWin: Math.round(bestWin),
+				playedMove: move,
+				playedWin: Math.round(playedIdx >= 0 ? wins[playedIdx] : bestWin),
+				candidates: sorted.length,
+				temperature: 0,
+				...extra
+			}
+		};
+	}
+
+	if (sorted.length === 1) return result(best.pv[0], 'only-move');
+
+	const { missProb, tacticalGapPct, temperature, quietWindowPct, scan, scanMults } = {
+		...shapedParams(elo),
+		...params
+	};
+	const scanning = !!scan && !!fen;
+	const skill = scanning ? scanSkill(elo) : 1;
+	const damp = scanning ? bySkill(openingDamp(fen!), skill) : 1;
+
+	let missedVisibleBest = false;
+	let preGateVis: TacticVisibility | undefined;
+	let preGateP: number | undefined;
+	let preGateRoll: number | undefined;
+	if (scanning) {
+		const mults = { ...SCAN_MULTS, ...scanMults };
+		const vis = tacticVisibility(fen!, best.pv, best.mate, discoveryDepth, mults, lastMoveTo);
+		if (vis.kind === 'recapture' || vis.kind === 'grab') {
+			const s = vis.kind === 'recapture' ? Math.max(skill, 0.7) : skill;
+			const p = Math.min(missProb * bySkill(vis.multiplier, s) * damp, mults.pCap);
+			const roll = seed !== undefined ? hash01(`${seed}:${best.pv[0].slice(2, 4)}`) : Math.random();
+			preGateVis = vis;
+			preGateP = p;
+			preGateRoll = roll;
+			if (roll >= p) return result(best.pv[0], 'tactical-seen', {
+				missProb, effectiveP: p, roll, visKind: vis.kind, visMult: vis.multiplier, openingDamp: damp, temperature
+			});
+			missedVisibleBest = true;
+		}
+	}
+
+	if (bestWin >= 90 && wins[1] >= 85) {
+		const cands: { move: string; win: number }[] = [];
+		for (let i = 0; i < sorted.length; i++) {
+			if (i === 0 && missedVisibleBest) continue;
+			if (wins[i] < 85) continue;
+			const l = sorted[i];
+			const v = l.mate !== null && l.mate > 0 ? 25 - Math.min(l.mate, 15) : l.score;
+			cands.push({ move: l.pv[0], win: v });
+		}
+		if (cands.length > 0) {
+			const move = softmaxPick(
+				cands,
+				temperature / 4,
+				scanning ? cands.map((c) => bySkill(dangerVisibility(fen!, c.move), skill)) : undefined
+			);
+			return result(move, 'conversion', { candidates: cands.length, temperature: temperature / 4, openingDamp: damp });
+		}
+	}
+
+	if (bestWin - wins[1] >= tacticalGapPct) {
+		if (!missedVisibleBest) {
+			const mateSoon = best.mate !== null && best.mate > 0 && best.mate <= 2;
+			let p = mateSoon ? missProb * 0.25 : missProb;
+			let visKind = mateSoon ? 'mate-soon' : 'flat';
+			let visMult = mateSoon ? 0.25 : 1;
+			if (scanning) {
+				const mults = { ...SCAN_MULTS, ...scanMults };
+				const vis = tacticVisibility(fen!, best.pv, best.mate, discoveryDepth, mults, lastMoveTo);
+				const s = vis.kind === 'recapture' ? Math.max(skill, 0.7) : skill;
+				p = missProb * bySkill(vis.multiplier, s) * damp;
+				p = Math.min(p, mults.pCap);
+				visKind = vis.kind;
+				visMult = vis.multiplier;
+			}
+			const roll = seed !== undefined ? hash01(`${seed}:${best.pv[0].slice(2, 4)}`) : Math.random();
+			if (roll >= p) return result(best.pv[0], 'tactical-seen', {
+				missProb, effectiveP: p, roll, visKind, visMult, openingDamp: damp, temperature
+			});
+			// missed — fall through to sample the rest
+			const rest = sorted.slice(1).map((l, i) => ({ move: l.pv[0], win: wins[i + 1] }));
+			const move = softmaxPick(
+				rest,
+				temperature,
+				scanning ? rest.map((c) => bySkill(dangerVisibility(fen!, c.move), skill)) : undefined
+			);
+			return result(move, 'tactical-miss', {
+				missProb, effectiveP: p, roll, visKind, visMult,
+				openingDamp: damp, temperature, candidates: rest.length
+			});
+		}
+		// pre-gate miss (grab/recapture) — sample the rest via tactical miss path
+		const rest = sorted.slice(1).map((l, i) => ({ move: l.pv[0], win: wins[i + 1] }));
+		const move = softmaxPick(
+			rest,
+			temperature,
+			scanning ? rest.map((c) => bySkill(dangerVisibility(fen!, c.move), skill)) : undefined
+		);
+		return result(move, 'tactical-miss', {
+			missProb, effectiveP: preGateP, roll: preGateRoll,
+			visKind: preGateVis?.kind, visMult: preGateVis?.multiplier,
+			openingDamp: damp, temperature, candidates: rest.length
+		});
+	}
+
+	// Quiet
+	const cands: { move: string; win: number }[] = [];
+	for (let i = 0; i < sorted.length; i++) {
+		if (i === 0 && missedVisibleBest) continue;
+		if (bestWin - wins[i] <= quietWindowPct) cands.push({ move: sorted[i].pv[0], win: wins[i] });
+	}
+	if (cands.length === 0) {
+		const move = sorted[1].pv[0];
+		return result(move, 'quiet', { candidates: 1, temperature: temperature * damp, quietWindow: quietWindowPct, openingDamp: damp });
+	}
+	const move = softmaxPick(
+		cands,
+		temperature * damp,
+		scanning ? cands.map((c) => bySkill(dangerVisibility(fen!, c.move), skill)) : undefined
+	);
+	return result(move, 'quiet', { candidates: cands.length, temperature: temperature * damp, quietWindow: quietWindowPct, openingDamp: damp });
+}
+
 export function shapedBotMove(
 	lines: EngineMove[],
 	elo: number,
@@ -439,141 +601,7 @@ export function shapedBotMove(
 	discoveryDepth?: number,
 	lastMoveTo?: string
 ): string | null {
-	if (lines.length === 0) return null;
-	const sorted = [...lines].sort((a, b) => a.multipv - b.multipv);
-	const best = sorted[0];
-	if (sorted.length === 1) return best.pv[0];
-
-	const { missProb, tacticalGapPct, temperature, quietWindowPct, scan, scanMults } = {
-		...shapedParams(elo),
-		...params
-	};
-	// v4 scan model needs the position; without it, fall back to v3 exactly
-	const scanning = !!scan && !!fen;
-	const skill = scanning ? scanSkill(elo) : 1;
-	// opening rehearsal is itself part of scan discipline: beginners have no book
-	const damp = scanning ? bySkill(openingDamp(fen!), skill) : 1;
-
-	const wins = sorted.map(moveWin); // win% per candidate, mover POV
-	const bestWin = wins[0];
-
-	// SATURATED-LOSS blindness (observed live, twice — Ryan's game V8emJhj7 and
-	// three API-scanned games within two hours of the v4 cutover): when every
-	// line is LOST, win% compresses to 2-4% across the board, the tactical gap
-	// vanishes, and the position routes to the quiet branch — where none of the
-	// grab/recapture salience runs. The model says "nothing to see" precisely
-	// when there's a queen to take, because taking it doesn't save the game.
-	// True for the engine, false for the human: people in lost positions still
-	// take the queen. So the unmissable-capture tier (grab, recapture) is
-	// checked BEFORE any win%-gap routing: if the best move is one of those,
-	// the miss coin applies directly, whatever the gap says. In the tactical
-	// branch this is probabilistically identical to the old path (same seeded
-	// roll, same p), so the calibration curve is untouched where games are
-	// still live; only decided positions change behavior.
-	let missedVisibleBest = false;
-	if (scanning) {
-		const mults = { ...SCAN_MULTS, ...scanMults };
-		const vis = tacticVisibility(fen!, best.pv, best.mate, discoveryDepth, mults, lastMoveTo);
-		if (vis.kind === 'recapture' || vis.kind === 'grab') {
-			const s = vis.kind === 'recapture' ? Math.max(skill, 0.7) : skill;
-			const p = Math.min(missProb * bySkill(vis.multiplier, s) * damp, mults.pCap);
-			const roll = seed !== undefined ? hash01(`${seed}:${best.pv[0].slice(2, 4)}`) : Math.random();
-			if (roll >= p) return best.pv[0];
-			// blind to it: exclude the best move from whatever branch follows —
-			// a player who hasn't registered the queen can't "accidentally"
-			// sample the move that takes it
-			missedVisibleBest = true;
-		}
-	}
-
-	// Decided-and-WINNING: the ±1500cp clamp saturates win% (~95) so the
-	// gradient vanishes — +9, +12 and mate-in-16 all look alike, and quiet
-	// temperature sampling becomes an aimless shuffle that can walk into a
-	// repetition draw (observed: a 118-move Q-vs-K+P "draw" with M16 on the
-	// board). Real weak players convert slowly but DIRECTIONALLY. So here the
-	// choice signal switches to the UNCLAMPED eval — pawns, with mate lines
-	// scored by mate distance — keeping the temperature so conversion stays
-	// human-sloppy, not the old perfect-conversion superpower.
-	//
-	// Guard: this only applies when the game is won WHICHEVER move it picks
-	// (second-best still ≥ 85). If only the best move is winning — a hanging
-	// queen to capture, a tactic to land — that's a see-it-or-miss-it moment
-	// and must fall through to the miss machinery below, or punishing becomes
-	// automatic again.
-	if (bestWin >= 90 && wins[1] >= 85) {
-		const cands: { move: string; win: number }[] = [];
-		for (let i = 0; i < sorted.length; i++) {
-			if (i === 0 && missedVisibleBest) continue; // unseen is unplayable
-			if (wins[i] < 85) continue; // never gamble the win itself away
-			const l = sorted[i];
-			const v = l.mate !== null && l.mate > 0 ? 25 - Math.min(l.mate, 15) : l.score;
-			cands.push({ move: l.pv[0], win: v });
-		}
-		// temperature is in win% points; evals are in pawns — rescale
-		if (cands.length > 0)
-			return softmaxPick(
-				cands,
-				temperature / 4,
-				scanning ? cands.map((c) => bySkill(dangerVisibility(fen!, c.move), skill)) : undefined
-			);
-	}
-
-	if (bestWin - wins[1] >= tacticalGapPct) {
-		// Tactical: there is one move that matters. Either the bot sees it…
-		// With a per-game seed the decision is STICKY, keyed on the tactic's
-		// focal point (the best move's destination square): a hanging piece
-		// missed this move stays unseen while it sits there; the bot only "takes
-		// a fresh look" when the tactical focus moves elsewhere.
-		//
-		// VISIBILITY: a flat missProb had Squares donating mate-in-1s (observed
-		// live — Ryan's Square 1300 game). Short mates are the one tactic even
-		// beginners reliably scan for (checks first!), so they're ~4× more
-		// visible; deeper tactics keep the full miss rate. The v4 scan model
-		// generalizes this to the whole scan order (see tacticVisibility).
-		// the grab/recapture tier already flipped its coin pre-gate; a second
-		// roll here would let unseeded runs rescue half the misses
-		if (!missedVisibleBest) {
-			const mateSoon = best.mate !== null && best.mate > 0 && best.mate <= 2;
-			let p = mateSoon ? missProb * 0.25 : missProb;
-			if (scanning) {
-				const mults = { ...SCAN_MULTS, ...scanMults };
-				const vis = tacticVisibility(fen!, best.pv, best.mate, discoveryDepth, mults, lastMoveTo);
-				// recapture salience is perceptual, not trained — even a beginner
-				// looks at the square where their queen just died. Floor the skill.
-				const s = vis.kind === 'recapture' ? Math.max(skill, 0.7) : skill;
-				p = missProb * bySkill(vis.multiplier, s) * damp;
-				p = Math.min(p, mults.pCap);
-			}
-			const roll = seed !== undefined ? hash01(`${seed}:${best.pv[0].slice(2, 4)}`) : Math.random();
-			if (roll >= p) return best.pv[0];
-		}
-		// …or it doesn't. Choose among the REST as if the best move didn't exist —
-		// still preferring the more plausible of what it can see. No severity cap
-		// on MISSED DEFENCES (that's how won games get lost) — but under scan
-		// mode, candidates with a VISIBLE refutation are near-unplayable: a
-		// human who missed the tactic still doesn't hang a queen to a pawn.
-		const rest = sorted.slice(1).map((l, i) => ({ move: l.pv[0], win: wins[i + 1] }));
-		return softmaxPick(
-			rest,
-			temperature,
-			scanning ? rest.map((c) => bySkill(dangerVisibility(fen!, c.move), skill)) : undefined
-		);
-	}
-
-	// Quiet: nothing to see, just play sound-but-imperfect chess. Bounded so the
-	// leakage is steady small stuff, never a howler out of nowhere. The scan
-	// model's opening damp tightens this too — rehearsed moves, less mush.
-	const cands: { move: string; win: number }[] = [];
-	for (let i = 0; i < sorted.length; i++) {
-		if (i === 0 && missedVisibleBest) continue; // unseen is unplayable
-		if (bestWin - wins[i] <= quietWindowPct) cands.push({ move: sorted[i].pv[0], win: wins[i] });
-	}
-	if (cands.length === 0) return sorted[1].pv[0]; // window held only the unseen best
-	return softmaxPick(
-		cands,
-		temperature * damp,
-		scanning ? cands.map((c) => bySkill(dangerVisibility(fen!, c.move), skill)) : undefined
-	);
+	return shapedBotMoveTraced(lines, elo, params, seed, fen, discoveryDepth, lastMoveTo)?.move ?? null;
 }
 
 // ─── v4 (scan model) knots ───────────────────────────────────────────────────

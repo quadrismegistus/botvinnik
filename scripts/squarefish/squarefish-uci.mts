@@ -20,9 +20,10 @@ import { createInterface } from 'node:readline';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Chess } from 'chess.js';
-import { shapedBotMove, shapedSearchDepth } from '../../src/lib/bot';
+import { shapedBotMoveTraced, shapedSearchDepth } from '../../src/lib/bot';
 import { avoidRepetition } from '../../src/lib/repetition';
 import type { EngineMove } from '../../src/lib/engine/stockfish';
+import { isChatWorthy, formatChat, newChatState, type ChatState } from './chat.mjs';
 
 const argv = process.argv.slice(2);
 function opt(name: string, dflt: number): number {
@@ -119,6 +120,7 @@ class Backend {
 const backend = new Backend();
 const chess = new Chess();
 let gameSeed = `sf${Math.floor(Math.random() * 1e9)}`;
+let chatState: ChatState = newChatState();
 
 function out(line: string) {
 	process.stdout.write(line + '\n');
@@ -144,9 +146,12 @@ function fenHistory(): string[] {
 }
 
 async function go() {
+	const ply = chess.history().length;
+	chatState.ply = ply;
+
 	const moves = await backend.search(chess.fen(), shapedSearchDepth(label));
 	const lastTo = chess.history({ verbose: true }).at(-1)?.to;
-	const move = shapedBotMove(
+	const traced = shapedBotMoveTraced(
 		moves,
 		label,
 		SCAN ? { scan: true } : undefined,
@@ -155,9 +160,15 @@ async function go() {
 		undefined,
 		SCAN ? lastTo : undefined
 	);
-	// same guard the app applies: the shaped layer can't see game history, so
-	// a winning SquareFish could shuffle into threefold — bot opponents would
-	// farm that draw relentlessly
+	const move = traced?.move ?? null;
+
+	if (traced && isChatWorthy(traced.trace, chatState)) {
+		const msg = formatChat(traced.trace, ply);
+		out(`info string CHAT:${msg}`);
+		chatState.budget--;
+		chatState.lastChatPly = ply;
+	}
+
 	const safe = move ? avoidRepetition(move, fenHistory(), moves) : null;
 	out(`bestmove ${safe ?? moves[0]?.pv[0] ?? '(none)'}`);
 }
@@ -187,6 +198,7 @@ rl.on('line', (line) => {
 		} else if (cmd === 'ucinewgame') {
 			chess.reset();
 			gameSeed = `sf${Math.floor(Math.random() * 1e9)}`; // fresh eyes per game
+			chatState = newChatState();
 			backend.send('ucinewgame');
 		} else if (cmd === 'position') {
 			setPosition(parts.slice(1));
