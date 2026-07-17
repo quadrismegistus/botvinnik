@@ -11,8 +11,11 @@ test('offline: the app and engine work with no network', async ({ page, context 
 
 	await context.setOffline(true);
 	await page.reload();
+	// the reload must actually be served BY the service worker — otherwise a
+	// quirk in offline emulation could let the live server answer and the test
+	// would prove nothing
+	expect(await page.evaluate(() => navigator.serviceWorker.controller !== null)).toBe(true);
 	await page.waitForSelector('.board-wrap .board piece', { timeout: 30_000 });
 	await page.waitForSelector('.lines-tree svg g.node.playable', { timeout: 60_000 });
 	await context.setOffline(false);
-	expect(true).toBe(true);
 });

@@ -18,13 +18,13 @@ const PRECACHE = [
 ];
 const PRECACHED = new Set(PRECACHE);
 
+// No skipWaiting: a new version waits until every old tab closes. Activating
+// immediately would claim pages built against the OLD assets and then purge
+// their cache — lazy chunks would 404 mid-session. (Deploys also re-download
+// /wasm/ into the new cache on purpose: its URLs aren't content-hashed, so
+// copying forward from an old cache could pin a stale engine forever.)
 sw.addEventListener('install', (event) => {
-	event.waitUntil(
-		caches
-			.open(CACHE)
-			.then((c) => c.addAll(PRECACHE))
-			.then(() => sw.skipWaiting())
-	);
+	event.waitUntil(caches.open(CACHE).then((c) => c.addAll(PRECACHE)));
 });
 
 sw.addEventListener('activate', (event) => {
@@ -52,9 +52,10 @@ sw.addEventListener('fetch', (event) => {
 			}
 			try {
 				const res = await fetch(request);
-				// runtime-cache successful same-origin GETs (commentary, avatars)
-				// so they survive offline after first sight
-				if (res.ok) cache.put(request, res.clone());
+				// runtime-cache same-origin GETs (commentary, avatars) so they
+				// survive offline after first sight. Full responses only — put()
+				// rejects on 206 partials — and never let a cache failure surface
+				if (res.status === 200) void cache.put(request, res.clone()).catch(() => {});
 				return res;
 			} catch {
 				const hit = await cache.match(request);
