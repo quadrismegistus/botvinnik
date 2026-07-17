@@ -84,27 +84,21 @@ function pickLine(lines: string[], ply: number): string {
 	return lines[ply % lines.length];
 }
 
-function fmtNum(n: number): string {
-	if (n >= 1) return String(Math.round(n * 10) / 10);
-	if (n >= 0.1) return n.toFixed(1).replace(/^0/, '');
-	return n.toFixed(n >= 0.01 ? 2 : 3).replace(/^0/, '');
+function winDelta(w: number): string {
+	const d = Math.round(w - 50);
+	return d >= 0 ? `w+${d}%` : `w${d}%`;
 }
 
 function formatBracket(t: DecisionTrace): string {
-	if (t.branch === 'tactical-miss') {
-		const vis = t.visKind && t.visMult !== undefined ? `${t.visKind}×${fmtNum(t.visMult)}` : '';
-		const p = t.effectiveP !== undefined ? ` p=${fmtNum(t.effectiveP)}` : '';
-		const r = t.roll !== undefined ? ` r=${fmtNum(t.roll)}` : '';
-		return `[miss: ${vis}${p}${r}; ${t.playedMove} w${t.playedWin}% ${t.candidates}c t${fmtNum(t.temperature)}]`;
+	const played = `${t.playedMove} (${winDelta(t.playedWin)})`;
+	const best = `${t.bestMove} (${winDelta(t.bestWin)})`;
+
+	if (t.branch === 'tactical-miss' && t.effectiveP !== undefined && t.roll !== undefined) {
+		const dc = Math.round(t.effectiveP * 10);
+		const roll = Math.round(t.roll * 10);
+		return `[DC ${dc}, rolled ${roll} — played ${played} vs ${best}]`;
 	}
-	if (t.branch === 'conversion') {
-		return `[conv: ${t.candidates}c t${fmtNum(t.temperature)}; ${t.playedMove} vs best ${t.bestMove}]`;
-	}
-	if (t.branch === 'quiet') {
-		const win = t.quietWindow !== undefined ? ` win${Math.round(t.playedWin)}-${Math.round(t.bestWin)}%` : '';
-		return `[quiet: ${t.candidates}c${win} t${fmtNum(t.temperature)}; ${t.playedMove} w${t.playedWin}%]`;
-	}
-	return `[${t.branch}]`;
+	return `[played ${played} vs ${best}]`;
 }
 
 function humanPart(t: DecisionTrace, ply: number): string {
