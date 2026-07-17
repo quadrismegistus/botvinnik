@@ -145,6 +145,17 @@ function fenHistory(): string[] {
 	return h.length === 0 ? [chess.fen()] : [h[0].before, ...h.map((m) => m.after)];
 }
 
+function uciToSan(uci: string): string {
+	try {
+		const m = chess.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci[4] });
+		const san = m.san;
+		chess.undo();
+		return san;
+	} catch {
+		return uci;
+	}
+}
+
 async function go() {
 	const ply = chess.history().length;
 	chatState.ply = ply;
@@ -163,6 +174,8 @@ async function go() {
 	const move = traced?.move ?? null;
 
 	if (traced && isChatWorthy(traced.trace, chatState)) {
+		traced.trace.bestMove = uciToSan(traced.trace.bestMove);
+		traced.trace.playedMove = uciToSan(traced.trace.playedMove);
 		const msg = formatChat(traced.trace, ply);
 		out(`info string CHAT:${msg}`);
 		chatState.budget--;
