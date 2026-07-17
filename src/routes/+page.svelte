@@ -141,8 +141,10 @@
 	// the board shrinks so the sheet's resting position never hides a rank.
 	// 'full' sizes like 'half': the sheet covers the board region there anyway,
 	// and resizing to a thumbnail behind it helps nobody
-	const sheetRestH = $derived(
-		sheetDetent === 'peek' ? SHEET_PEEK : Math.round(viewportH * 0.5)
+	// .by: sheetPeek is declared below (it needs lastGrade) — the closure
+	// defers the reference past its declaration
+	const sheetRestH = $derived.by(() =>
+		sheetDetent === 'peek' ? sheetPeek : Math.round(viewportH * 0.5)
 	);
 	const boardSize = $derived(
 		isNarrow
@@ -187,6 +189,62 @@
 		const humanSide = botColor === 'w' ? 'b' : 'w';
 		return moveHistory.findLast((g) => g.color === humanSide) ?? null;
 	});
+	// the one-line "why" under the grade strip: the mistake's cause, or what a
+	// good move achieved — the same detector prose the insight cards show,
+	// surfaced at the moment of the move so the verdict isn't just a glyph
+	const lastGradeNote = $derived(
+		lastGrade?.explanation?.playedIssue ?? lastGrade?.explanation?.playedPoint ?? null
+	);
+	// the note adds a line to the sheet header — grow the peek to keep the
+	// mode bar and tabs visible below it
+	const sheetPeek = $derived(SHEET_PEEK + (lastGradeNote ? 17 : 0));
+
+	// post-game recap: bucket the graded lapses (mistakes + blunders) by what
+	// went wrong, so "game over" can point straight at the matching drill.
+	// Counts the human side only when a bot holds the other one.
+	function lapseKind(g: MoveGrade): { kind: string; motif?: string } {
+		const t = g.explanation?.playedIssue ?? '';
+		// "allows … mate", NOT a bare /mate/ — "loses material" contains "mate"
+		if (t.includes('allows')) return { kind: 'allowed mate' };
+		if (t.includes('undefended —')) return { kind: 'hung a piece' };
+		const tag = motifTags(g.fenBefore, g.bestUci, g.bestPv ?? [g.bestUci], g.bestMate)[0];
+		if (tag === 'material') return { kind: 'missed material', motif: tag };
+		if (tag) return { kind: `missed a ${tag}`, motif: tag };
+		if (t.includes('loses a pawn')) return { kind: 'dropped a pawn' };
+		if (t.includes('loses material')) return { kind: 'lost material' };
+		return { kind: 'went astray' };
+	}
+	const gameRecap = $derived.by(() => {
+		if (!game.isGameOver || mode !== 'play' || moveHistory.length === 0) return null;
+		const humanSide = botEnabled ? (botColor === 'w' ? 'b' : 'w') : null;
+		const mine = moveHistory.filter((g) => (!humanSide || g.color === humanSide) && g.label);
+		if (mine.length === 0) return null;
+		const missed = mine.filter((g) => g.label === 'mistake' || g.label === 'blunder');
+		const kinds = new Map<string, number>();
+		let drillMotif: string | null = null;
+		for (const g of missed) {
+			const { kind, motif } = lapseKind(g);
+			kinds.set(kind, (kinds.get(kind) ?? 0) + 1);
+			if (!drillMotif && motif && practiceItems.some((i) => i.motifs?.includes(motif))) {
+				drillMotif = motif;
+			}
+		}
+		// the game-ending move is never graded (analysis stops at game over), so
+		// "clean game" would be a lie when the ungraded final move was the throw
+		const lastMine = humanSide
+			? moveHistory.findLast((g) => g.color === humanSide)
+			: moveHistory.at(-1);
+		return {
+			missed: missed.length,
+			kinds: [...kinds.entries()].sort((a, b) => b[1] - a[1]),
+			drillMotif,
+			fullyGraded: !!lastMine?.label
+		};
+	});
+	function drillMissed(motif: string) {
+		practiceMotif = motif;
+		startPractice();
+	}
 
 	// your W–L–D per persona, from the archive (display only — the rating fit
 	// applies its own exclusions in playerElo.ts)
@@ -853,6 +911,7 @@
 		attemptGrade = null;
 		lineNote = null;
 		revealBest = false;
+		practiceMotif = null; // a drill's filter must not silently narrow later sessions
 		handleReset();
 	}
 
@@ -1651,7 +1710,24 @@
 		{#snippet gameOverNote()}
 			{#if game.isGameOver}
 				<div class="game-over">
-					Game over: {game.result}
+					<div>Game over: {game.result}</div>
+					{#if gameRecap}
+						{#if gameRecap.missed > 0}
+							<div class="recap">
+								{gameRecap.missed}
+								{gameRecap.missed === 1 ? 'lapse' : 'lapses'}:
+								{gameRecap.kinds.map(([k, n]) => (n > 1 ? `${k} ×${n}` : k)).join(' · ')}
+							</div>
+							{#if gameRecap.drillMotif}
+								{@const motif = gameRecap.drillMotif}
+								<button class="drill" onclick={() => drillMissed(motif)}>
+									Drill: {motif} ▸
+								</button>
+							{/if}
+						{:else if gameRecap.fullyGraded}
+							<div class="recap">No mistakes or blunders — a clean game.</div>
+						{/if}
+					{/if}
 				</div>
 			{/if}
 		{/snippet}
@@ -1676,7 +1752,7 @@
 		{/snippet}
 
 		{#if isNarrow}
-			<BottomSheet bind:detent={sheetDetent} peek={SHEET_PEEK}>
+			<BottomSheet bind:detent={sheetDetent} peek={sheetPeek}>
 				{#snippet header()}
 					<!-- the move → verdict loop survives at peek height: last graded
 					     move on one line, board still fully visible above -->
@@ -1688,23 +1764,28 @@
 								if (sheetDetent === 'peek') sheetDetent = 'half';
 							}}
 						>
-							{#if lastGrade}
-								<span class="gs-san">{lastGrade.san}</span>
-								{#if lastGrade.label}
-									<span class="gs-verdict" style:color={CLASS[lastGrade.label].color}>
-										{CLASS[lastGrade.label].glyph}
-										{CLASS[lastGrade.label].noun}
-									</span>
+							<span class="gs-row">
+								{#if lastGrade}
+									<span class="gs-san">{lastGrade.san}</span>
+									{#if lastGrade.label}
+										<span class="gs-verdict" style:color={CLASS[lastGrade.label].color}>
+											{CLASS[lastGrade.label].glyph}
+											{CLASS[lastGrade.label].noun}
+										</span>
+									{:else}
+										<span class="gs-verdict muted">grading…</span>
+									{/if}
+									{#if lastGrade.pctBest !== null}
+										<span class="gs-pct">{Math.round(lastGrade.pctBest)}% of best</span>
+									{/if}
 								{:else}
-									<span class="gs-verdict muted">grading…</span>
+									<span class="gs-verdict muted">
+										{botEnabled ? 'your moves are graded as you play' : 'play a move to see its grade'}
+									</span>
 								{/if}
-								{#if lastGrade.pctBest !== null}
-									<span class="gs-pct">{Math.round(lastGrade.pctBest)}% of best</span>
-								{/if}
-							{:else}
-								<span class="gs-verdict muted">
-									{botEnabled ? 'your moves are graded as you play' : 'play a move to see its grade'}
-								</span>
+							</span>
+							{#if lastGradeNote}
+								<span class="gs-note">{lastGradeNote}</span>
 							{/if}
 						</button>
 					{/if}
@@ -1994,8 +2075,9 @@
 	   then the view tabs — all visible at peek height */
 	.grade-strip {
 		display: flex;
-		align-items: baseline;
-		gap: 8px;
+		flex-direction: column;
+		align-items: stretch;
+		gap: 2px;
 		width: 100%;
 		background: transparent;
 		border: none;
@@ -2004,6 +2086,18 @@
 		text-align: left;
 		cursor: pointer;
 		box-sizing: border-box;
+	}
+	.gs-row {
+		display: flex;
+		align-items: baseline;
+		gap: 8px;
+	}
+	.gs-note {
+		font-size: 11.5px;
+		color: var(--text-secondary);
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
 	}
 	.gs-san {
 		font-weight: 700;
@@ -2122,6 +2216,23 @@
 		background: var(--bg-panel);
 		border-radius: 6px;
 		color: var(--color-win);
+	}
+	.game-over .recap {
+		margin-top: 6px;
+		font-size: 13px;
+		font-weight: 400;
+		color: var(--text-secondary);
+	}
+	.game-over .drill {
+		margin-top: 8px;
+		padding: 5px 14px;
+		border: 1px solid var(--border);
+		border-radius: 6px;
+		background: var(--bg-button);
+		color: var(--text-primary);
+		font-size: 13px;
+		font-weight: 600;
+		cursor: pointer;
 	}
 	.practice-note {
 		background: var(--bg-panel);

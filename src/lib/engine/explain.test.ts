@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import {
+	bestMovePoint,
 	discoveredPoint,
 	explainGoodMove,
 	explainMove,
 	materialOverLine,
 	motifTags,
 	pinOrSkewerPoint,
+	promotionPoint,
+	sacrificeStory,
 	summarizeLine,
 	trappedPoint
 } from './explain';
@@ -112,11 +115,20 @@ describe('pinOrSkewerPoint', () => {
 	});
 
 	it('pins a pawn against an UNDEFENDED knight — the capture behind pays', () => {
-		// diagonal ray, so the pawn's push would genuinely expose the knight
-		const fen = '7k/8/4n3/3p4/8/8/8/5B1K w - - 0 1';
-		expect(pinOrSkewerPoint(fen, 'f1c4')).toBe(
-			'Bc4 pins the pawn on d5 against the knight on e6.'
+		// diagonal ray, so the pawn's push would genuinely expose the knight.
+		// (The pinner sits on b3, out of the pawn's reach — the old fixture put
+		// it on c4 where dxc4 just wins the bishop, which is no pin at all.)
+		const fen = '7k/8/4n3/3p4/8/8/2B5/7K w - - 0 1';
+		expect(pinOrSkewerPoint(fen, 'c2b3')).toBe(
+			'Bb3 pins the pawn on d5 against the knight on e6.'
 		);
+	});
+
+	it('does not call it a pin when the pinned piece just takes the pinner', () => {
+		// lichess 0XocP-style: Rxd8 "pins" the e8 rook against the king, but the
+		// pinner is undefended — Rxd8 in reply simply removes it
+		const fen = '3rr1k1/8/8/8/8/8/8/3R3K w - - 0 1';
+		expect(pinOrSkewerPoint(fen, 'd1d8')).toBeUndefined();
 	});
 
 	it('never calls a pawn on a file-ray pinned — its pushes stay on the ray', () => {
@@ -298,5 +310,209 @@ describe('explainGoodMove', () => {
 		// back-rank: 1.f3 e5 2.g4 and black to play Qh4#
 		const fen = 'rnbqkbnr/pppp1ppp/8/4p3/6P1/5P2/PPPPP2P/RNBQKBNR b KQkq - 0 2';
 		expect(explainGoodMove(fen, 'd8h4', ['d8h4'], 1)?.text).toBe('Qh4# is checkmate.');
+	});
+
+	it('says checkmate even when engine mate info is missing', () => {
+		const fen = 'rnbqkbnr/pppp1ppp/8/4p3/6P1/5P2/PPPPP2P/RNBQKBNR b KQkq - 0 2';
+		expect(explainGoodMove(fen, 'd8h4', ['d8h4'], null)?.text).toBe('Qh4# is checkmate.');
+	});
+});
+
+// Puzzle-audit regressions (explain-audit.mts vs lichess themes): the
+// geometric detectors used to narrate side facts about mating moves —
+// "Qxh7# traps the knight on d5" is true and absurd. A move that mates ends
+// the game; only the mate claim stands.
+describe('mating moves stay silent in the motif detectors', () => {
+	// lichess bEOuz: Qxh7# — the knight on d5 really is trapped, but who cares
+	const QXH7 = 'r2q1rk1/pppn1ppp/3b4/3n2N1/2BP1pb1/3Q4/PPP3PP/R1B2RK1 w - - 0 12';
+	// lichess TUczR: Qxf7# — geometrically pins the c7 pawn against the b7 bishop
+	const F7 = 'r2qkb1r/pbp2ppp/1p2pn2/3pN2Q/8/1P2P3/PBPP1PPP/RN2K2R w KQkq - 2 9';
+	// lichess NywjU: Rd1# — "forks" the c1 bishop and the g1 king
+	const BACKRANK = '4r1k1/p2r3p/2p3p1/4p3/1P3p1Q/P6R/5PPP/2B3K1 b - - 0 33';
+
+	it('trappedPoint stays quiet on a mating move', () => {
+		expect(trappedPoint(QXH7, 'd3h7')).toBeUndefined();
+	});
+
+	it('pinOrSkewerPoint stays quiet on a mating move', () => {
+		expect(pinOrSkewerPoint(F7, 'h5f7')).toBeUndefined();
+	});
+
+	it('motifTags returns only mate facts, detected from the board itself', () => {
+		expect(motifTags(BACKRANK, 'd7d1', ['d7d1'], null)).toEqual(['mate', 'back-rank mate']);
+		expect(motifTags(QXH7, 'd3h7', ['d3h7'], null)).toEqual(['mate']);
+	});
+
+	it('motifTags drops restraint side facts on the first move of a longer mate', () => {
+		// lichess p6sNk: Rd1+ starts mate in 2 — and incidentally "traps" the b2
+		// rook, which must not become the drill tag
+		const fen = '3k4/p2r2p1/Pp3p2/4b2p/8/4Q3/1R3PPP/6K1 b - - 0 33';
+		expect(motifTags(fen, 'd7d1', ['d7d1', 'e3e1', 'd1e1'], 2)).toEqual([
+			'mate',
+			'back-rank mate'
+		]);
+	});
+
+	it('motifTags keeps the move-own-action tag inside a mate line', () => {
+		// lichess Gfes3: Ra1+ genuinely forks the a7 bishop and the king while
+		// starting mate in 3 — a fine fork drill, cook.py co-tags it too
+		const fen = '3R1bk1/B4p1p/2B3p1/8/4b3/4R1P1/r4P1P/6K1 b - - 0 23';
+		const tags = motifTags(fen, 'a2a1', ['a2a1', 'd8d1', 'a1d1', 'e3e1', 'd1e1'], 3);
+		expect(tags).toContain('mate');
+		expect(tags).toContain('fork');
+		expect(tags).not.toContain('trapped piece');
+	});
+
+	it('bestMovePoint reports the mate instead of a side motif', () => {
+		expect(bestMovePoint(QXH7, 'd3h7', ['d3h7'])).toBe('Qxh7# is checkmate.');
+	});
+
+	it('check that is NOT mate still gets its motif', () => {
+		// Nc7+ forking king and queen — the classic royal fork
+		const fen = 'q3k3/8/8/1N6/8/8/8/4K3 w - - 0 1';
+		expect(motifTags(fen, 'b5c7', ['b5c7'], null)).toContain('fork');
+	});
+});
+
+describe('mate patterns, promotion, sacrifice', () => {
+	it('names a back-rank mate', () => {
+		// lichess NywjU: Rd1# against a king boxed in by f2/g2/h2
+		const fen = '4r1k1/p2r3p/2p3p1/4p3/1P3p1Q/P6R/5PPP/2B3K1 b - - 0 33';
+		expect(bestMovePoint(fen, 'd7d1', ['d7d1'])).toBe(
+			'Rd1# is checkmate — a back-rank mate.'
+		);
+	});
+
+	it('names a smothered mate', () => {
+		// Philidor's finish: Nf7# against a king boxed in by its own rook and pawns
+		const fen = '6rk/6pp/8/6N1/8/8/8/6K1 w - - 0 1';
+		expect(bestMovePoint(fen, 'g5f7', ['g5f7'])).toBe('Nf7# is checkmate — a smothered mate.');
+		expect(motifTags(fen, 'g5f7', ['g5f7'], null)).toEqual(['mate', 'smothered mate']);
+	});
+
+	it('does not call it back-rank when the escape squares are merely covered, not blocked', () => {
+		// ladder mate: Re8# with g7/h7 EMPTY (covered by the b7 rook) — a mate,
+		// but not the trapped-behind-your-own-pawns pattern
+		const fen = '7k/1R6/8/8/8/8/8/K3R3 w - - 0 1';
+		expect(bestMovePoint(fen, 'e1e8', ['e1e8'])).toBe('Re8# is checkmate.');
+	});
+
+	it('narrates a line that promotes', () => {
+		// lichess vsPvD: Rxb8 Rxb8 c2 Rd8 c1=Q — previously narrated as bare
+		// material, but the point is the new queen
+		const fen = 'RQ6/5pk1/4b2p/5p2/5P2/2p2BKP/1r4P1/8 b - - 0 40';
+		expect(bestMovePoint(fen, 'b2b8', ['b2b8', 'a8b8', 'c3c2', 'b8d8', 'c2c1q'])).toBe(
+			'Rxb8 Rxb8 c2 Rd8 c1=Q makes a new queen.'
+		);
+	});
+
+	it('no promotion claim when the new piece is immediately captured', () => {
+		// e8=Q Rxe8 is just a trade, not a new queen
+		const fen = '3r4/4P3/8/8/8/8/8/k3K3 w - - 0 1';
+		expect(promotionPoint(fen, ['e7e8q', 'd8e8'])).toBeUndefined();
+	});
+
+	it('tells the queen-sacrifice mate story', () => {
+		// Qxd8! Rxd8 Rxd8# — give the queen, mate on the back rank (queen and
+		// rook batteried on the d-file)
+		const fen = '3r1rk1/5ppp/8/8/8/8/3Q4/3R2K1 w - - 0 1';
+		const pv = ['d2d8', 'f8d8', 'd1d8'];
+		const out = explainMove({
+			fenBefore: fen,
+			playedUci: 'g1h1',
+			refutationPv: [],
+			bestUci: 'd2d8',
+			bestPv: pv,
+			playedMate: null,
+			bestMate: 2,
+			isBest: false
+		});
+		expect(out.bestPoint).toBe(
+			'Qxd8 sacrifices the queen and forces mate in 2 — a back-rank mate.'
+		);
+		expect(motifTags(fen, 'd2d8', pv, 2)).toEqual(['mate', 'back-rank mate', 'sacrifice']);
+	});
+
+	it('tells a material sacrifice story without engine mate info', () => {
+		expect(sacrificeStory('3r1rk1/5ppp/8/8/8/8/3Q4/3R2K1 w - - 0 1', ['d2d8', 'f8d8', 'd1d8']))
+			.toMatchObject({ piece: 'queen', mates: true });
+	});
+
+	it('uncovers a discovered attack on an EQUAL but undefended piece', () => {
+		// Ne3 clears the d-file: rook d1 hits the undefended rook d8
+		const fen = '3r3k/8/8/3N4/8/8/8/3R2K1 w - - 0 1';
+		expect(discoveredPoint(fen, 'd5e3')).toBe(
+			"Ne3 uncovers the rook on d1's attack on the rook on d8."
+		);
+	});
+});
+
+describe('the one-pawn material tier', () => {
+	it('names a clean pawn loss (the modal amateur mistake)', () => {
+		// d3?? just feeds the d-pawn to exd3, with quiet play after
+		const fen = 'k7/8/8/8/4p3/8/3P4/K7 w - - 0 1';
+		const out = explainMove({
+			fenBefore: fen,
+			playedUci: 'd2d3',
+			refutationPv: ['e4d3', 'a1b1', 'a8b8'],
+			bestUci: 'a1b1',
+			bestPv: ['a1b1'],
+			playedMate: null,
+			bestMate: null,
+			isBest: false
+		});
+		expect(out.playedIssue).toMatch(/^This loses a pawn — after .*, you're a pawn down\.$/);
+	});
+
+	it('says the best move wins a pawn', () => {
+		// exd5 grabs the pawn; quiet play follows, nothing recaptures
+		const fen = 'k7/8/8/3p4/4P3/8/8/K7 w - - 0 1';
+		expect(bestMovePoint(fen, 'e4d5', ['e4d5', 'a8b7', 'a1b1'])).toMatch(
+			/^Instead, exd5.* wins a pawn\.$/
+		);
+	});
+});
+
+// Adversarial-review regressions: positions where earlier versions of the
+// detectors produced prose that LIED about the position.
+describe('claims that used to lie', () => {
+	it('a promotion trade is not a queen sacrifice', () => {
+		// c8=Q Rxc8 Rxc8+ invests a pawn and wins a rook — the old net treated
+		// Rxc8 as a −9 queen sacrifice because promotions went uncounted
+		const fen = '3r3k/2P5/8/8/8/8/8/2R4K w - - 0 1';
+		const pv = ['c7c8q', 'd8c8', 'c1c8', 'h8h7'];
+		expect(sacrificeStory(fen, pv)).toBeUndefined();
+		expect(bestMovePoint(fen, 'c7c8q', pv)).toContain('wins 4 points of material');
+	});
+
+	it('queen-for-rook-and-knight (net −1) is not "a pawn"', () => {
+		// Qxd5?? Rxd5 Rxd5 sums to −1 with no pawn anywhere in the line
+		const fen = '3r3k/8/8/3n3Q/8/8/8/3R3K w - - 0 1';
+		const out = explainMove({
+			fenBefore: fen,
+			playedUci: 'h5d5',
+			refutationPv: ['d8d5', 'd1d5', 'h8g8'],
+			bestUci: 'd1d2',
+			bestPv: ['d1d2'],
+			playedMate: null,
+			bestMate: null,
+			isBest: false
+		});
+		expect(out.playedIssue).toContain('a point down');
+		expect(out.playedIssue).not.toContain('pawn');
+	});
+
+	it('no "new queen" claim when the promoted piece dies later in the window', () => {
+		// e8=Q Ka7 Qd8 Rxd8 — the queen moves away and is then captured; the
+		// old tracker stopped following once it moved
+		const fen = 'k1r5/4P3/8/8/8/8/8/6K1 w - - 0 1';
+		expect(promotionPoint(fen, ['e7e8q', 'a8a7', 'e8d8', 'c8d8'])).toBeUndefined();
+	});
+
+	it('no pin claim when the only "defender" of the pinner is itself pinned', () => {
+		// Rd3 blocks the queen check; Qxd3+ just wins the rook because Be2 is
+		// absolutely pinned by Bh5 and cannot legally recapture
+		const fen = '3k4/8/8/3q3b/8/7R/4B3/3K4 w - - 0 1';
+		expect(pinOrSkewerPoint(fen, 'h3d3')).toBeUndefined();
 	});
 });
