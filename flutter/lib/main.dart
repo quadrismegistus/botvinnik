@@ -7,8 +7,6 @@
 // restarts — cold-start the app after touching engine code.
 
 import 'package:dartchess/dartchess.dart';
-import 'dart:math' as math;
-
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -32,6 +30,7 @@ import 'ui/games_list.dart';
 import 'ui/grade_strip.dart';
 import 'ui/insight_card.dart';
 import 'ui/keyboard.dart';
+import 'ui/layout.dart';
 import 'ui/lines_pane.dart';
 import 'ui/lines_tree_pane.dart';
 import 'ui/move_list.dart';
@@ -78,7 +77,7 @@ class _BootGateState extends State<BootGate> {
   // a hang anywhere in boot would otherwise show a spinner forever; the
   // FutureBuilder already renders errors
   late final Future<_Booted> _boot = _start().timeout(
-    const Duration(seconds: 45),
+    const Duration(seconds: 75), // engine readiness alone allows 45
     onTimeout: () => throw StateError('boot timed out'),
   );
 
@@ -421,16 +420,22 @@ class _PlayTabState extends State<PlayTab> {
   /// Phone: board on top, panel scrolling beneath it. Desktop: the board
   /// can't just take the full width — it would push everything off the
   /// bottom — so it sits left, capped to the window height, panel alongside.
-  static const double _wideBreakpoint = 720;
+  static const double _wideBreakpoint = kWideBreakpoint;
 
   @override
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
         if (constraints.maxWidth < _wideBreakpoint) {
+          // The board is square and was taking the full width, which is right
+          // on a phone — where height is plentiful — and overflows a desktop
+          // window that is narrow AND short. Cap it by what is left after the
+          // strip, the view bar and enough panel to be worth showing.
+          final board =
+              narrowBoardSize(constraints.maxWidth, constraints.maxHeight);
           return Column(
             children: [
-              const BoardPane(),
+              Center(child: SizedBox(width: board, child: const BoardPane())),
               const GradeStrip(),
               _viewRow(),
               Expanded(child: _panel()),
@@ -441,10 +446,8 @@ class _PlayTabState extends State<PlayTab> {
         // to the WIDTH share only — flooring the height too would overflow a
         // window dragged short.
         final settings = context.watch<SettingsStore>();
-        final boardSize = math.min(
-          math.max(240.0, constraints.maxWidth * settings.split),
-          math.max(120.0, constraints.maxHeight - 56),
-        );
+        final boardSize = wideBoardSize(
+            constraints.maxWidth, constraints.maxHeight, settings.split);
         return Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
