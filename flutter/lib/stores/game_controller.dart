@@ -22,6 +22,7 @@ import '../db/app_db.dart';
 import '../engine/arbiter.dart';
 import 'lines_tree_model.dart';
 import 'practice_controller.dart';
+import 'redo_stack.dart';
 import 'settings_store.dart';
 
 class MoveRecord {
@@ -157,10 +158,10 @@ class GameController extends ChangeNotifier {
     _maybeBotTurn();
   }
 
-  /// Moves taken off by undo, newest last, so redo can put them back exactly
-  /// as they were — including their grades, which cost engine time to earn.
-  /// Any new move discards them, as everywhere else.
-  final List<MoveRecord> _redoStack = [];
+  /// Moves taken off by undo, in game order, so redo can put them back
+  /// exactly as they were — including their grades, which cost engine time
+  /// to earn. Any new move discards them (see _apply).
+  final RedoStack _redoStack = RedoStack();
 
   bool get canUndo => moves.isNotEmpty && !botThinking;
   bool get canRedo => _redoStack.isNotEmpty && !botThinking;
@@ -181,8 +182,8 @@ class GameController extends ChangeNotifier {
     } else {
       undone.add(moves.removeLast());
     }
-    // collected newest-first above; store oldest-first so redo replays forward
-    _redoStack.addAll(undone.reversed);
+    // prepended: this batch is OLDER than anything a previous undo stored
+    _redoStack.pushUndone(undone);
     final fen = moves.isEmpty ? Chess.initial.fen : moves.last.fenAfter;
     position = Chess.fromSetup(Setup.parseFen(fen));
     lastMove =
@@ -203,14 +204,8 @@ class GameController extends ChangeNotifier {
     _gen++;
     _arbiter.bumpGeneration();
     // one undo's worth: the player move and the bot's reply that sat on it
-    final restore = <MoveRecord>[];
-    restore.add(_redoStack.removeAt(0));
-    if (botEnabled) {
-      while (_redoStack.isNotEmpty && _redoStack.first.color != playerColor) {
-        restore.add(_redoStack.removeAt(0));
-      }
-    }
-    moves.addAll(restore);
+    moves.addAll(_redoStack.takeBatch(
+        botEnabled: botEnabled, playerColor: playerColor));
     position = Chess.fromSetup(Setup.parseFen(moves.last.fenAfter));
     lastMove = NormalMove.fromUci(moves.last.uci);
     _threat = null;
@@ -240,6 +235,9 @@ class GameController extends ChangeNotifier {
 
   void _apply(NormalMove move, String san) {
     stopPreview();
+    // a new move makes the undone future unreachable — without this, redo
+    // after a divergent move replayed a stale record onto the wrong position
+    _redoStack.clear();
     final fenBefore = position.fen;
     position = position.playUnchecked(move);
     lastMove = move;
