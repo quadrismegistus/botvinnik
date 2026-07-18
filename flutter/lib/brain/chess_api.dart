@@ -25,4 +25,24 @@ class ChessApi {
 
   bool isCapture(String fen, String uci) =>
       _bridge.call('isCapture', args: [fen, uci]) as bool;
+
+  // ---- board overlays ----
+
+  /// Where to point the null-move threat probe, or null when the position
+  /// can't carry a threat (in check / game over).
+  String? threatProbeFen(String fen) =>
+      _bridge.call('threatProbeFen', args: [fen]) as String?;
+
+  /// The material judgment on the probe's top line. Returns
+  /// {fen, uci, san, gain} or null when the "threat" doesn't win material.
+  /// A mate threat arrives with gain == null (Infinity doesn't survive JSON).
+  Map<String, dynamic>? judgeThreat(String fen, Map<String, dynamic> bestLine) {
+    final r = _bridge.call('judgeThreat', args: [fen, bestLine]);
+    return r == null ? null : (r as Map).cast<String, dynamic>();
+  }
+
+  /// Square-control tint: {square: 'w'|'b'} for squares one side owns.
+  Map<String, String> controlSquares(String fen) =>
+      (_bridge.call('controlSquares', args: [fen]) as Map)
+          .cast<String, String>();
 }

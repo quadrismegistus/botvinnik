@@ -31,7 +31,14 @@ class _LinesPaneState extends State<LinesPane> {
       _cacheFen = fen;
       _sanCache.clear();
     }
-    final lines = game.currentLines;
+    if (game.blind && game.botEnabled) {
+      return const Padding(
+        padding: EdgeInsets.all(14),
+        child: Text('Blind mode — no engine help until the game ends.',
+            style: TextStyle(color: Colors.white38, fontSize: 13)),
+      );
+    }
+    final lines = game.visibleLines;
 
     if (lines.isEmpty) {
       return const Padding(

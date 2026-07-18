@@ -40,11 +40,13 @@ type Analyze = (
 	movetimeMs?: number
 ) => Promise<EngineResult>;
 
-export async function findThreat(
-	fen: string,
-	analyze: Analyze,
-	opts: { depth?: number; movetimeMs?: number } = {}
-): Promise<Threat | null> {
+/**
+ * Where to point the null-move probe for [fen] — or null when the position
+ * can't carry a threat (game over, in check, illegal flip). Split out so a
+ * caller that owns its own engine (the Flutter app, over the JS bridge) can
+ * run the search itself and hand the top line to [judgeThreat].
+ */
+export function threatProbeFen(fen: string): string | null {
 	let base: Chess;
 	try {
 		base = new Chess(fen);
@@ -57,17 +59,25 @@ export async function findThreat(
 
 	const nullFen = nullMoveFen(fen);
 	if (!nullFen) return null;
-	let flipped: Chess;
 	try {
-		flipped = new Chess(nullFen);
+		if (new Chess(nullFen).inCheck()) return null;
 	} catch {
 		return null; // chess.js rejects an illegal flip (shouldn't happen from a legal, check-free position)
 	}
-	if (flipped.inCheck()) return null;
+	return nullFen;
+}
 
-	const res = await analyze(nullFen, opts.depth ?? 14, () => {}, opts.movetimeMs ?? 500);
-	const best = res.moves[0];
-	if (!best || best.pv.length === 0) return null;
+/**
+ * The material judgment on a null-move probe's top line: a real threat only
+ * when the free move mates or wins at least a pawn once the exchange
+ * settles. Pure — callable across the JS bridge.
+ */
+export function judgeThreat(
+	fen: string,
+	best: { pv: string[]; mate: number | null } | null | undefined
+): Threat | null {
+	const nullFen = threatProbeFen(fen);
+	if (!nullFen || !best || best.pv.length === 0) return null;
 
 	// mate for the threatening side (side to move in the flipped position)
 	if (best.mate !== null && best.mate > 0) {
@@ -86,6 +96,17 @@ export async function findThreat(
 	if (net < MIN_GAIN) return null;
 
 	return { fen, uci: best.pv[0], san: getSan(nullFen, best.pv[0]) ?? best.pv[0], gain: net };
+}
+
+export async function findThreat(
+	fen: string,
+	analyze: Analyze,
+	opts: { depth?: number; movetimeMs?: number } = {}
+): Promise<Threat | null> {
+	const nullFen = threatProbeFen(fen);
+	if (!nullFen) return null;
+	const res = await analyze(nullFen, opts.depth ?? 14, () => {}, opts.movetimeMs ?? 500);
+	return judgeThreat(fen, res.moves[0]);
 }
 
 // what a lone capture nets when the line ends before the exchange settles:

@@ -20,6 +20,27 @@ class SettingsTab extends StatelessWidget {
     return ListView(
       padding: const EdgeInsets.symmetric(vertical: 8),
       children: [
+        const _SectionLabel('Board'),
+        SwitchListTile(
+          dense: true,
+          title: const Text('Threat arrow'),
+          subtitle: const Text(
+            'What the opponent would do with a free move, when it wins material.',
+            style: TextStyle(fontSize: 11.5, color: Colors.white38),
+          ),
+          value: settings.showThreats,
+          onChanged: (v) => settings.showThreats = v,
+        ),
+        SwitchListTile(
+          dense: true,
+          title: const Text('Square control'),
+          subtitle: const Text(
+            'Tint squares each side safely controls — green yours, red theirs.',
+            style: TextStyle(fontSize: 11.5, color: Colors.white38),
+          ),
+          value: settings.showControl,
+          onChanged: (v) => settings.showControl = v,
+        ),
         const _SectionLabel('Practice'),
         ListTile(
           dense: true,

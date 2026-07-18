@@ -89,7 +89,11 @@ class _LinesTreePaneState extends State<LinesTreePane> {
                   MediaQuery.of(context).size.width,
                 ].reduce(max),
                 _kHeight),
-            painter: _TreePainter(tree, playable.keys.toSet()),
+            painter: _TreePainter(tree,
+                game.blind && game.botEnabled
+                    ? const {}
+                    : playable.keys.toSet(),
+                hideCurrent: game.blind && game.botEnabled),
           ),
         ),
       ),
@@ -100,8 +104,10 @@ class _LinesTreePaneState extends State<LinesTreePane> {
 class _TreePainter extends CustomPainter {
   final LinesTreeModel tree;
   final Set<String> playable;
+  final bool hideCurrent; // blind: the past stays, the present won't hint
   final int version;
-  _TreePainter(this.tree, this.playable) : version = tree.version;
+  _TreePainter(this.tree, this.playable, {this.hideCurrent = false})
+      : version = tree.version;
 
   Color _qualityColor(double pctBest) {
     final v = pctBest.clamp(0.0, 100.0);
@@ -118,6 +124,9 @@ class _TreePainter extends CustomPainter {
       if (from == null || to == null) continue;
       final onPath = tree.pathKeys.contains(entry.key);
       final live = tree.liveKeys.contains(entry.key);
+      if (hideCurrent && live && !onPath && l.anchor == tree.anchorId) {
+        continue; // blind mode: no hints anchored at the current position
+      }
 
       final p0 = Offset(from.x + kNodeW / 2, from.y);
       final p1 = Offset(to.x - kNodeW / 2, to.y);

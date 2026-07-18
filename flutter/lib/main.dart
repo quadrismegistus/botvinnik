@@ -265,6 +265,19 @@ class _AppShellState extends State<AppShell> {
               tooltip: 'Undo',
             ),
             IconButton(
+              onPressed: () {
+                final s = context.read<SettingsStore>();
+                s.blind = !s.blind;
+              },
+              icon: Icon(game.blind
+                  ? Icons.visibility_off
+                  : Icons.visibility_outlined),
+              color: game.blind ? const Color(0xFF81B64C) : null,
+              tooltip: game.blind
+                  ? 'Blind mode on — no engine help'
+                  : 'Blind mode off',
+            ),
+            IconButton(
               onPressed: () => showNewGameSheet(context),
               icon: const Icon(Icons.add_box_outlined),
               tooltip: 'New game',

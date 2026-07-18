@@ -14,9 +14,13 @@ class SettingsStore extends ChangeNotifier {
   String _playerColor; // 'w' | 'b' — the side the HUMAN plays
   bool _botEnabled; // false = analysis board (you move both sides)
   int _collectThreshold; // practice serves puzzles with drop ≥ this
+  bool _blind; // no forward-looking engine help while playing
+  bool _showThreats; // opponent-threat arrow (null-move probe)
+  bool _showControl; // square-control tint
 
   SettingsStore._(this._prefs, this._personaId, this._playerColor,
-      this._botEnabled, this._collectThreshold);
+      this._botEnabled, this._collectThreshold, this._blind, this._showThreats,
+      this._showControl);
 
   static Future<SettingsStore> load() async {
     final prefs = await SharedPreferences.getInstance();
@@ -38,13 +42,45 @@ class SettingsStore extends ChangeNotifier {
         int.tryParse(prefs.getString('botvinnik-collect-threshold') ?? '') ??
             15;
     return SettingsStore._(
-        prefs, personaId, playerColor, botEnabled, threshold);
+      prefs,
+      personaId,
+      playerColor,
+      botEnabled,
+      threshold,
+      prefs.getString('botvinnik-blind') == '1',
+      prefs.getString('botvinnik-threats') == '1',
+      prefs.getString('botvinnik-control') == '1',
+    );
   }
 
   String get personaId => _personaId;
   String get playerColor => _playerColor;
   bool get botEnabled => _botEnabled;
   int get collectThreshold => _collectThreshold;
+  bool get blind => _blind;
+  bool get showThreats => _showThreats;
+  bool get showControl => _showControl;
+
+  set blind(bool on) {
+    if (on == _blind) return;
+    _blind = on;
+    _prefs.setString('botvinnik-blind', on ? '1' : '0');
+    notifyListeners();
+  }
+
+  set showThreats(bool on) {
+    if (on == _showThreats) return;
+    _showThreats = on;
+    _prefs.setString('botvinnik-threats', on ? '1' : '0');
+    notifyListeners();
+  }
+
+  set showControl(bool on) {
+    if (on == _showControl) return;
+    _showControl = on;
+    _prefs.setString('botvinnik-control', on ? '1' : '0');
+    notifyListeners();
+  }
 
   set personaId(String id) {
     if (id == _personaId) return;

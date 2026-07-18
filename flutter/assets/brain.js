@@ -39,6 +39,7 @@ var brain = (() => {
     botEloMin: () => botEloMin,
     botRecipe: () => botRecipe,
     botSpec: () => botSpec,
+    controlSquares: () => controlSquares,
     dueCount: () => dueCount,
     enPassantSetup: () => enPassantSetup,
     estimatePlayerElo: () => estimatePlayerElo,
@@ -53,6 +54,7 @@ var brain = (() => {
     gradeMove: () => gradeMove,
     isCapture: () => isCapture,
     itemDataFromStoredMove: () => itemDataFromStoredMove,
+    judgeThreat: () => judgeThreat,
     labelCounts: () => labelCounts,
     masteryStats: () => masteryStats,
     motifTags: () => motifTags,
@@ -74,6 +76,7 @@ var brain = (() => {
     shapedSearchDepth: () => shapedSearchDepth,
     shapedStrengthRange: () => shapedStrengthRange,
     specToRecipe: () => specToRecipe,
+    threatProbeFen: () => threatProbeFen,
     whitePovWinChance: () => whitePovWinChance,
     winChance: () => winChance
   });
@@ -4988,6 +4991,134 @@ var brain = (() => {
     "blunder"
   ];
 
+  // src/lib/engine/threats.ts
+  function nullMoveFen(fen) {
+    const parts = fen.split(" ");
+    if (parts.length < 4) return null;
+    parts[1] = parts[1] === "w" ? "b" : "w";
+    parts[3] = "-";
+    if (parts[4] !== void 0) parts[4] = "0";
+    return parts.join(" ");
+  }
+  var MIN_GAIN = 1;
+  function threatProbeFen(fen) {
+    let base;
+    try {
+      base = new Chess(fen);
+    } catch {
+      return null;
+    }
+    if (base.isGameOver() || base.inCheck()) return null;
+    const nullFen = nullMoveFen(fen);
+    if (!nullFen) return null;
+    try {
+      if (new Chess(nullFen).inCheck()) return null;
+    } catch {
+      return null;
+    }
+    return nullFen;
+  }
+  function judgeThreat(fen, best) {
+    const nullFen = threatProbeFen(fen);
+    if (!nullFen || !best || best.pv.length === 0) return null;
+    if (best.mate !== null && best.mate > 0) {
+      return { fen, uci: best.pv[0], san: getSan(nullFen, best.pv[0]) ?? best.pv[0], gain: Infinity };
+    }
+    const quiet = quietMaterialOverLine(nullFen, best.pv);
+    const net = quiet.plies > 0 ? quiet.net : staticFirstCaptureGain(nullFen, best.pv[0]);
+    if (net < MIN_GAIN) return null;
+    return { fen, uci: best.pv[0], san: getSan(nullFen, best.pv[0]) ?? best.pv[0], gain: net };
+  }
+  function staticFirstCaptureGain(fen, uci) {
+    const c = new Chess(fen);
+    const victimSq = uci.slice(2, 4);
+    const victim = c.get(victimSq);
+    const capturer = c.get(uci.slice(0, 2));
+    if (!victim || !capturer || victim.color === capturer.color) return 0;
+    if (c.attackers(victimSq, victim.color).length === 0) return PIECE_VAL[victim.type];
+    return PIECE_VAL[victim.type] - PIECE_VAL[capturer.type];
+  }
+
+  // src/lib/engine/control.ts
+  var KING_V = 100;
+  function pieceVal(t) {
+    return t === "k" ? KING_V : PIECE_VAL[t];
+  }
+  function see(target, atts, defs) {
+    if (atts.length === 0) return 0;
+    const [a, ...rest] = atts;
+    if (a === KING_V && defs.length > 0) return 0;
+    return Math.max(0, target - see(a, defs, rest));
+  }
+  function attackerVals(c, sq, by) {
+    return c.attackers(sq, by).map((s) => pieceVal(c.get(s)?.type ?? "k")).sort((x, y) => x - y);
+  }
+  function bestNets(c) {
+    const side = c.turn();
+    const opp = side === "w" ? "b" : "w";
+    const out = /* @__PURE__ */ new Map();
+    for (const m of c.moves({ verbose: true })) {
+      const gain = m.captured ? PIECE_VAL[m.captured] : 0;
+      try {
+        c.move({ from: m.from, to: m.to, promotion: m.promotion });
+      } catch {
+        continue;
+      }
+      const occ = pieceVal(m.promotion ?? m.piece);
+      const net = occ === KING_V ? gain : gain - see(occ, attackerVals(c, m.to, opp), attackerVals(c, m.to, side));
+      c.undo();
+      const prev = out.get(m.to);
+      if (prev === void 0 || net > prev) out.set(m.to, net);
+    }
+    return out;
+  }
+  function computeControl(fen) {
+    const map = /* @__PURE__ */ new Map();
+    let real;
+    try {
+      real = new Chess(fen);
+    } catch {
+      return map;
+    }
+    if (real.isGameOver() || real.inCheck()) return map;
+    const parts = fen.split(" ");
+    const flippedParts = [...parts];
+    flippedParts[1] = parts[1] === "w" ? "b" : "w";
+    flippedParts[3] = "-";
+    let flipped;
+    try {
+      flipped = new Chess(flippedParts.join(" "));
+    } catch {
+      return map;
+    }
+    if (flipped.inCheck()) return map;
+    const mover = real.turn();
+    const nets = {
+      w: bestNets(mover === "w" ? real : flipped),
+      b: bestNets(mover === "b" ? real : flipped)
+    };
+    const files = "abcdefgh";
+    for (let f = 0; f < 8; f++) {
+      for (let r = 1; r <= 8; r++) {
+        const sq = files[f] + r;
+        const piece = real.get(sq);
+        if (piece) {
+          const opp = piece.color === "w" ? "b" : "w";
+          const oppNet = nets[opp].get(sq);
+          if (oppNet !== void 0 && oppNet > 0) map.set(sq, opp);
+        } else {
+          const w = nets.w.get(sq);
+          const b = nets.b.get(sq);
+          const wSafe = w !== void 0 && w >= 0;
+          const bSafe = b !== void 0 && b >= 0;
+          if (wSafe && !bSafe) map.set(sq, "w");
+          else if (bSafe && !wSafe) map.set(sq, "b");
+        }
+      }
+    }
+    return map;
+  }
+
   // src/lib/practice.ts
   var KEY = "botvinnik-practice-v1";
   var INTERVAL_DAYS = [7e-3, 1, 3, 7, 21];
@@ -5230,6 +5361,9 @@ var brain = (() => {
 
   // src/lib/brain-entry.ts
   var BRAIN_VERSION = 1;
+  function controlSquares(fen) {
+    return Object.fromEntries(computeControl(fen));
+  }
   return __toCommonJS(brain_entry_exports);
 })();
 /*! Bundled license information:

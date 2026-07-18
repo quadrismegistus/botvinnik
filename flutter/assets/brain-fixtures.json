@@ -1287,7 +1287,7 @@
      "id": "fix",
      "createdAt": "2026-01-01T00:00:00Z",
      "box": 2,
-     "dueAt": "2026-07-21T11:44:55.157Z",
+     "dueAt": "2026-07-21T12:18:58.585Z",
      "attempts": 3,
      "correct": 2,
      "lastResult": "pass"
@@ -1349,7 +1349,7 @@
      "id": "fix",
      "createdAt": "2026-01-01T00:00:00Z",
      "box": 0,
-     "dueAt": "2026-07-18T11:54:59.957Z",
+     "dueAt": "2026-07-18T12:29:03.385Z",
      "attempts": 3,
      "correct": 1,
      "lastResult": "fail"
@@ -1385,6 +1385,81 @@
     "family": "fish",
     "blurb": "Stockfish with the strength limiter on — cold, accurate, occasionally merciful.",
     "numericElo": 2240
+   }
+  },
+  {
+   "fn": "threatProbeFen",
+   "args": [
+    "rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2"
+   ],
+   "expected": "rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 0 2"
+  },
+  {
+   "fn": "judgeThreat",
+   "args": [
+    "rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2",
+    {
+     "pv": [
+      "f3e5"
+     ],
+     "mate": null
+    }
+   ],
+   "expected": {
+    "fen": "rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2",
+    "uci": "f3e5",
+    "san": "Nxe5",
+    "gain": 1
+   }
+  },
+  {
+   "fn": "judgeThreat",
+   "args": [
+    "rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2",
+    {
+     "pv": [
+      "b1c3"
+     ],
+     "mate": null
+    }
+   ],
+   "expected": null
+  },
+  {
+   "fn": "controlSquares",
+   "args": [
+    "rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2"
+   ],
+   "expected": {
+    "a3": "w",
+    "a4": "w",
+    "a5": "b",
+    "a6": "b",
+    "b3": "w",
+    "b4": "b",
+    "b5": "w",
+    "b6": "b",
+    "c3": "w",
+    "c4": "w",
+    "c5": "b",
+    "c6": "b",
+    "d3": "w",
+    "d4": "w",
+    "d5": "b",
+    "d6": "b",
+    "e2": "w",
+    "e5": "w",
+    "e7": "b",
+    "f6": "b",
+    "g1": "w",
+    "g3": "w",
+    "g4": "w",
+    "g5": "b",
+    "g6": "b",
+    "h3": "w",
+    "h4": "w",
+    "h5": "b",
+    "h6": "b"
    }
   }
  ]

@@ -28,6 +28,8 @@ import { avoidRepetition } from '../src/lib/repetition';
 import { moveAccuracy, gameAccuracy, labelCounts } from '../src/lib/gameStore';
 import { itemDataFromStoredMove, recordResult } from '../src/lib/practice';
 import { personaById } from '../src/lib/bots';
+import { threatProbeFen, judgeThreat } from '../src/lib/engine/threats';
+import { controlSquares } from '../src/lib/brain-entry';
 import type { EngineMove } from '../src/lib/engine/stockfish';
 
 const START = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
@@ -147,6 +149,18 @@ record('recordResult', [[item], 'fix', false, false], recordResult([item], 'fix'
 // ---- roster ----
 record('personaById', ['square-900'], personaById('square-900'));
 record('personaById', ['fish-2000'], personaById('fish-2000'));
+
+// ---- board overlays ----
+// after 1.e4 e5 2.Nf3: black to move; the probe flips to white-to-move
+const italianish = 'rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2';
+record('threatProbeFen', [italianish], threatProbeFen(italianish));
+// the flipped side's best is Nxe5 — a clean pawn grab, so a real threat
+const probeLine = { pv: ['f3e5'], mate: null };
+record('judgeThreat', [italianish, probeLine], judgeThreat(italianish, probeLine));
+// a quiet best is no threat at all
+record('judgeThreat', [italianish, { pv: ['b1c3'], mate: null }],
+	judgeThreat(italianish, { pv: ['b1c3'], mate: null }));
+record('controlSquares', [italianish], controlSquares(italianish));
 
 const out = resolve(dirname(fileURLToPath(import.meta.url)), '../flutter/assets/brain-fixtures.json');
 writeFileSync(out, JSON.stringify({ version: 1, fixtures }, null, 1));

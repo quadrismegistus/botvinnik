@@ -65,16 +65,30 @@ class _BoardPaneState extends State<BoardPane> {
       _controller!.updatePosition(_gameData(game));
     }
 
+    final orientation = game.playerColor == 'w' ? Side.white : Side.black;
+    final threatUci = game.previewing ? null : game.threatUci;
+    final control = game.previewing ? null : game.controlMap;
+
     return LayoutBuilder(
       builder: (context, constraints) {
-        return Chessboard(
+        final size = constraints.maxWidth;
+        final board = Chessboard(
           controller: _controller!,
-          size: constraints.maxWidth,
-          orientation: game.playerColor == 'w' ? Side.white : Side.black,
+          size: size,
+          orientation: orientation,
           onMove: (move, {viaDragAndDrop}) {
             if (move is! NormalMove || !game.position.isLegal(move)) return;
             final (_, san) = game.position.makeSan(move);
             game.playerMove(move, san);
+          },
+          shapes: {
+            // the opponent's threat (null-move probe), drawn as a warning
+            if (threatUci != null)
+              Arrow(
+                color: const Color(0xE6C62828),
+                orig: NormalMove.fromUci(threatUci).from,
+                dest: NormalMove.fromUci(threatUci).to,
+              ),
           },
           settings: const ChessboardSettings(
             enableCoordinates: true,
@@ -82,7 +96,55 @@ class _BoardPaneState extends State<BoardPane> {
             drawShape: DrawShapeOptions(enable: true),
           ),
         );
+        if (control == null || control.isEmpty) return board;
+        return Stack(children: [
+          board,
+          IgnorePointer(
+            child: CustomPaint(
+              size: Size(size, size),
+              painter: _ControlPainter(control, orientation,
+                  game.playerColor == 'w' ? 'w' : 'b'),
+            ),
+          ),
+        ]);
       },
     );
   }
+}
+
+/// The square-control tint: green where your side owns the square, red where
+/// the opponent does (the web's radial-gradient look, canvas edition).
+class _ControlPainter extends CustomPainter {
+  final Map<String, String> control;
+  final Side orientation;
+  final String us;
+  _ControlPainter(this.control, this.orientation, this.us);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final sq = size.width / 8;
+    for (final entry in control.entries) {
+      final file = entry.key.codeUnitAt(0) - 'a'.codeUnitAt(0);
+      final rank = int.parse(entry.key[1]) - 1;
+      final x = orientation == Side.white ? file : 7 - file;
+      final y = orientation == Side.white ? 7 - rank : rank;
+      final center = Offset((x + 0.5) * sq, (y + 0.5) * sq);
+      final ours = entry.value == us;
+      final base = ours ? const Color(0xFF81B64C) : const Color(0xFFCA3431);
+      canvas.drawCircle(
+        center,
+        sq * 0.5,
+        Paint()
+          ..shader = RadialGradient(colors: [
+            base.withValues(alpha: 0.38),
+            base.withValues(alpha: 0.14),
+          ]).createShader(
+              Rect.fromCircle(center: center, radius: sq * 0.5)),
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(_ControlPainter old) =>
+      old.control != control || old.orientation != orientation;
 }
