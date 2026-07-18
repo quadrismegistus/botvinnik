@@ -22,7 +22,7 @@ class LinesTreePane extends StatefulWidget {
 
 class _LinesTreePaneState extends State<LinesTreePane> {
   final ScrollController _scroll = ScrollController();
-  int _lastVersion = -1;
+  String _lastAnchor = '';
 
   @override
   void dispose() {
@@ -42,15 +42,16 @@ class _LinesTreePaneState extends State<LinesTreePane> {
       );
     }
 
-    // follow the frontier: scroll toward the anchor when the graph advances
-    if (tree.version != _lastVersion) {
-      _lastVersion = tree.version;
+    // follow the frontier — but only when the POSITION advances, not on
+    // every streamed depth tick (that read as a distracting shimmy)
+    if (tree.anchorId != _lastAnchor) {
+      _lastAnchor = tree.anchorId;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!_scroll.hasClients) return;
         final anchor = tree.nodes[tree.anchorId];
         if (anchor == null) return;
-        final target = (anchor.x - 100).clamp(
-            0.0, _scroll.position.maxScrollExtent);
+        final target =
+            (anchor.x - 100).clamp(0.0, _scroll.position.maxScrollExtent);
         _scroll.animateTo(target,
             duration: const Duration(milliseconds: 250),
             curve: Curves.easeOut);
@@ -65,16 +66,13 @@ class _LinesTreePaneState extends State<LinesTreePane> {
         scrollDirection: Axis.horizontal,
         child: GestureDetector(
           onTapUp: (d) {
-            // hit-test nodes; live first moves preview on the board
+            // hit-test nodes; a live first move out of the current position
+            // gets PLAYED (the web's click-to-play), not previewed
             for (final n in tree.nodes.values) {
               if ((d.localPosition.dx - n.x).abs() <= kNodeW / 2 + 4 &&
                   (d.localPosition.dy - n.y).abs() <= kNodeH / 2 + 4) {
                 final uci = playable[n.id];
-                if (uci != null) {
-                  game.previewing
-                      ? game.stopPreview()
-                      : game.startPreview(game.position.fen, [uci]);
-                }
+                if (uci != null) game.playUci(uci);
                 return;
               }
             }

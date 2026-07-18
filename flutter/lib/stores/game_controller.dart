@@ -173,6 +173,15 @@ class GameController extends ChangeNotifier {
     _maybeBotTurn();
   }
 
+  /// Play a uci directly (tree/lines tap) — same rules as a board move.
+  void playUci(String uci) {
+    if (!isPlayerTurn || botThinking || gameOver) return;
+    final move = NormalMove.fromUci(uci);
+    if (!position.isLegal(move)) return;
+    final (_, san) = position.makeSan(move);
+    playerMove(move, san);
+  }
+
   // ---- internals ----
 
   void _apply(NormalMove move, String san) {
