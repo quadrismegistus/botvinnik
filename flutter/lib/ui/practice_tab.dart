@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../stores/practice_controller.dart';
+import '../stores/settings_store.dart';
 import 'board_theme.dart';
 
 class PracticeTab extends StatefulWidget {
@@ -101,7 +102,7 @@ class _PracticeTabState extends State<PracticeTab> {
               practice.checkAttempt(move.uci, san, after.fen);
             },
             shapes: _shapes(item, practice),
-            settings: kBoardSettings,
+            settings: boardSettingsFor(context.watch<SettingsStore>()),
           ),
         ),
         _promptStrip(item, practice, sideToMove),

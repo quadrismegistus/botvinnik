@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../stores/game_controller.dart';
+import '../stores/settings_store.dart';
 import 'board_theme.dart';
 
 class BoardPane extends StatefulWidget {
@@ -58,6 +59,7 @@ class _BoardPaneState extends State<BoardPane> {
   @override
   Widget build(BuildContext context) {
     final game = context.watch<GameController>();
+    final settings = context.watch<SettingsStore>();
     final sig =
         '${game.previewFen ?? game.position.fen}|${game.botEnabled}|${game.playerColor}';
     _controller ??= ChessboardController(game: _gameData(game));
@@ -99,7 +101,7 @@ class _BoardPaneState extends State<BoardPane> {
                 dest: NormalMove.fromUci(threatUci).to,
               ),
           },
-          settings: kBoardSettings,
+          settings: boardSettingsFor(settings),
         );
         if (control == null || control.isEmpty) return board;
         return Stack(children: [
