@@ -98,7 +98,7 @@ class _BoardPaneState extends State<BoardPane> {
             // the opponent's threat (null-move probe), drawn as a warning
             if (threatUci != null)
               Arrow(
-                color: kThreatArrowColor,
+                color: threatArrowColor(settings.threatOpacity),
                 orig: NormalMove.fromUci(threatUci).from,
                 dest: NormalMove.fromUci(threatUci).to,
               ),

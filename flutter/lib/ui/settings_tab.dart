@@ -78,6 +78,12 @@ class SettingsTab extends StatelessWidget {
           value: settings.showThreats,
           onChanged: (v) => settings.showThreats = v,
         ),
+        if (settings.showThreats)
+          _OpacitySlider(
+            label: 'Threat arrow opacity',
+            value: settings.threatOpacity,
+            onChanged: (v) => settings.threatOpacity = v,
+          ),
         SwitchListTile(
           dense: true,
           title: const Text('Square control'),

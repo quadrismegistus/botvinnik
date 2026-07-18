@@ -23,6 +23,10 @@ const String kDefaultPieceSet = 'cburnett';
 const double kDefaultArrowOpacity = 0.72;
 const double kDefaultControlOpacity = 0.55;
 
+/// The threat arrow's opacity. It sat at 90% while every other overlay
+/// became adjustable — loud for a hint you see on most moves.
+const double kDefaultThreatOpacity = 0.7;
+
 /// How many engine arrows to draw. Analysis already runs MultiPV-5, so all
 /// five lines exist regardless — this only decides how many are shown.
 const int kDefaultArrowCount = 5;
@@ -45,6 +49,7 @@ class SettingsStore extends ChangeNotifier {
   String _boardTexture; // a chessground board texture name; '' = flat colors
   double _arrowOpacity;
   int _arrowCount;
+  double _threatOpacity;
   double _controlOpacity;
 
   // Named on purpose: these are a dozen fields of only three distinct types,
@@ -69,6 +74,7 @@ class SettingsStore extends ChangeNotifier {
     required String boardTexture,
     required double arrowOpacity,
     required int arrowCount,
+    required double threatOpacity,
     required double controlOpacity,
   })  : _prefs = prefs,
         _personaId = personaId,
@@ -86,6 +92,7 @@ class SettingsStore extends ChangeNotifier {
         _boardTexture = boardTexture,
         _arrowOpacity = arrowOpacity,
         _arrowCount = arrowCount,
+        _threatOpacity = threatOpacity,
         _controlOpacity = controlOpacity;
 
   static Future<SettingsStore> load() async {
@@ -125,6 +132,8 @@ class SettingsStore extends ChangeNotifier {
       arrowOpacity: prefs.getDouble('botvinnik-arrow-opacity') ??
           kDefaultArrowOpacity,
       arrowCount: prefs.getInt('botvinnik-arrow-count') ?? kDefaultArrowCount,
+      threatOpacity: prefs.getDouble('botvinnik-threat-opacity') ??
+          kDefaultThreatOpacity,
       controlOpacity: prefs.getDouble('botvinnik-control-opacity') ??
           kDefaultControlOpacity,
     );
@@ -137,6 +146,15 @@ class SettingsStore extends ChangeNotifier {
     if (raw == null) return fallback;
     final v = int.tryParse(raw, radix: 16);
     return v == null ? fallback : Color(v);
+  }
+
+  double get threatOpacity => _threatOpacity;
+
+  set threatOpacity(double v) {
+    if (v == _threatOpacity) return;
+    _threatOpacity = v;
+    _prefs.setDouble('botvinnik-threat-opacity', v);
+    notifyListeners();
   }
 
   int get arrowCount => _arrowCount;

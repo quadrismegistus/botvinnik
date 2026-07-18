@@ -163,7 +163,10 @@ List<Color> engineArrowColors(double peak) => [
     ];
 
 /// The opponent's threat arrow: red, the color of danger on this board.
-const Color kThreatArrowColor = Color(0xE6C62828);
+const Color kThreatArrowRed = Color(0xFFC62828);
+
+Color threatArrowColor(double opacity) =>
+    kThreatArrowRed.withValues(alpha: opacity);
 
 /// The square-control tint, washed flat across the square at [peak].
 // Cooler than the web's yellow-green (0xFF81B64C): on warm boards that hue
