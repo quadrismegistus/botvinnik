@@ -455,11 +455,20 @@ class GameController extends ChangeNotifier {
   }
 
   Future<void> _gradePipeline(MoveRecord record, int gen) async {
+    final t0 = DateTime.now();
+    void log(String msg) => debugPrint(
+        'grade[${record.ply} ${record.san}] +${DateTime.now().difference(t0).inMilliseconds}ms $msg');
     // pre-lines: the completed (or cancelled-with-partials) analysis of the
     // position the move was played from, falling back to streamed partials
     var pre = await _analysisFor(record.fenBefore);
+    final preFromFuture = pre != null && pre.isNotEmpty;
     if (pre == null || pre.isEmpty) pre = _partials[record.fenBefore];
-    if (gen != _gen || pre == null || pre.isEmpty) return;
+    log('pre: ${preFromFuture ? "future" : "partials"} '
+        'depth=${pre?.firstOrNull?.depth} lines=${pre?.length}');
+    if (gen != _gen || pre == null || pre.isEmpty) {
+      log('ABORT: no pre-lines');
+      return;
+    }
     var grade = _grading.gradeMove(
       ply: record.ply,
       fenBefore: record.fenBefore,
@@ -470,21 +479,28 @@ class GameController extends ChangeNotifier {
     );
     record.grade = grade;
     notifyListeners();
+    log('graded (rank=${grade.rank})');
     // the child search may already have streamed past depth 10 while we
     // waited on the pre-lines — backfill from the snapshot immediately
     final snap = _partials[record.fenAfter];
     if (snap != null) _earlyBackfill(record, snap, gen);
+    if (record.grade?.backfilled == true) log('early backfill from snapshot');
 
     var child = await _analysisFor(record.fenAfter);
+    final childFromFuture = child != null && child.isNotEmpty;
     if (child == null || child.isEmpty) child = _partials[record.fenAfter];
+    log('child: ${childFromFuture ? "future" : "partials"} '
+        'depth=${child?.firstOrNull?.depth}');
     if (gen != _gen ||
         child == null ||
         child.isEmpty ||
         child.first.depth < 10) {
+      log('ABORT: no usable child (label=${record.grade?.label})');
       return;
     }
     record.grade = _grading.backfillGrade(record.grade ?? grade, child);
     notifyListeners();
+    log('backfilled label=${record.grade?.label}');
 
     // auto-collect big mistakes as practice puzzles (web maybeCollect)
     final practice = _practice;

@@ -39,5 +39,16 @@ end
 post_install do |installer|
   installer.pods_project.targets.each do |target|
     flutter_additional_ios_build_settings(target)
+    # The Stockfish C++ must be optimized even in Debug builds — at -O0 the
+    # engine runs ~10x slower (depth 10 takes the whole 3s analysis budget)
+    # and every latency number in the app is fiction. NDEBUG kills the
+    # engine's internal asserts, which are also Debug-only costs.
+    if target.name == 'stockfish'
+      target.build_configurations.each do |config|
+        config.build_settings['GCC_OPTIMIZATION_LEVEL'] = '3'
+        config.build_settings['OTHER_CPLUSPLUSFLAGS'] = '$(inherited) -O3 -DNDEBUG'
+        config.build_settings['OTHER_CFLAGS'] = '$(inherited) -O3 -DNDEBUG'
+      end
+    end
   end
 end
