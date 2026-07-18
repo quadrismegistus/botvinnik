@@ -12,12 +12,14 @@
 // Pure chess.js — no engine time. The opponent's moves come from the same
 // null-move turn-flip the threat probe uses (ep voided).
 //
-// The map IS computed in check, but read it knowing the two halves are not
-// symmetric there: the side to move gets only its real legal moves, which in
-// check are just the evasions, while the opponent keeps its full free-move
-// mobility. So a checked side looks impoverished even when it is winning
-// (4k3/8/8/8/7q/8/8/4K2R w K - 0 1 tints 5 white / 16 black, one ply before
-// Rxh4 wins the queen). See control.test.ts.
+// NOT computed in check, deliberately. The two halves would stop being
+// comparable: the side to move would get only its real legal moves — in check
+// just the evasions — while the opponent kept full free-move mobility. Across
+// 800 check positions that skews to ~3 squares against ~17, so a checked side
+// reads as crushed even when it is winning (in 4k3/8/8/8/7q/8/8/4K2R w K - 0 1
+// White plays Rxh4 and is a queen up, but would tint 5 against 16). Blank says
+// "no fair comparison here", which is the truth. Making it symmetric needs
+// pseudo-legal move generation, which chess.js does not expose.
 
 import { Chess, type Color, type Square } from 'chess.js';
 import { PIECE_VAL } from './explain';
@@ -52,12 +54,6 @@ function bestNets(c: Chess): Map<string, number> {
 	const opp: Color = side === 'w' ? 'b' : 'w';
 	const out = new Map<string, number>();
 	for (const m of c.moves({ verbose: true })) {
-		// The turn-flip can leave the OTHER king attacked, so chess.js offers to
-		// capture it. That move can't actually tint anything — PIECE_VAL.k is 0,
-		// so it nets 0, and it lands on an occupied square, which needs net > 0 —
-		// but it isn't a move anyone gets to make, so drop it rather than let the
-		// map depend on that coincidence holding.
-		if (m.captured === 'k') continue;
 		const gain = m.captured ? PIECE_VAL[m.captured] : 0;
 		try {
 			c.move({ from: m.from, to: m.to, promotion: m.promotion });
@@ -88,7 +84,7 @@ export function computeControl(fen: string): ControlMap {
 	} catch {
 		return map;
 	}
-	if (real.isGameOver()) return map;
+	if (real.isGameOver() || real.inCheck()) return map;
 
 	const parts = fen.split(' ');
 	const flippedParts = [...parts];

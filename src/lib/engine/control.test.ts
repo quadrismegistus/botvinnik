@@ -32,30 +32,16 @@ describe('computeControl', () => {
 		expect(computeControl(defended).get('f4')).toBeUndefined();
 	});
 
-	it('computes nothing after the game ends', () => {
+	it('computes nothing while in check or after the game ends', () => {
+		// material deliberately present: an earlier version of this test used a
+		// position with nothing to control, so it passed either way and missed
+		// a change that DID start mapping in check
+		const inCheck = '4k3/8/8/8/7b/8/4R3/4K3 w - - 0 1'; // Bh4+ checks e1
+		expect(computeControl('4k3/8/8/8/8/8/4R3/4K3 w - - 0 1').size)
+			.toBeGreaterThan(0); // the same material, unchecked, does map
+		expect(computeControl(inCheck).size).toBe(0);
 		const over = '4k3/8/8/8/8/8/8/4K3 w - - 0 1'; // insufficient material
 		expect(computeControl(over).size).toBe(0);
-	});
-
-	it('still maps control in check, with the checked side cut to its evasions', () => {
-		// white is in check from Bh4+; the rook on e2 can only interpose or the
-		// king must step, so white's reach collapses to what check allows
-		const map = computeControl('4k3/8/8/8/7b/8/4R3/4K3 w - - 0 1');
-		expect(map.size).toBeGreaterThan(0); // it used to bail out entirely here
-		// e4 is on the rook's file and would otherwise be white's — but Re4 is
-		// not legal in check, so white cannot claim it. This is the assertion
-		// that fails if the checked side is ever given free-move mobility.
-		expect(map.get('e4')).not.toBe('w');
-		// black, whose turn it isn't, keeps its full free-move reach
-		expect(map.get('e7')).toBe('b');
-	});
-
-	it('a king capture in the flipped frame never tints a square', () => {
-		// the flip hands the checking side a "capture the king" move; it must
-		// not show up as control of the king's square (PIECE_VAL.k is 0, and
-		// the filter in control.ts makes that independent of the value table)
-		const map = computeControl('4k3/8/8/8/7q/8/8/4K2R w K - 0 1');
-		expect(map.get('e1')).toBeUndefined();
 	});
 
 	it('a king can hold a square no other piece defends', () => {

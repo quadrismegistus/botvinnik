@@ -5058,7 +5058,6 @@ var brain = (() => {
     const opp = side === "w" ? "b" : "w";
     const out = /* @__PURE__ */ new Map();
     for (const m of c.moves({ verbose: true })) {
-      if (m.captured === "k") continue;
       const gain = m.captured ? PIECE_VAL[m.captured] : 0;
       try {
         c.move({ from: m.from, to: m.to, promotion: m.promotion });
@@ -5081,7 +5080,7 @@ var brain = (() => {
     } catch {
       return map;
     }
-    if (real.isGameOver()) return map;
+    if (real.isGameOver() || real.inCheck()) return map;
     const parts = fen.split(" ");
     const flippedParts = [...parts];
     flippedParts[1] = parts[1] === "w" ? "b" : "w";
