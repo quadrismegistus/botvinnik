@@ -38,6 +38,8 @@ dependencies:
   dartchess: ^0.13.1
   flutter_js: ^0.8.7
   stockfish: ^1.8.1
+  provider: ^6.1.5+1
+  shared_preferences: ^2.5.5
 
 dev_dependencies:
   flutter_test:
@@ -62,11 +64,10 @@ flutter:
   uses-material-design: true
 
   assets:
-    # bot.ts compiled to a standalone IIFE (npx esbuild src/lib/bot.ts
-    # --bundle --format=iife --global-name=botvinnik --platform=browser
-    # --outfile=flutter/assets/bot.js) — the shaping layer runs verbatim
-    # in QuickJS/JavaScriptCore via flutter_js
-    - assets/bot.js
+    # the web app's pure-TS layer (bot, grading, explanations, practice
+    # scheduling, roster) compiled to one IIFE — `npm run build:brain` in the
+    # repo root rebuilds it and runs the node smoke test
+    - assets/brain.js
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

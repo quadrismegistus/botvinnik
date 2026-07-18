@@ -1,5 +1,5 @@
 "use strict";
-var botvinnik = (() => {
+var brain = (() => {
   var __defProp = Object.defineProperty;
   var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
   var __getOwnPropNames = Object.getOwnPropertyNames;
@@ -18,22 +18,64 @@ var botvinnik = (() => {
   };
   var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 
-  // src/lib/bot.ts
-  var bot_exports = {};
-  __export(bot_exports, {
+  // src/lib/brain-entry.ts
+  var brain_entry_exports = {};
+  __export(brain_entry_exports, {
     BOT_MODEL: () => BOT_MODEL,
-    SCAN_MULTS: () => SCAN_MULTS,
+    BRAIN_VERSION: () => BRAIN_VERSION,
+    CLASS: () => CLASS,
+    LABEL_ORDER: () => LABEL_ORDER,
+    LABEL_VERSION: () => LABEL_VERSION,
+    MOTIF_TAGS_VERSION: () => MOTIF_TAGS_VERSION,
+    PERSONAS: () => PERSONAS,
+    SCALE_OFFSET: () => SCALE_OFFSET,
+    addItem: () => addItem,
+    availablePersonas: () => availablePersonas,
+    avoidRepetition: () => avoidRepetition,
+    backfillGrade: () => backfillGrade,
+    bestMovePoint: () => bestMovePoint,
     botDelay: () => botDelay,
-    dangerVisibility: () => dangerVisibility,
-    openingDamp: () => openingDamp,
-    scanSkill: () => scanSkill,
+    botEloMax: () => botEloMax,
+    botEloMin: () => botEloMin,
+    botRecipe: () => botRecipe,
+    botSpec: () => botSpec,
+    dueCount: () => dueCount,
+    enPassantSetup: () => enPassantSetup,
+    estimatePlayerElo: () => estimatePlayerElo,
+    explainGoodMove: () => explainGoodMove,
+    explainMove: () => explainMove,
+    gameAccuracy: () => gameAccuracy,
+    getBotSubstrate: () => getBotSubstrate,
+    getFenAfter: () => getFenAfter,
+    getNumberedSanLine: () => getNumberedSanLine,
+    getSan: () => getSan,
+    getSanLine: () => getSanLine,
+    gradeMove: () => gradeMove,
+    isCapture: () => isCapture,
+    itemDataFromStoredMove: () => itemDataFromStoredMove,
+    labelCounts: () => labelCounts,
+    masteryStats: () => masteryStats,
+    motifTags: () => motifTags,
+    moveAccuracy: () => moveAccuracy,
+    nextItem: () => nextItem,
+    parseSpec: () => parseSpec,
+    personaById: () => personaById,
+    personaInternalElo: () => personaInternalElo,
+    puzzleDifficulty: () => puzzleDifficulty,
+    puzzleSetupMove: () => puzzleSetupMove,
+    recordResult: () => recordResult,
+    removeItem: () => removeItem,
+    samplerAlphaFor: () => samplerAlphaFor,
     selectBotMove: () => selectBotMove,
+    setBotSubstrate: () => setBotSubstrate,
     shapedBotMove: () => shapedBotMove,
     shapedLabelFor: () => shapedLabelFor,
     shapedParams: () => shapedParams,
     shapedSearchDepth: () => shapedSearchDepth,
     shapedStrengthRange: () => shapedStrengthRange,
-    tacticVisibility: () => tacticVisibility
+    specToRecipe: () => specToRecipe,
+    whitePovWinChance: () => whitePovWinChance,
+    winChance: () => winChance
   });
 
   // node_modules/chess.js/dist/esm/chess.js
@@ -90,12 +132,12 @@ var botvinnik = (() => {
     C.prototype = parent.prototype;
     child.prototype = new C();
   }
-  function peg$SyntaxError(message, expected, found, location) {
+  function peg$SyntaxError(message, expected2, found, location) {
     var self = Error.call(this, message);
     if (Object.setPrototypeOf) {
       Object.setPrototypeOf(self, peg$SyntaxError.prototype);
     }
-    self.expected = expected;
+    self.expected = expected2;
     self.found = found;
     self.location = location;
     self.name = "SyntaxError";
@@ -138,7 +180,7 @@ var botvinnik = (() => {
     }
     return str;
   };
-  peg$SyntaxError.buildMessage = function(expected, found) {
+  peg$SyntaxError.buildMessage = function(expected2, found) {
     var DESCRIBE_EXPECTATION_FNS = {
       literal: function(expectation) {
         return '"' + literalEscape(expectation.text) + '"';
@@ -179,8 +221,8 @@ var botvinnik = (() => {
     function describeExpectation(expectation) {
       return DESCRIBE_EXPECTATION_FNS[expectation.type](expectation);
     }
-    function describeExpected(expected2) {
-      var descriptions = expected2.map(describeExpectation);
+    function describeExpected(expected3) {
+      var descriptions = expected3.map(describeExpectation);
       var i, j;
       descriptions.sort();
       if (descriptions.length > 0) {
@@ -204,7 +246,7 @@ var botvinnik = (() => {
     function describeFound(found2) {
       return found2 ? '"' + literalEscape(found2) + '"' : "end of input";
     }
-    return "Expected " + describeExpected(expected) + " but " + describeFound(found) + " found.";
+    return "Expected " + describeExpected(expected2) + " but " + describeFound(found) + " found.";
   };
   function peg$parse(input, options) {
     options = options !== void 0 ? options : {};
@@ -386,7 +428,7 @@ var botvinnik = (() => {
       };
       return res;
     }
-    function peg$fail(expected) {
+    function peg$fail(expected2) {
       if (peg$currPos < peg$maxFailPos) {
         return;
       }
@@ -394,12 +436,12 @@ var botvinnik = (() => {
         peg$maxFailPos = peg$currPos;
         peg$maxFailExpected = [];
       }
-      peg$maxFailExpected.push(expected);
+      peg$maxFailExpected.push(expected2);
     }
-    function peg$buildStructuredError(expected, found, location) {
+    function peg$buildStructuredError(expected2, found, location) {
       return new peg$SyntaxError(
-        peg$SyntaxError.buildMessage(expected, found),
-        expected,
+        peg$SyntaxError.buildMessage(expected2, found),
+        expected2,
         found,
         location
       );
@@ -2007,18 +2049,18 @@ var botvinnik = (() => {
   };
   var SECOND_RANK = { b: RANK_7, w: RANK_2 };
   var SAN_NULLMOVE = "--";
-  function rank(square) {
-    return square >> 4;
+  function rank(square2) {
+    return square2 >> 4;
   }
-  function file(square) {
-    return square & 15;
+  function file(square2) {
+    return square2 & 15;
   }
   function isDigit(c) {
     return "0123456789".indexOf(c) !== -1;
   }
-  function algebraic(square) {
-    const f = file(square);
-    const r = rank(square);
+  function algebraic(square2) {
+    const f = file(square2);
+    const r = rank(square2);
     return "abcdefgh".substring(f, f + 1) + "87654321".substring(r, r + 1);
   }
   function swapColor(color) {
@@ -2239,18 +2281,18 @@ var botvinnik = (() => {
         }
       }
       const position = tokens[0];
-      let square = 0;
+      let square2 = 0;
       this.clear({ preserveHeaders });
       for (let i = 0; i < position.length; i++) {
         const piece = position.charAt(i);
         if (piece === "/") {
-          square += 8;
+          square2 += 8;
         } else if (isDigit(piece)) {
-          square += parseInt(piece, 10);
+          square2 += parseInt(piece, 10);
         } else {
           const color = piece < "a" ? WHITE : BLACK;
-          this._put({ type: piece.toLowerCase(), color }, algebraic(square));
-          square++;
+          this._put({ type: piece.toLowerCase(), color }, algebraic(square2));
+          square2++;
         }
       }
       this._turn = tokens[1];
@@ -2319,15 +2361,15 @@ var botvinnik = (() => {
         } else {
           const bigPawnSquare = this._epSquare + (this._turn === WHITE ? 16 : -16);
           const squares = [bigPawnSquare + 1, bigPawnSquare - 1];
-          for (const square of squares) {
-            if (square & 136) {
+          for (const square2 of squares) {
+            if (square2 & 136) {
               continue;
             }
             const color = this._turn;
-            if (this._board[square]?.color === color && this._board[square]?.type === PAWN) {
+            if (this._board[square2]?.color === color && this._board[square2]?.type === PAWN) {
               this._makeMove({
                 color,
-                from: square,
+                from: square2,
                 to: this._epSquare,
                 piece: PAWN,
                 captured: PAWN,
@@ -2416,8 +2458,8 @@ var botvinnik = (() => {
     reset() {
       this.load(DEFAULT_POSITION);
     }
-    get(square) {
-      return this._board[Ox88[square]];
+    get(square2) {
+      return this._board[Ox88[square2]];
     }
     findPiece(piece) {
       const squares = [];
@@ -2435,8 +2477,8 @@ var botvinnik = (() => {
       }
       return squares;
     }
-    put({ type, color }, square) {
-      if (this._put({ type, color }, square)) {
+    put({ type, color }, square2) {
+      if (this._put({ type, color }, square2)) {
         this._updateCastlingRights();
         this._updateEnPassantSquare();
         this._updateSetup(this.fen());
@@ -2449,14 +2491,14 @@ var botvinnik = (() => {
       this._board[sq] = piece;
       this._hash ^= this._pieceKey(sq);
     }
-    _put({ type, color }, square) {
+    _put({ type, color }, square2) {
       if (SYMBOLS.indexOf(type.toLowerCase()) === -1) {
         return false;
       }
-      if (!(square in Ox88)) {
+      if (!(square2 in Ox88)) {
         return false;
       }
-      const sq = Ox88[square];
+      const sq = Ox88[square2];
       if (type == KING && !(this._kings[color] == EMPTY || this._kings[color] == sq)) {
         return false;
       }
@@ -2474,9 +2516,9 @@ var botvinnik = (() => {
       this._hash ^= this._pieceKey(sq);
       delete this._board[sq];
     }
-    remove(square) {
-      const piece = this.get(square);
-      this._clear(Ox88[square]);
+    remove(square2) {
+      const piece = this.get(square2);
+      this._clear(Ox88[square2]);
       if (piece && piece.type === KING) {
         this._kings[piece.color] = EMPTY;
       }
@@ -2515,13 +2557,13 @@ var botvinnik = (() => {
         this._epSquare = EMPTY;
         return;
       }
-      const canCapture = (square) => !(square & 136) && this._board[square]?.color === this._turn && this._board[square]?.type === PAWN;
+      const canCapture = (square2) => !(square2 & 136) && this._board[square2]?.color === this._turn && this._board[square2]?.type === PAWN;
       if (!attackers.some(canCapture)) {
         this._hash ^= this._epKey();
         this._epSquare = EMPTY;
       }
     }
-    _attacked(color, square, verbose) {
+    _attacked(color, square2, verbose) {
       const attackers = [];
       for (let i = Ox88.a8; i <= Ox88.h1; i++) {
         if (i & 136) {
@@ -2532,7 +2574,7 @@ var botvinnik = (() => {
           continue;
         }
         const piece = this._board[i];
-        const difference = i - square;
+        const difference = i - square2;
         if (difference === 0) {
           continue;
         }
@@ -2559,7 +2601,7 @@ var botvinnik = (() => {
           const offset = RAYS[index];
           let j = i + offset;
           let blocked = false;
-          while (j !== square) {
+          while (j !== square2) {
             if (this._board[j] != null) {
               blocked = true;
               break;
@@ -2582,22 +2624,22 @@ var botvinnik = (() => {
         return false;
       }
     }
-    attackers(square, attackedBy) {
+    attackers(square2, attackedBy) {
       if (!attackedBy) {
-        return this._attacked(this._turn, Ox88[square], true);
+        return this._attacked(this._turn, Ox88[square2], true);
       } else {
-        return this._attacked(attackedBy, Ox88[square], true);
+        return this._attacked(attackedBy, Ox88[square2], true);
       }
     }
     _isKingAttacked(color) {
-      const square = this._kings[color];
-      return square === -1 ? false : this._attacked(swapColor(color), square);
+      const square2 = this._kings[color];
+      return square2 === -1 ? false : this._attacked(swapColor(color), square2);
     }
     hash() {
       return this._hash.toString(16);
     }
-    isAttacked(square, attackedBy) {
-      return this._attacked(attackedBy, Ox88[square]);
+    isAttacked(square2, attackedBy) {
+      return this._attacked(attackedBy, Ox88[square2]);
     }
     isCheck() {
       return this._isKingAttacked(this._turn);
@@ -2669,16 +2711,16 @@ var botvinnik = (() => {
     isGameOver() {
       return this.isCheckmate() || this.isDraw();
     }
-    moves({ verbose = false, square = void 0, piece = void 0 } = {}) {
-      const moves = this._moves({ square, piece });
+    moves({ verbose = false, square: square2 = void 0, piece = void 0 } = {}) {
+      const moves = this._moves({ square: square2, piece });
       if (verbose) {
         return moves.map((move) => new Move(this, move));
       } else {
         return moves.map((move) => this._moveToSan(move, moves));
       }
     }
-    _moves({ legal = true, piece = void 0, square = void 0 } = {}) {
-      const forSquare = square ? square.toLowerCase() : void 0;
+    _moves({ legal = true, piece = void 0, square: square2 = void 0 } = {}) {
+      const forSquare = square2 ? square2.toLowerCase() : void 0;
       const forPiece = piece?.toLowerCase();
       const moves = [];
       const us = this._turn;
@@ -3284,8 +3326,8 @@ var botvinnik = (() => {
         } else if ((!piece || piece.toLowerCase() == moves[i].piece) && Ox88[from] == moves[i].from && Ox88[to] == moves[i].to && (!promotion || promotion.toLowerCase() == moves[i].promotion)) {
           return moves[i];
         } else if (overlyDisambiguated) {
-          const square = algebraic(moves[i].from);
-          if ((!piece || piece.toLowerCase() == moves[i].piece) && Ox88[to] == moves[i].to && (from == square[0] || from == square[1]) && (!promotion || promotion.toLowerCase() == moves[i].promotion)) {
+          const square2 = algebraic(moves[i].from);
+          if ((!piece || piece.toLowerCase() == moves[i].piece) && Ox88[to] == moves[i].to && (from == square2[0] || from == square2[1]) && (!promotion || promotion.toLowerCase() == moves[i].promotion)) {
             return moves[i];
           }
         }
@@ -3363,9 +3405,9 @@ var botvinnik = (() => {
       }
       return output;
     }
-    squareColor(square) {
-      if (square in Ox88) {
-        const sq = Ox88[square];
+    squareColor(square2) {
+      if (square2 in Ox88) {
+        const sq = Ox88[square2];
         return (rank(sq) + file(sq)) % 2 === 0 ? "light" : "dark";
       }
       return null;
@@ -3494,23 +3536,930 @@ var botvinnik = (() => {
 
   // src/lib/engine/chess.ts
   var game = new Chess();
+  function getSanLine(fen, ucis) {
+    const steps = [];
+    try {
+      const tmp = new Chess(fen);
+      for (const uci of ucis) {
+        const move = tmp.move({
+          from: uci.slice(0, 2),
+          to: uci.slice(2, 4),
+          promotion: uci.length > 4 ? uci[4] : void 0
+        });
+        if (!move) break;
+        steps.push({ san: move.san, uci, color: move.color, piece: move.piece });
+      }
+    } catch {
+    }
+    return steps;
+  }
+  function isCapture(fen, uci) {
+    try {
+      const move = new Chess(fen).move({
+        from: uci.slice(0, 2),
+        to: uci.slice(2, 4),
+        promotion: uci.length > 4 ? uci[4] : void 0
+      });
+      return move.captured !== void 0;
+    } catch {
+      return false;
+    }
+  }
+  function getFenAfter(fen, uci) {
+    try {
+      const tmp = new Chess(fen);
+      tmp.move({
+        from: uci.slice(0, 2),
+        to: uci.slice(2, 4),
+        promotion: uci.length > 4 ? uci[4] : void 0
+      });
+      return tmp.fen();
+    } catch {
+      return null;
+    }
+  }
+  function getNumberedSanLine(fen, ucis, max = 12) {
+    const parts = [];
+    try {
+      const tmp = new Chess(fen);
+      for (const uci of ucis.slice(0, max)) {
+        const num = Number(tmp.fen().split(" ")[5]);
+        const move = tmp.move({
+          from: uci.slice(0, 2),
+          to: uci.slice(2, 4),
+          promotion: uci.length > 4 ? uci[4] : void 0
+        });
+        if (!move) break;
+        if (move.color === "w") parts.push(`${num}.${move.san}`);
+        else if (parts.length === 0) parts.push(`${num}...${move.san}`);
+        else parts.push(move.san);
+      }
+    } catch {
+    }
+    return parts.join(" ");
+  }
+  function getSan(fen, uci) {
+    try {
+      const tmp = new Chess(fen);
+      const from = uci.slice(0, 2);
+      const to = uci.slice(2, 4);
+      const promotion = uci.length > 4 ? uci[4] : void 0;
+      const move = tmp.move({ from, to, promotion });
+      return move?.san || uci;
+    } catch {
+      return uci;
+    }
+  }
+
+  // src/lib/engine/explain.ts
+  var PIECE_VAL = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 0 };
+  var VAL = PIECE_VAL;
+  var NAME = {
+    p: "pawn",
+    n: "knight",
+    b: "bishop",
+    r: "rook",
+    q: "queen",
+    k: "king"
+  };
+  function apply(chess, uci) {
+    try {
+      return chess.move({
+        from: uci.slice(0, 2),
+        to: uci.slice(2, 4),
+        promotion: uci.length > 4 ? uci[4] : void 0
+      });
+    } catch {
+      return null;
+    }
+  }
+  function sanLine(fen, ucis, max = 6) {
+    return getSanLine(fen, ucis.slice(0, max)).map((s) => s.san).join(" ");
+  }
+  function materialOverLine(fen, ucis) {
+    const c = new Chess(fen);
+    const mover = c.turn();
+    let net = 0;
+    for (const uci of ucis) {
+      const m = apply(c, uci);
+      if (!m) break;
+      if (m.captured) net += (m.color === mover ? 1 : -1) * VAL[m.captured];
+      if (m.promotion) net += (m.color === mover ? 1 : -1) * (VAL[m.promotion] - 1);
+    }
+    return net;
+  }
+  function summarizeLine(fen, ucis) {
+    const c = new Chess(fen);
+    const mover = c.turn();
+    const events = [];
+    let ply = 0;
+    let lastSan = "";
+    for (const uci of ucis) {
+      const m = apply(c, uci);
+      if (!m) break;
+      ply++;
+      lastSan = m.san;
+      if (m.captured) {
+        events.push({ ply, square: m.to, victim: m.captured, byMover: m.color === mover, san: m.san });
+      }
+    }
+    if (ply === 0) return void 0;
+    const mate = lastSan.endsWith("#");
+    const mateByMover = mate && ply % 2 === 1;
+    let groups = [];
+    for (const e of events) {
+      const g = groups[groups.length - 1];
+      if (g && e.ply === g[g.length - 1].ply + 1 && e.square === g[g.length - 1].square) g.push(e);
+      else groups.push([e]);
+    }
+    groups = groups.filter(
+      (g) => g[g.length - 1].ply !== ply || g.length === 2 && g[0].victim === g[1].victim
+    );
+    const phrases = [];
+    for (const g of groups) {
+      if (g.length === 1) {
+        const e = g[0];
+        phrases.push(
+          e.byMover ? `you pick up a ${NAME[e.victim]} (${e.san})` : `your ${NAME[e.victim]} is taken (${e.san})`
+        );
+      } else if (g.length === 2 && g[0].victim === g[1].victim) {
+        phrases.push(`${NAME[g[0].victim]}s are traded on ${g[0].square}`);
+      } else if (g.length === 2) {
+        const won = g[0].byMover ? g[0].victim : g[1].victim;
+        const lost = g[0].byMover ? g[1].victim : g[0].victim;
+        if (VAL[won] > VAL[lost]) {
+          phrases.push(`you win a ${NAME[won]} for a ${NAME[lost]} on ${g[0].square}`);
+        } else if (VAL[won] < VAL[lost]) {
+          phrases.push(`you give up a ${NAME[lost]} for a ${NAME[won]} on ${g[0].square}`);
+        } else {
+          phrases.push(`a ${NAME[won]} and a ${NAME[lost]} are traded on ${g[0].square}`);
+        }
+      } else {
+        const net = g.reduce((a, e) => a + (e.byMover ? VAL[e.victim] : -VAL[e.victim]), 0);
+        if (net > 0.5) phrases.push(`you come out ahead in the exchange on ${g[0].square}`);
+        else if (net < -0.5) phrases.push(`you come out behind in the exchange on ${g[0].square}`);
+        else phrases.push(`pieces are traded on ${g[0].square}`);
+      }
+    }
+    if (phrases.length === 0 && !mate) return void 0;
+    let story = phrases.slice(0, 3).join(", then ");
+    if (mate) {
+      const mateClause = mateByMover ? "mate follows" : "you get mated";
+      story = story ? `${story}, and ${mateClause}` : mateClause;
+    }
+    return story;
+  }
+  function quietMaterialOverLine(fen, ucis) {
+    const c = new Chess(fen);
+    const mover = c.turn();
+    let net = 0;
+    let plies = 0;
+    let pawnsOnly = true;
+    let quiet = { net: 0, plies: 0, pawnsOnly: true };
+    for (const uci of ucis) {
+      const m = apply(c, uci);
+      if (!m) break;
+      plies++;
+      if (m.captured) net += (m.color === mover ? 1 : -1) * VAL[m.captured];
+      if (m.captured && m.captured !== "p") pawnsOnly = false;
+      if (m.promotion) {
+        net += (m.color === mover ? 1 : -1) * (VAL[m.promotion] - 1);
+        pawnsOnly = false;
+      }
+      if (!m.captured && !m.promotion) quiet = { net, plies, pawnsOnly };
+    }
+    return quiet;
+  }
+  function hangingIssue(fenBefore, playedUci, refutationUci) {
+    if (!refutationUci) return void 0;
+    const c = new Chess(fenBefore);
+    const played = apply(c, playedUci);
+    if (!played) return void 0;
+    const target = refutationUci.slice(2, 4);
+    const victim = c.get(target);
+    if (!victim || victim.color !== played.color || victim.type === "p" || victim.type === "k")
+      return void 0;
+    const defenders = c.attackers(target, played.color).length;
+    if (defenders > 0) return void 0;
+    const ref = apply(c, refutationUci);
+    if (!ref || !ref.captured) return void 0;
+    return `This leaves the ${NAME[victim.type]} on ${target} undefended \u2014 ${ref.san} just takes it.`;
+  }
+  function forkPoint(fenBefore, uci) {
+    const c = new Chess(fenBefore);
+    const m = apply(c, uci);
+    if (!m || m.piece === "k") return void 0;
+    if (c.isCheckmate()) return void 0;
+    const to = m.to;
+    const them = m.color === "w" ? "b" : "w";
+    const hunters = c.attackers(to, them).map((sq) => c.get(sq)?.type ?? "k");
+    if (hunters.some((t) => t !== "k" && VAL[t] < VAL[m.piece])) return void 0;
+    if (hunters.length > 0 && c.attackers(to, m.color).length === 0) return void 0;
+    const targets = [];
+    for (const row of c.board()) {
+      for (const cell of row) {
+        if (!cell || cell.color === m.color || cell.type === "p") continue;
+        if (!c.attackers(cell.square, m.color).includes(to)) continue;
+        const undefended = c.attackers(cell.square, cell.color).length === 0;
+        if (cell.type === "k" || VAL[cell.type] > VAL[m.piece] || undefended) {
+          targets.push(`${NAME[cell.type]} on ${cell.square}`);
+        }
+      }
+    }
+    if (targets.length < 2) return void 0;
+    return `${m.san} forks the ${targets.join(" and the ")}.`;
+  }
+  var BISHOP_DIRS = [
+    [1, 1],
+    [1, -1],
+    [-1, 1],
+    [-1, -1]
+  ];
+  var ROOK_DIRS = [
+    [1, 0],
+    [-1, 0],
+    [0, 1],
+    [0, -1]
+  ];
+  function sliderDirs(type) {
+    if (type === "b") return BISHOP_DIRS;
+    if (type === "r") return ROOK_DIRS;
+    if (type === "q") return [...BISHOP_DIRS, ...ROOK_DIRS];
+    return null;
+  }
+  function toSquare(file2, rank2) {
+    if (file2 < 0 || file2 > 7 || rank2 < 0 || rank2 > 7) return null;
+    return String.fromCharCode(97 + file2) + (rank2 + 1);
+  }
+  function* raySquares(from, dir) {
+    let file2 = from.charCodeAt(0) - 97;
+    let rank2 = Number(from[1]) - 1;
+    for (; ; ) {
+      file2 += dir[0];
+      rank2 += dir[1];
+      const s = toSquare(file2, rank2);
+      if (!s) return;
+      yield s;
+    }
+  }
+  function pinOrSkewerPoint(fenBefore, uci) {
+    const c = new Chess(fenBefore);
+    const m = apply(c, uci);
+    if (!m) return void 0;
+    if (c.isCheckmate()) return void 0;
+    const dirs = sliderDirs(m.piece);
+    if (!dirs) return void 0;
+    for (const dir of dirs) {
+      let first = null;
+      for (const s of raySquares(m.to, dir)) {
+        const p = c.get(s);
+        if (!p) continue;
+        if (p.color === m.color) break;
+        if (!first) {
+          first = { sq: s, type: p.type };
+          continue;
+        }
+        if (c.attackers(m.to, p.color).includes(first.sq)) {
+          const probe = new Chess(c.fen());
+          let takes = null;
+          try {
+            takes = probe.move({ from: first.sq, to: m.to, promotion: "q" });
+          } catch {
+            takes = null;
+          }
+          if (takes) {
+            const recaptured = probe.moves({ verbose: true }).some((r) => r.to === m.to && r.captured);
+            if (!recaptured || VAL[m.piece] >= VAL[first.type]) break;
+          }
+        }
+        const wins = VAL[p.type] > VAL[m.piece] || c.attackers(s, p.color).length === 0;
+        if (first.type === "k") {
+          if (VAL[p.type] >= 3 && wins) {
+            return `${m.san} skewers the king on ${first.sq} against the ${NAME[p.type]} on ${s}.`;
+          }
+        } else if (p.type === "k") {
+          return `${m.san} pins the ${NAME[first.type]} on ${first.sq} against the king.`;
+        } else if (VAL[p.type] > VAL[first.type]) {
+          const pawnOnFile = first.type === "p" && dir[0] === 0;
+          if (wins && !pawnOnFile) {
+            return `${m.san} pins the ${NAME[first.type]} on ${first.sq} against the ${NAME[p.type]} on ${s}.`;
+          }
+        } else if (first.type === "q" && VAL[m.piece] < 9 && VAL[p.type] >= 3 && wins) {
+          return `${m.san} skewers the queen on ${first.sq} against the ${NAME[p.type]} on ${s}.`;
+        }
+        break;
+      }
+    }
+    return void 0;
+  }
+  function discoveredPoint(fenBefore, uci) {
+    const c = new Chess(fenBefore);
+    const m = apply(c, uci);
+    if (!m || m.flags.includes("k") || m.flags.includes("q")) return void 0;
+    if (c.isCheckmate()) return void 0;
+    for (const row of c.board()) {
+      for (const cell of row) {
+        if (!cell || cell.color !== m.color || cell.square === m.to) continue;
+        const dirs = sliderDirs(cell.type);
+        if (!dirs) continue;
+        for (const dir of dirs) {
+          let passedFrom = false;
+          for (const s of raySquares(cell.square, dir)) {
+            if (s === m.from) {
+              passedFrom = true;
+              continue;
+            }
+            const p = c.get(s);
+            if (!p) continue;
+            if (!passedFrom) break;
+            if (p.color !== m.color && p.type === "k") {
+              return `${m.san} discovers check from the ${NAME[cell.type]} on ${cell.square}.`;
+            }
+            if (p.color !== m.color && VAL[p.type] >= 3 && (VAL[p.type] > VAL[cell.type] || c.attackers(s, p.color).length === 0)) {
+              return `${m.san} uncovers the ${NAME[cell.type]} on ${cell.square}'s attack on the ${NAME[p.type]} on ${s}.`;
+            }
+            break;
+          }
+        }
+      }
+    }
+    return void 0;
+  }
+  function trappedPoint(fenBefore, uci) {
+    const c = new Chess(fenBefore);
+    const m = apply(c, uci);
+    if (!m) return void 0;
+    if (c.isCheck()) return void 0;
+    const us = m.color;
+    const them = us === "w" ? "b" : "w";
+    const isTrappedOn = (board, sq, type) => {
+      const attackerTypes = (s, by) => board.attackers(s, by).map((a) => board.get(a)?.type ?? "k");
+      const minAttackerVal = (s, by) => {
+        const vals = attackerTypes(s, by).filter((t) => t !== "k").map((t) => VAL[t]);
+        return vals.length ? Math.min(...vals) : Infinity;
+      };
+      const forced = minAttackerVal(sq, us) < VAL[type] || attackerTypes(sq, us).length > 0 && board.attackers(sq, them).length === 0;
+      if (!forced) return false;
+      const escapes = board.moves({ square: sq, verbose: true });
+      return escapes.every((e) => {
+        const grabbed = board.get(e.to);
+        if (grabbed && grabbed.color === us && VAL[grabbed.type] >= VAL[type]) {
+          return false;
+        }
+        if (attackerTypes(e.to, us).length === 0) return false;
+        if (minAttackerVal(e.to, us) < VAL[type]) return true;
+        const defenders = board.attackers(e.to, them).filter((d) => d !== sq);
+        return defenders.length === 0;
+      });
+    };
+    let pre = null;
+    try {
+      const parts = fenBefore.split(" ");
+      parts[1] = them;
+      parts[3] = "-";
+      pre = new Chess(parts.join(" "));
+    } catch {
+      pre = null;
+    }
+    const candidates = [];
+    for (const row of c.board()) {
+      for (const cell of row) {
+        if (cell && cell.color !== us && VAL[cell.type] >= 3 && cell.type !== "k") {
+          candidates.push({ sq: cell.square, type: cell.type });
+        }
+      }
+    }
+    candidates.sort((a, b) => VAL[b.type] - VAL[a.type]);
+    for (const x of candidates) {
+      if (!isTrappedOn(c, x.sq, x.type)) continue;
+      if (pre && !isTrappedOn(pre, x.sq, x.type)) {
+        return `${m.san} traps the ${NAME[x.type]} on ${x.sq} \u2014 it has no safe square.`;
+      }
+    }
+    return void 0;
+  }
+  function freeCapturePoint(fenBefore, uci) {
+    const c = new Chess(fenBefore);
+    const mover = c.turn();
+    const target = uci.slice(2, 4);
+    const victim = c.get(target);
+    if (!victim || victim.type === "p") return void 0;
+    if (c.attackers(target, victim.color).length > 0) return void 0;
+    const m = apply(c, uci);
+    if (!m || !m.captured) return void 0;
+    if (c.isCheckmate()) return void 0;
+    void mover;
+    return `${m.san} simply wins the ${NAME[victim.type]} \u2014 it's undefended.`;
+  }
+  function mateBoard(fenBefore, pv) {
+    const c = new Chess(fenBefore);
+    for (const u of pv.slice(0, 24)) {
+      if (!apply(c, u)) return void 0;
+      if (c.isCheckmate()) return c;
+    }
+    return void 0;
+  }
+  function matePattern(mated) {
+    const loser = mated.turn();
+    const winner = loser === "w" ? "b" : "w";
+    let ksq;
+    for (const row of mated.board()) {
+      for (const cell of row) {
+        if (cell && cell.type === "k" && cell.color === loser) ksq = cell.square;
+      }
+    }
+    if (!ksq) return void 0;
+    const kf = ksq.charCodeAt(0) - 97;
+    const kr = Number(ksq[1]) - 1;
+    const ownBlocked = (s) => {
+      const p = mated.get(s);
+      return !!p && p.color === loser;
+    };
+    const checkers = mated.attackers(ksq, winner);
+    if (checkers.length === 1 && mated.get(checkers[0])?.type === "n") {
+      const neighbours = [];
+      for (let df = -1; df <= 1; df++) {
+        for (let dr = -1; dr <= 1; dr++) {
+          if (!df && !dr) continue;
+          const s = toSquare(kf + df, kr + dr);
+          if (s) neighbours.push(s);
+        }
+      }
+      if (neighbours.every(ownBlocked)) return "smothered";
+    }
+    const backRank = loser === "w" ? 0 : 7;
+    if (kr !== backRank) return void 0;
+    const alongRank = checkers.some((s) => {
+      const t = mated.get(s)?.type;
+      return (t === "r" || t === "q") && Number(s[1]) - 1 === backRank;
+    });
+    if (!alongRank) return void 0;
+    const fwd = loser === "w" ? 1 : -1;
+    for (let df = -1; df <= 1; df++) {
+      const s = toSquare(kf + df, kr + fwd);
+      if (s && !ownBlocked(s)) return void 0;
+    }
+    return "back-rank";
+  }
+  function mateGarnish(mated, sep = " \u2014 a ") {
+    const pat = mated ? matePattern(mated) : void 0;
+    return pat ? `${sep}${pat} mate` : "";
+  }
+  function promotionPoint(fenBefore, pv) {
+    const c = new Chess(fenBefore);
+    const mover = c.turn();
+    const window = pv.slice(0, 9);
+    for (let i = 0; i < window.length; i++) {
+      const m = apply(c, window[i]);
+      if (!m) return void 0;
+      if (m.color !== mover || !m.promotion) continue;
+      let sq = m.to;
+      const probe = new Chess(c.fen());
+      for (const u of window.slice(i + 1)) {
+        const r = apply(probe, u);
+        if (!r) break;
+        if (sq && r.from === sq && r.color === mover) sq = r.to;
+        else if (sq && r.to === sq && r.captured) return void 0;
+      }
+      return `${sanLine(fenBefore, pv, i + 1)} makes a new ${NAME[m.promotion]}.`;
+    }
+    return void 0;
+  }
+  function sacrificeStory(fenBefore, pv) {
+    const c = new Chess(fenBefore);
+    const mover = c.turn();
+    const window = pv.slice(0, 9);
+    let net = 0;
+    let minNet = 0;
+    let piece;
+    for (let i = 0; i < window.length; i++) {
+      const m = apply(c, window[i]);
+      if (!m) break;
+      if (m.captured) net += m.color === mover ? VAL[m.captured] : -VAL[m.captured];
+      if (m.promotion) net += (m.color === mover ? 1 : -1) * (VAL[m.promotion] - 1);
+      if (m.color !== mover) {
+        if (i === 1 && m.captured && m.to === window[0]?.slice(2, 4) && window[0].length < 5) {
+          piece = NAME[m.captured];
+        }
+        if (net < minNet) minNet = net;
+      }
+    }
+    if (minNet > -2) return void 0;
+    const mated = mateBoard(fenBefore, pv);
+    const mates = !!mated && mated.turn() !== mover;
+    const payoff = quietMaterialOverLine(fenBefore, window);
+    if (!mates && payoff.net < 2) return void 0;
+    return { piece, mates, net: payoff.net, plies: payoff.plies };
+  }
+  function explainMove(input) {
+    const { fenBefore, playedUci, refutationPv, bestUci, bestPv, playedMate, bestMate, isBest } = input;
+    if (isBest) return {};
+    const out = {};
+    const playedLine = [playedUci, ...refutationPv];
+    if (playedMate !== null && playedMate < 0) {
+      const n = Math.abs(playedMate);
+      const refSans = getSanLine(fenBefore, playedLine.slice(0, 2)).map((s) => s.san);
+      const garnish = mateGarnish(mateBoard(fenBefore, playedLine), n === 1 ? ", a " : " \u2014 a ");
+      out.playedIssue = n === 1 && refSans[1] ? `This allows immediate mate \u2014 ${refSans[1]}${garnish}.` : `This allows a forced mate in ${n}${refSans[1] ? `, starting with ${refSans[1]}` : ""}${garnish}.`;
+    } else {
+      out.playedIssue = hangingIssue(fenBefore, playedUci, refutationPv[0]);
+      if (!out.playedIssue && refutationPv.length > 0) {
+        const { net, plies, pawnsOnly } = quietMaterialOverLine(fenBefore, playedLine.slice(0, 9));
+        if (net <= -1) {
+          const fenAfter = getFenAfter(fenBefore, playedUci);
+          const continuation = fenAfter ? getNumberedSanLine(fenAfter, playedLine.slice(1, plies)) : "";
+          if (continuation) {
+            out.playedIssue = net <= -2 ? `This loses material \u2014 after ${continuation}, you're down ${-net} points.` : pawnsOnly ? `This loses a pawn \u2014 after ${continuation}, you're a pawn down.` : `This loses material \u2014 after ${continuation}, you come out a point down.`;
+          }
+        }
+      }
+      if (!out.playedIssue && refutationPv.length > 0) {
+        const story = summarizeLine(fenBefore, playedLine.slice(0, 9));
+        if (story) out.lineStory = `In this line, ${story}.`;
+      }
+    }
+    if (refutationPv.length > 0) {
+      out.evidence = { fen: fenBefore, ucis: playedLine.slice(0, 9) };
+    }
+    if (bestMate !== null && bestMate > 0 && !(playedMate !== null && playedMate > 0)) {
+      const bestSan = getSanLine(fenBefore, [bestUci])[0]?.san ?? bestUci;
+      const garnish = mateGarnish(mateBoard(fenBefore, bestPv));
+      const sac = bestMate > 1 ? sacrificeStory(fenBefore, bestPv) : void 0;
+      const sacTxt = sac ? `sacrifices ${sac.piece ? `the ${sac.piece}` : "material"} and ` : "";
+      out.bestPoint = bestMate === 1 ? `${bestSan} was immediate checkmate${garnish}.` : `${bestSan} ${sacTxt}forces mate in ${bestMate}${garnish}.`;
+    } else {
+      out.bestPoint = bestMovePoint(fenBefore, bestUci, bestPv);
+    }
+    return out;
+  }
+  function bestMovePoint(fenBefore, bestUci, bestPv) {
+    {
+      const post = new Chess(fenBefore);
+      const m = apply(post, bestUci);
+      if (m && post.isCheckmate()) return `${m.san} is checkmate${mateGarnish(post)}.`;
+    }
+    const point = forkPoint(fenBefore, bestUci) ?? freeCapturePoint(fenBefore, bestUci) ?? pinOrSkewerPoint(fenBefore, bestUci) ?? discoveredPoint(fenBefore, bestUci) ?? trappedPoint(fenBefore, bestUci);
+    if (point) return point;
+    if (bestPv.length > 1) {
+      const sac = sacrificeStory(fenBefore, bestPv);
+      if (sac && !sac.mates) {
+        return `Instead, ${sanLine(fenBefore, bestPv, sac.plies)} sacrifices ${sac.piece ? `the ${sac.piece}` : "material"} but comes out ${sac.net} point${sac.net === 1 ? "" : "s"} ahead.`;
+      }
+      const promo = promotionPoint(fenBefore, bestPv);
+      if (promo) return promo;
+      const { net, plies, pawnsOnly } = quietMaterialOverLine(fenBefore, bestPv.slice(0, 9));
+      if (net >= 2) {
+        return `Instead, ${sanLine(fenBefore, bestPv, plies)} wins ${net} points of material.`;
+      }
+      if (net === 1) {
+        return pawnsOnly ? `Instead, ${sanLine(fenBefore, bestPv, plies)} wins a pawn.` : `Instead, ${sanLine(fenBefore, bestPv, plies)} wins a point of material.`;
+      }
+    }
+    return void 0;
+  }
+  var MOTIF_TAGS_VERSION = 4;
+  function motifTags(fenBefore, uci, pv, mate) {
+    const tags = [];
+    const post = new Chess(fenBefore);
+    const matesNow = !!apply(post, uci) && post.isCheckmate();
+    const patternTag = (mated) => {
+      const pat = mated ? matePattern(mated) : void 0;
+      return pat ? [`${pat} mate`] : [];
+    };
+    if (matesNow) return ["mate", ...patternTag(post)];
+    const mateKnown = mate !== null && mate > 0;
+    if (mateKnown) tags.push("mate", ...patternTag(mateBoard(fenBefore, pv)));
+    if (forkPoint(fenBefore, uci)) tags.push("fork");
+    if (freeCapturePoint(fenBefore, uci)) tags.push("free capture");
+    if (!mateKnown) {
+      const ps = pinOrSkewerPoint(fenBefore, uci);
+      if (ps) tags.push(ps.includes("skewers") ? "skewer" : "pin");
+      if (trappedPoint(fenBefore, uci)) tags.push("trapped piece");
+    }
+    if (discoveredPoint(fenBefore, uci)) tags.push("discovered attack");
+    if (pv.length > 1 && sacrificeStory(fenBefore, pv)) tags.push("sacrifice");
+    if (pv.length > 0 && promotionPoint(fenBefore, pv)) tags.push("promotion");
+    if (tags.length === 0 && pv.length > 1 && quietMaterialOverLine(fenBefore, pv.slice(0, 9)).net >= 2) {
+      tags.push("material");
+    }
+    return tags;
+  }
+  function explainGoodMove(fenBefore, playedUci, playedPv, playedMate) {
+    const evidence = (plies) => ({ fen: fenBefore, ucis: playedPv.slice(0, plies) });
+    const post = new Chess(fenBefore);
+    const matesNow = !!apply(post, playedUci) && post.isCheckmate();
+    if (playedMate !== null && playedMate > 0 || matesNow) {
+      const san = getSanLine(fenBefore, [playedUci])[0]?.san ?? playedUci;
+      const garnish = mateGarnish(matesNow ? post : mateBoard(fenBefore, playedPv));
+      return {
+        text: matesNow || playedMate === 1 ? `${san} is checkmate${garnish}.` : `${san} forces mate in ${playedMate}${garnish}.`,
+        evidence: evidence(12)
+      };
+    }
+    const point = forkPoint(fenBefore, playedUci) ?? freeCapturePoint(fenBefore, playedUci) ?? pinOrSkewerPoint(fenBefore, playedUci) ?? discoveredPoint(fenBefore, playedUci) ?? trappedPoint(fenBefore, playedUci);
+    if (point) return { text: point, evidence: evidence(1) };
+    if (playedPv.length > 1) {
+      const sac = sacrificeStory(fenBefore, playedPv);
+      if (sac && !sac.mates) {
+        return {
+          text: `It sacrifices ${sac.piece ? `the ${sac.piece}` : "material"} but comes out ${sac.net} point${sac.net === 1 ? "" : "s"} ahead (${sanLine(fenBefore, playedPv, sac.plies)}).`,
+          evidence: evidence(sac.plies)
+        };
+      }
+      const promo = promotionPoint(fenBefore, playedPv);
+      if (promo) return { text: promo, evidence: evidence(9) };
+      const { net, plies, pawnsOnly } = quietMaterialOverLine(fenBefore, playedPv.slice(0, 9));
+      if (net >= 1) {
+        const fenAfter = getFenAfter(fenBefore, playedUci);
+        const continuation = fenAfter ? getNumberedSanLine(fenAfter, playedPv.slice(1, plies)) : "";
+        if (continuation) {
+          return {
+            text: net >= 2 ? `It wins ${net} points of material (${continuation}).` : pawnsOnly ? `It wins a pawn (${continuation}).` : `It wins a point of material (${continuation}).`,
+            evidence: evidence(plies)
+          };
+        }
+      }
+      const story = summarizeLine(fenBefore, playedPv.slice(0, 9));
+      if (story) return { text: `In this line, ${story}.`, evidence: evidence(9) };
+    }
+    return void 0;
+  }
 
   // src/lib/engine/insights.ts
+  function lineCp(l) {
+    if (l.mate !== null) return l.mate > 0 ? 9999 : -9999;
+    return l.score * 100;
+  }
   function winChance(evalPawns, mate) {
     if (mate !== null) return mate > 0 ? 100 : 0;
     if (evalPawns === null) return 50;
     const cp = Math.max(-1500, Math.min(1500, evalPawns * 100));
     return 50 + 50 * (2 / (1 + Math.exp(-368208e-8 * cp)) - 1);
   }
+  function whitePovWinChance(color, evalPawns, mate) {
+    const wc = winChance(evalPawns, mate);
+    return color === "w" ? wc : 100 - wc;
+  }
+  function gradeMove(ply, fenBefore, san, uci, color, lines) {
+    if (lines.length === 0) return null;
+    const sorted = [...lines].sort((a, b) => a.multipv - b.multipv);
+    const cps = sorted.map(lineCp);
+    const maxCp = Math.max(...cps);
+    const exps = cps.map((c) => Math.exp((c - maxCp) / 100));
+    const denom = exps.reduce((a, b) => a + b, 0) || 1;
+    const confs = exps.map((e) => e / denom * 100);
+    const bestConf = Math.max(...confs);
+    const idx = sorted.findIndex((l) => l.pv[0] === uci);
+    const best = sorted[0];
+    return {
+      ply,
+      fenBefore,
+      san,
+      uci,
+      color,
+      depth: best.depth,
+      rank: idx >= 0 ? idx + 1 : null,
+      evalPawns: idx >= 0 ? sorted[idx].score : null,
+      mate: idx >= 0 ? sorted[idx].mate : null,
+      pctBest: idx >= 0 && bestConf > 0 ? confs[idx] / bestConf * 100 : null,
+      isBest: idx === 0,
+      bestSan: getSan(fenBefore, best.pv[0]),
+      bestUci: best.pv[0],
+      bestEval: best.score,
+      bestMate: best.mate,
+      totalLines: sorted.length,
+      offList: idx < 0,
+      backfilled: false,
+      preLines: sorted.map((l, i) => ({ uci: l.pv[0], cp: cps[i] })),
+      bestPv: best.pv
+    };
+  }
+  function backfillGrade(grade, childLines) {
+    if (childLines.length === 0) return grade;
+    const child = [...childLines].sort((a, b) => a.multipv - b.multipv)[0];
+    const cp = -(child.mate !== null ? child.mate > 0 ? 9999 : -9999 : child.score * 100);
+    const mate = child.mate !== null ? -child.mate : null;
+    const others = grade.preLines.filter((l) => l.uci !== grade.uci);
+    const pool = [...others.map((l) => l.cp), cp];
+    const maxCp = Math.max(...pool);
+    const exps = pool.map((c) => Math.exp((c - maxCp) / 100));
+    const played = exps[exps.length - 1];
+    const pctBest = Math.min(100, played / Math.max(...exps) * 100);
+    const rank2 = 1 + others.filter((l) => l.cp > cp).length;
+    const isBest = grade.isBest || pctBest >= 100;
+    const playedPv = [grade.uci, ...child.pv];
+    const wcBest = winChance(grade.bestEval, grade.bestMate);
+    const wcPlayed = winChance(cp / 100, mate);
+    const drop = Math.max(0, wcBest - wcPlayed);
+    const bestWinsMaterial = isCapture(grade.fenBefore, grade.bestUci) && materialOverLine(grade.fenBefore, grade.bestPv.slice(0, 6)) >= 2;
+    const missed = !isBest && bestWinsMaterial && drop >= 10 && wcPlayed >= 40;
+    let label;
+    if (missed) label = "miss";
+    else if (drop >= 20) label = "blunder";
+    else if (drop >= 10) label = "mistake";
+    else if (drop >= 5) label = "inaccuracy";
+    else if (!isBest) label = drop <= 2 ? "excellent" : "good";
+    else {
+      const shortNet = materialOverLine(grade.fenBefore, playedPv.slice(0, 4));
+      const others2 = grade.preLines.filter((l) => l.uci !== grade.bestUci);
+      const secondCp = others2.length > 0 ? Math.max(...others2.map((l) => l.cp)) : null;
+      const wcSecond = secondCp === null ? null : winChance(secondCp / 100, null);
+      if (shortNet <= -2 && wcPlayed >= 55 && wcBest <= 92) label = "brilliant";
+      else if (wcSecond !== null && wcBest - wcSecond >= 15) label = "great";
+      else label = "best";
+    }
+    let explanation;
+    if (child.depth >= 10) {
+      if (isBest || pctBest >= 90) {
+        const point = explainGoodMove(grade.fenBefore, grade.uci, playedPv, mate);
+        explanation = point ? { playedPoint: point.text, evidence: point.evidence } : void 0;
+      } else {
+        explanation = explainMove({
+          fenBefore: grade.fenBefore,
+          playedUci: grade.uci,
+          refutationPv: child.pv.slice(0, 8),
+          bestUci: grade.bestUci,
+          bestPv: grade.bestPv,
+          playedMate: mate,
+          bestMate: grade.bestMate,
+          isBest
+        });
+      }
+    }
+    return {
+      ...grade,
+      depth: child.depth,
+      evalPawns: mate !== null ? grade.evalPawns : cp / 100,
+      mate,
+      pctBest,
+      rank: rank2,
+      isBest,
+      backfilled: true,
+      explanation,
+      label
+    };
+  }
 
   // src/lib/engine/botRecipe.ts
+  function specToRecipe(spec) {
+    if (spec.kind === "sampler") {
+      return {
+        options: [["MultiPV", "24"]],
+        go: `go depth ${spec.depth}`,
+        sample: true,
+        alpha: spec.alpha
+      };
+    }
+    if (spec.kind === "skill") {
+      return {
+        options: [
+          ["MultiPV", "1"],
+          ["Skill Level", String(spec.level)]
+        ],
+        go: `go depth ${spec.depth}`,
+        sample: false
+      };
+    }
+    return {
+      options: [
+        ["MultiPV", "1"],
+        ["UCI_LimitStrength", "true"],
+        ["UCI_Elo", String(Math.max(1320, Math.min(3190, spec.elo)))]
+      ],
+      go: `go movetime ${spec.movetimeMs}`,
+      sample: false
+    };
+  }
+  function parseSpec(id) {
+    const parts = id.split(":");
+    if (parts[0] === "sampler") {
+      return {
+        kind: "sampler",
+        alpha: Number(parts[1].replace("a", "")),
+        depth: Number(parts[2].replace("d", ""))
+      };
+    }
+    if (parts[0] === "skill") {
+      return { kind: "skill", level: Number(parts[1]), depth: Number(parts[2].replace("d", "")) };
+    }
+    if (parts[0] === "ucielo") {
+      return {
+        kind: "ucielo",
+        elo: Number(parts[1]),
+        movetimeMs: Number(parts[2].replace("mt", ""))
+      };
+    }
+    return botSpec(Number(id));
+  }
+  var NATIVE = {
+    // SAMPLER refined 2026-07-13 from a 2,600-game high-N ladder
+    // (data/bot-native-hisample.json). The original n=40 fit ran ~85 Elo weak
+    // across 100–1300 (slider-1000 actually played ~900); n=200 caught the
+    // systematic tilt and the knots now invert to identity (700–2100 within
+    // ±45). The UCI_Elo top band is still the n=40 fit (movetime = expensive).
+    sampler: [
+      { e: -153, alpha: 0.1, depth: 1 },
+      { e: 155, alpha: 0.3, depth: 1 },
+      { e: 495, alpha: 0.5, depth: 2 },
+      { e: 773, alpha: 0.7, depth: 2 },
+      { e: 1161, alpha: 1.2, depth: 2 },
+      { e: 1627, alpha: 2, depth: 2 },
+      { e: 2033, alpha: 4, depth: 2 },
+      { e: 2327, alpha: 8, depth: 2 }
+    ],
+    // UCI_Elo band refined 2026-07-13 from a 1,000-game n=200 movetime ladder
+    // (data/bot-native-mt200.json) — the original was an n=40 fit
+    ucielo: [
+      { e: 2048, elo: 2400, movetimeMs: 400 },
+      { e: 2468, elo: 2800, movetimeMs: 400 },
+      { e: 2824, elo: 3190, movetimeMs: 400 }
+    ],
+    samplerMax: 2100,
+    depthBoundary: 410,
+    eloMin: 100,
+    eloMax: 2800
+  };
+  var WASM = {
+    sampler: [
+      { e: 87, alpha: 0.1, depth: 1 },
+      { e: 416, alpha: 0.3, depth: 1 },
+      { e: 732, alpha: 0.5, depth: 2 },
+      { e: 968, alpha: 0.7, depth: 2 },
+      { e: 1397, alpha: 1.2, depth: 2 },
+      { e: 1812, alpha: 2, depth: 2 },
+      { e: 2239, alpha: 4, depth: 2 },
+      { e: 2485, alpha: 8, depth: 2 }
+    ],
+    // UCI_Elo band refined 2026-07-13 from an 800-game n=200 movetime ladder
+    // (data/bot-wasm-mt200.json); the 3190 knot is extrapolated (the slider
+    // caps at 2800 so it's only the top bracket, never reached)
+    ucielo: [
+      { e: 2297, elo: 2400, movetimeMs: 400 },
+      { e: 2574, elo: 2800, movetimeMs: 400 },
+      { e: 3436, elo: 3190, movetimeMs: 400 }
+    ],
+    // sampler covers cleanly up to a8 (2485); UCI_Elo takes only the top above it
+    samplerMax: 2485,
+    depthBoundary: 550,
+    eloMin: 100,
+    eloMax: 2800
+  };
+  var BANDS = { native: NATIVE, wasm: WASM };
   var activeSubstrate = "wasm";
+  function setBotSubstrate(s) {
+    activeSubstrate = s;
+  }
   function getBotSubstrate() {
     return activeSubstrate;
   }
+  function botEloMin(s = activeSubstrate) {
+    return BANDS[s].eloMin;
+  }
+  function botEloMax(s = activeSubstrate) {
+    return BANDS[s].eloMax;
+  }
+  function lerp(x, x0, x1, y0, y1) {
+    const t = x1 === x0 ? 0 : (x - x0) / (x1 - x0);
+    return y0 + t * (y1 - y0);
+  }
+  function botSpec(elo, s = activeSubstrate) {
+    const b = BANDS[s];
+    const e = Math.max(b.eloMin, Math.min(b.eloMax, elo));
+    if (e <= b.samplerMax) {
+      return { kind: "sampler", alpha: samplerAlphaFor(e, s), depth: e < b.depthBoundary ? 1 : 2 };
+    }
+    const k = b.ucielo;
+    if (e <= k[0].e) return { kind: "ucielo", elo: k[0].elo, movetimeMs: k[0].movetimeMs };
+    for (let i = 0; i + 1 < k.length; i++) {
+      if (e <= k[i + 1].e) {
+        return {
+          kind: "ucielo",
+          elo: Math.round(lerp(e, k[i].e, k[i + 1].e, k[i].elo, k[i + 1].elo)),
+          movetimeMs: k[i].movetimeMs
+        };
+      }
+    }
+    const top = k[k.length - 1];
+    return { kind: "ucielo", elo: top.elo, movetimeMs: top.movetimeMs };
+  }
+  function samplerAlphaFor(elo, s = activeSubstrate) {
+    const b = BANDS[s];
+    const e = Math.max(b.eloMin, Math.min(b.eloMax, elo));
+    const k = b.sampler;
+    if (e <= k[0].e) return k[0].alpha;
+    for (let i = 0; i + 1 < k.length; i++) {
+      if (e <= k[i + 1].e) {
+        return Math.exp(lerp(e, k[i].e, k[i + 1].e, Math.log(k[i].alpha), Math.log(k[i + 1].alpha)));
+      }
+    }
+    return k[k.length - 1].alpha;
+  }
+  function botRecipe(elo, s = activeSubstrate) {
+    return specToRecipe(botSpec(elo, s));
+  }
 
   // src/lib/bot.ts
-  function lineCp(l) {
+  function lineCp2(l) {
     if (l.mate !== null) return l.mate > 0 ? 9999 : -9999;
     return l.score * 100;
   }
@@ -3529,7 +4478,7 @@ var botvinnik = (() => {
       const pSeeMate = 0.05 + 0.95 * clamp01((elo - 100) / (3e3 - 100));
       if (Math.random() < pSeeMate) return quickest.pv[0];
     }
-    const cps = sorted.map(lineCp);
+    const cps = sorted.map(lineCp2);
     const maxCp = Math.max(...cps);
     const exps = cps.map((c) => Math.exp((c - maxCp) / 100));
     const denom = exps.reduce((a2, b) => a2 + b, 0) || 1;
@@ -3569,7 +4518,7 @@ var botvinnik = (() => {
       // 6 at 1600 → 30 at 600
     };
   }
-  var PIECE_VAL = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 0 };
+  var PIECE_VAL2 = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 0 };
   var SCAN_MULTS = {
     mateSoon: 0.04,
     recapture: 0.02,
@@ -3610,7 +4559,7 @@ var botvinnik = (() => {
       const balance = () => {
         let v2 = 0;
         for (const row of c.board())
-          for (const sq of row) if (sq) v2 += (sq.color === mover ? 1 : -1) * PIECE_VAL[sq.type];
+          for (const sq of row) if (sq) v2 += (sq.color === mover ? 1 : -1) * PIECE_VAL2[sq.type];
         return v2;
       };
       const start = balance();
@@ -3626,7 +4575,7 @@ var botvinnik = (() => {
           promotion: uci.length > 4 ? uci[4] : void 0
         });
         if (i === 0) {
-          firstCaptureVal = m2.captured ? PIECE_VAL[m2.captured] : 0;
+          firstCaptureVal = m2.captured ? PIECE_VAL2[m2.captured] : 0;
           givesCheck = c.inCheck();
         }
         const gain = balance() - start;
@@ -3689,12 +4638,12 @@ var botvinnik = (() => {
         promotion: uci.length > 4 ? uci[4] : void 0
       });
       const dest = moved.to;
-      const movedVal = PIECE_VAL[moved.promotion ?? moved.piece];
+      const movedVal = PIECE_VAL2[moved.promotion ?? moved.piece];
       let cheapest = Infinity;
       let canRecapture = false;
       for (const reply of c.moves({ verbose: true })) {
         if (reply.to === dest && reply.captured)
-          cheapest = Math.min(cheapest, PIECE_VAL[reply.piece]);
+          cheapest = Math.min(cheapest, PIECE_VAL2[reply.piece]);
       }
       if (cheapest === Infinity) return 1;
       const probe = new Chess(c.fen());
@@ -3858,7 +4807,430 @@ var botvinnik = (() => {
   function botDelay(minMs = 300, maxMs = 1e3) {
     return minMs + Math.floor(Math.random() * (maxMs - minMs + 1));
   }
-  return __toCommonJS(bot_exports);
+
+  // src/lib/repetition.ts
+  function posKey(fen) {
+    return fen.split(" ").slice(0, 4).join(" ");
+  }
+  function clearlyWinning(m) {
+    return m.mate !== null ? m.mate > 0 : m.score >= 2;
+  }
+  function keepsTheWin(m) {
+    return m.mate !== null ? m.mate > 0 : m.score > 0.5;
+  }
+  function avoidRepetition(uci, fens, lines) {
+    const current = fens.at(-1);
+    const best = lines[0];
+    if (!current || !best || !clearlyWinning(best)) return uci;
+    const counts = /* @__PURE__ */ new Map();
+    for (const f of fens) {
+      const k = posKey(f);
+      counts.set(k, (counts.get(k) ?? 0) + 1);
+    }
+    const wouldBeThird = (mv) => {
+      const after = getFenAfter(current, mv);
+      return after !== null && (counts.get(posKey(after)) ?? 0) >= 2;
+    };
+    if (!wouldBeThird(uci)) return uci;
+    const alt = lines.find((l) => l.pv[0] && l.pv[0] !== uci && keepsTheWin(l) && !wouldBeThird(l.pv[0]));
+    return alt?.pv[0] ?? uci;
+  }
+
+  // src/lib/bots.ts
+  var SCALE_OFFSET = 240;
+  function square(displayElo) {
+    const label = shapedLabelFor(displayElo + SCALE_OFFSET);
+    const missPct = Math.round(shapedParams(label).missProb * 100);
+    return {
+      id: `square-${displayElo}`,
+      name: `Square ${displayElo}`,
+      elo: displayElo,
+      family: "square",
+      blurb: `Plays sound chess but misses ~${missPct}% of tactical moments \u2014 and stays blind to what it hasn't seen.`,
+      shapedLabel: label
+    };
+  }
+  function maia(displayElo, band, roman) {
+    return {
+      id: `maia-${band}`,
+      name: `Maia ${roman}`,
+      elo: displayElo,
+      family: "maia",
+      blurb: `A neural net trained to move like real ~${displayElo}-rated players \u2014 human habits, human mistakes.`,
+      maiaBand: band
+    };
+  }
+  function maiaSampled(displayElo, band, roman) {
+    return {
+      id: `maia-s-${band}`,
+      name: `Maia ${roman} (sampled)`,
+      elo: displayElo,
+      family: "maia",
+      blurb: `The same net as Maia ${roman}, but drawing from its whole move distribution instead of the consensus move \u2014 weaker, moodier, more like one player than an average. Rating estimated.`,
+      maiaBand: band,
+      maiaTemp: 1
+    };
+  }
+  function fish(displayElo) {
+    return {
+      id: `fish-${displayElo}`,
+      name: `Fish ${displayElo}`,
+      elo: displayElo,
+      family: "fish",
+      blurb: "Stockfish with the strength limiter on \u2014 cold, accurate, occasionally merciful.",
+      numericElo: displayElo + SCALE_OFFSET
+    };
+  }
+  function retro(displayElo, engine, ply, name, blurb) {
+    return { id: `retro-${engine}-${ply}`, name, elo: displayElo, family: "retro", blurb, retro: { engine, ply } };
+  }
+  var RETROS = [
+    retro(
+      1200,
+      "bernstein",
+      2,
+      "Bernstein 1957",
+      'The first complete chess program (IBM 704, 8 minutes a move). Considers only 7 "plausible moves" \u2014 beat it and you beat the dawn of computing.'
+    ),
+    retro(
+      1230,
+      "sargon",
+      1,
+      "Sargon 1978",
+      "Dan and Kathe Spracklen's Z80 classic that launched home-computer chess, at its easiest setting: one ply plus exchange sense."
+    ),
+    retro(
+      1300,
+      "turochamp",
+      1,
+      "Turochamp 1948",
+      "Alan Turing and David Champernowne's paper machine \u2014 written before computers existed to run it. Turing executed it by hand, one move per half hour."
+    )
+  ];
+  function dala(displayElo, band) {
+    return {
+      id: `dala-${band}`,
+      name: `Dala ${band}`,
+      elo: displayElo,
+      family: "dala",
+      blurb: `A neural net trained only on games by ~${band}-rated humans, playing their moves \u2014 habits, hopes, blind spots and all. (Downloads its brain on first use.)`,
+      dalaBand: band,
+      nativeOnly: true
+    };
+  }
+  function horizon(displayElo, level) {
+    return {
+      id: `horizon-${level}`,
+      name: `Horizon ${displayElo}`,
+      elo: displayElo,
+      family: "horizon",
+      blurb: level === 1 ? "A tiny JavaScript engine that cannot see past its own captures \u2014 it takes, you take back, it is surprised. The weakest honest engine we could find." : "One ply deeper than its little sibling: still starts exchanges it cannot finish, but needs slightly more convincing.",
+      jsceLevel: level
+    };
+  }
+  var GARBO = {
+    id: "garbo-2000",
+    name: "Garbo 2011",
+    elo: 2020,
+    family: "garbo",
+    blurb: "Gary Linscott's 2011 JavaScript engine, verbatim \u2014 its author went on to build the tools modern chess engines are made with. Plays like 2011: sharp, material-minded, honestly pre-neural.",
+    garboMs: 1e3
+  };
+  var PERSONAS = [
+    horizon(550, 1),
+    horizon(860, 2),
+    ...[600, 700, 800, 900, 1e3, 1100, 1200, 1300, 1400, 1500, 1600, 1700].map(square),
+    ...RETROS,
+    dala(911, 700),
+    dala(1095, 900),
+    dala(1315, 1300),
+    maiaSampled(1310, 1100, "I"),
+    maiaSampled(1380, 1500, "V"),
+    maiaSampled(1440, 1900, "IX"),
+    maia(1570, 1100, "I"),
+    maia(1640, 1500, "V"),
+    maia(1700, 1900, "IX"),
+    GARBO,
+    ...[1800, 1900, 2e3, 2100, 2200, 2300, 2400, 2500].map(fish)
+  ].sort((a, b) => a.elo - b.elo || a.name.localeCompare(b.name));
+  function availablePersonas(native) {
+    return native ? PERSONAS : PERSONAS.filter((p) => !p.nativeOnly);
+  }
+  var byId = new Map(PERSONAS.map((p) => [p.id, p]));
+  function personaById(id) {
+    return id && byId.get(id) || null;
+  }
+  function personaInternalElo(p) {
+    return p.elo + SCALE_OFFSET;
+  }
+
+  // src/lib/classifications.ts
+  var CLASS = {
+    brilliant: { glyph: "\u203C", color: "#1baca6", noun: "brilliant", graphed: true },
+    great: { glyph: "!", color: "#5b8bb0", noun: "a great move", graphed: true },
+    best: { glyph: "\u2605", color: "#81b64c", noun: "the best move", graphed: false },
+    excellent: { glyph: "\u2714", color: "#81b64c", noun: "excellent", graphed: false },
+    good: { glyph: "\u2713", color: "#95b776", noun: "a good move", graphed: false },
+    inaccuracy: { glyph: "?!", color: "#f0c15c", noun: "an inaccuracy", graphed: true },
+    mistake: { glyph: "?", color: "#e6912c", noun: "a mistake", graphed: true },
+    miss: { glyph: "\xD7", color: "#d9683a", noun: "a miss", graphed: true },
+    blunder: { glyph: "??", color: "#ca3431", noun: "a blunder", graphed: true }
+  };
+  var LABEL_ORDER = [
+    "brilliant",
+    "great",
+    "best",
+    "excellent",
+    "good",
+    "inaccuracy",
+    "mistake",
+    "miss",
+    "blunder"
+  ];
+
+  // src/lib/practice.ts
+  var KEY = "botvinnik-practice-v1";
+  var INTERVAL_DAYS = [7e-3, 1, 3, 7, 21];
+  function hasStorage() {
+    return typeof localStorage !== "undefined";
+  }
+  function save(items) {
+    if (hasStorage()) localStorage.setItem(KEY, JSON.stringify(items));
+  }
+  function itemDataFromStoredMove(move, setupUci) {
+    if (!move.bestSan || !move.bestUci || !move.fenBefore || move.wcDrop <= 0) return null;
+    const wcBest = Math.max(0, Math.min(100, winChance(move.evalPawns, move.mate) + move.wcDrop));
+    const w = Math.max(0.01, Math.min(0.99, wcBest / 100));
+    const evalBestPawns = Math.max(-15, Math.min(15, Math.log(w / (1 - w)) / 368208e-8 / 100));
+    return {
+      fen: move.fenBefore,
+      playedSan: move.san,
+      playedUci: move.uci,
+      bestSan: move.bestSan,
+      bestUci: move.bestUci,
+      bestPv: [move.bestUci],
+      setupUci: setupUci ?? enPassantSetup(move.fenBefore) ?? void 0,
+      motifs: motifTags(move.fenBefore, move.bestUci, [move.bestUci], null),
+      evalBestPawns,
+      mateBest: null,
+      wcBest,
+      drop: move.wcDrop,
+      depth: 22
+    };
+  }
+  function puzzleSetupMove(item) {
+    return item.setupUci ?? enPassantSetup(item.fen);
+  }
+  function enPassantSetup(fen) {
+    const ep = fen.split(" ")[3];
+    if (!ep || ep === "-" || ep.length < 2) return null;
+    const file2 = ep[0];
+    if (ep[1] === "6") return `${file2}7${file2}5`;
+    if (ep[1] === "3") return `${file2}2${file2}4`;
+    return null;
+  }
+  function addItem(items, data) {
+    if (items.some((i) => i.fen === data.fen)) return null;
+    const now = /* @__PURE__ */ new Date();
+    const item = {
+      ...data,
+      id: data.fen,
+      createdAt: now.toISOString(),
+      box: 0,
+      dueAt: now.toISOString(),
+      // due immediately
+      attempts: 0,
+      correct: 0
+    };
+    const next = [...items, item];
+    save(next);
+    return next;
+  }
+  function removeItem(items, id) {
+    const next = items.filter((i) => i.id !== id);
+    save(next);
+    return next;
+  }
+  function dueCount(items, now = Date.now()) {
+    return items.filter((i) => Date.parse(i.dueAt) <= now).length;
+  }
+  var TACTICAL_MOTIFS = [
+    "mate",
+    "back-rank mate",
+    "smothered mate",
+    "free capture",
+    "material",
+    "fork",
+    "pin",
+    "skewer",
+    "promotion"
+  ];
+  function puzzleDifficulty(item) {
+    if (item.attempts >= 2) {
+      const rate = item.correct / item.attempts;
+      if (item.lastResult === "fail" && rate < 0.5) return "hard";
+      if (rate >= 0.75 || item.box >= 3) return "easy";
+      return "medium";
+    }
+    if (item.box >= 3) return "easy";
+    const tactical = item.motifs?.some((m) => TACTICAL_MOTIFS.includes(m)) ?? false;
+    if (item.drop >= 25 || tactical && item.drop >= 12) return "easy";
+    if (item.drop < 10 && !tactical) return "hard";
+    return "medium";
+  }
+  function masteryStats(items) {
+    let mastered = 0, learning = 0, fresh = 0;
+    for (const i of items) {
+      if (i.attempts === 0) fresh++;
+      else if (i.box >= 3) mastered++;
+      else learning++;
+    }
+    return { mastered, learning, fresh, total: items.length };
+  }
+  function nextItem(items, excludeId, now = Date.now(), motif, rand2 = Math.random, easyFirst = false) {
+    let pool = items.filter((i) => i.id !== excludeId);
+    if (motif) pool = pool.filter((i) => i.motifs?.includes(motif));
+    if (pool.length === 0) return null;
+    const due = pool.filter((i) => Date.parse(i.dueAt) <= now);
+    if (due.length === 0) {
+      return pool.reduce((a, b) => Date.parse(a.dueAt) <= Date.parse(b.dueAt) ? a : b);
+    }
+    const weights = due.map((i) => {
+      let w = Math.max(1, (now - Date.parse(i.dueAt)) / 6e4 + 1);
+      if (easyFirst) {
+        const d = puzzleDifficulty(i);
+        w *= d === "easy" ? 3 : d === "hard" ? 0.5 : 1;
+      }
+      return w;
+    });
+    const total = weights.reduce((a, b) => a + b, 0);
+    let r = rand2() * total;
+    for (let k = 0; k < due.length; k++) {
+      r -= weights[k];
+      if (r <= 0) return due[k];
+    }
+    return due[due.length - 1];
+  }
+  function recordResult(items, id, pass, hinted = false) {
+    const next = items.map((i) => {
+      if (i.id !== id) return i;
+      const box = pass ? hinted ? i.box : Math.min(i.box + 1, INTERVAL_DAYS.length - 1) : 0;
+      const dueAt = new Date(Date.now() + INTERVAL_DAYS[box] * 864e5).toISOString();
+      return {
+        ...i,
+        box,
+        dueAt,
+        attempts: i.attempts + 1,
+        correct: i.correct + (pass ? 1 : 0),
+        lastResult: pass ? "pass" : "fail"
+      };
+    });
+    save(next);
+    return next;
+  }
+
+  // src/lib/gameStore.ts
+  var LABEL_VERSION = 1;
+  function moveAccuracy(wcDrop) {
+    const a = 103.1668 * Math.exp(-0.04354 * Math.max(0, wcDrop)) - 3.1669 + 1;
+    return Math.max(0, Math.min(100, a));
+  }
+  function stdDev(xs) {
+    if (xs.length === 0) return 0;
+    const mean = xs.reduce((a, b) => a + b, 0) / xs.length;
+    return Math.sqrt(xs.reduce((a, b) => a + (b - mean) * (b - mean), 0) / xs.length);
+  }
+  function gameAccuracy(moves, color) {
+    if (!moves.some((m) => m.color === color && m.label !== void 0)) return null;
+    const wps = [50];
+    let last = 50;
+    for (const m of moves) {
+      if (m.evalPawns !== null || m.mate !== null) {
+        const wc = winChance(m.evalPawns, m.mate);
+        last = m.color === "w" ? wc : 100 - wc;
+      }
+      wps.push(last);
+    }
+    const windowSize = Math.max(2, Math.min(8, Math.floor(wps.length / 10)));
+    const windows = [];
+    for (let k = 0; k < windowSize - 2; k++) windows.push(wps.slice(0, windowSize));
+    for (let s = 0; s + windowSize <= wps.length; s++) windows.push(wps.slice(s, s + windowSize));
+    let weightSum = 0;
+    let weightedSum = 0;
+    let invSum = 0;
+    let n = 0;
+    moves.forEach((m, i) => {
+      if (m.color !== color || m.label === void 0) return;
+      const acc = moveAccuracy(m.wcDrop);
+      const weight = Math.max(0.5, Math.min(12, stdDev(windows[Math.min(i, windows.length - 1)] ?? wps)));
+      weightedSum += acc * weight;
+      weightSum += weight;
+      invSum += 1 / acc;
+      n++;
+    });
+    const weighted = weightedSum / weightSum;
+    const harmonic = n / invSum;
+    return Math.max(0, Math.min(100, (weighted + harmonic) / 2));
+  }
+  function labelCounts(moves, color) {
+    const out = {};
+    for (const m of moves) {
+      if (m.color !== color || !m.label) continue;
+      out[m.label] = (out[m.label] ?? 0) + 1;
+    }
+    return out;
+  }
+
+  // src/lib/playerElo.ts
+  function playerScore(g) {
+    if (g.result === "1/2-1/2") return 0.5;
+    if (g.result === "1-0") return g.botColor === "b" ? 1 : 0;
+    if (g.result === "0-1") return g.botColor === "w" ? 1 : 0;
+    return null;
+  }
+  function expected(me, opp) {
+    return 1 / (1 + Math.pow(10, (opp - me) / 400));
+  }
+  function estimatePlayerElo(gamesList) {
+    const outcomes = [];
+    for (const g of gamesList) {
+      const p = personaById(g.botPersona);
+      if (!p) continue;
+      if (g.botFallback) continue;
+      if ((g.botUndos ?? 0) > 0) continue;
+      const score = playerScore(g);
+      if (score === null) continue;
+      outcomes.push({ opp: p.elo, score });
+    }
+    if (outcomes.length === 0) return null;
+    const meanOpp = outcomes.reduce((a, o) => a + o.opp, 0) / outcomes.length;
+    const fit = [...outcomes, { opp: meanOpp, score: 0.5 }];
+    let best = meanOpp;
+    let bestLL = -Infinity;
+    for (let e = 200; e <= 2900; e += 5) {
+      let ll = 0;
+      for (const o of fit) {
+        const p = expected(e, o.opp);
+        ll += o.score * Math.log(p) + (1 - o.score) * Math.log(1 - p);
+      }
+      if (ll > bestLL) {
+        bestLL = ll;
+        best = e;
+      }
+    }
+    const k = Math.LN10 / 400;
+    let info = 0;
+    for (const o of fit) {
+      const p = expected(best, o.opp);
+      info += k * k * p * (1 - p);
+    }
+    const se = info > 0 ? Math.round(1 / Math.sqrt(info)) : Infinity;
+    return { elo: best, se, games: outcomes.length };
+  }
+
+  // src/lib/brain-entry.ts
+  var BRAIN_VERSION = 1;
+  return __toCommonJS(brain_entry_exports);
 })();
 /*! Bundled license information:
 
