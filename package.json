@@ -6,7 +6,8 @@
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
-		"build:brain": "esbuild src/lib/brain-entry.ts --bundle --format=iife --global-name=brain --platform=browser --outfile=flutter/assets/brain.js && node scripts/smoke-brain.mjs",
+		"build:brain": "esbuild src/lib/brain-entry.ts --bundle --format=iife --global-name=brain --platform=browser --outfile=flutter/assets/brain.js && node scripts/smoke-brain.mjs && node scripts/replay-fixtures.mjs",
+		"fixtures": "tsx scripts/emit-golden-fixtures.mts",
 		"preview": "vite preview",
 		"test": "vitest run",
 		"prepare": "svelte-kit sync || echo ''",

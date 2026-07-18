@@ -1,0 +1,1391 @@
+{
+ "version": 1,
+ "fixtures": [
+  {
+   "fn": "winChance",
+   "args": [
+    0.35,
+    null
+   ],
+   "expected": 53.21736834106171
+  },
+  {
+   "fn": "winChance",
+   "args": [
+    -3,
+    null
+   ],
+   "expected": 24.88744990616516
+  },
+  {
+   "fn": "winChance",
+   "args": [
+    0,
+    null
+   ],
+   "expected": 50
+  },
+  {
+   "fn": "winChance",
+   "args": [
+    null,
+    3
+   ],
+   "expected": 100
+  },
+  {
+   "fn": "winChance",
+   "args": [
+    null,
+    -2
+   ],
+   "expected": 0
+  },
+  {
+   "fn": "winChance",
+   "args": [
+    15,
+    null
+   ],
+   "expected": 99.60225143948907
+  },
+  {
+   "fn": "winChance",
+   "args": [
+    null,
+    null
+   ],
+   "expected": 50
+  },
+  {
+   "fn": "whitePovWinChance",
+   "args": [
+    "w",
+    0.35,
+    null
+   ],
+   "expected": 53.21736834106171
+  },
+  {
+   "fn": "whitePovWinChance",
+   "args": [
+    "b",
+    -0.35,
+    null
+   ],
+   "expected": 53.2173683410617
+  },
+  {
+   "fn": "whitePovWinChance",
+   "args": [
+    "b",
+    null,
+    2
+   ],
+   "expected": 0
+  },
+  {
+   "fn": "getSan",
+   "args": [
+    "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+    "g1f3"
+   ],
+   "expected": "Nf3"
+  },
+  {
+   "fn": "getFenAfter",
+   "args": [
+    "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+    "e2e4"
+   ],
+   "expected": "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1"
+  },
+  {
+   "fn": "getSanLine",
+   "args": [
+    "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+    [
+     "e2e4",
+     "e7e5",
+     "g1f3",
+     "b8c6",
+     "f1b5"
+    ]
+   ],
+   "expected": [
+    {
+     "san": "e4",
+     "uci": "e2e4",
+     "color": "w",
+     "piece": "p"
+    },
+    {
+     "san": "e5",
+     "uci": "e7e5",
+     "color": "b",
+     "piece": "p"
+    },
+    {
+     "san": "Nf3",
+     "uci": "g1f3",
+     "color": "w",
+     "piece": "n"
+    },
+    {
+     "san": "Nc6",
+     "uci": "b8c6",
+     "color": "b",
+     "piece": "n"
+    },
+    {
+     "san": "Bb5",
+     "uci": "f1b5",
+     "color": "w",
+     "piece": "b"
+    }
+   ]
+  },
+  {
+   "fn": "getNumberedSanLine",
+   "args": [
+    "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+    [
+     "e2e4",
+     "e7e5",
+     "g1f3",
+     "b8c6",
+     "f1b5"
+    ],
+    12
+   ],
+   "expected": "1.e4 e5 2.Nf3 Nc6 3.Bb5"
+  },
+  {
+   "fn": "isCapture",
+   "args": [
+    "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+    "e2e4"
+   ],
+   "expected": false
+  },
+  {
+   "fn": "gradeMove",
+   "args": [
+    1,
+    "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+    "e4",
+    "e2e4",
+    "w",
+    [
+     {
+      "pv": [
+       "e2e4",
+       "e7e5",
+       "g1f3"
+      ],
+      "score": 0.35,
+      "mate": null,
+      "depth": 18,
+      "multipv": 1
+     },
+     {
+      "pv": [
+       "d2d4",
+       "d7d5"
+      ],
+      "score": 0.3,
+      "mate": null,
+      "depth": 18,
+      "multipv": 2
+     },
+     {
+      "pv": [
+       "g1f3",
+       "g8f6"
+      ],
+      "score": 0.25,
+      "mate": null,
+      "depth": 18,
+      "multipv": 3
+     },
+     {
+      "pv": [
+       "c2c4"
+      ],
+      "score": 0.2,
+      "mate": null,
+      "depth": 18,
+      "multipv": 4
+     },
+     {
+      "pv": [
+       "g2g4"
+      ],
+      "score": -0.9,
+      "mate": null,
+      "depth": 18,
+      "multipv": 5
+     }
+    ]
+   ],
+   "expected": {
+    "ply": 1,
+    "fenBefore": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+    "san": "e4",
+    "uci": "e2e4",
+    "color": "w",
+    "depth": 18,
+    "rank": 1,
+    "evalPawns": 0.35,
+    "mate": null,
+    "pctBest": 100,
+    "isBest": true,
+    "bestSan": "e4",
+    "bestUci": "e2e4",
+    "bestEval": 0.35,
+    "bestMate": null,
+    "totalLines": 5,
+    "offList": false,
+    "backfilled": false,
+    "preLines": [
+     {
+      "uci": "e2e4",
+      "cp": 35
+     },
+     {
+      "uci": "d2d4",
+      "cp": 30
+     },
+     {
+      "uci": "g1f3",
+      "cp": 25
+     },
+     {
+      "uci": "c2c4",
+      "cp": 20
+     },
+     {
+      "uci": "g2g4",
+      "cp": -90
+     }
+    ],
+    "bestPv": [
+     "e2e4",
+     "e7e5",
+     "g1f3"
+    ]
+   }
+  },
+  {
+   "fn": "backfillGrade",
+   "args": [
+    {
+     "ply": 1,
+     "fenBefore": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+     "san": "e4",
+     "uci": "e2e4",
+     "color": "w",
+     "depth": 18,
+     "rank": 1,
+     "evalPawns": 0.35,
+     "mate": null,
+     "pctBest": 100,
+     "isBest": true,
+     "bestSan": "e4",
+     "bestUci": "e2e4",
+     "bestEval": 0.35,
+     "bestMate": null,
+     "totalLines": 5,
+     "offList": false,
+     "backfilled": false,
+     "preLines": [
+      {
+       "uci": "e2e4",
+       "cp": 35
+      },
+      {
+       "uci": "d2d4",
+       "cp": 30
+      },
+      {
+       "uci": "g1f3",
+       "cp": 25
+      },
+      {
+       "uci": "c2c4",
+       "cp": 20
+      },
+      {
+       "uci": "g2g4",
+       "cp": -90
+      }
+     ],
+     "bestPv": [
+      "e2e4",
+      "e7e5",
+      "g1f3"
+     ]
+    },
+    [
+     {
+      "pv": [
+       "e7e5",
+       "g1f3",
+       "b8c6"
+      ],
+      "score": -0.3,
+      "mate": null,
+      "depth": 16,
+      "multipv": 1
+     }
+    ]
+   ],
+   "expected": {
+    "ply": 1,
+    "fenBefore": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+    "san": "e4",
+    "uci": "e2e4",
+    "color": "w",
+    "depth": 16,
+    "rank": 1,
+    "evalPawns": 0.3,
+    "mate": null,
+    "pctBest": 100,
+    "isBest": true,
+    "bestSan": "e4",
+    "bestUci": "e2e4",
+    "bestEval": 0.35,
+    "bestMate": null,
+    "totalLines": 5,
+    "offList": false,
+    "backfilled": true,
+    "preLines": [
+     {
+      "uci": "e2e4",
+      "cp": 35
+     },
+     {
+      "uci": "d2d4",
+      "cp": 30
+     },
+     {
+      "uci": "g1f3",
+      "cp": 25
+     },
+     {
+      "uci": "c2c4",
+      "cp": 20
+     },
+     {
+      "uci": "g2g4",
+      "cp": -90
+     }
+    ],
+    "bestPv": [
+     "e2e4",
+     "e7e5",
+     "g1f3"
+    ],
+    "label": "best"
+   }
+  },
+  {
+   "fn": "backfillGrade",
+   "args": [
+    {
+     "ply": 1,
+     "fenBefore": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+     "san": "g4",
+     "uci": "g2g4",
+     "color": "w",
+     "depth": 18,
+     "rank": 5,
+     "evalPawns": -0.9,
+     "mate": null,
+     "pctBest": 28.650479686019008,
+     "isBest": false,
+     "bestSan": "e4",
+     "bestUci": "e2e4",
+     "bestEval": 0.35,
+     "bestMate": null,
+     "totalLines": 5,
+     "offList": false,
+     "backfilled": false,
+     "preLines": [
+      {
+       "uci": "e2e4",
+       "cp": 35
+      },
+      {
+       "uci": "d2d4",
+       "cp": 30
+      },
+      {
+       "uci": "g1f3",
+       "cp": 25
+      },
+      {
+       "uci": "c2c4",
+       "cp": 20
+      },
+      {
+       "uci": "g2g4",
+       "cp": -90
+      }
+     ],
+     "bestPv": [
+      "e2e4",
+      "e7e5",
+      "g1f3"
+     ]
+    },
+    [
+     {
+      "pv": [
+       "e7e5",
+       "f2f3",
+       "d8h4"
+      ],
+      "score": 2.8,
+      "mate": null,
+      "depth": 16,
+      "multipv": 1
+     }
+    ]
+   ],
+   "expected": {
+    "ply": 1,
+    "fenBefore": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+    "san": "g4",
+    "uci": "g2g4",
+    "color": "w",
+    "depth": 16,
+    "rank": 5,
+    "evalPawns": -2.8,
+    "mate": null,
+    "pctBest": 4.285212686704018,
+    "isBest": false,
+    "bestSan": "e4",
+    "bestUci": "e2e4",
+    "bestEval": 0.35,
+    "bestMate": null,
+    "totalLines": 5,
+    "offList": false,
+    "backfilled": true,
+    "preLines": [
+     {
+      "uci": "e2e4",
+      "cp": 35
+     },
+     {
+      "uci": "d2d4",
+      "cp": 30
+     },
+     {
+      "uci": "g1f3",
+      "cp": 25
+     },
+     {
+      "uci": "c2c4",
+      "cp": 20
+     },
+     {
+      "uci": "g2g4",
+      "cp": -90
+     }
+    ],
+    "bestPv": [
+     "e2e4",
+     "e7e5",
+     "g1f3"
+    ],
+    "explanation": {
+     "lineStory": "In this line, you get mated.",
+     "evidence": {
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "ucis": [
+       "g2g4",
+       "e7e5",
+       "f2f3",
+       "d8h4"
+      ]
+     }
+    },
+    "label": "blunder"
+   }
+  },
+  {
+   "fn": "shapedBotMove",
+   "args": [
+    [
+     {
+      "pv": [
+       "d4d8"
+      ],
+      "score": 8.5,
+      "mate": null,
+      "depth": 12,
+      "multipv": 1
+     },
+     {
+      "pv": [
+       "a2a3"
+      ],
+      "score": 0.5,
+      "mate": null,
+      "depth": 12,
+      "multipv": 2
+     },
+     {
+      "pv": [
+       "b2b3"
+      ],
+      "score": 0.4,
+      "mate": null,
+      "depth": 12,
+      "multipv": 3
+     },
+     {
+      "pv": [
+       "c2c3"
+      ],
+      "score": 0.3,
+      "mate": null,
+      "depth": 12,
+      "multipv": 4
+     },
+     {
+      "pv": [
+       "h2h3"
+      ],
+      "score": 0.19999999999999996,
+      "mate": null,
+      "depth": 12,
+      "multipv": 5
+     },
+     {
+      "pv": [
+       "g2g3"
+      ],
+      "score": 0.09999999999999998,
+      "mate": null,
+      "depth": 12,
+      "multipv": 6
+     },
+     {
+      "pv": [
+       "f2f3"
+      ],
+      "score": 0,
+      "mate": null,
+      "depth": 12,
+      "multipv": 7
+     },
+     {
+      "pv": [
+       "a2a4"
+      ],
+      "score": -0.10000000000000009,
+      "mate": null,
+      "depth": 12,
+      "multipv": 8
+     },
+     {
+      "pv": [
+       "b2b4"
+      ],
+      "score": -0.20000000000000007,
+      "mate": null,
+      "depth": 12,
+      "multipv": 9
+     },
+     {
+      "pv": [
+       "c2c4"
+      ],
+      "score": -0.30000000000000004,
+      "mate": null,
+      "depth": 12,
+      "multipv": 10
+     },
+     {
+      "pv": [
+       "h2h4"
+      ],
+      "score": -0.4,
+      "mate": null,
+      "depth": 12,
+      "multipv": 11
+     },
+     {
+      "pv": [
+       "g2g4"
+      ],
+      "score": -0.5,
+      "mate": null,
+      "depth": 12,
+      "multipv": 12
+     }
+    ],
+    600,
+    {
+     "scan": true
+    },
+    "fix1",
+    "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+   ],
+   "expected": "d4d8"
+  },
+  {
+   "fn": "shapedBotMove",
+   "args": [
+    [
+     {
+      "pv": [
+       "d4d8"
+      ],
+      "score": 8.5,
+      "mate": null,
+      "depth": 12,
+      "multipv": 1
+     },
+     {
+      "pv": [
+       "a2a3"
+      ],
+      "score": 0.5,
+      "mate": null,
+      "depth": 12,
+      "multipv": 2
+     },
+     {
+      "pv": [
+       "b2b3"
+      ],
+      "score": 0.4,
+      "mate": null,
+      "depth": 12,
+      "multipv": 3
+     },
+     {
+      "pv": [
+       "c2c3"
+      ],
+      "score": 0.3,
+      "mate": null,
+      "depth": 12,
+      "multipv": 4
+     },
+     {
+      "pv": [
+       "h2h3"
+      ],
+      "score": 0.19999999999999996,
+      "mate": null,
+      "depth": 12,
+      "multipv": 5
+     },
+     {
+      "pv": [
+       "g2g3"
+      ],
+      "score": 0.09999999999999998,
+      "mate": null,
+      "depth": 12,
+      "multipv": 6
+     },
+     {
+      "pv": [
+       "f2f3"
+      ],
+      "score": 0,
+      "mate": null,
+      "depth": 12,
+      "multipv": 7
+     },
+     {
+      "pv": [
+       "a2a4"
+      ],
+      "score": -0.10000000000000009,
+      "mate": null,
+      "depth": 12,
+      "multipv": 8
+     },
+     {
+      "pv": [
+       "b2b4"
+      ],
+      "score": -0.20000000000000007,
+      "mate": null,
+      "depth": 12,
+      "multipv": 9
+     },
+     {
+      "pv": [
+       "c2c4"
+      ],
+      "score": -0.30000000000000004,
+      "mate": null,
+      "depth": 12,
+      "multipv": 10
+     },
+     {
+      "pv": [
+       "h2h4"
+      ],
+      "score": -0.4,
+      "mate": null,
+      "depth": 12,
+      "multipv": 11
+     },
+     {
+      "pv": [
+       "g2g4"
+      ],
+      "score": -0.5,
+      "mate": null,
+      "depth": 12,
+      "multipv": 12
+     }
+    ],
+    600,
+    {
+     "scan": true
+    },
+    "fix2",
+    "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+   ],
+   "expected": "d4d8"
+  },
+  {
+   "fn": "shapedBotMove",
+   "args": [
+    [
+     {
+      "pv": [
+       "d4d8"
+      ],
+      "score": 8.5,
+      "mate": null,
+      "depth": 12,
+      "multipv": 1
+     },
+     {
+      "pv": [
+       "a2a3"
+      ],
+      "score": 0.5,
+      "mate": null,
+      "depth": 12,
+      "multipv": 2
+     },
+     {
+      "pv": [
+       "b2b3"
+      ],
+      "score": 0.4,
+      "mate": null,
+      "depth": 12,
+      "multipv": 3
+     },
+     {
+      "pv": [
+       "c2c3"
+      ],
+      "score": 0.3,
+      "mate": null,
+      "depth": 12,
+      "multipv": 4
+     },
+     {
+      "pv": [
+       "h2h3"
+      ],
+      "score": 0.19999999999999996,
+      "mate": null,
+      "depth": 12,
+      "multipv": 5
+     },
+     {
+      "pv": [
+       "g2g3"
+      ],
+      "score": 0.09999999999999998,
+      "mate": null,
+      "depth": 12,
+      "multipv": 6
+     },
+     {
+      "pv": [
+       "f2f3"
+      ],
+      "score": 0,
+      "mate": null,
+      "depth": 12,
+      "multipv": 7
+     },
+     {
+      "pv": [
+       "a2a4"
+      ],
+      "score": -0.10000000000000009,
+      "mate": null,
+      "depth": 12,
+      "multipv": 8
+     },
+     {
+      "pv": [
+       "b2b4"
+      ],
+      "score": -0.20000000000000007,
+      "mate": null,
+      "depth": 12,
+      "multipv": 9
+     },
+     {
+      "pv": [
+       "c2c4"
+      ],
+      "score": -0.30000000000000004,
+      "mate": null,
+      "depth": 12,
+      "multipv": 10
+     },
+     {
+      "pv": [
+       "h2h4"
+      ],
+      "score": -0.4,
+      "mate": null,
+      "depth": 12,
+      "multipv": 11
+     },
+     {
+      "pv": [
+       "g2g4"
+      ],
+      "score": -0.5,
+      "mate": null,
+      "depth": 12,
+      "multipv": 12
+     }
+    ],
+    600,
+    {
+     "scan": true
+    },
+    "fix3",
+    "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+   ],
+   "expected": "d4d8"
+  },
+  {
+   "fn": "shapedSearchDepth",
+   "args": [
+    600
+   ],
+   "expected": 4
+  },
+  {
+   "fn": "shapedSearchDepth",
+   "args": [
+    900
+   ],
+   "expected": 7
+  },
+  {
+   "fn": "shapedSearchDepth",
+   "args": [
+    1200
+   ],
+   "expected": 9
+  },
+  {
+   "fn": "shapedSearchDepth",
+   "args": [
+    1500
+   ],
+   "expected": 12
+  },
+  {
+   "fn": "shapedLabelFor",
+   "args": [
+    1140
+   ],
+   "expected": 849
+  },
+  {
+   "fn": "avoidRepetition",
+   "args": [
+    "d4d8",
+    [
+     "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+    ],
+    [
+     {
+      "pv": [
+       "d4d8"
+      ],
+      "score": 8.5,
+      "mate": null,
+      "depth": 12,
+      "multipv": 1
+     },
+     {
+      "pv": [
+       "a2a3"
+      ],
+      "score": 0.5,
+      "mate": null,
+      "depth": 12,
+      "multipv": 2
+     },
+     {
+      "pv": [
+       "b2b3"
+      ],
+      "score": 0.4,
+      "mate": null,
+      "depth": 12,
+      "multipv": 3
+     },
+     {
+      "pv": [
+       "c2c3"
+      ],
+      "score": 0.3,
+      "mate": null,
+      "depth": 12,
+      "multipv": 4
+     },
+     {
+      "pv": [
+       "h2h3"
+      ],
+      "score": 0.19999999999999996,
+      "mate": null,
+      "depth": 12,
+      "multipv": 5
+     },
+     {
+      "pv": [
+       "g2g3"
+      ],
+      "score": 0.09999999999999998,
+      "mate": null,
+      "depth": 12,
+      "multipv": 6
+     },
+     {
+      "pv": [
+       "f2f3"
+      ],
+      "score": 0,
+      "mate": null,
+      "depth": 12,
+      "multipv": 7
+     },
+     {
+      "pv": [
+       "a2a4"
+      ],
+      "score": -0.10000000000000009,
+      "mate": null,
+      "depth": 12,
+      "multipv": 8
+     },
+     {
+      "pv": [
+       "b2b4"
+      ],
+      "score": -0.20000000000000007,
+      "mate": null,
+      "depth": 12,
+      "multipv": 9
+     },
+     {
+      "pv": [
+       "c2c4"
+      ],
+      "score": -0.30000000000000004,
+      "mate": null,
+      "depth": 12,
+      "multipv": 10
+     },
+     {
+      "pv": [
+       "h2h4"
+      ],
+      "score": -0.4,
+      "mate": null,
+      "depth": 12,
+      "multipv": 11
+     },
+     {
+      "pv": [
+       "g2g4"
+      ],
+      "score": -0.5,
+      "mate": null,
+      "depth": 12,
+      "multipv": 12
+     }
+    ]
+   ],
+   "expected": "d4d8"
+  },
+  {
+   "fn": "moveAccuracy",
+   "args": [
+    0
+   ],
+   "expected": 100
+  },
+  {
+   "fn": "moveAccuracy",
+   "args": [
+    25
+   ],
+   "expected": 32.57154837428388
+  },
+  {
+   "fn": "gameAccuracy",
+   "args": [
+    [
+     {
+      "ply": 1,
+      "san": "e4",
+      "uci": "e2e4",
+      "color": "w",
+      "fenBefore": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "fenAfter": "",
+      "evalPawns": 0.3,
+      "mate": null,
+      "pctBest": 100,
+      "wcDrop": 0,
+      "label": "best"
+     },
+     {
+      "ply": 2,
+      "san": "e5",
+      "uci": "e7e5",
+      "color": "b",
+      "fenBefore": "",
+      "fenAfter": "",
+      "evalPawns": -0.3,
+      "mate": null,
+      "pctBest": 95,
+      "wcDrop": 1.2,
+      "label": "excellent"
+     },
+     {
+      "ply": 3,
+      "san": "g4",
+      "uci": "g2g4",
+      "color": "w",
+      "fenBefore": "",
+      "fenAfter": "",
+      "evalPawns": -2.5,
+      "mate": null,
+      "pctBest": 4,
+      "wcDrop": 24,
+      "label": "blunder"
+     }
+    ],
+    "w"
+   ],
+   "expected": 45.89338942577281
+  },
+  {
+   "fn": "gameAccuracy",
+   "args": [
+    [
+     {
+      "ply": 1,
+      "san": "e4",
+      "uci": "e2e4",
+      "color": "w",
+      "fenBefore": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "fenAfter": "",
+      "evalPawns": 0.3,
+      "mate": null,
+      "pctBest": 100,
+      "wcDrop": 0,
+      "label": "best"
+     },
+     {
+      "ply": 2,
+      "san": "e5",
+      "uci": "e7e5",
+      "color": "b",
+      "fenBefore": "",
+      "fenAfter": "",
+      "evalPawns": -0.3,
+      "mate": null,
+      "pctBest": 95,
+      "wcDrop": 1.2,
+      "label": "excellent"
+     },
+     {
+      "ply": 3,
+      "san": "g4",
+      "uci": "g2g4",
+      "color": "w",
+      "fenBefore": "",
+      "fenAfter": "",
+      "evalPawns": -2.5,
+      "mate": null,
+      "pctBest": 4,
+      "wcDrop": 24,
+      "label": "blunder"
+     }
+    ],
+    "b"
+   ],
+   "expected": 95.74803542449271
+  },
+  {
+   "fn": "labelCounts",
+   "args": [
+    [
+     {
+      "ply": 1,
+      "san": "e4",
+      "uci": "e2e4",
+      "color": "w",
+      "fenBefore": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "fenAfter": "",
+      "evalPawns": 0.3,
+      "mate": null,
+      "pctBest": 100,
+      "wcDrop": 0,
+      "label": "best"
+     },
+     {
+      "ply": 2,
+      "san": "e5",
+      "uci": "e7e5",
+      "color": "b",
+      "fenBefore": "",
+      "fenAfter": "",
+      "evalPawns": -0.3,
+      "mate": null,
+      "pctBest": 95,
+      "wcDrop": 1.2,
+      "label": "excellent"
+     },
+     {
+      "ply": 3,
+      "san": "g4",
+      "uci": "g2g4",
+      "color": "w",
+      "fenBefore": "",
+      "fenAfter": "",
+      "evalPawns": -2.5,
+      "mate": null,
+      "pctBest": 4,
+      "wcDrop": 24,
+      "label": "blunder"
+     }
+    ],
+    "w"
+   ],
+   "expected": {
+    "best": 1,
+    "blunder": 1
+   }
+  },
+  {
+   "fn": "itemDataFromStoredMove",
+   "args": [
+    {
+     "ply": 6,
+     "san": "g6",
+     "uci": "g7g6",
+     "color": "b",
+     "fenBefore": "r1bqkbnr/pppp1ppp/2n5/4p2Q/2B1P3/8/PPPP1PPP/RNB1K1NR b KQkq - 3 3",
+     "fenAfter": "",
+     "evalPawns": -3,
+     "mate": null,
+     "pctBest": 5,
+     "wcDrop": 30,
+     "depth": 22,
+     "label": "blunder",
+     "bestSan": "Qe7",
+     "bestUci": "d8e7"
+    },
+    "d1h5"
+   ],
+   "expected": {
+    "fen": "r1bqkbnr/pppp1ppp/2n5/4p2Q/2B1P3/8/PPPP1PPP/RNB1K1NR b KQkq - 3 3",
+    "playedSan": "g6",
+    "playedUci": "g7g6",
+    "bestSan": "Qe7",
+    "bestUci": "d8e7",
+    "bestPv": [
+     "d8e7"
+    ],
+    "setupUci": "d1h5",
+    "motifs": [],
+    "evalBestPawns": 0.5326452516920888,
+    "mateBest": null,
+    "wcBest": 54.88744990616516,
+    "drop": 30,
+    "depth": 22
+   }
+  },
+  {
+   "fn": "recordResult",
+   "args": [
+    [
+     {
+      "fen": "r1bqkbnr/pppp1ppp/2n5/4p2Q/2B1P3/8/PPPP1PPP/RNB1K1NR b KQkq - 3 3",
+      "playedSan": "g6",
+      "playedUci": "g7g6",
+      "bestSan": "Qe7",
+      "bestUci": "d8e7",
+      "bestPv": [
+       "d8e7"
+      ],
+      "setupUci": "d1h5",
+      "motifs": [],
+      "evalBestPawns": 0.5326452516920888,
+      "mateBest": null,
+      "wcBest": 54.88744990616516,
+      "drop": 30,
+      "depth": 22,
+      "id": "fix",
+      "createdAt": "2026-01-01T00:00:00Z",
+      "box": 1,
+      "dueAt": "2026-01-01T00:00:00Z",
+      "attempts": 2,
+      "correct": 1
+     }
+    ],
+    "fix",
+    true,
+    false
+   ],
+   "expected": [
+    {
+     "fen": "r1bqkbnr/pppp1ppp/2n5/4p2Q/2B1P3/8/PPPP1PPP/RNB1K1NR b KQkq - 3 3",
+     "playedSan": "g6",
+     "playedUci": "g7g6",
+     "bestSan": "Qe7",
+     "bestUci": "d8e7",
+     "bestPv": [
+      "d8e7"
+     ],
+     "setupUci": "d1h5",
+     "motifs": [],
+     "evalBestPawns": 0.5326452516920888,
+     "mateBest": null,
+     "wcBest": 54.88744990616516,
+     "drop": 30,
+     "depth": 22,
+     "id": "fix",
+     "createdAt": "2026-01-01T00:00:00Z",
+     "box": 2,
+     "dueAt": "2026-07-21T11:44:55.157Z",
+     "attempts": 3,
+     "correct": 2,
+     "lastResult": "pass"
+    }
+   ],
+   "ignore": [
+    "dueAt"
+   ]
+  },
+  {
+   "fn": "recordResult",
+   "args": [
+    [
+     {
+      "fen": "r1bqkbnr/pppp1ppp/2n5/4p2Q/2B1P3/8/PPPP1PPP/RNB1K1NR b KQkq - 3 3",
+      "playedSan": "g6",
+      "playedUci": "g7g6",
+      "bestSan": "Qe7",
+      "bestUci": "d8e7",
+      "bestPv": [
+       "d8e7"
+      ],
+      "setupUci": "d1h5",
+      "motifs": [],
+      "evalBestPawns": 0.5326452516920888,
+      "mateBest": null,
+      "wcBest": 54.88744990616516,
+      "drop": 30,
+      "depth": 22,
+      "id": "fix",
+      "createdAt": "2026-01-01T00:00:00Z",
+      "box": 1,
+      "dueAt": "2026-01-01T00:00:00Z",
+      "attempts": 2,
+      "correct": 1
+     }
+    ],
+    "fix",
+    false,
+    false
+   ],
+   "expected": [
+    {
+     "fen": "r1bqkbnr/pppp1ppp/2n5/4p2Q/2B1P3/8/PPPP1PPP/RNB1K1NR b KQkq - 3 3",
+     "playedSan": "g6",
+     "playedUci": "g7g6",
+     "bestSan": "Qe7",
+     "bestUci": "d8e7",
+     "bestPv": [
+      "d8e7"
+     ],
+     "setupUci": "d1h5",
+     "motifs": [],
+     "evalBestPawns": 0.5326452516920888,
+     "mateBest": null,
+     "wcBest": 54.88744990616516,
+     "drop": 30,
+     "depth": 22,
+     "id": "fix",
+     "createdAt": "2026-01-01T00:00:00Z",
+     "box": 0,
+     "dueAt": "2026-07-18T11:54:59.957Z",
+     "attempts": 3,
+     "correct": 1,
+     "lastResult": "fail"
+    }
+   ],
+   "ignore": [
+    "dueAt"
+   ]
+  },
+  {
+   "fn": "personaById",
+   "args": [
+    "square-900"
+   ],
+   "expected": {
+    "id": "square-900",
+    "name": "Square 900",
+    "elo": 900,
+    "family": "square",
+    "blurb": "Plays sound chess but misses ~46% of tactical moments — and stays blind to what it hasn't seen.",
+    "shapedLabel": 849
+   }
+  },
+  {
+   "fn": "personaById",
+   "args": [
+    "fish-2000"
+   ],
+   "expected": {
+    "id": "fish-2000",
+    "name": "Fish 2000",
+    "elo": 2000,
+    "family": "fish",
+    "blurb": "Stockfish with the strength limiter on — cold, accurate, occasionally merciful.",
+    "numericElo": 2240
+   }
+  }
+ ]
+}
