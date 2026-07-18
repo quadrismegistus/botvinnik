@@ -1,5 +1,5 @@
-// The archive: stored games, newest first — result, opponent, accuracy,
-// blunder/mistake counts. Tap to review.
+// The Review tab: stored games, newest first — result, opponent, accuracy,
+// blunder/mistake counts. Tap to review (pushed route).
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -7,14 +7,14 @@ import 'package:provider/provider.dart';
 import '../stores/review_controller.dart';
 import 'review_screen.dart';
 
-class GamesListScreen extends StatefulWidget {
-  const GamesListScreen({super.key});
+class GamesListBody extends StatefulWidget {
+  const GamesListBody({super.key});
 
   @override
-  State<GamesListScreen> createState() => _GamesListScreenState();
+  State<GamesListBody> createState() => _GamesListBodyState();
 }
 
-class _GamesListScreenState extends State<GamesListScreen> {
+class _GamesListBodyState extends State<GamesListBody> {
   @override
   void initState() {
     super.initState();
@@ -24,22 +24,20 @@ class _GamesListScreenState extends State<GamesListScreen> {
   @override
   Widget build(BuildContext context) {
     final review = context.watch<ReviewController>();
-    return Scaffold(
-      appBar: AppBar(title: const Text('Games')),
-      body: !review.loaded
-          ? const Center(child: CircularProgressIndicator())
-          : review.games.isEmpty
-              ? const Center(
-                  child: Text('No games yet — finish one and it lands here.',
-                      style: TextStyle(color: Colors.white38)),
-                )
-              : ListView.separated(
-                  itemCount: review.games.length,
-                  separatorBuilder: (_, i) =>
-                      const Divider(height: 1, color: Color(0xFF2c2a26)),
-                  itemBuilder: (context, i) =>
-                      _row(context, review, review.games[i]),
-                ),
+    if (!review.loaded) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (review.games.isEmpty) {
+      return const Center(
+        child: Text('No games yet — finish one and it lands here.',
+            style: TextStyle(color: Colors.white38)),
+      );
+    }
+    return ListView.separated(
+      itemCount: review.games.length,
+      separatorBuilder: (_, i) =>
+          const Divider(height: 1, color: Color(0xFF2c2a26)),
+      itemBuilder: (context, i) => _row(context, review, review.games[i]),
     );
   }
 

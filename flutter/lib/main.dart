@@ -1,9 +1,9 @@
-// botvinnik mobile — M1: the playable vertical slice.
-// Shell (phone-first): board pinned top, grade strip, icon tabs, scrolling
-// content pane, fixed bottom action bar.
+// botvinnik mobile — standard three-tab shell: Play | Practice | Review.
+// The Play tab's app bar carries the opponent (tap to change), undo and
+// new-game; Practice wears its due-count badge on the tab itself.
 //
 // Boot order matters: brain.js (JS runtime) → native Stockfish → arbiter →
-// settings → GameController. The engine singleton does not survive Dart hot
+// settings/db → controllers. The engine singleton does not survive Dart hot
 // restarts — cold-start the app after touching engine code.
 
 import 'package:dartchess/dartchess.dart';
@@ -22,13 +22,13 @@ import 'stores/game_controller.dart';
 import 'stores/practice_controller.dart';
 import 'stores/review_controller.dart';
 import 'stores/settings_store.dart';
-import 'ui/action_bar.dart';
 import 'ui/board_pane.dart';
 import 'ui/games_list.dart';
-import 'ui/review_screen.dart';
 import 'ui/grade_strip.dart';
 import 'ui/insight_card.dart';
 import 'ui/move_list.dart';
+import 'ui/practice_tab.dart';
+import 'ui/roster_picker.dart';
 
 void main() {
   runApp(const BootGate());
@@ -43,7 +43,7 @@ ThemeData _theme() => ThemeData(
     );
 
 /// Async boot: JS brain + native engine + db, then the provider tree ABOVE
-/// MaterialApp — pushed routes (archive, review) must see the providers.
+/// MaterialApp — pushed routes (review) must see the providers.
 class BootGate extends StatefulWidget {
   const BootGate({super.key});
 
@@ -129,7 +129,7 @@ class _BootGateState extends State<BootGate> {
           child: MaterialApp(
             title: 'botvinnik',
             theme: _theme(),
-            home: const GameScreen(),
+            home: const AppShell(),
           ),
         );
       },
@@ -137,21 +137,127 @@ class _BootGateState extends State<BootGate> {
   }
 }
 
-class GameScreen extends StatefulWidget {
-  const GameScreen({super.key});
+class AppShell extends StatefulWidget {
+  const AppShell({super.key});
 
   @override
-  State<GameScreen> createState() => _GameScreenState();
+  State<AppShell> createState() => _AppShellState();
 }
 
-/// Debug-only: play a few scripted player moves so the whole pipeline
-/// (bot reply, grading, backfill, insight card) can be verified headlessly
-/// on the simulator — then force-save and walk into the archive + review
-/// screens. Flip to false for human play.
+class _AppShellState extends State<AppShell> {
+  int _tab = 0;
+
+  @override
+  Widget build(BuildContext context) {
+    final practice = context.watch<PracticeController>();
+    return Scaffold(
+      appBar: _appBar(context),
+      body: IndexedStack(
+        index: _tab,
+        children: const [PlayTab(), PracticeTab(), GamesListBody()],
+      ),
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: _tab,
+        height: 64,
+        backgroundColor: const Color(0xFF1f1e1b),
+        indicatorColor: const Color(0xFF3a3733),
+        onDestinationSelected: (i) {
+          setState(() => _tab = i);
+          if (i == 1 && practice.current == null) practice.startSession();
+          if (i == 2) context.read<ReviewController>().loadGames();
+        },
+        destinations: [
+          const NavigationDestination(
+            icon: Icon(Icons.sports_esports_outlined),
+            selectedIcon: Icon(Icons.sports_esports),
+            label: 'Play',
+          ),
+          NavigationDestination(
+            icon: Badge(
+              isLabelVisible: practice.due > 0,
+              label: Text('${practice.due}'),
+              child: const Icon(Icons.fitness_center_outlined),
+            ),
+            selectedIcon: const Icon(Icons.fitness_center),
+            label: 'Practice',
+          ),
+          const NavigationDestination(
+            icon: Icon(Icons.history_outlined),
+            selectedIcon: Icon(Icons.history),
+            label: 'Review',
+          ),
+        ],
+      ),
+    );
+  }
+
+  PreferredSizeWidget _appBar(BuildContext context) {
+    switch (_tab) {
+      case 1:
+        final practice = context.watch<PracticeController>();
+        return AppBar(
+          title: Text(
+            'Practice'
+            '${practice.sessionSolved > 0 ? ' · ✓${practice.sessionSolved}' : ''}'
+            '${practice.sessionStreak > 1 ? ' · 🔥${practice.sessionStreak}' : ''}',
+            style: const TextStyle(fontSize: 16),
+          ),
+        );
+      case 2:
+        return AppBar(title: const Text('Games', style: TextStyle(fontSize: 16)));
+      default:
+        final game = context.watch<GameController>();
+        return AppBar(
+          titleSpacing: 8,
+          title: InkWell(
+            onTap: () => showRosterPicker(context),
+            borderRadius: BorderRadius.circular(6),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.smart_toy_outlined,
+                      size: 18, color: Colors.white70),
+                  const SizedBox(width: 6),
+                  Text(game.persona?.name ?? 'Opponent',
+                      style: const TextStyle(fontSize: 15)),
+                  const Icon(Icons.arrow_drop_down, color: Colors.white54),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            IconButton(
+              onPressed:
+                  game.moves.isEmpty || game.botThinking ? null : game.undo,
+              icon: const Icon(Icons.undo),
+              tooltip: 'Undo',
+            ),
+            IconButton(
+              onPressed: game.newGame,
+              icon: const Icon(Icons.add_box_outlined),
+              tooltip: 'New game',
+            ),
+          ],
+        );
+    }
+  }
+}
+
+/// Debug-only: play a few scripted player moves so the whole pipeline can be
+/// verified headlessly on the simulator. Flip to false for human play.
 const bool kSelfTest = false;
 
-class _GameScreenState extends State<GameScreen> {
-  int _tab = 0; // 0 insights, 1 moves
+class PlayTab extends StatefulWidget {
+  const PlayTab({super.key});
+
+  @override
+  State<PlayTab> createState() => _PlayTabState();
+}
+
+class _PlayTabState extends State<PlayTab> {
+  int _view = 0; // 0 insights, 1 moves
 
   @override
   void initState() {
@@ -162,7 +268,6 @@ class _GameScreenState extends State<GameScreen> {
   Future<void> _selfTest() async {
     final game = context.read<GameController>();
     for (final uci in ['e2e4', 'd2d4', 'g1f3']) {
-      // wait for our turn
       while (!game.isPlayerTurn || game.botThinking) {
         await Future.delayed(const Duration(milliseconds: 300));
         if (!mounted) return;
@@ -180,67 +285,39 @@ class _GameScreenState extends State<GameScreen> {
       final (_, san) = game.position.makeSan(move);
       game.playerMove(move, san);
     }
-    // let backfills land, then archive and walk the review flow
-    await Future.delayed(const Duration(seconds: 8));
-    if (!mounted) return;
-    await game.debugForceSave();
-    if (!mounted) return;
-    final review = context.read<ReviewController>();
-    await review.loadGames();
-    if (!mounted || review.games.isEmpty) return;
-    if (!mounted) return;
-    Navigator.push(
-      // ignore: use_build_context_synchronously
-      context,
-      MaterialPageRoute(builder: (_) => const GamesListScreen()),
-    );
-    await Future.delayed(const Duration(seconds: 3));
-    if (!mounted) return;
-    review.open(review.games.first);
-    Navigator.push(
-      // ignore: use_build_context_synchronously
-      context,
-      MaterialPageRoute(builder: (_) => const ReviewScreen()),
-    );
   }
 
   @override
   Widget build(BuildContext context) {
     final game = context.watch<GameController>();
-    return Scaffold(
-      body: SafeArea(
-        bottom: false,
-        child: Column(
-          children: [
-            const BoardPane(),
-            const GradeStrip(),
-            _tabRow(),
-            Expanded(
-              child: SingleChildScrollView(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    if (game.gameOver)
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(14, 8, 14, 0),
-                        child: Text(game.statusLine,
-                            style: const TextStyle(
-                                color: Color(0xFF81B64C),
-                                fontWeight: FontWeight.w600)),
-                      ),
-                    if (_tab == 0) const InsightCard() else const MoveListPane(),
-                  ],
-                ),
-              ),
+    return Column(
+      children: [
+        const BoardPane(),
+        const GradeStrip(),
+        _viewRow(),
+        Expanded(
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (game.gameOver)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(14, 8, 14, 0),
+                    child: Text(game.statusLine,
+                        style: const TextStyle(
+                            color: Color(0xFF81B64C),
+                            fontWeight: FontWeight.w600)),
+                  ),
+                if (_view == 0) const InsightCard() else const MoveListPane(),
+              ],
             ),
-            const ActionBar(),
-          ],
+          ),
         ),
-      ),
+      ],
     );
   }
 
-  Widget _tabRow() {
+  Widget _viewRow() {
     const tabs = [
       (Icons.lightbulb_outline, 'Insights'),
       (Icons.list_alt, 'Moves'),
@@ -252,20 +329,22 @@ class _GameScreenState extends State<GameScreen> {
           for (var i = 0; i < tabs.length; i++)
             Expanded(
               child: InkWell(
-                onTap: () => setState(() => _tab = i),
+                onTap: () => setState(() => _view = i),
                 child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 7),
-                  child: Column(
+                  padding: const EdgeInsets.symmetric(vertical: 6),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Icon(tabs[i].$1,
-                          size: 18,
-                          color: _tab == i
+                          size: 16,
+                          color: _view == i
                               ? const Color(0xFF81B64C)
                               : Colors.white38),
+                      const SizedBox(width: 5),
                       Text(tabs[i].$2,
                           style: TextStyle(
-                              fontSize: 10,
-                              color: _tab == i
+                              fontSize: 12,
+                              color: _view == i
                                   ? const Color(0xFF81B64C)
                                   : Colors.white38)),
                     ],

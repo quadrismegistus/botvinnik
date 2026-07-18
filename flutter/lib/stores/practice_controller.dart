@@ -46,6 +46,7 @@ class PracticeController extends ChangeNotifier {
   // session state
   Map<String, dynamic>? current;
   AttemptOutcome? attempt;
+  String? pendingUci; // attempt applied to the board while the check runs
   bool checking = false;
   int hintTier = 0; // 0 none, 1 text, 2 origin square, 3 reveal best
   bool revealBest = false;
@@ -106,6 +107,7 @@ class PracticeController extends ChangeNotifier {
   void _serve(Map<String, dynamic>? item) {
     current = item;
     attempt = null;
+    pendingUci = null;
     hintTier = 0;
     revealBest = false;
     _resultRecorded = false;
@@ -115,6 +117,7 @@ class PracticeController extends ChangeNotifier {
 
   void retry() {
     attempt = null;
+    pendingUci = null;
     checking = false;
     notifyListeners();
   }
@@ -138,6 +141,7 @@ class PracticeController extends ChangeNotifier {
     final item = current;
     if (item == null || checking) return;
     checking = true;
+    pendingUci = uci; // show the move on the board while we check
     notifyListeners();
 
     double? evalPawns;
@@ -151,10 +155,12 @@ class PracticeController extends ChangeNotifier {
         fen: fenAfter,
         depth: 14,
         multiPv: 1,
+        movetimeMs: 2000, // bounded — a shallow verdict beats a long stall
         priority: SearchPriority.practiceCheck,
       );
       if (lines == null || lines.isEmpty) {
         checking = false;
+        pendingUci = null;
         notifyListeners();
         return;
       }

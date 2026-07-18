@@ -1,6 +1,7 @@
-// The drill: one puzzle at a time — play the strong move on a live board.
-// Hints escalate (text → origin square → reveal), pass/fail records into the
-// Leitner schedule, the action row is Retry / Show best / Next.
+// The Practice tab: one puzzle at a time — play the strong move on a live
+// board. The attempt lands on the board immediately (optimistic) while the
+// depth-14 check runs; hints escalate (text → origin square → reveal);
+// pass/fail records into the Leitner schedule.
 
 import 'package:chessground/chessground.dart';
 import 'package:dartchess/dartchess.dart';
@@ -9,23 +10,16 @@ import 'package:provider/provider.dart';
 
 import '../stores/practice_controller.dart';
 
-class PracticeScreen extends StatefulWidget {
-  const PracticeScreen({super.key});
+class PracticeTab extends StatefulWidget {
+  const PracticeTab({super.key});
 
   @override
-  State<PracticeScreen> createState() => _PracticeScreenState();
+  State<PracticeTab> createState() => _PracticeTabState();
 }
 
-class _PracticeScreenState extends State<PracticeScreen> {
+class _PracticeTabState extends State<PracticeTab> {
   ChessboardController? _controller;
   String _boardSig = '';
-
-  @override
-  void initState() {
-    super.initState();
-    final practice = context.read<PracticeController>();
-    if (practice.current == null) practice.startSession();
-  }
 
   @override
   void dispose() {
@@ -33,20 +27,21 @@ class _PracticeScreenState extends State<PracticeScreen> {
     super.dispose();
   }
 
-  Position _position(Map<String, dynamic> item, AttemptOutcome? attempt) {
+  /// The shown position: puzzle fen, plus the attempt (or the optimistic
+  /// pending move while the check runs).
+  Position _position(Map<String, dynamic> item, String? appliedUci) {
     Position pos = Chess.fromSetup(Setup.parseFen(item['fen'] as String));
-    if (attempt != null) {
-      final m = NormalMove.fromUci(attempt.uci);
+    if (appliedUci != null) {
+      final m = NormalMove.fromUci(appliedUci);
       if (pos.isLegal(m)) pos = pos.playUnchecked(m);
     }
     return pos;
   }
 
-  GameData _gameData(Position pos, AttemptOutcome? attempt) => GameData(
+  GameData _gameData(Position pos, String? appliedUci) => GameData(
         fen: pos.fen,
-        lastMove:
-            attempt == null ? null : NormalMove.fromUci(attempt.uci),
-        playerSide: attempt == null
+        lastMove: appliedUci == null ? null : NormalMove.fromUci(appliedUci),
+        playerSide: appliedUci == null
             ? (pos.turn == Side.white ? PlayerSide.white : PlayerSide.black)
             : PlayerSide.none,
         validMoves: makeLegalMoves(pos),
@@ -59,75 +54,62 @@ class _PracticeScreenState extends State<PracticeScreen> {
     final practice = context.watch<PracticeController>();
     final item = practice.current;
 
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(
-          'Practice · ${practice.due} due'
-          '${practice.sessionSolved > 0 ? ' · ✓${practice.sessionSolved}' : ''}'
-          '${practice.sessionStreak > 1 ? ' · 🔥${practice.sessionStreak}' : ''}',
-          style: const TextStyle(fontSize: 15),
+    if (item == null) {
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.all(24),
+          child: Text(
+            'No puzzles yet.\nMoves that lose ≥15% win chance are '
+            'collected here automatically as you play.',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: Colors.white38, height: 1.4),
+          ),
         ),
-      ),
-      body: item == null
-          ? const Center(
-              child: Padding(
-                padding: EdgeInsets.all(24),
-                child: Text(
-                  'No puzzles yet.\nMoves that lose ≥15% win chance are '
-                  'collected here automatically as you play.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: Colors.white38, height: 1.4),
-                ),
-              ),
-            )
-          : _puzzle(context, practice, item),
-    );
+      );
+    }
+    return _puzzle(context, practice, item);
   }
 
   Widget _puzzle(BuildContext context, PracticeController practice,
       Map<String, dynamic> item) {
-    final attempt = practice.attempt;
-    final pos = _position(item, attempt);
+    final appliedUci = practice.attempt?.uci ?? practice.pendingUci;
+    final pos = _position(item, appliedUci);
     final sideToMove =
         (item['fen'] as String).split(' ')[1] == 'w' ? 'White' : 'Black';
 
-    final sig = '${item['id']}-${attempt?.uci ?? ''}';
-    _controller ??= ChessboardController(game: _gameData(pos, attempt));
+    final sig = '${item['id']}-${appliedUci ?? ''}';
+    _controller ??= ChessboardController(game: _gameData(pos, appliedUci));
     if (_boardSig != sig) {
       _boardSig = sig;
-      _controller!.updatePosition(_gameData(pos, attempt));
+      _controller!.updatePosition(_gameData(pos, appliedUci));
     }
 
-    return SafeArea(
-      bottom: false,
-      child: Column(
-        children: [
-          LayoutBuilder(
-            builder: (context, constraints) => Chessboard(
-              controller: _controller!,
-              size: constraints.maxWidth,
-              orientation:
-                  (item['fen'] as String).split(' ')[1] == 'w'
-                      ? Side.white
-                      : Side.black,
-              onMove: (move, {viaDragAndDrop}) {
-                if (move is! NormalMove || !pos.isLegal(move)) return;
-                final (_, san) = pos.makeSan(move);
-                final after = pos.playUnchecked(move);
-                practice.checkAttempt(move.uci, san, after.fen);
-              },
-              shapes: _shapes(item, practice),
-              settings: const ChessboardSettings(
-                enableCoordinates: true,
-                animationDuration: Duration(milliseconds: 150),
-              ),
+    return Column(
+      children: [
+        LayoutBuilder(
+          builder: (context, constraints) => Chessboard(
+            controller: _controller!,
+            size: constraints.maxWidth,
+            orientation: (item['fen'] as String).split(' ')[1] == 'w'
+                ? Side.white
+                : Side.black,
+            onMove: (move, {viaDragAndDrop}) {
+              if (move is! NormalMove || !pos.isLegal(move)) return;
+              final (_, san) = pos.makeSan(move);
+              final after = pos.playUnchecked(move);
+              practice.checkAttempt(move.uci, san, after.fen);
+            },
+            shapes: _shapes(item, practice),
+            settings: const ChessboardSettings(
+              enableCoordinates: true,
+              animationDuration: Duration(milliseconds: 150),
             ),
           ),
-          _promptStrip(item, practice, sideToMove),
-          const Spacer(),
-          _actionRow(practice),
-        ],
-      ),
+        ),
+        _promptStrip(item, practice, sideToMove),
+        const Spacer(),
+        _actionRow(practice),
+      ],
     );
   }
 
@@ -143,8 +125,8 @@ class _PracticeScreenState extends State<PracticeScreen> {
     final refutation = practice.attempt?.refutationUci;
     if (refutation != null) {
       final r = NormalMove.fromUci(refutation);
-      shapes.add(Arrow(
-          color: const Color(0xB3CA3431), orig: r.from, dest: r.to));
+      shapes.add(
+          Arrow(color: const Color(0xB3CA3431), orig: r.from, dest: r.to));
     }
     return shapes;
   }
@@ -198,12 +180,7 @@ class _PracticeScreenState extends State<PracticeScreen> {
   Widget _actionRow(PracticeController practice) {
     final attempt = practice.attempt;
     return Container(
-      padding: EdgeInsets.only(
-        left: 10,
-        right: 10,
-        top: 6,
-        bottom: 6 + MediaQuery.of(context).padding.bottom,
-      ),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       color: const Color(0xFF1f1e1b),
       child: Row(
         children: [
@@ -222,8 +199,8 @@ class _PracticeScreenState extends State<PracticeScreen> {
           if (attempt != null && !attempt.pass)
             TextButton(
               onPressed: practice.retry,
-              child: const Text('Retry',
-                  style: TextStyle(color: Colors.white70)),
+              child:
+                  const Text('Retry', style: TextStyle(color: Colors.white70)),
             ),
           if (attempt != null && !attempt.pass && !practice.revealBest)
             TextButton(
