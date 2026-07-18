@@ -49,3 +49,6 @@ flutter/.flutter-plugins*
 flutter/ios/Pods/
 flutter/ios/.symlinks/
 flutter/macos/Pods/
+
+# bundled engine binary (113MB, GPL — staged locally, never committed)
+flutter/macos/Runner/Resources/stockfish

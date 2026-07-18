@@ -7,6 +7,8 @@
 // restarts — cold-start the app after touching engine code.
 
 import 'package:dartchess/dartchess.dart';
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -17,7 +19,7 @@ import 'brain/js_bridge.dart';
 import 'brain/practice_api.dart';
 import 'db/app_db.dart';
 import 'engine/arbiter.dart';
-import 'engine/search_engine.dart';
+import 'engine/engine_factory.dart';
 import 'stores/book_store.dart';
 import 'stores/game_controller.dart';
 import 'stores/practice_controller.dart';
@@ -74,7 +76,7 @@ class _BootGateState extends State<BootGate> {
 
   Future<_Booted> _start() async {
     final bridge = await JsBridge.load();
-    final engine = await SearchEngine.start();
+    final engine = await startEngine();
     final arbiter = SearchArbiter(engine);
     final settings = await SettingsStore.load();
     final db = await AppDb.open();
@@ -330,40 +332,72 @@ class _PlayTabState extends State<PlayTab> {
     }
   }
 
+  /// Phone: board on top, panel scrolling beneath it. Desktop: the board
+  /// can't just take the full width — it would push everything off the
+  /// bottom — so it sits left, capped to the window height, panel alongside.
+  static const double _wideBreakpoint = 720;
+
   @override
   Widget build(BuildContext context) {
-    final game = context.watch<GameController>();
-    return Column(
-      children: [
-        const BoardPane(),
-        const GradeStrip(),
-        _viewRow(),
-        Expanded(
-          child: SingleChildScrollView(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (game.gameOver)
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(14, 8, 14, 0),
-                    child: Text(game.statusLine,
-                        style: const TextStyle(
-                            color: Color(0xFF81B64C),
-                            fontWeight: FontWeight.w600)),
-                  ),
-                switch (_view) {
-                  0 => const InsightCard(),
-                  1 => const LinesPane(),
-                  2 => const LinesTreePane(),
-                  3 => const WinChart(),
-                  4 => const MoveListPane(),
-                  _ => const BookPane(),
-                },
-              ],
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (constraints.maxWidth < _wideBreakpoint) {
+          return Column(
+            children: [
+              const BoardPane(),
+              const GradeStrip(),
+              _viewRow(),
+              Expanded(child: _panel()),
+            ],
+          );
+        }
+        // leave room for the grade strip under the board
+        final boardSize = math.min(constraints.maxWidth * 0.58,
+            math.max(240.0, constraints.maxHeight - 56));
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(
+              width: boardSize,
+              child: const Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [BoardPane(), GradeStrip()],
+              ),
             ),
-          ),
-        ),
-      ],
+            Expanded(
+              child: Column(
+                children: [_viewRow(), Expanded(child: _panel())],
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _panel() {
+    final game = context.watch<GameController>();
+    return SingleChildScrollView(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (game.gameOver)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 8, 14, 0),
+              child: Text(game.statusLine,
+                  style: const TextStyle(
+                      color: Color(0xFF81B64C), fontWeight: FontWeight.w600)),
+            ),
+          switch (_view) {
+            0 => const InsightCard(),
+            1 => const LinesPane(),
+            2 => const LinesTreePane(),
+            3 => const WinChart(),
+            4 => const MoveListPane(),
+            _ => const BookPane(),
+          },
+        ],
+      ),
     );
   }
 
