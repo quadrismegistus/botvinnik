@@ -8,8 +8,13 @@ import 'dart:math' as math;
 /// Below this the panel column has no room and the phone layout is used.
 const double kWideBreakpoint = 720;
 
+/// The grade strip's height when it carries BOTH the move's verdict and a
+/// threat line. Sizing for one line is what pushed the threat explanation
+/// below the fold, which looks exactly like the feature not working.
+const double kGradeStrip = 66; // two lines plus margin — measured ~56
+
 /// Grade strip, view bar, and the least panel worth leaving on screen.
-const double kNarrowChrome = 28 + 46 + 96;
+const double kNarrowChrome = kGradeStrip + 46 + 96;
 
 /// Never shrink the board past this; below it nothing is usable anyway and
 /// the desktop minimum window size keeps us clear of it.
@@ -24,5 +29,5 @@ double narrowBoardSize(double width, double height) =>
 /// window dragged short does not overflow.
 double wideBoardSize(double width, double height, double split) => math.min(
       math.max(240.0, width * split),
-      math.max(120.0, height - 56),
+      math.max(120.0, height - kGradeStrip),
     );

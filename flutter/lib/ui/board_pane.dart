@@ -83,10 +83,12 @@ class _BoardPaneState extends State<BoardPane> {
 
     final white = (game.playerColor == 'w') != game.flipped;
     final orientation = white ? Side.white : Side.black;
-    final threatUci = game.previewing ? null : game.threatUci;
-    final control = game.previewing ? null : game.controlMap;
-    final engineArrows =
-        game.previewing ? const <String>[] : game.engineArrowUcis;
+    // the overlays describe the LIVE position, so they are meaningless while
+    // the board is showing a preview or a past move
+    final still = game.previewing || game.browsing;
+    final threatUci = still ? null : game.threatUci;
+    final control = still ? null : game.controlMap;
+    final engineArrows = still ? const <String>[] : game.engineArrowUcis;
     final arrowColors = engineArrowColors(settings.arrowOpacity);
 
     return LayoutBuilder(
@@ -119,9 +121,20 @@ class _BoardPaneState extends State<BoardPane> {
           },
           settings: boardSettingsFor(settings),
         );
-        if (control == null || control.isEmpty) return board;
+        final threatLabel = threatUci == null ? null : _threatLabel(game);
+        if ((control == null || control.isEmpty) && threatLabel == null) {
+          return board;
+        }
         return Stack(children: [
           board,
+          if (threatLabel != null)
+            _ThreatHover(
+              size: size,
+              orientation: orientation,
+              square: NormalMove.fromUci(threatUci!).to.name,
+              label: threatLabel,
+            ),
+          if (control != null && control.isNotEmpty)
           IgnorePointer(
             child: CustomPaint(
               size: Size(size, size),
@@ -131,6 +144,88 @@ class _BoardPaneState extends State<BoardPane> {
           ),
         ]);
       },
+    );
+  }
+}
+
+String? _threatLabel(GameController game) {
+  final san = game.threatSan;
+  if (san == null || game.threatUci == null) return null;
+  final gain = game.threatGain;
+  // a null gain is mate, not nothing: Infinity cannot cross the JSON bridge
+  return gain == null
+      ? '$san — mates'
+      : '$san — costs ${gain.abs().toStringAsFixed(1)}';
+}
+
+/// Hovering the square the threat lands on explains it. Hover only, and
+/// deliberately not a Tooltip: a Tooltip brings a long-press recogniser with
+/// it, which on a touch screen would fight the board for the same gesture.
+/// Touch users get the same sentence in the grade strip instead.
+class _ThreatHover extends StatefulWidget {
+  final double size;
+  final Side orientation;
+  final String square;
+  final String label;
+  const _ThreatHover({
+    required this.size,
+    required this.orientation,
+    required this.square,
+    required this.label,
+  });
+
+  @override
+  State<_ThreatHover> createState() => _ThreatHoverState();
+}
+
+class _ThreatHoverState extends State<_ThreatHover> {
+  bool _over = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final sq = widget.size / 8;
+    final file = widget.square.codeUnitAt(0) - 'a'.codeUnitAt(0);
+    final rank = int.parse(widget.square[1]) - 1;
+    final x = widget.orientation == Side.white ? file : 7 - file;
+    final y = widget.orientation == Side.white ? 7 - rank : rank;
+    return Positioned(
+      left: x * sq,
+      top: y * sq,
+      width: sq,
+      height: sq,
+      child: MouseRegion(
+        opaque: false, // taps and drags still reach the board underneath
+        onEnter: (_) => setState(() => _over = true),
+        onExit: (_) => setState(() => _over = false),
+        child: !_over
+            ? const SizedBox.expand()
+            : OverflowBox(
+                maxWidth: 260,
+                alignment: y == 0 ? Alignment.bottomCenter : Alignment.topCenter,
+                child: Padding(
+                  // clear of the square itself so the arrowhead stays visible
+                  padding: EdgeInsets.only(
+                      top: y == 0 ? sq + 4 : 0, bottom: y == 0 ? 0 : sq + 4),
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: const Color(0xF01f1e1b),
+                      borderRadius: BorderRadius.circular(5),
+                      border: Border.all(color: const Color(0x66C62828)),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 5),
+                      child: Text('threat: ${widget.label}',
+                          maxLines: 1,
+                          style: const TextStyle(
+                              color: Color(0xFFE0908E),
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600)),
+                    ),
+                  ),
+                ),
+              ),
+      ),
     );
   }
 }

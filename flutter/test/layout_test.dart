@@ -47,7 +47,16 @@ void main() {
     test('is capped by height, so a short window does not overflow', () {
       // the floor applies to the WIDTH share only — flooring the height too
       // is the bug this guards
-      expect(wideBoardSize(1400, 300, 0.58), lessThanOrEqualTo(300 - 56));
+      expect(wideBoardSize(1400, 300, 0.58), lessThanOrEqualTo(300 - kGradeStrip));
+    });
+
+    test('leaves room for a two-line grade strip', () {
+      // a one-line reserve put the threat explanation below the fold, which
+      // reads as the feature simply not working
+      for (var h = 700.0; h <= 1400; h += 53) {
+        expect(wideBoardSize(1600, h, 0.58) + kGradeStrip, lessThanOrEqualTo(h),
+            reason: 'no room for the strip at height $h');
+      }
     });
 
     test('stays sane when the window is tiny', () {
