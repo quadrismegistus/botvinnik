@@ -88,7 +88,7 @@ class _BoardPaneState extends State<BoardPane> {
             game.playerMove(move, san);
           },
           shapes: {
-            // the engine's top moves, green fading by rank (web's g0/g1/g2)
+            // the engine's top moves, fading by rank (web's g0/g1/g2)
             for (var i = 0; i < engineArrows.length; i++)
               Arrow(
                 color: arrowColors[i],

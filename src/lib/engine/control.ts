@@ -10,10 +10,14 @@
 // would just repaint the whole board.
 //
 // Pure chess.js — no engine time. The opponent's moves come from the same
-// null-move turn-flip the threat probe uses (ep voided). That flip can leave
-// the other king attacked, so king captures are filtered out of move
-// generation; with those gone the map is computed in check too, where the
-// side to move is honestly limited to its evasion squares.
+// null-move turn-flip the threat probe uses (ep voided).
+//
+// The map IS computed in check, but read it knowing the two halves are not
+// symmetric there: the side to move gets only its real legal moves, which in
+// check are just the evasions, while the opponent keeps its full free-move
+// mobility. So a checked side looks impoverished even when it is winning
+// (4k3/8/8/8/7q/8/8/4K2R w K - 0 1 tints 5 white / 16 black, one ply before
+// Rxh4 wins the queen). See control.test.ts.
 
 import { Chess, type Color, type Square } from 'chess.js';
 import { PIECE_VAL } from './explain';
@@ -48,10 +52,11 @@ function bestNets(c: Chess): Map<string, number> {
 	const opp: Color = side === 'w' ? 'b' : 'w';
 	const out = new Map<string, number>();
 	for (const m of c.moves({ verbose: true })) {
-		// The turn-flip can leave the OTHER king attacked, and chess.js will
-		// then offer to capture it — a "gain" worth more than the board. Drop
-		// those: they can never arise in the real position, where a king
-		// capture is not a move anyone gets to make.
+		// The turn-flip can leave the OTHER king attacked, so chess.js offers to
+		// capture it. That move can't actually tint anything — PIECE_VAL.k is 0,
+		// so it nets 0, and it lands on an occupied square, which needs net > 0 —
+		// but it isn't a move anyone gets to make, so drop it rather than let the
+		// map depend on that coincidence holding.
 		if (m.captured === 'k') continue;
 		const gain = m.captured ? PIECE_VAL[m.captured] : 0;
 		try {

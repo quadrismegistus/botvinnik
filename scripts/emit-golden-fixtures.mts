@@ -161,6 +161,11 @@ record('judgeThreat', [italianish, probeLine], judgeThreat(italianish, probeLine
 record('judgeThreat', [italianish, { pv: ['b1c3'], mate: null }],
 	judgeThreat(italianish, { pv: ['b1c3'], mate: null }));
 record('controlSquares', [italianish], controlSquares(italianish));
+// in check: the branch where the turn-flip hands the checker a king capture,
+// and where the checked side is cut back to its evasions. Without this the
+// whole in-check path replays green even if it regresses.
+const inCheck = '4k3/8/8/8/7q/8/8/4K2R w K - 0 1';
+record('controlSquares', [inCheck], controlSquares(inCheck));
 
 const out = resolve(dirname(fileURLToPath(import.meta.url)), '../flutter/assets/brain-fixtures.json');
 writeFileSync(out, JSON.stringify({ version: 1, fixtures }, null, 1));

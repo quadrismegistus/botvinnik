@@ -29,7 +29,7 @@ class SettingsTab extends StatelessWidget {
           dense: true,
           title: const Text('Engine arrows'),
           subtitle: const Text(
-            'The engine\'s top three moves, green fading by rank.',
+            'The engine\'s best moves, fading by rank.',
             style: TextStyle(fontSize: 11.5, color: Colors.white38),
           ),
           value: settings.showArrows,
@@ -429,6 +429,10 @@ class _Swatch extends StatelessWidget {
 
   Future<void> _open(BuildContext context) async {
     final original = color;
+    // the first drag frame clears any active texture (picking a colour means
+    // a custom board), so Cancel has to put that back too
+    final store = context.read<SettingsStore>();
+    final originalTexture = store.boardTexture;
     final restored = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -457,7 +461,10 @@ class _Swatch extends StatelessWidget {
         ],
       ),
     );
-    if (restored ?? true) onPick(original);
+    if (restored ?? true) {
+      onPick(original);
+      store.boardTexture = originalTexture;
+    }
   }
 
   @override

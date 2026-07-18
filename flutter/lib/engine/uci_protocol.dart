@@ -32,10 +32,33 @@ abstract class UciProtocol implements UciSearcher {
   void Function(List<EngineMove>)? _onUpdate;
   int _lastStreamedDepth = 0;
   int _currentMultiPv = 0;
-  bool _optionsDirty = false;
+
+  /// Weakening options applied by the last search. Anything in here that the
+  /// NEXT search doesn't set again has to be reset explicitly: two weakened
+  /// searches in a row would otherwise union their options. Leaving
+  /// UCI_LimitStrength on makes Skill Level inert in Stockfish, so a skill
+  /// persona would silently play at the previous persona's Elo.
+  final Set<String> _appliedOptions = {};
+  static const Map<String, String> _optionDefaults = {
+    'UCI_LimitStrength': 'false',
+    'Skill Level': '20',
+    'UCI_Elo': '1320',
+  };
 
   /// Writes one command to the engine (no trailing newline needed).
   void send(String command);
+
+  /// Fail the in-flight search. Transports call this when the engine dies:
+  /// without it the completer is never resolved, the arbiter's `_running`
+  /// never clears, and every later search queues behind a ghost forever.
+  /// The arbiter catches the error, drops the request and pumps the next.
+  /// For transports only.
+  void failSearch(Object error) {
+    final pending = _search;
+    _search = null;
+    _onUpdate = null;
+    if (pending != null && !pending.isCompleted) pending.completeError(error);
+  }
 
   /// Feed every line the engine emits to this.
   void handleLine(String line) {
@@ -91,20 +114,30 @@ abstract class UciProtocol implements UciSearcher {
     List<List<String>> extraOptions = const [],
     void Function(List<EngineMove>)? onUpdate,
   }) {
-    assert(_search == null, 'search while busy — arbiter bug');
+    // in release an assert is stripped, and overwriting _search would orphan
+    // the previous completer — a silent, permanent arbiter deadlock. Fail it.
+    if (_search != null) {
+      failSearch(StateError('search while busy — arbiter bug'));
+    }
     _byMultipv.clear();
     _onUpdate = onUpdate;
     _lastStreamedDepth = 0;
     final completer = Completer<List<EngineMove>>();
     _search = completer;
-    if (_optionsDirty && extraOptions.isEmpty) {
-      send('setoption name UCI_LimitStrength value false');
-      send('setoption name Skill Level value 20');
-      _optionsDirty = false;
+    final incoming = {
+      for (final opt in extraOptions)
+        if (opt[0] != 'MultiPV') opt[0]
+    };
+    for (final stale in _appliedOptions.difference(incoming)) {
+      send('setoption name $stale value ${_optionDefaults[stale] ?? "0"}');
     }
+    _appliedOptions
+      ..clear()
+      ..addAll(incoming);
     for (final opt in extraOptions) {
       send('setoption name ${opt[0]} value ${opt[1]}');
-      if (opt[0] != 'MultiPV') _optionsDirty = true;
+      // MultiPV via extraOptions would desync the cache below
+      if (opt[0] == 'MultiPV') _currentMultiPv = int.tryParse(opt[1]) ?? -1;
     }
     if (multiPv != _currentMultiPv) {
       send('setoption name MultiPV value $multiPv');

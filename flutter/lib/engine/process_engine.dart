@@ -12,16 +12,40 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
+
 import 'uci_protocol.dart';
 
 class ProcessEngine extends UciProtocol {
   final Process _proc;
 
+  bool _alive = true;
+
   ProcessEngine._(this._proc) {
     _proc.stdout
         .transform(utf8.decoder)
         .transform(const LineSplitter())
-        .listen(handleLine);
+        .listen(handleLine, onError: _died, onDone: () {
+      if (_alive) _died('engine stdout closed');
+    });
+    // stderr must be drained: a full pipe (~64KB) blocks the child mid-search,
+    // and engine startup complaints are otherwise invisible
+    _proc.stderr
+        .transform(utf8.decoder)
+        .transform(const LineSplitter())
+        .listen((l) => debugPrint('[engine] $l'), onError: (_) {});
+    _proc.exitCode.then((code) => _died('engine exited ($code)'));
+    // writes fail asynchronously; without this a write to a dead engine
+    // surfaces as an unhandled zone error
+    _proc.stdin.done.catchError((Object _) => _proc.stdin);
+  }
+
+  /// The engine is gone. Fail the search in flight so the arbiter recovers
+  /// instead of waiting on a bestmove that will never arrive.
+  void _died(Object reason) {
+    if (!_alive) return;
+    _alive = false;
+    failSearch(StateError('$reason'));
   }
 
   static Future<ProcessEngine> start() async {
@@ -63,13 +87,15 @@ class ProcessEngine extends UciProtocol {
   }
 
   @override
-  void send(String command) => _proc.stdin.writeln(command);
+  void send(String command) {
+    if (!_alive) return; // a dead engine's search has already been failed
+    _proc.stdin.writeln(command);
+  }
 
   @override
   void dispose() {
-    try {
-      send('quit');
-    } catch (_) {/* pipe already closed */}
+    send('quit'); // no-op once _alive is false
+    _alive = false;
     _proc.kill();
   }
 }

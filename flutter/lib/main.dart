@@ -351,17 +351,23 @@ class _PlayTabState extends State<PlayTab> {
             ],
           );
         }
-        // leave room for the grade strip under the board
-        final boardSize = math.min(constraints.maxWidth * 0.58,
-            math.max(240.0, constraints.maxHeight - 56));
+        // leave room for the grade strip under the board. The floor applies
+        // to the WIDTH share only — flooring the height too would overflow a
+        // window dragged short.
+        final boardSize = math.min(
+          math.max(240.0, constraints.maxWidth * 0.58),
+          math.max(120.0, constraints.maxHeight - 56),
+        );
         return Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             SizedBox(
               width: boardSize,
-              child: const Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [BoardPane(), GradeStrip()],
+              child: const SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [BoardPane(), GradeStrip()],
+                ),
               ),
             ),
             Expanded(

@@ -33,6 +33,10 @@ const double kDefaultThreatOpacity = 0.7;
 /// five lines exist regardless — this only decides how many are shown.
 const int kDefaultArrowCount = 5;
 
+/// One brush per rank in board_theme's fade; more arrows than brushes would
+/// index off the end.
+const int kMaxArrowCount = 5;
+
 class SettingsStore extends ChangeNotifier {
   final SharedPreferences _prefs;
 
@@ -126,14 +130,17 @@ class SettingsStore extends ChangeNotifier {
       blind: prefs.getString('botvinnik-blind') == '1',
       showThreats: prefs.getString('botvinnik-threats') == '1',
       showControl: prefs.getString('botvinnik-control') == '1',
-      lightSquare: _color(prefs, 'botvinnik-sq-light', kDefaultLightSquare),
-      darkSquare: _color(prefs, 'botvinnik-sq-dark', kDefaultDarkSquare),
+      lightSquare:
+          _color(prefs, 'botvinnik-sq-light', kDefaultLightSquare, opaque: true),
+      darkSquare:
+          _color(prefs, 'botvinnik-sq-dark', kDefaultDarkSquare, opaque: true),
       lastMoveColor: _color(prefs, 'botvinnik-lastmove', kDefaultLastMove),
       pieceSet: prefs.getString('botvinnik-pieces') ?? kDefaultPieceSet,
       boardTexture: prefs.getString('botvinnik-board-texture') ?? '',
       arrowOpacity: prefs.getDouble('botvinnik-arrow-opacity') ??
           kDefaultArrowOpacity,
-      arrowCount: prefs.getInt('botvinnik-arrow-count') ?? kDefaultArrowCount,
+      arrowCount: (prefs.getInt('botvinnik-arrow-count') ?? kDefaultArrowCount)
+          .clamp(1, kMaxArrowCount),
       threatOpacity: prefs.getDouble('botvinnik-threat-opacity') ??
           kDefaultThreatOpacity,
       controlOpacity: prefs.getDouble('botvinnik-control-opacity') ??
@@ -142,12 +149,18 @@ class SettingsStore extends ChangeNotifier {
   }
 
   /// Stored as 0xAARRGGBB hex; falls back to the theme default if unset or
-  /// unparseable, so a corrupted value can never leave the board invisible.
-  static Color _color(SharedPreferences prefs, String key, Color fallback) {
+  /// unparseable. [opaque] forces full alpha for the square colours: a
+  /// 6-digit value (which an import from the web could well produce) parses
+  /// fine but yields alpha 0 — a completely invisible board that only "Reset
+  /// to default" can recover. The last-move colour keeps its alpha, which is
+  /// meaningful there.
+  static Color _color(SharedPreferences prefs, String key, Color fallback,
+      {bool opaque = false}) {
     final raw = prefs.getString(key);
     if (raw == null) return fallback;
     final v = int.tryParse(raw, radix: 16);
-    return v == null ? fallback : Color(v);
+    if (v == null || v < 0 || v > 0xFFFFFFFF) return fallback;
+    return Color(opaque ? v | 0xFF000000 : v);
   }
 
   double get threatOpacity => _threatOpacity;

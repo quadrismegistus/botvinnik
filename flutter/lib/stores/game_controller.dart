@@ -118,7 +118,14 @@ class GameController extends ChangeNotifier {
   void _onSettings() {
     final sig = _settingsSig();
     if (sig == _lastSettingsSig) {
-      _probeThreat(); // threat/control/blind toggles want fresh overlays
+      // Only the overlay switches need a fresh probe. Colour pickers and
+      // opacity sliders notify on every drag frame, and re-probing there
+      // queued dozens of engine searches ahead of the position's analysis.
+      final overlaySig = '${_settings.showThreats}|${_settings.blind}';
+      if (overlaySig != _lastOverlaySig) {
+        _lastOverlaySig = overlaySig;
+        _probeThreat();
+      }
       notifyListeners();
       return;
     }
@@ -449,16 +456,21 @@ class GameController extends ChangeNotifier {
         position.fen, () => chess.controlSquares(position.fen));
   }
 
+  String? _lastOverlaySig;
+  String? _probeInFlightFen; // one probe per position, never a queue of them
+
   Future<void> _probeThreat() async {
     final chess = _chess;
     if (chess == null || !_settings.showThreats || blind) return;
     final fen = position.fen;
+    if (_probeInFlightFen == fen) return;
     final probe = chess.threatProbeFen(fen);
     if (probe == null) {
       _threat = null;
       return;
     }
     final gen = _gen;
+    _probeInFlightFen = fen;
     final lines = await _arbiter.search(
       fen: probe,
       ownerFen: fen, // stale when the BOARD moves on, not the probe position
@@ -467,6 +479,7 @@ class GameController extends ChangeNotifier {
       movetimeMs: 500,
       priority: SearchPriority.threatProbe,
     );
+    if (_probeInFlightFen == fen) _probeInFlightFen = null;
     if (gen != _gen || lines == null || lines.isEmpty) return;
     _threat = chess.judgeThreat(fen, {
       'pv': lines.first.pv,
