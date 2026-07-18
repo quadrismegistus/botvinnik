@@ -55,6 +55,21 @@
 		return dests;
 	}
 
+	// which squares hold a piece — control renders as a RING there (a claim
+	// about the piece) and as a wash on empty squares (a claim about territory)
+	function occupiedSquares(f: string): Set<string> {
+		const out = new Set<string>();
+		const ranks = f.split(' ')[0].split('/');
+		for (let r = 0; r < 8; r++) {
+			let file = 0;
+			for (const ch of ranks[r]) {
+				if (ch >= '1' && ch <= '8') file += +ch;
+				else out.add('abcdefgh'[file++] + (8 - r));
+			}
+		}
+		return out;
+	}
+
 	function makeArrows(): [Key, Key][] {
 		if (!engineMoves.length) return [];
 		return engineMoves
@@ -123,6 +138,11 @@
 		if (!api) return;
 		resetKey; // dep: re-sync pieces when bumped
 		const turnColor: Color = turn === 'w' ? 'white' : 'black';
+		const occ = occupiedSquares(fen);
+		const threatSquares = new Set([
+			...threatTargets,
+			...(threatArrow ? [threatArrow.slice(2, 4)] : [])
+		]);
 		api.set({
 			fen,
 			turnColor,
@@ -132,10 +152,13 @@
 				lastMove: true,
 				// green = the side at the bottom of the board, red = the other side
 				custom: new Map<Key, string>(
-					[...(control ?? [])].map(([sq, side]) => [
-						sq as Key,
-						(side === 'w') === (orientation === 'white') ? 'ctrl-us' : 'ctrl-them'
-					])
+					[...(control ?? [])].flatMap(([sq, side]): [Key, string][] => {
+						const ours = (side === 'w') === (orientation === 'white');
+						if (!occ.has(sq)) return [[sq as Key, ours ? 'ctrl-us' : 'ctrl-them']];
+						// the threat overlay's rings outrank control's on the same piece
+						if (threatSquares.has(sq)) return [];
+						return [[sq as Key, ours ? 'ctrl-us-ring' : 'ctrl-them-ring']];
+					})
 				)
 			},
 			movable: {
@@ -221,32 +244,51 @@
 		);
 		background: var(--ctrl-tint);
 	}
-	.board :global(cg-board square.move-dest.ctrl-us),
-	.board :global(cg-board square.move-dest.ctrl-them) {
+	/* occupied squares: a ring around the piece — the wash says "this square
+	   is owned", the ring says "this PIECE is winnable / falling" */
+	.board :global(cg-board square.ctrl-us-ring) {
+		--ctrl-tint: radial-gradient(
+			circle,
+			transparent 0%,
+			transparent 60%,
+			rgba(129, 182, 76, 0.55) 65%,
+			rgba(129, 182, 76, 0.55) 76%,
+			transparent 81%
+		);
+		background: var(--ctrl-tint);
+	}
+	.board :global(cg-board square.ctrl-them-ring) {
+		--ctrl-tint: radial-gradient(
+			circle,
+			transparent 0%,
+			transparent 60%,
+			rgba(202, 52, 49, 0.55) 65%,
+			rgba(202, 52, 49, 0.55) 76%,
+			transparent 81%
+		);
+		background: var(--ctrl-tint);
+	}
+	.board :global(cg-board square.move-dest[class*='ctrl-']) {
 		background:
 			radial-gradient(rgba(20, 85, 30, 0.5) 22%, #208530 0, rgba(0, 0, 0, 0.3) 0, rgba(0, 0, 0, 0) 0),
 			var(--ctrl-tint);
 	}
-	.board :global(cg-board square.oc.move-dest.ctrl-us),
-	.board :global(cg-board square.oc.move-dest.ctrl-them) {
+	.board :global(cg-board square.oc.move-dest[class*='ctrl-']) {
 		background:
 			radial-gradient(transparent 0%, transparent 80%, rgba(20, 85, 0, 0.3) 80%),
 			var(--ctrl-tint);
 	}
-	.board :global(cg-board square.move-dest.ctrl-us:hover),
-	.board :global(cg-board square.move-dest.ctrl-them:hover) {
+	.board :global(cg-board square.move-dest[class*='ctrl-']:hover) {
 		background:
 			linear-gradient(rgba(20, 85, 30, 0.3), rgba(20, 85, 30, 0.3)),
 			var(--ctrl-tint);
 	}
-	.board :global(cg-board square.selected.ctrl-us),
-	.board :global(cg-board square.selected.ctrl-them) {
+	.board :global(cg-board square.selected[class*='ctrl-']) {
 		background:
 			linear-gradient(rgba(20, 85, 30, 0.5), rgba(20, 85, 30, 0.5)),
 			var(--ctrl-tint);
 	}
-	.board :global(cg-board square.last-move.ctrl-us),
-	.board :global(cg-board square.last-move.ctrl-them) {
+	.board :global(cg-board square.last-move[class*='ctrl-']) {
 		background:
 			linear-gradient(rgba(155, 199, 0, 0.41), rgba(155, 199, 0, 0.41)),
 			var(--ctrl-tint);

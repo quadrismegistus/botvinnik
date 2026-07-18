@@ -1,7 +1,10 @@
 // The board: chessground wired to GameController. Full viewport width —
 // the agreed phone shell pins it at the top.
 
+import 'dart:math' as math;
+
 import 'package:chessground/chessground.dart';
+import 'package:flutter/foundation.dart' show setEquals;
 import 'package:dartchess/dartchess.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -154,8 +157,18 @@ class _BoardPaneState extends State<BoardPane> {
           IgnorePointer(
             child: CustomPaint(
               size: Size(size, size),
-              painter: _ControlPainter(control, orientation,
-                  game.playerColor == 'w' ? 'w' : 'b', settings.controlOpacity),
+              painter: _ControlPainter(
+                control,
+                orientation,
+                game.playerColor == 'w' ? 'w' : 'b',
+                settings.controlOpacity,
+                {for (final s in game.position.board.occupied.squares) s.name},
+                // the threat overlay's rings outrank control's on a piece
+                {
+                  ...threatTargets,
+                  if (threatUci != null) threatUci.substring(2, 4),
+                },
+              ),
             ),
           ),
         ]);
@@ -246,16 +259,21 @@ class _ThreatHoverState extends State<_ThreatHover> {
   }
 }
 
-/// The square-control tint: green where your side owns the square, red where
-/// the opponent does. A flat wash of the whole square — the web draws a
-/// fading circle because the tint is a CSS background there, but on this
-/// canvas layer the square itself is the honest unit of "who controls it".
+/// The square-control overlay, two claims in two shapes. EMPTY squares get a
+/// flat wash — "this side owns this square", a statement about territory.
+/// OCCUPIED squares get a ring around the piece — "this piece is winnable /
+/// falling where it stands", a statement about the piece, and the urgent one.
+/// Rings share the visual grammar of the threat overlay's victim rings, which
+/// outrank them on the same square.
 class _ControlPainter extends CustomPainter {
   final Map<String, String> control;
   final Side orientation;
   final String us;
   final double peak;
-  _ControlPainter(this.control, this.orientation, this.us, this.peak);
+  final Set<String> occupied;
+  final Set<String> threatRinged;
+  _ControlPainter(this.control, this.orientation, this.us, this.peak,
+      this.occupied, this.threatRinged);
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -267,10 +285,25 @@ class _ControlPainter extends CustomPainter {
       final y = orientation == Side.white ? 7 - rank : rank;
       final ours = entry.value == us;
       final base = ours ? kControlOurs : kControlTheirs;
-      canvas.drawRect(
-        Rect.fromLTWH(x * sq, y * sq, sq, sq),
-        Paint()..color = base.withValues(alpha: peak),
-      );
+      if (occupied.contains(entry.key)) {
+        if (threatRinged.contains(entry.key)) continue;
+        // twice the wash's opacity: the piece-level claim should pop out of
+        // the ambient territory it sits in
+        final stroke = sq / 14;
+        canvas.drawCircle(
+          Offset(x * sq + sq / 2, y * sq + sq / 2),
+          sq / 2 - stroke * 0.75,
+          Paint()
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = stroke
+            ..color = base.withValues(alpha: math.min(1.0, peak * 2)),
+        );
+      } else {
+        canvas.drawRect(
+          Rect.fromLTWH(x * sq, y * sq, sq, sq),
+          Paint()..color = base.withValues(alpha: peak),
+        );
+      }
     }
   }
 
@@ -278,5 +311,7 @@ class _ControlPainter extends CustomPainter {
   bool shouldRepaint(_ControlPainter old) =>
       old.control != control ||
       old.orientation != orientation ||
-      old.peak != peak;
+      old.peak != peak ||
+      !setEquals(old.occupied, occupied) ||
+      !setEquals(old.threatRinged, threatRinged);
 }
