@@ -66,8 +66,10 @@ class _LinesPaneState extends State<LinesPane> {
   Widget _lineRow(BuildContext context, GameController game, ChessApi chess,
       String fen, EngineMove line, bool blackToMove) {
     final key = '${line.multipv}|${line.depth}|${line.pv.join()}';
+    // the whole line the engine actually has, not a fixed slice of it — its
+    // length is itself information (a shallow line means less was resolved)
     final san = _sanCache.putIfAbsent(
-        key, () => chess.numberedSanLine(fen, line.pv.take(10).toList()));
+        key, () => chess.numberedSanLine(fen, line.pv, max: line.pv.length));
 
     // white-POV eval chip
     final String evalText;
@@ -82,7 +84,7 @@ class _LinesPaneState extends State<LinesPane> {
     return InkWell(
       onTap: () => game.previewing
           ? game.stopPreview()
-          : game.startPreview(fen, line.pv.take(10).toList()),
+          : game.startPreview(fen, line.pv.toList()),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
         child: Row(
