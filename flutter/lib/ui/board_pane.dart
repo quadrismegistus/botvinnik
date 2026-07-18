@@ -7,6 +7,8 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../stores/game_controller.dart';
+import '../stores/settings_store.dart';
+import 'board_theme.dart';
 
 class BoardPane extends StatefulWidget {
   const BoardPane({super.key});
@@ -57,6 +59,7 @@ class _BoardPaneState extends State<BoardPane> {
   @override
   Widget build(BuildContext context) {
     final game = context.watch<GameController>();
+    final settings = context.watch<SettingsStore>();
     final sig =
         '${game.previewFen ?? game.position.fen}|${game.botEnabled}|${game.playerColor}';
     _controller ??= ChessboardController(game: _gameData(game));
@@ -65,24 +68,90 @@ class _BoardPaneState extends State<BoardPane> {
       _controller!.updatePosition(_gameData(game));
     }
 
+    final orientation = game.playerColor == 'w' ? Side.white : Side.black;
+    final threatUci = game.previewing ? null : game.threatUci;
+    final control = game.previewing ? null : game.controlMap;
+    final engineArrows =
+        game.previewing ? const <String>[] : game.engineArrowUcis;
+    final arrowColors = engineArrowColors(settings.arrowOpacity);
+
     return LayoutBuilder(
       builder: (context, constraints) {
-        return Chessboard(
+        final size = constraints.maxWidth;
+        final board = Chessboard(
           controller: _controller!,
-          size: constraints.maxWidth,
-          orientation: game.playerColor == 'w' ? Side.white : Side.black,
+          size: size,
+          orientation: orientation,
           onMove: (move, {viaDragAndDrop}) {
             if (move is! NormalMove || !game.position.isLegal(move)) return;
             final (_, san) = game.position.makeSan(move);
             game.playerMove(move, san);
           },
-          settings: const ChessboardSettings(
-            enableCoordinates: true,
-            animationDuration: Duration(milliseconds: 150),
-            drawShape: DrawShapeOptions(enable: true),
-          ),
+          shapes: {
+            // the engine's top moves, fading by rank (web's g0/g1/g2)
+            for (var i = 0; i < engineArrows.length; i++)
+              Arrow(
+                color: arrowColors[i],
+                orig: NormalMove.fromUci(engineArrows[i]).from,
+                dest: NormalMove.fromUci(engineArrows[i]).to,
+              ),
+            // the opponent's threat (null-move probe), drawn as a warning
+            if (threatUci != null)
+              Arrow(
+                color: threatArrowColor(settings.threatOpacity),
+                orig: NormalMove.fromUci(threatUci).from,
+                dest: NormalMove.fromUci(threatUci).to,
+              ),
+          },
+          settings: boardSettingsFor(settings),
         );
+        if (control == null || control.isEmpty) return board;
+        return Stack(children: [
+          board,
+          IgnorePointer(
+            child: CustomPaint(
+              size: Size(size, size),
+              painter: _ControlPainter(control, orientation,
+                  game.playerColor == 'w' ? 'w' : 'b', settings.controlOpacity),
+            ),
+          ),
+        ]);
       },
     );
   }
+}
+
+/// The square-control tint: green where your side owns the square, red where
+/// the opponent does. A flat wash of the whole square — the web draws a
+/// fading circle because the tint is a CSS background there, but on this
+/// canvas layer the square itself is the honest unit of "who controls it".
+class _ControlPainter extends CustomPainter {
+  final Map<String, String> control;
+  final Side orientation;
+  final String us;
+  final double peak;
+  _ControlPainter(this.control, this.orientation, this.us, this.peak);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final sq = size.width / 8;
+    for (final entry in control.entries) {
+      final file = entry.key.codeUnitAt(0) - 'a'.codeUnitAt(0);
+      final rank = int.parse(entry.key[1]) - 1;
+      final x = orientation == Side.white ? file : 7 - file;
+      final y = orientation == Side.white ? 7 - rank : rank;
+      final ours = entry.value == us;
+      final base = ours ? kControlOurs : kControlTheirs;
+      canvas.drawRect(
+        Rect.fromLTWH(x * sq, y * sq, sq, sq),
+        Paint()..color = base.withValues(alpha: peak),
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(_ControlPainter old) =>
+      old.control != control ||
+      old.orientation != orientation ||
+      old.peak != peak;
 }

@@ -16,7 +16,16 @@ import 'dart:collection';
 import '../brain/types.dart';
 import 'search_engine.dart';
 
-enum SearchPriority { botMove, practiceCheck, analysis }
+// Ordered by urgency. threatProbe outranks analysis: it is a ~500ms search
+// whose result is an overlay the player is waiting to see, while analysis is
+// a 3s search that streams and backfills. Behind analysis it arrived seconds
+// late; ahead of it, it preempts, runs, and analysis resumes where it left.
+enum SearchPriority { botMove, practiceCheck, threatProbe, analysis }
+
+/// Work that belongs to one board position, and is pointless once the board
+/// moves on. Both kinds are dropped by [SearchArbiter.cancelAnalyses].
+bool _positionScoped(SearchPriority p) =>
+    p == SearchPriority.analysis || p == SearchPriority.threatProbe;
 
 /// Web-app analysis budget (stockfish.ts DEFAULT_BUDGET + MULTIPV).
 const int kAnalysisDepth = 22;
@@ -26,6 +35,12 @@ const int kBotMultiPv = 12;
 
 class _Request {
   final String fen;
+
+  /// The board position this request serves, when that differs from the fen
+  /// being searched — the threat probe searches a null-move position, but is
+  /// stale exactly when the REAL position it was asked about is gone.
+  final String? ownerFen;
+  String get scopeFen => ownerFen ?? fen;
   final int depth; // 0 = movetime-only search (no depth target)
   final int multiPv;
   final int? movetimeMs;
@@ -38,6 +53,7 @@ class _Request {
 
   _Request({
     required this.fen,
+    this.ownerFen,
     required this.depth,
     required this.multiPv,
     required this.movetimeMs,
@@ -74,7 +90,7 @@ class SearchArbiter {
   void cancelAnalyses({required String exceptFen}) {
     final keep = <_Request>[];
     for (final r in _queue) {
-      if (r.priority == SearchPriority.analysis && r.fen != exceptFen) {
+      if (_positionScoped(r.priority) && r.scopeFen != exceptFen) {
         if (!r.completer.isCompleted) r.completer.complete(null);
       } else {
         keep.add(r);
@@ -85,11 +101,14 @@ class SearchArbiter {
       ..addAll(keep);
     final running = _running;
     if (running != null &&
-        running.priority == SearchPriority.analysis &&
-        running.fen != exceptFen &&
+        _positionScoped(running.priority) &&
+        running.scopeFen != exceptFen &&
         !running.cancelled) {
       running.cancelled = true;
-      if (_runningStreamDepth >= _kMinUsefulDepth) {
+      // the courtesy window exists so grading still gets usable lines; a
+      // threat probe has nothing to salvage, so it just stops
+      if (running.priority != SearchPriority.analysis ||
+          _runningStreamDepth >= _kMinUsefulDepth) {
         _engine.stop();
       } else {
         _stopAtDepth = _kMinUsefulDepth; // stop once it gets there
@@ -113,6 +132,7 @@ class SearchArbiter {
   /// while running. Callers treat null as "forget this ply".
   Future<List<EngineMove>?> search({
     required String fen,
+    String? ownerFen,
     required int depth,
     required int multiPv,
     int? movetimeMs,
@@ -122,6 +142,7 @@ class SearchArbiter {
   }) {
     final req = _Request(
       fen: fen,
+      ownerFen: ownerFen,
       depth: depth,
       multiPv: multiPv,
       movetimeMs: movetimeMs,

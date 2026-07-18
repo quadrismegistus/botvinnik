@@ -33,7 +33,12 @@ describe('computeControl', () => {
 	});
 
 	it('computes nothing while in check or after the game ends', () => {
-		const inCheck = '4k3/8/8/8/7b/8/8/4K3 w - - 0 1'; // Bh4+ checks e1
+		// material deliberately present: an earlier version of this test used a
+		// position with nothing to control, so it passed either way and missed
+		// a change that DID start mapping in check
+		const inCheck = '4k3/8/8/8/7b/8/4R3/4K3 w - - 0 1'; // Bh4+ checks e1
+		expect(computeControl('4k3/8/8/8/8/8/4R3/4K3 w - - 0 1').size)
+			.toBeGreaterThan(0); // the same material, unchecked, does map
 		expect(computeControl(inCheck).size).toBe(0);
 		const over = '4k3/8/8/8/8/8/8/4K3 w - - 0 1'; // insufficient material
 		expect(computeControl(over).size).toBe(0);

@@ -48,6 +48,14 @@ export { explainMove, explainGoodMove, bestMovePoint, motifTags, MOTIF_TAGS_VERS
 // ---- SAN / fen helpers (so Dart never re-implements chess.js rendering) ----
 export { getSan, getSanLine, getNumberedSanLine, getFenAfter, isCapture } from './engine/chess';
 
+// ---- board overlays ----
+export { threatProbeFen, judgeThreat } from './engine/threats';
+import { computeControl } from './engine/control';
+/** computeControl returns a Map (JSON-hostile) — flatten for the bridge. */
+export function controlSquares(fen: string): Record<string, 'w' | 'b'> {
+	return Object.fromEntries(computeControl(fen));
+}
+
 // ---- practice (pure scheduling only — Dart persists the item array) ----
 export {
 	itemDataFromStoredMove,

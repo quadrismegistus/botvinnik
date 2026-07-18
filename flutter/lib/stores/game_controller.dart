@@ -50,6 +50,7 @@ class GameController extends ChangeNotifier {
   final SettingsStore _settings;
   final AppDb? _db;
   final PracticeController? _practice;
+  ChessApi? _chess;
 
   Position position = Chess.initial;
   Move? lastMove;
@@ -70,6 +71,7 @@ class GameController extends ChangeNotifier {
 
   GameController(this._arbiter, this._bot, this._grading, this._settings,
       [this._db, this._practice, ChessApi? chessApi]) {
+    _chess = chessApi;
     if (chessApi != null) linesTree = LinesTreeModel(chessApi);
     persona = _bot.personaById(_settings.personaId) ?? _bot.personas().first;
     _settings.addListener(_onSettings);
@@ -116,6 +118,14 @@ class GameController extends ChangeNotifier {
   void _onSettings() {
     final sig = _settingsSig();
     if (sig == _lastSettingsSig) {
+      // Only the overlay switches need a fresh probe. Colour pickers and
+      // opacity sliders notify on every drag frame, and re-probing there
+      // queued dozens of engine searches ahead of the position's analysis.
+      final overlaySig = '${_settings.showThreats}|${_settings.blind}';
+      if (overlaySig != _lastOverlaySig) {
+        _lastOverlaySig = overlaySig;
+        _probeThreat();
+      }
       notifyListeners();
       return;
     }
@@ -137,8 +147,10 @@ class GameController extends ChangeNotifier {
     gameSeed = _newSeed();
     _analysis.clear();
     _partials.clear();
+    _threat = null;
     _analysisFor(position.fen);
     _syncTree(); // playedSans is empty → the model wipes itself
+    _probeThreat();
     notifyListeners();
     _maybeBotTurn();
   }
@@ -161,8 +173,10 @@ class GameController extends ChangeNotifier {
     position = Chess.fromSetup(Setup.parseFen(fen));
     lastMove =
         moves.isEmpty ? null : NormalMove.fromUci(moves.last.uci);
+    _threat = null;
     _analysisFor(position.fen);
     _syncTree();
+    _probeThreat();
     notifyListeners();
   }
 
@@ -210,6 +224,7 @@ class GameController extends ChangeNotifier {
     final gen = _gen;
     _analysisFor(position.fen,
         onUpdate: (lines) => _earlyBackfill(record, lines, gen));
+    _probeThreat();
     late final Future<void> pipeline;
     pipeline = _gradePipeline(record, _gen)
       ..whenComplete(() => _pendingGrades.remove(pipeline));
@@ -406,6 +421,72 @@ class GameController extends ChangeNotifier {
   /// The engine's live view of the current position (deepest streamed
   /// snapshot) — feeds the Lines pane as the search deepens.
   List<EngineMove> get currentLines => _partials[position.fen] ?? const [];
+
+  bool get blind => _settings.blind;
+
+  /// What the panes may show: nothing forward-looking in blind mode during
+  /// a live bot game (web: visibleLines).
+  List<EngineMove> get visibleLines =>
+      blind && botEnabled ? const [] : currentLines;
+
+  // ---- overlays: opponent threat (null-move probe) + square control ----
+
+  Map<String, dynamic>? _threat; // {fen, uci, san, gain} — fen-gated
+  final Map<String, Map<String, String>> _controlCache = {};
+
+  /// Top engine moves for the board's green arrows (web: top-3, fading).
+  List<String> get engineArrowUcis {
+    if (!_settings.showArrows || blind) return const [];
+    return [for (final l in currentLines.take(_settings.arrowCount)) l.uci];
+  }
+
+  /// The threat arrow's uci, when fresh and wanted.
+  String? get threatUci {
+    if (!_settings.showThreats || blind) return null;
+    final t = _threat;
+    return t != null && t['fen'] == position.fen ? t['uci'] as String? : null;
+  }
+
+  /// Square-control tint for the current position, when wanted.
+  Map<String, String>? get controlMap {
+    if (!_settings.showControl || blind) return null;
+    final chess = _chess;
+    if (chess == null) return null;
+    return _controlCache.putIfAbsent(
+        position.fen, () => chess.controlSquares(position.fen));
+  }
+
+  String? _lastOverlaySig;
+  String? _probeInFlightFen; // one probe per position, never a queue of them
+
+  Future<void> _probeThreat() async {
+    final chess = _chess;
+    if (chess == null || !_settings.showThreats || blind) return;
+    final fen = position.fen;
+    if (_probeInFlightFen == fen) return;
+    final probe = chess.threatProbeFen(fen);
+    if (probe == null) {
+      _threat = null;
+      return;
+    }
+    final gen = _gen;
+    _probeInFlightFen = fen;
+    final lines = await _arbiter.search(
+      fen: probe,
+      ownerFen: fen, // stale when the BOARD moves on, not the probe position
+      depth: 14,
+      multiPv: 1,
+      movetimeMs: 500,
+      priority: SearchPriority.threatProbe,
+    );
+    if (_probeInFlightFen == fen) _probeInFlightFen = null;
+    if (gen != _gen || lines == null || lines.isEmpty) return;
+    _threat = chess.judgeThreat(fen, {
+      'pv': lines.first.pv,
+      'mate': lines.first.mate,
+    });
+    if (position.fen == fen) notifyListeners();
+  }
 
   /// The game-long exploration map (null until wired with a ChessApi).
   LinesTreeModel? linesTree;

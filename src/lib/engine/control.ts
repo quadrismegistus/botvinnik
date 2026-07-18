@@ -10,8 +10,16 @@
 // would just repaint the whole board.
 //
 // Pure chess.js — no engine time. The opponent's moves come from the same
-// null-move turn-flip the threat probe uses (ep voided); in check the flip is
-// meaningless, so control simply isn't computed that ply.
+// null-move turn-flip the threat probe uses (ep voided).
+//
+// NOT computed in check, deliberately. The two halves would stop being
+// comparable: the side to move would get only its real legal moves — in check
+// just the evasions — while the opponent kept full free-move mobility. Across
+// 800 check positions that skews to ~3 squares against ~17, so a checked side
+// reads as crushed even when it is winning (in 4k3/8/8/8/7q/8/8/4K2R w K - 0 1
+// White plays Rxh4 and is a queen up, but would tint 5 against 16). Blank says
+// "no fair comparison here", which is the truth. Making it symmetric needs
+// pseudo-legal move generation, which chess.js does not expose.
 
 import { Chess, type Color, type Square } from 'chess.js';
 import { PIECE_VAL } from './explain';
@@ -88,7 +96,6 @@ export function computeControl(fen: string): ControlMap {
 	} catch {
 		return map;
 	}
-	if (flipped.inCheck()) return map; // impossible from a legal position, but stay safe
 
 	const mover = real.turn();
 	const nets: Record<Color, Map<string, number>> = {

@@ -1,7 +1,10 @@
-// Native Stockfish via FFI (stockfish package): the raw UCI transport.
+// Native Stockfish via FFI (stockfish package): the mobile transport.
 // One instance per process (package limit) — all scheduling, priorities and
-// preemption live in arbiter.dart; this class knows only how to run one
-// search and parse its lines.
+// preemption live in arbiter.dart; the UCI dialogue lives in uci_protocol.dart.
+// This class knows only how to move bytes to and from the embedded engine.
+//
+// The stockfish package supports iOS/Android only. Desktop uses
+// process_engine.dart instead; engine_factory.dart picks between them.
 //
 // NOTE (calibration): this bundles Stockfish 16 full-NNUE, not the WASM
 // lite-single the labels were calibrated on. Accepted for M1; the M4
@@ -11,33 +14,16 @@ import 'dart:async';
 
 import 'package:stockfish/stockfish.dart';
 
-import '../brain/types.dart';
+import 'uci_protocol.dart';
 
-/// The arbiter's view of an engine — real (Stockfish FFI) or a test fake.
-abstract interface class UciSearcher {
-  bool get busy;
-  Future<List<EngineMove>> search(
-    String fen, {
-    required String go,
-    required int multiPv,
-    List<List<String>> extraOptions,
-    void Function(List<EngineMove>)? onUpdate,
-  });
-  void stop();
-  void dispose();
-}
+export 'uci_protocol.dart' show UciSearcher;
 
-class SearchEngine implements UciSearcher {
+class SearchEngine extends UciProtocol {
   final Stockfish _sf;
-  final Map<int, EngineMove> _byMultipv = {};
-  Completer<List<EngineMove>>? _search;
-  void Function(List<EngineMove>)? _onUpdate;
-  int _lastStreamedDepth = 0;
   late final StreamSubscription<String> _sub;
-  int _currentMultiPv = 0;
 
   SearchEngine._(this._sf) {
-    _sub = _sf.stdout.listen(_onLine);
+    _sub = _sf.stdout.listen(handleLine);
   }
 
   /// Boots the engine and waits for readiness. Only one instance may exist —
@@ -51,95 +37,14 @@ class SearchEngine implements UciSearcher {
       throw StateError('Stockfish failed to start: ${sf.state.value}');
     }
     final engine = SearchEngine._(sf);
-    sf.stdin = 'uci';
-    sf.stdin = 'setoption name Threads value 1';
-    sf.stdin = 'isready';
+    engine.send('uci');
+    engine.send('setoption name Threads value 1');
+    engine.send('isready');
     return engine;
   }
 
-  void _onLine(String line) {
-    if (line.startsWith('info ') && line.contains(' pv ')) {
-      final depth =
-          int.tryParse(RegExp(r' depth (\d+)').firstMatch(line)?.group(1) ?? '') ?? 0;
-      final multipv =
-          int.tryParse(RegExp(r' multipv (\d+)').firstMatch(line)?.group(1) ?? '') ?? 1;
-      final cp = RegExp(r' score cp (-?\d+)').firstMatch(line)?.group(1);
-      final mate = RegExp(r' score mate (-?\d+)').firstMatch(line)?.group(1);
-      final pv = line.split(' pv ').last.trim().split(' ');
-      if (pv.isNotEmpty && pv.first.isNotEmpty) {
-        _byMultipv[multipv] = EngineMove(
-          pv: pv,
-          score: cp != null ? int.parse(cp) / 100.0 : 0.0,
-          mate: mate != null ? int.parse(mate) : null,
-          depth: depth,
-          multipv: multipv,
-        );
-        // stream a snapshot once per completed depth (the last multipv line
-        // of a depth is the highest index we asked for, or multipv 1 when
-        // the position has fewer legal moves)
-        if (_onUpdate != null && depth > _lastStreamedDepth) {
-          _lastStreamedDepth = depth;
-          final moves = _byMultipv.values.toList()
-            ..sort((a, b) => a.multipv.compareTo(b.multipv));
-          _onUpdate!(moves);
-        }
-      }
-    } else if (line.startsWith('bestmove')) {
-      final moves = _byMultipv.values.toList()
-        ..sort((a, b) => a.multipv.compareTo(b.multipv));
-      _onUpdate = null;
-      _search?.complete(moves);
-      _search = null;
-    }
-  }
-
   @override
-  bool get busy => _search != null;
-  bool _optionsDirty = false;
-
-  /// One MultiPV search. Resolves on bestmove — including after [stop], with
-  /// whatever depth was reached. The arbiter guarantees no overlap.
-  ///
-  /// [go] is the raw go command tail ('depth 22' or 'movetime 1200' — the
-  /// recipe decides). [extraOptions] are weakening options (Skill Level,
-  /// UCI_Elo…); they are automatically reset before the next plain search.
-  @override
-  Future<List<EngineMove>> search(
-    String fen, {
-    required String go,
-    required int multiPv,
-    List<List<String>> extraOptions = const [],
-    void Function(List<EngineMove>)? onUpdate,
-  }) {
-    assert(_search == null, 'search while busy — arbiter bug');
-    _byMultipv.clear();
-    _onUpdate = onUpdate;
-    _lastStreamedDepth = 0;
-    final completer = Completer<List<EngineMove>>();
-    _search = completer;
-    if (_optionsDirty && extraOptions.isEmpty) {
-      _sf.stdin = 'setoption name UCI_LimitStrength value false';
-      _sf.stdin = 'setoption name Skill Level value 20';
-      _optionsDirty = false;
-    }
-    for (final opt in extraOptions) {
-      _sf.stdin = 'setoption name ${opt[0]} value ${opt[1]}';
-      if (opt[0] != 'MultiPV') _optionsDirty = true;
-    }
-    if (multiPv != _currentMultiPv) {
-      _sf.stdin = 'setoption name MultiPV value $multiPv';
-      _currentMultiPv = multiPv;
-    }
-    _sf.stdin = 'position fen $fen';
-    _sf.stdin = 'go $go';
-    return completer.future;
-  }
-
-  /// Ends the running search early; its future still resolves on bestmove.
-  @override
-  void stop() {
-    if (_search != null) _sf.stdin = 'stop';
-  }
+  void send(String command) => _sf.stdin = command;
 
   @override
   void dispose() {
