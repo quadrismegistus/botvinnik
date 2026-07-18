@@ -1,13 +1,6 @@
-// Picks the engine transport for the platform: embedded FFI Stockfish on
-// mobile, a child engine process on desktop. Everything downstream (the
+// Picks the engine transport for the platform. Everything downstream (the
 // arbiter, and therefore all of the app) sees only UciSearcher.
-
-import 'dart:io';
-
-import 'process_engine.dart';
-import 'search_engine.dart';
-
-Future<UciSearcher> startEngine() async {
-  if (Platform.isIOS || Platform.isAndroid) return SearchEngine.start();
-  return ProcessEngine.start();
-}
+//
+// The conditional export keeps dart:ffi (package:stockfish) out of the web
+// compile; web uses the same Stockfish WASM worker the Svelte app runs.
+export 'engine_factory_io.dart' if (dart.library.js_interop) 'engine_factory_web.dart';

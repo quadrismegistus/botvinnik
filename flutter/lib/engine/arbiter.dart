@@ -14,7 +14,7 @@ import 'dart:async';
 import 'dart:collection';
 
 import '../brain/types.dart';
-import 'search_engine.dart';
+import 'uci_protocol.dart';
 
 // Ordered by urgency. threatProbe outranks analysis: it is a ~500ms search
 // whose result is an overlay the player is waiting to see, while analysis is
