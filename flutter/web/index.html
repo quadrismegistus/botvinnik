@@ -18,18 +18,20 @@
 
   <meta charset="UTF-8">
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
-  <meta name="description" content="A new Flutter project.">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#161512">
+  <meta name="description" content="Play chess against calibrated bots, with every move graded and explained.">
 
   <!-- iOS meta tags & icons -->
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black">
-  <meta name="apple-mobile-web-app-title" content="botvinnik_mobile">
+  <meta name="apple-mobile-web-app-title" content="botvinnik">
   <link rel="apple-touch-icon" href="icons/Icon-192.png">
 
   <!-- Favicon -->
   <link rel="icon" type="image/png" href="favicon.png"/>
 
-  <title>botvinnik_mobile</title>
+  <title>botvinnik</title>
   <link rel="manifest" href="manifest.json">
   <style>
     /* Painted before any Dart or CanvasKit arrives. Flutter's first frame
@@ -70,9 +72,22 @@
     // staged text: the engine and its network are the slow part, so say so
     // rather than showing a bar that pretends to know a percentage
     var _msg = document.getElementById('boot-msg');
-    setTimeout(function () { if (_msg) _msg.textContent = 'starting the engine…'; }, 2500);
-    setTimeout(function () { if (_msg) _msg.textContent = 'first visit downloads the engine once…'; }, 6000);
+    var _seen = false;
+    try { _seen = localStorage.getItem('botvinnik-booted') === '1'; } catch (e) {}
+    var _timers = [
+      setTimeout(function () { if (_msg) _msg.textContent = 'starting the engine…'; }, 2500),
+      setTimeout(function () {
+        if (_msg && !_seen) _msg.textContent = 'first visit downloads the engine once…';
+      }, 6000),
+      // armed unconditionally: if Flutter dies BEFORE its first frame, no
+      // event ever fires and the splash would otherwise sit here forever
+      setTimeout(function () {
+        if (_msg) _msg.textContent = 'still loading — if this persists, reload the page';
+      }, 30000)
+    ];
     function _hideBoot() {
+      _timers.forEach(clearTimeout);
+      try { localStorage.setItem('botvinnik-booted', '1'); } catch (e) {}
       var b = document.getElementById('boot');
       if (b) { b.classList.add('done'); setTimeout(function () { b.remove(); }, 400); }
     }

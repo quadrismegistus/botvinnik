@@ -2,15 +2,15 @@
 // to marshal through — brain.js is loaded by a <script> tag in web/index.html
 // and hangs off globalThis as `brain`, exactly as the IIFE bundle intends.
 //
-// The expression strings are identical to js_bridge_io.dart's, so both hosts
-// exercise the same brain surface and the golden fixtures mean the same thing
-// on either. Kept in lockstep by hand: there is no shared base, because the
-// native side cannot import dart:js_interop at all.
+// The two transports cannot share a base class — native cannot import
+// dart:js_interop and web cannot import dart:ffi — but everything that would
+// otherwise drift (the expression strings, the omit sentinel, the expected
+// brain version) lives in js_bridge_shared.dart, so both hosts exercise the
+// same brain surface and the golden fixtures mean the same thing on either.
 
-import 'dart:convert';
 import 'dart:js_interop';
 
-const int kExpectedBrainVersion = 1;
+import 'js_bridge_shared.dart';
 
 @JS('eval')
 external JSAny? _jsEval(String code);
@@ -36,22 +36,18 @@ class JsBridge {
     return bridge;
   }
 
-  static const Object omit = _Omit();
+  static const Object omit = kOmit;
 
   dynamic call(String fn,
       {List<Object?> args = const [], bool isProperty = false}) {
-    final encoded = args
-        .map((a) => identical(a, omit) ? 'undefined' : jsonEncode(a))
-        .join(',');
-    final expr = isProperty
-        ? 'JSON.stringify(brain.$fn)'
-        : 'JSON.stringify(brain.$fn($encoded) ?? null)';
-    final s = _jsEval(expr)?.dartify() as String?;
-    if (s == null || s == 'undefined' || s == 'null') return null;
-    return jsonDecode(s);
+    final expr = buildBrainExpr(fn, args, isProperty);
+    return decodeBrainResult(_jsEval(expr)?.dartify() as String?);
   }
+
+  /// Nothing to tear down — the browser owns the JS context. Present so this
+  /// class keeps the same surface as js_bridge_io's: nothing makes the twins
+  /// agree, so a teardown call added later would compile on native, pass every
+  /// test, and break only the web build.
+  void dispose() {}
 }
 
-class _Omit {
-  const _Omit();
-}

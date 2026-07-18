@@ -16,7 +16,17 @@ import './models.dart';
 /// truncates to 32 bits and treats as signed.
 extension type const SquareSet._((int, int) value) {
   /// Creates a [SquareSet] from a value that fits in 32 bits.
-  const SquareSet(int lo) : value = (lo, 0);
+  ///
+  /// The assert is load-bearing: without it a wider value silently loses its
+  /// high half and the set enters a contradictory state (`isEmpty` false
+  /// while `size` is 0, and `last` building `Square(-1)`). A const call site
+  /// becomes a compile error naming the fix; a runtime one trips in debug.
+  /// Native has no such limit, so this cannot be mirrored there — its own
+  /// constants legitimately pass 64-bit values to this constructor.
+  const SquareSet(int lo)
+      : assert(lo >= 0 && lo <= 0xffffffff,
+            'SquareSet(int) holds 32 bits on web; use SquareSet.fromHiLo(hi, lo)'),
+        value = (lo, 0);
 
   /// Creates a [SquareSet] from two 32-bit halves.
   const SquareSet.fromHiLo(int hi, int lo) : value = (lo, hi);
@@ -69,7 +79,7 @@ extension type const SquareSet._((int, int) value) {
     if (shift >= 64) return SquareSet.empty;
     if (shift <= 0) return this;
     if (shift == 32) return SquareSet.fromHiLo(0, _hi);
-    if (shift > 32) return SquareSet.fromHiLo(0, (_hi >>> (shift - 32)));
+    if (shift > 32) return SquareSet.fromHiLo(0, _hi >>> (shift - 32));
     return SquareSet.fromHiLo(
       _hi >>> shift,
       ((_lo >>> shift) | (_hi << (32 - shift))).toUnsigned(32),
@@ -131,9 +141,8 @@ extension type const SquareSet._((int, int) value) {
     const k1 = 0x00FF00FF;
     const k2 = 0x0000FFFF;
     int flipHalf(int x) {
-      int r = ((x >>> 8) & k1) | ((x & k1) << 8).toUnsigned(32);
-      r = ((r >>> 16) & k2) | ((r & k2) << 16).toUnsigned(32);
-      return r;
+      final r = ((x >>> 8) & k1) | ((x & k1) << 8).toUnsigned(32);
+      return ((r >>> 16) & k2) | ((r & k2) << 16).toUnsigned(32);
     }
 
     // swapping the halves performs the final 32-bit rotation
@@ -148,8 +157,7 @@ extension type const SquareSet._((int, int) value) {
     int mirrorHalf(int x) {
       int r = ((x >>> 1) & k1) | ((x & k1) << 1).toUnsigned(32);
       r = ((r >>> 2) & k2) | ((r & k2) << 2).toUnsigned(32);
-      r = ((r >>> 4) & k4) | ((r & k4) << 4).toUnsigned(32);
-      return r;
+      return ((r >>> 4) & k4) | ((r & k4) << 4).toUnsigned(32);
     }
 
     return SquareSet.fromHiLo(mirrorHalf(_hi), mirrorHalf(_lo));

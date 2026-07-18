@@ -87,7 +87,7 @@ packages:
       path: "../vendor/dartchess"
       relative: true
     source: path
-    version: "0.13.1"
+    version: "0.13.1+botvinnik.1"
   dev_build:
     dependency: transitive
     description:

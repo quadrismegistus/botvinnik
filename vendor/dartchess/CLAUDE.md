@@ -29,7 +29,7 @@ dart run example/perft.dart
 
 ## Architecture
 
-This is a pure Dart chess rules library (`package:dartchess`) supporting standard chess and several variants. It targets native platforms only (not web).
+This is a pure Dart chess rules library (`package:dartchess`) supporting standard chess and several variants. Upstream targets native platforms only; THIS FORK adds web support by splitting the 64-bit bitboards into 32-bit halves (see FORK.md). Run the browser suite too: `dart test -p chrome test/web_perft_test.dart`.
 
 ### Core data flow
 

@@ -4,14 +4,10 @@
 // chess_api) wrap this with types. Calls are synchronous and ms-scale; engine
 // searches are the slow part and live elsewhere (engine/arbiter.dart).
 
-import 'dart:convert';
-
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_js/flutter_js.dart';
 
-/// Bump in lockstep with BRAIN_VERSION in src/lib/brain-entry.ts.
-/// Boot fails loudly on mismatch instead of skewing silently.
-const int kExpectedBrainVersion = 1;
+import 'js_bridge_shared.dart';
 
 class JsBridge {
   final JavascriptRuntime _js;
@@ -35,34 +31,19 @@ class JsBridge {
     return bridge;
   }
 
-  /// Marker for an omitted argument: marshals as JS `undefined`, engaging the
-  /// brain's parameter defaults (`now = Date.now()`, `rand = Math.random`).
-  /// Dart null marshals as JS `null` — the brain's `!== null` guards (e.g.
-  /// winChance's mate check) must see real null, not undefined.
-  static const Object omit = _Omit();
+  static const Object omit = kOmit;
 
   /// Calls `brain.fn(...args)` (or reads `brain.fn` when [isProperty]) and
   /// returns the JSON-decoded result. Args must be json-encodable.
   dynamic call(String fn, {List<Object?> args = const [], bool isProperty = false}) {
-    final encoded = args
-        .map((a) => identical(a, omit) ? 'undefined' : jsonEncode(a))
-        .join(',');
-    final expr = isProperty
-        ? 'JSON.stringify(brain.$fn)'
-        : 'JSON.stringify(brain.$fn($encoded) ?? null)';
+    final expr = buildBrainExpr(fn, args, isProperty);
     final r = _js.evaluate(expr);
     if (r.isError) {
       throw StateError('brain.$fn failed: ${r.stringResult}');
     }
-    final s = r.stringResult;
-    // JSON.stringify(undefined) yields the string "undefined"
-    if (s == 'undefined' || s == 'null') return null;
-    return jsonDecode(s);
+    return decodeBrainResult(r.stringResult);
   }
 
   void dispose() => _js.dispose();
 }
 
-class _Omit {
-  const _Omit();
-}

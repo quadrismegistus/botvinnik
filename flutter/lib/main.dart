@@ -74,7 +74,12 @@ class _Booted {
 }
 
 class _BootGateState extends State<BootGate> {
-  late final Future<_Booted> _boot = _start();
+  // a hang anywhere in boot would otherwise show a spinner forever; the
+  // FutureBuilder already renders errors
+  late final Future<_Booted> _boot = _start().timeout(
+    const Duration(seconds: 45),
+    onTimeout: () => throw StateError('boot timed out'),
+  );
 
   Future<_Booted> _start() async {
     initDatabaseFactory(); // web: sqlite3 WASM; native: no-op
@@ -178,7 +183,7 @@ class _AppShellState extends State<AppShell> {
       body: IndexedStack(
         index: _tab,
         children: [
-          for (var i = 0; i < 4; i++)
+          for (var i = 0; i < kTabCount; i++)
             if (_visited.contains(i)) _tabAt(i) else const SizedBox.shrink(),
         ],
       ),
@@ -225,11 +230,16 @@ class _AppShellState extends State<AppShell> {
     );
   }
 
+  /// Keep in step with [destinations] below; the loop that builds the stack
+  /// reads this rather than a literal.
+  static const int kTabCount = 4;
+
   Widget _tabAt(int i) => switch (i) {
         0 => const PlayTab(),
         1 => const PracticeTab(),
         2 => const GamesListBody(),
-        _ => const SettingsTab(),
+        3 => const SettingsTab(),
+        _ => throw RangeError.index(i, null, 'tab'),
       };
 
   PreferredSizeWidget _appBar(BuildContext context) {
