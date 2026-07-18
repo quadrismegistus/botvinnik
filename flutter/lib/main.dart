@@ -18,6 +18,7 @@ import 'brain/grading_api.dart';
 import 'brain/js_bridge.dart';
 import 'brain/practice_api.dart';
 import 'db/app_db.dart';
+import 'db/db_init.dart';
 import 'engine/arbiter.dart';
 import 'engine/engine_factory.dart';
 import 'stores/book_store.dart';
@@ -37,6 +38,7 @@ import 'ui/new_game_sheet.dart';
 import 'ui/practice_tab.dart';
 import 'ui/roster_picker.dart';
 import 'ui/settings_tab.dart';
+import 'ui/splash.dart';
 import 'ui/win_chart.dart';
 
 void main() {
@@ -72,9 +74,15 @@ class _Booted {
 }
 
 class _BootGateState extends State<BootGate> {
-  late final Future<_Booted> _boot = _start();
+  // a hang anywhere in boot would otherwise show a spinner forever; the
+  // FutureBuilder already renders errors
+  late final Future<_Booted> _boot = _start().timeout(
+    const Duration(seconds: 45),
+    onTimeout: () => throw StateError('boot timed out'),
+  );
 
   Future<_Booted> _start() async {
+    initDatabaseFactory(); // web: sqlite3 WASM; native: no-op
     final bridge = await JsBridge.load();
     final engine = await startEngine();
     final arbiter = SearchArbiter(engine);
@@ -85,6 +93,7 @@ class _BootGateState extends State<BootGate> {
         db, PracticeApi(bridge), GradingApi(bridge), arbiter)
       ..settings = settings;
     await practice.load();
+    dismissSplash(); // web: hand over from the HTML splash (no-op elsewhere)
     return _Booted(bridge, arbiter, settings, classTable, db, practice);
   }
 
@@ -94,6 +103,7 @@ class _BootGateState extends State<BootGate> {
       future: _boot,
       builder: (context, snap) {
         if (snap.hasError) {
+          dismissSplash(); // never leave the splash covering an error
           return MaterialApp(
             theme: _theme(),
             home: Scaffold(
@@ -159,6 +169,12 @@ class AppShell extends StatefulWidget {
 class _AppShellState extends State<AppShell> {
   int _tab = 0;
 
+  /// Tabs are built on first visit and kept alive after that. IndexedStack
+  /// would otherwise build all four at boot — which on web means Settings'
+  /// preview strips fetch every board texture and piece set before you have
+  /// even seen the board (2.4MB gzipped of the first load).
+  final Set<int> _visited = {0};
+
   @override
   Widget build(BuildContext context) {
     final practice = context.watch<PracticeController>();
@@ -166,11 +182,9 @@ class _AppShellState extends State<AppShell> {
       appBar: _appBar(context),
       body: IndexedStack(
         index: _tab,
-        children: const [
-          PlayTab(),
-          PracticeTab(),
-          GamesListBody(),
-          SettingsTab(),
+        children: [
+          for (var i = 0; i < kTabCount; i++)
+            if (_visited.contains(i)) _tabAt(i) else const SizedBox.shrink(),
         ],
       ),
       bottomNavigationBar: NavigationBar(
@@ -179,7 +193,10 @@ class _AppShellState extends State<AppShell> {
         backgroundColor: const Color(0xFF1f1e1b),
         indicatorColor: const Color(0xFF3a3733),
         onDestinationSelected: (i) {
-          setState(() => _tab = i);
+          setState(() {
+            _tab = i;
+            _visited.add(i);
+          });
           if (i == 1 && practice.current == null) practice.startSession();
           if (i == 2) context.read<ReviewController>().loadGames();
         },
@@ -212,6 +229,18 @@ class _AppShellState extends State<AppShell> {
       ),
     );
   }
+
+  /// Keep in step with [destinations] below; the loop that builds the stack
+  /// reads this rather than a literal.
+  static const int kTabCount = 4;
+
+  Widget _tabAt(int i) => switch (i) {
+        0 => const PlayTab(),
+        1 => const PracticeTab(),
+        2 => const GamesListBody(),
+        3 => const SettingsTab(),
+        _ => throw RangeError.index(i, null, 'tab'),
+      };
 
   PreferredSizeWidget _appBar(BuildContext context) {
     switch (_tab) {

@@ -44,3 +44,54 @@ jobs:
           name: playwright-traces
           path: test-results/
           retention-days: 7
+
+  # The vendored dartchess fork. This matters even if you never touch web:
+  # flutter/pubspec.yaml overrides the published package with this path, so
+  # the fork is what ships in production iOS and Android builds.
+  dartchess-fork:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: vendor/dartchess
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+      - run: dart pub get
+      - run: dart analyze lib
+      - name: Native — the 64-bit int implementation
+        run: dart test -x full_perft
+      - name: Web — the 32-bit halves (headless Chrome is preinstalled)
+        run: |
+          dart test -p chrome \
+            test/web_perft_test.dart test/square_set_test.dart \
+            test/attacks_test.dart test/board_test.dart test/castles_test.dart \
+            test/models_test.dart test/setup_test.dart test/debug_test.dart
+
+  flutter:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Rebuild the brain (runs the smoke test and replays the fixtures)
+        run: npm run build:brain
+      - name: The committed bundle must match its TypeScript source
+        run: git diff --exit-code flutter/assets/brain.js
+      - run: flutter pub get
+        working-directory: flutter
+      - run: flutter analyze lib test
+        working-directory: flutter
+      - run: flutter test
+        working-directory: flutter
+      - name: Web build — the only thing that type-checks the web branch of
+              every conditional import
+        working-directory: flutter
+        run: |
+          ./stage-web-assets.sh
+          flutter build web --release --no-web-resources-cdn

@@ -11,7 +11,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:botvinnik_mobile/brain/types.dart';
 import 'package:botvinnik_mobile/engine/arbiter.dart';
-import 'package:botvinnik_mobile/engine/search_engine.dart';
+import 'package:botvinnik_mobile/engine/uci_protocol.dart';
 
 EngineMove line(String uci, {double score = 0.3, int depth = 12, int mpv = 1}) =>
     EngineMove(pv: [uci], score: score, mate: null, depth: depth, multipv: mpv);

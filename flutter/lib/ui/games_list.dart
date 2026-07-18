@@ -15,11 +15,8 @@ class GamesListBody extends StatefulWidget {
 }
 
 class _GamesListBodyState extends State<GamesListBody> {
-  @override
-  void initState() {
-    super.initState();
-    context.read<ReviewController>().loadGames();
-  }
+  // no initState load: the tab is built lazily on first visit and the shell's
+  // tab handler already calls loadGames() on every visit, including that one
 
   @override
   Widget build(BuildContext context) {
