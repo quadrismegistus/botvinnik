@@ -122,7 +122,9 @@ class _BoardPaneState extends State<BoardPane> {
 }
 
 /// The square-control tint: green where your side owns the square, red where
-/// the opponent does (the web's radial-gradient look, canvas edition).
+/// the opponent does. A flat wash of the whole square — the web draws a
+/// fading circle because the tint is a CSS background there, but on this
+/// canvas layer the square itself is the honest unit of "who controls it".
 class _ControlPainter extends CustomPainter {
   final Map<String, String> control;
   final Side orientation;
@@ -138,18 +140,11 @@ class _ControlPainter extends CustomPainter {
       final rank = int.parse(entry.key[1]) - 1;
       final x = orientation == Side.white ? file : 7 - file;
       final y = orientation == Side.white ? 7 - rank : rank;
-      final center = Offset((x + 0.5) * sq, (y + 0.5) * sq);
       final ours = entry.value == us;
       final base = ours ? kControlOurs : kControlTheirs;
-      canvas.drawCircle(
-        center,
-        sq * 0.5,
-        Paint()
-          ..shader = RadialGradient(colors: [
-            base.withValues(alpha: peak),
-            base.withValues(alpha: peak * kControlEdgeRatio),
-          ]).createShader(
-              Rect.fromCircle(center: center, radius: sq * 0.5)),
+      canvas.drawRect(
+        Rect.fromLTWH(x * sq, y * sq, sq, sq),
+        Paint()..color = base.withValues(alpha: peak),
       );
     }
   }

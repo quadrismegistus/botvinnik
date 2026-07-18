@@ -160,7 +160,10 @@ List<Color> engineArrowColors(double peak) => [
         kEngineArrowGreen.withValues(alpha: peak * rank),
     ];
 
-/// The square-control tint: [peak] at the center of the square, fading out.
-const Color kControlOurs = Color(0xFF81B64C);
+/// The square-control tint, washed flat across the square at [peak].
+// Cooler than the web's yellow-green (0xFF81B64C): on warm boards that hue
+// sat too close to the squares, so the same alpha bought far less separation
+// for green than the red got. This sits nearer emerald, away from both the
+// wood tones and the engine arrows' green.
+const Color kControlOurs = Color(0xFF3FA06E);
 const Color kControlTheirs = Color(0xFFCA3431);
-const double kControlEdgeRatio = 0.37;
