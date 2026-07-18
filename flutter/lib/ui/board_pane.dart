@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../stores/game_controller.dart';
+import 'board_theme.dart';
 
 class BoardPane extends StatefulWidget {
   const BoardPane({super.key});
@@ -68,6 +69,7 @@ class _BoardPaneState extends State<BoardPane> {
     final orientation = game.playerColor == 'w' ? Side.white : Side.black;
     final threatUci = game.previewing ? null : game.threatUci;
     final control = game.previewing ? null : game.controlMap;
+    final engineArrows = game.previewing ? const <String>[] : game.engineArrowUcis;
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -82,6 +84,13 @@ class _BoardPaneState extends State<BoardPane> {
             game.playerMove(move, san);
           },
           shapes: {
+            // the engine's top moves, green fading by rank (web's g0/g1/g2)
+            for (var i = 0; i < engineArrows.length; i++)
+              Arrow(
+                color: kEngineArrowColors[i],
+                orig: NormalMove.fromUci(engineArrows[i]).from,
+                dest: NormalMove.fromUci(engineArrows[i]).to,
+              ),
             // the opponent's threat (null-move probe), drawn as a warning
             if (threatUci != null)
               Arrow(
@@ -90,11 +99,7 @@ class _BoardPaneState extends State<BoardPane> {
                 dest: NormalMove.fromUci(threatUci).to,
               ),
           },
-          settings: const ChessboardSettings(
-            enableCoordinates: true,
-            animationDuration: Duration(milliseconds: 150),
-            drawShape: DrawShapeOptions(enable: true),
-          ),
+          settings: kBoardSettings,
         );
         if (control == null || control.isEmpty) return board;
         return Stack(children: [

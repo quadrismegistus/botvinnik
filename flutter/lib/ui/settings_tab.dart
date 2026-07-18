@@ -23,6 +23,16 @@ class SettingsTab extends StatelessWidget {
         const _SectionLabel('Board'),
         SwitchListTile(
           dense: true,
+          title: const Text('Engine arrows'),
+          subtitle: const Text(
+            'The engine\'s top three moves, green fading by rank.',
+            style: TextStyle(fontSize: 11.5, color: Colors.white38),
+          ),
+          value: settings.showArrows,
+          onChanged: (v) => settings.showArrows = v,
+        ),
+        SwitchListTile(
+          dense: true,
           title: const Text('Threat arrow'),
           subtitle: const Text(
             'What the opponent would do with a free move, when it wins material.',

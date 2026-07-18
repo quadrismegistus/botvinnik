@@ -14,13 +14,14 @@ class SettingsStore extends ChangeNotifier {
   String _playerColor; // 'w' | 'b' — the side the HUMAN plays
   bool _botEnabled; // false = analysis board (you move both sides)
   int _collectThreshold; // practice serves puzzles with drop ≥ this
+  bool _showArrows; // top-3 engine arrows on the board
   bool _blind; // no forward-looking engine help while playing
   bool _showThreats; // opponent-threat arrow (null-move probe)
   bool _showControl; // square-control tint
 
   SettingsStore._(this._prefs, this._personaId, this._playerColor,
-      this._botEnabled, this._collectThreshold, this._blind, this._showThreats,
-      this._showControl);
+      this._botEnabled, this._collectThreshold, this._showArrows, this._blind,
+      this._showThreats, this._showControl);
 
   static Future<SettingsStore> load() async {
     final prefs = await SharedPreferences.getInstance();
@@ -47,6 +48,7 @@ class SettingsStore extends ChangeNotifier {
       playerColor,
       botEnabled,
       threshold,
+      prefs.getString('botvinnik-arrows') != '0', // default ON, like web
       prefs.getString('botvinnik-blind') == '1',
       prefs.getString('botvinnik-threats') == '1',
       prefs.getString('botvinnik-control') == '1',
@@ -57,7 +59,15 @@ class SettingsStore extends ChangeNotifier {
   String get playerColor => _playerColor;
   bool get botEnabled => _botEnabled;
   int get collectThreshold => _collectThreshold;
+  bool get showArrows => _showArrows;
   bool get blind => _blind;
+
+  set showArrows(bool on) {
+    if (on == _showArrows) return;
+    _showArrows = on;
+    _prefs.setString('botvinnik-arrows', on ? '1' : '0');
+    notifyListeners();
+  }
   bool get showThreats => _showThreats;
   bool get showControl => _showControl;
 

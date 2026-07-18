@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../stores/review_controller.dart';
+import 'board_theme.dart';
 import 'grade_strip.dart';
 
 class ReviewScreen extends StatelessWidget {
@@ -35,6 +36,7 @@ class ReviewScreen extends StatelessWidget {
           children: [
             LayoutBuilder(
               builder: (context, constraints) => StaticChessboard(
+                settings: kStaticBoardSettings,
                 size: constraints.maxWidth,
                 orientation: youAreWhite ? Side.white : Side.black,
                 fen: review.fen,

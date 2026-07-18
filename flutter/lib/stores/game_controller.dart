@@ -427,6 +427,12 @@ class GameController extends ChangeNotifier {
   Map<String, dynamic>? _threat; // {fen, uci, san, gain} — fen-gated
   final Map<String, Map<String, String>> _controlCache = {};
 
+  /// Top engine moves for the board's green arrows (web: top-3, fading).
+  List<String> get engineArrowUcis {
+    if (!_settings.showArrows || blind) return const [];
+    return [for (final l in currentLines.take(3)) l.uci];
+  }
+
   /// The threat arrow's uci, when fresh and wanted.
   String? get threatUci {
     if (!_settings.showThreats || blind) return null;
