@@ -21,16 +21,16 @@ import {
 	whitePovWinChance,
 	gradeMove,
 	backfillGrade
-} from '../src/lib/engine/insights';
-import { getSan, getFenAfter, getSanLine, getNumberedSanLine, isCapture } from '../src/lib/engine/chess';
-import { shapedBotMove, shapedSearchDepth, shapedLabelFor } from '../src/lib/bot';
-import { avoidRepetition } from '../src/lib/repetition';
-import { moveAccuracy, gameAccuracy, labelCounts } from '../src/lib/gameStore';
-import { itemDataFromStoredMove, recordResult } from '../src/lib/practice';
-import { personaById } from '../src/lib/bots';
-import { threatProbeFen, judgeThreat } from '../src/lib/engine/threats';
-import { controlSquares } from '../src/lib/brain-entry';
-import type { EngineMove } from '../src/lib/engine/stockfish';
+} from '../brain/engine/insights';
+import { getSan, getFenAfter, getSanLine, getNumberedSanLine, isCapture } from '../brain/engine/chess';
+import { shapedBotMove, shapedSearchDepth, shapedLabelFor } from '../brain/bot';
+import { avoidRepetition } from '../brain/repetition';
+import { moveAccuracy, gameAccuracy, labelCounts } from '../brain/gameStore';
+import { itemDataFromStoredMove, recordResult } from '../brain/practice';
+import { personaById } from '../brain/bots';
+import { threatProbeFen, judgeThreat } from '../brain/engine/threats';
+import { controlSquares } from '../brain/brain-entry';
+import type { EngineMove } from '../brain/engine/stockfish';
 
 const START = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
 

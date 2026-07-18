@@ -35,15 +35,15 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { Chess } from 'chess.js';
-import { selectBotMove, shapedBotMove, shapedSearchDepth } from '../src/lib/bot';
+import { selectBotMove, shapedBotMove, shapedSearchDepth } from '../brain/bot';
 import {
 	botResetOptions,
 	parseSpec,
 	setBotSubstrate,
 	specToRecipe,
 	type Substrate
-} from '../src/lib/engine/botRecipe';
-import type { EngineMove } from '../src/lib/engine/stockfish';
+} from '../brain/engine/botRecipe';
+import type { EngineMove } from '../brain/engine/stockfish';
 import { isMaiaId, maiaBandOf, maiaMoveNode, maiaTempOf, preloadMaiaBands } from './maia-node.mts';
 import { isMaia3Id, maia3EloOf, maiaMove3Node, preloadMaia3 } from './maia3-node.mts';
 

@@ -14,7 +14,7 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { Chess } from 'chess.js';
-import { explainMove, type Explanation } from '../src/lib/engine/explain';
+import { explainMove, type Explanation } from '../brain/engine/explain';
 
 const argv = process.argv.slice(2);
 function opt(name: string, dflt: string): string {

@@ -47,7 +47,7 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: src-tauri
+          workspaces: svelte/src-tauri
 
       - run: npm ci
 
@@ -58,8 +58,8 @@ jobs:
         if: runner.os == 'macOS'
         run: |
           brew install stockfish
-          mkdir -p src-tauri/binaries
-          cp "$(which stockfish)" "src-tauri/binaries/stockfish-${{ matrix.sidecar }}"
+          mkdir -p svelte/src-tauri/binaries
+          cp "$(which stockfish)" "svelte/src-tauri/binaries/stockfish-${{ matrix.sidecar }}"
 
       - name: Stage stockfish sidecar (Windows)
         if: runner.os == 'Windows'
@@ -68,9 +68,9 @@ jobs:
           $url = "https://github.com/official-stockfish/Stockfish/releases/download/sf_18/stockfish-windows-x86-64-sse41-popcnt.zip"
           Invoke-WebRequest -Uri $url -OutFile sf.zip
           Expand-Archive sf.zip -DestinationPath sf
-          New-Item -ItemType Directory -Force -Path src-tauri/binaries | Out-Null
+          New-Item -ItemType Directory -Force -Path svelte/src-tauri/binaries | Out-Null
           Copy-Item "sf/stockfish/stockfish-windows-x86-64-sse41-popcnt.exe" `
-            "src-tauri/binaries/stockfish-${{ matrix.sidecar }}.exe"
+            "svelte/src-tauri/binaries/stockfish-${{ matrix.sidecar }}.exe"
 
       - uses: tauri-apps/tauri-action@v0
         env:
