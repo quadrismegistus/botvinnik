@@ -57,11 +57,42 @@ class _LinesPaneState extends State<LinesPane> {
           child: Text('depth ${lines.first.depth}',
               style: const TextStyle(color: Colors.white24, fontSize: 11)),
         ),
-        for (final line in lines.take(5))
-          _lineRow(context, game, chess, fen, line, blackToMove),
+        // One horizontal scroll for the whole block, not one per line: the
+        // columns only mean anything if every line scrolls together, and it
+        // keeps the eval chips pinned on the left while the moves move.
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const SizedBox(width: 14),
+            Column(
+              children: [
+                for (final line in lines.take(5))
+                  _evalChip(context, game, fen, line, blackToMove),
+              ],
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.only(right: 14),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    for (final line in lines.take(5))
+                      _lineRow(context, game, chess, fen, line),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
       ],
     );
   }
+
+  /// Rows are a fixed height so the pinned chips stay level with the moves
+  /// they belong to — they are in two different columns now.
+  static const double _rowHeight = 26;
 
   // Alignment is done with layout, not with padded text in a monospace font:
   // CanvasKit does not resolve a 'monospace' family on the web, so padding
@@ -113,14 +144,12 @@ class _LinesPaneState extends State<LinesPane> {
     return out;
   }
 
-  Widget _lineRow(BuildContext context, GameController game, ChessApi chess,
-      String fen, EngineMove line, bool blackToMove) {
-    final key = 'g2|${line.multipv}|${line.depth}|${line.pv.join()}';
-    // the whole line the engine actually has, not a fixed slice of it — its
-    // length is itself information (a shallow line means less was resolved)
-    final steps = _stepCache.putIfAbsent(key, () => chess.sanSteps(fen, line.pv));
+  void _preview(GameController game, String fen, EngineMove line) =>
+      game.previewing ? game.stopPreview() : game.startPreview(fen, line.pv.toList());
 
-    // white-POV eval chip
+  Widget _evalChip(BuildContext context, GameController game, String fen,
+      EngineMove line, bool blackToMove) {
+    // white-POV
     final String evalText;
     if (line.mate != null) {
       final m = blackToMove ? -line.mate! : line.mate!;
@@ -129,35 +158,43 @@ class _LinesPaneState extends State<LinesPane> {
       final e = blackToMove ? -line.score : line.score;
       evalText = (e >= 0 ? '+' : '') + e.toStringAsFixed(1);
     }
+    return SizedBox(
+      height: _rowHeight,
+      child: InkWell(
+        onTap: () => _preview(game, fen, line),
+        child: Center(
+          child: Container(
+            width: 44,
+            padding: const EdgeInsets.symmetric(vertical: 1),
+            decoration: BoxDecoration(
+              color: const Color(0xFF3a3733),
+              borderRadius: BorderRadius.circular(4),
+            ),
+            child: Text(evalText,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    fontFeatures: [FontFeature.tabularFigures()])),
+          ),
+        ),
+      ),
+    );
+  }
 
-    return InkWell(
-      onTap: () => game.previewing
-          ? game.stopPreview()
-          : game.startPreview(fen, line.pv.toList()),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
+  Widget _lineRow(BuildContext context, GameController game, ChessApi chess,
+      String fen, EngineMove line) {
+    final key = 'g3|${line.multipv}|${line.depth}|${line.pv.join()}';
+    // the whole line the engine actually has, not a fixed slice of it — its
+    // length is itself information (a shallow line means less was resolved)
+    final steps = _stepCache.putIfAbsent(key, () => chess.sanSteps(fen, line.pv));
+    return SizedBox(
+      height: _rowHeight,
+      child: InkWell(
+        onTap: () => _preview(game, fen, line),
         child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              width: 44,
-              padding: const EdgeInsets.symmetric(vertical: 1),
-              decoration: BoxDecoration(
-                color: const Color(0xFF3a3733),
-                borderRadius: BorderRadius.circular(4),
-              ),
-              child: Text(evalText,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      fontFeatures: [FontFeature.tabularFigures()])),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Wrap(runSpacing: 2, children: _cells(fen, steps)),
-            ),
-          ],
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: _cells(fen, steps),
         ),
       ),
     );
