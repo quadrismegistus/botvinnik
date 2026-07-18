@@ -29,6 +29,7 @@ describe('findThreat', () => {
 		expect(t!.uci).toBe('e6d5');
 		expect(t!.san).toBe('exd5');
 		expect(t!.gain).toBe(3);
+		expect(t!.target).toBe('d5'); // the victim: a direct capture, so it is also the arrow's tip
 		expect(t!.fen).toBe(fen); // tagged with the original position, not the flipped probe
 		// probed the flipped (Black-to-move) position, not the original
 		expect(analyze.seen[0]).toContain(' b ');
@@ -50,12 +51,34 @@ describe('findThreat', () => {
 		expect(analyze.seen).toHaveLength(0); // bailed before probing
 	});
 
-	it('treats a forced mate as a threat with infinite gain', async () => {
+	it('treats a forced mate as a threat with infinite gain, targeting the king', async () => {
 		const fen = '4k3/8/4p3/3N4/8/8/8/4K3 w - - 0 1';
 		const analyze = fakeAnalyze(['e6d5'], { mate: 2 });
 		const t = await findThreat(fen, analyze);
 		expect(t).not.toBeNull();
 		expect(t!.gain).toBe(Infinity);
+		expect(t!.target).toBe('e1'); // White is the side being probed against — their king falls
+	});
+
+	it('is silent when the free move still LOSES to forced mate (negative mate)', async () => {
+		// Black's best "free move" grabs the bishop, but White mates anyway:
+		// best-resistance material grabs are delaying tactics, not threats
+		const fen = '4k3/8/8/7n/5B2/8/8/4K3 w - - 0 1';
+		const analyze = fakeAnalyze(['h5f4', 'e1e2'], { mate: -3 });
+		expect(await findThreat(fen, analyze)).toBeNull();
+	});
+
+	it('targets the square the doomed piece stands on NOW, not where it is caught', async () => {
+		// Black's free move c6 attacks the d5 queen; in the line she runs to b5
+		// and the a6 pawn takes her there. The arrow shows c7c6 (an empty
+		// square); the target must say d5 — where the queen is actually standing.
+		const fen = '4k3/2p5/p7/3Q4/8/8/8/4K3 w - - 0 1';
+		const analyze = fakeAnalyze(['c7c6', 'd5b5', 'a6b5', 'e1e2']); // quiet Ke2 settles the count
+		const t = await findThreat(fen, analyze);
+		expect(t).not.toBeNull();
+		expect(t!.uci).toBe('c7c6');
+		expect(t!.gain).toBe(9);
+		expect(t!.target).toBe('d5');
 	});
 
 	it('ignores a truncated pv that "wins" a defended piece (mid-exchange horizon)', async () => {
@@ -73,6 +96,7 @@ describe('findThreat', () => {
 		const t = await findThreat(fen, analyze);
 		expect(t).not.toBeNull();
 		expect(t!.gain).toBe(3);
+		expect(t!.target).toBe('f4'); // fallback path: the bare capture names its own victim
 	});
 
 	it('returns null on a finished game', async () => {

@@ -1287,7 +1287,7 @@
      "id": "fix",
      "createdAt": "2026-01-01T00:00:00Z",
      "box": 2,
-     "dueAt": "2026-07-21T15:58:11.839Z",
+     "dueAt": "2026-07-21T21:54:27.176Z",
      "attempts": 3,
      "correct": 2,
      "lastResult": "pass"
@@ -1349,7 +1349,7 @@
      "id": "fix",
      "createdAt": "2026-01-01T00:00:00Z",
      "box": 0,
-     "dueAt": "2026-07-18T16:08:16.640Z",
+     "dueAt": "2026-07-18T22:04:31.977Z",
      "attempts": 3,
      "correct": 1,
      "lastResult": "fail"
@@ -1409,7 +1409,8 @@
     "fen": "rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2",
     "uci": "f3e5",
     "san": "Nxe5",
-    "gain": 1
+    "gain": 1,
+    "target": "e5"
    }
   },
   {

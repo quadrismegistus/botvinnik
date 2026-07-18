@@ -17,6 +17,11 @@ export interface Threat {
 	uci: string;
 	san: string;
 	gain: number; // material the threatening side nets, in pawns (Infinity = mate)
+	// where the piece the threat wins stands NOW (the mated king for a mate) —
+	// the arrow shows the move, this shows the victim, and for a quiet setup
+	// move (a fork, a mate threat) they differ. Null when the gain has no one
+	// square to point at (e.g. a promotion push).
+	target: string | null;
 }
 
 // pass the side to move: flip the active-colour field, void en passant.
@@ -79,9 +84,19 @@ export function judgeThreat(
 	const nullFen = threatProbeFen(fen);
 	if (!nullFen || !best || best.pv.length === 0) return null;
 
-	// mate for the threatening side (side to move in the flipped position)
-	if (best.mate !== null && best.mate > 0) {
-		return { fen, uci: best.pv[0], san: getSan(nullFen, best.pv[0]) ?? best.pv[0], gain: Infinity };
+	if (best.mate !== null) {
+		// mate for the threatening side (side to move in the flipped position);
+		// a NEGATIVE mate means even the free move loses to forced mate — their
+		// pv is best resistance, and any material it grabs along the way is a
+		// delaying tactic, not a threat
+		if (best.mate <= 0) return null;
+		return {
+			fen,
+			uci: best.pv[0],
+			san: getSan(nullFen, best.pv[0]) ?? best.pv[0],
+			gain: Infinity,
+			target: kingSquare(fen) // the mated side is the side to move in the real position
+		};
 	}
 
 	// settle the exchange over the engine's line; net is from the mover's
@@ -95,7 +110,55 @@ export function judgeThreat(
 	const net = quiet.plies > 0 ? quiet.net : staticFirstCaptureGain(nullFen, best.pv[0]);
 	if (net < MIN_GAIN) return null;
 
-	return { fen, uci: best.pv[0], san: getSan(nullFen, best.pv[0]) ?? best.pv[0], gain: net };
+	const target =
+		quiet.plies > 0
+			? victimSquare(nullFen, best.pv, quiet.plies)
+			: best.pv[0].slice(2, 4); // the fallback only fires on a bare first capture
+	return { fen, uci: best.pv[0], san: getSan(nullFen, best.pv[0]) ?? best.pv[0], gain: net, target };
+}
+
+// the side to move's king square — the king that falls when the probe mates
+function kingSquare(fen: string): string | null {
+	const c = new Chess(fen);
+	for (const row of c.board()) {
+		for (const cell of row) {
+			if (cell && cell.type === 'k' && cell.color === c.turn()) return cell.square;
+		}
+	}
+	return null;
+}
+
+// Where, on the CURRENT board, is the piece the line wins? The first capture
+// by the threatening side inside the settled window names it — but the capture
+// may land plies deep, after the victim has run (or a blocker stepped in), so
+// walk the defender's earlier moves backwards to the square the piece stands
+// on right now. Null when the window's gain has no capture (promotion pushes).
+function victimSquare(nullFen: string, ucis: string[], plies: number): string | null {
+	const c = new Chess(nullFen);
+	const mover = c.turn();
+	const defenderMoves: { from: string; to: string }[] = [];
+	for (let i = 0; i < plies; i++) {
+		let m;
+		try {
+			m = c.move({
+				from: ucis[i].slice(0, 2) as Square,
+				to: ucis[i].slice(2, 4) as Square,
+				promotion: ucis[i].length > 4 ? ucis[i][4] : undefined
+			});
+		} catch {
+			return null;
+		}
+		if (m.color === mover && m.captured) {
+			// en passant: the pawn dies beside the landing square, not on it
+			let sq: string = m.isEnPassant() ? m.to[0] + m.from[1] : m.to;
+			for (let j = defenderMoves.length - 1; j >= 0; j--) {
+				if (defenderMoves[j].to === sq) sq = defenderMoves[j].from;
+			}
+			return sq;
+		}
+		if (m.color !== mover) defenderMoves.push({ from: m.from, to: m.to });
+	}
+	return null;
 }
 
 export async function findThreat(

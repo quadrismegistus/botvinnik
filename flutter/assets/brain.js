@@ -5021,13 +5021,57 @@ var brain = (() => {
   function judgeThreat(fen, best) {
     const nullFen = threatProbeFen(fen);
     if (!nullFen || !best || best.pv.length === 0) return null;
-    if (best.mate !== null && best.mate > 0) {
-      return { fen, uci: best.pv[0], san: getSan(nullFen, best.pv[0]) ?? best.pv[0], gain: Infinity };
+    if (best.mate !== null) {
+      if (best.mate <= 0) return null;
+      return {
+        fen,
+        uci: best.pv[0],
+        san: getSan(nullFen, best.pv[0]) ?? best.pv[0],
+        gain: Infinity,
+        target: kingSquare(fen)
+        // the mated side is the side to move in the real position
+      };
     }
     const quiet = quietMaterialOverLine(nullFen, best.pv);
     const net = quiet.plies > 0 ? quiet.net : staticFirstCaptureGain(nullFen, best.pv[0]);
     if (net < MIN_GAIN) return null;
-    return { fen, uci: best.pv[0], san: getSan(nullFen, best.pv[0]) ?? best.pv[0], gain: net };
+    const target = quiet.plies > 0 ? victimSquare(nullFen, best.pv, quiet.plies) : best.pv[0].slice(2, 4);
+    return { fen, uci: best.pv[0], san: getSan(nullFen, best.pv[0]) ?? best.pv[0], gain: net, target };
+  }
+  function kingSquare(fen) {
+    const c = new Chess(fen);
+    for (const row of c.board()) {
+      for (const cell of row) {
+        if (cell && cell.type === "k" && cell.color === c.turn()) return cell.square;
+      }
+    }
+    return null;
+  }
+  function victimSquare(nullFen, ucis, plies) {
+    const c = new Chess(nullFen);
+    const mover = c.turn();
+    const defenderMoves = [];
+    for (let i = 0; i < plies; i++) {
+      let m;
+      try {
+        m = c.move({
+          from: ucis[i].slice(0, 2),
+          to: ucis[i].slice(2, 4),
+          promotion: ucis[i].length > 4 ? ucis[i][4] : void 0
+        });
+      } catch {
+        return null;
+      }
+      if (m.color === mover && m.captured) {
+        let sq = m.isEnPassant() ? m.to[0] + m.from[1] : m.to;
+        for (let j = defenderMoves.length - 1; j >= 0; j--) {
+          if (defenderMoves[j].to === sq) sq = defenderMoves[j].from;
+        }
+        return sq;
+      }
+      if (m.color !== mover) defenderMoves.push({ from: m.from, to: m.to });
+    }
+    return null;
   }
   function staticFirstCaptureGain(fen, uci) {
     const c = new Chess(fen);
