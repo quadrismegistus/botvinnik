@@ -35,13 +35,18 @@ class JsBridge {
     return bridge;
   }
 
+  /// Marker for an omitted argument: marshals as JS `undefined`, engaging the
+  /// brain's parameter defaults (`now = Date.now()`, `rand = Math.random`).
+  /// Dart null marshals as JS `null` — the brain's `!== null` guards (e.g.
+  /// winChance's mate check) must see real null, not undefined.
+  static const Object omit = _Omit();
+
   /// Calls `brain.fn(...args)` (or reads `brain.fn` when [isProperty]) and
-  /// returns the JSON-decoded result. Args must be json-encodable. Dart null
-  /// becomes JS `undefined`, not `null` — so the brain's defaulted parameters
-  /// (`now = Date.now()`, `rand = Math.random`) engage as if omitted.
+  /// returns the JSON-decoded result. Args must be json-encodable.
   dynamic call(String fn, {List<Object?> args = const [], bool isProperty = false}) {
-    final encoded =
-        args.map((a) => a == null ? 'undefined' : jsonEncode(a)).join(',');
+    final encoded = args
+        .map((a) => identical(a, omit) ? 'undefined' : jsonEncode(a))
+        .join(',');
     final expr = isProperty
         ? 'JSON.stringify(brain.$fn)'
         : 'JSON.stringify(brain.$fn($encoded) ?? null)';
@@ -56,4 +61,8 @@ class JsBridge {
   }
 
   void dispose() => _js.dispose();
+}
+
+class _Omit {
+  const _Omit();
 }

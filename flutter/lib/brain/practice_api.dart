@@ -29,8 +29,16 @@ class PracticeApi {
 
   Map<String, dynamic>? nextItem(List<Map<String, dynamic>> items,
       {String? excludeId, bool easyFirst = false}) {
-    final r = _bridge.call('nextItem',
-        args: [items, excludeId, null, null, null, easyFirst]);
+    // now/motif/rand omitted so the brain's defaults (Date.now, Math.random)
+    // engage — a JSON null would poison the date math
+    final r = _bridge.call('nextItem', args: [
+      items,
+      excludeId,
+      JsBridge.omit,
+      JsBridge.omit,
+      JsBridge.omit,
+      easyFirst,
+    ]);
     return r == null ? null : (r as Map).cast<String, dynamic>();
   }
 
