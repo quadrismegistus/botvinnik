@@ -52,7 +52,7 @@ class _Request {
 }
 
 class SearchArbiter {
-  final SearchEngine _engine;
+  final UciSearcher _engine;
   final Queue<_Request> _queue = Queue();
   _Request? _running;
   Timer? _budgetTimer;
@@ -146,11 +146,15 @@ class SearchArbiter {
         onUpdate: onUpdate,
       );
 
-  void _enqueue(_Request req) {
-    // stable insert: after the last request of equal-or-higher priority
+  void _enqueue(_Request req, {bool front = false}) {
+    // stable insert: after the last request of equal-or-higher priority —
+    // or, for a preempted re-run, BEFORE its class (it's the freshest work)
     final list = _queue.toList();
     var i = list.length;
-    while (i > 0 && list[i - 1].priority.index > req.priority.index) {
+    while (i > 0 &&
+        (front
+            ? list[i - 1].priority.index >= req.priority.index
+            : list[i - 1].priority.index > req.priority.index)) {
       i--;
     }
     list.insert(i, req);
@@ -227,8 +231,9 @@ class SearchArbiter {
       req.completer.complete(lines);
     } else if (wasPreempted && !reachedTarget) {
       // interrupted by a higher-priority request before reaching its budget:
-      // run again later from scratch (warm TT makes this cheap), same future
-      _enqueue(req);
+      // run again from scratch (warm TT makes this cheap), same future,
+      // ahead of anything else in its class
+      _enqueue(req, front: true);
     } else {
       req.completer.complete(lines);
     }

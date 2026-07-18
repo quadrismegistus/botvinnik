@@ -13,7 +13,21 @@ import 'package:stockfish/stockfish.dart';
 
 import '../brain/types.dart';
 
-class SearchEngine {
+/// The arbiter's view of an engine — real (Stockfish FFI) or a test fake.
+abstract interface class UciSearcher {
+  bool get busy;
+  Future<List<EngineMove>> search(
+    String fen, {
+    required String go,
+    required int multiPv,
+    List<List<String>> extraOptions,
+    void Function(List<EngineMove>)? onUpdate,
+  });
+  void stop();
+  void dispose();
+}
+
+class SearchEngine implements UciSearcher {
   final Stockfish _sf;
   final Map<int, EngineMove> _byMultipv = {};
   Completer<List<EngineMove>>? _search;
@@ -79,6 +93,7 @@ class SearchEngine {
     }
   }
 
+  @override
   bool get busy => _search != null;
   bool _optionsDirty = false;
 
@@ -88,6 +103,7 @@ class SearchEngine {
   /// [go] is the raw go command tail ('depth 22' or 'movetime 1200' — the
   /// recipe decides). [extraOptions] are weakening options (Skill Level,
   /// UCI_Elo…); they are automatically reset before the next plain search.
+  @override
   Future<List<EngineMove>> search(
     String fen, {
     required String go,
@@ -120,10 +136,12 @@ class SearchEngine {
   }
 
   /// Ends the running search early; its future still resolves on bestmove.
+  @override
   void stop() {
     if (_search != null) _sf.stdin = 'stop';
   }
 
+  @override
   void dispose() {
     _sub.cancel();
     _sf.dispose();
