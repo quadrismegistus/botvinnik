@@ -73,9 +73,10 @@ class GameController extends ChangeNotifier {
   static String _newSeed() => 'm${Random().nextInt(1 << 30)}';
 
   String get playerColor => _settings.playerColor;
+  bool get botEnabled => _settings.botEnabled;
   List<Persona> get rosterPersonas => _bot.personas();
   bool get isPlayerTurn =>
-      (position.turn == Side.white ? 'w' : 'b') == playerColor;
+      !botEnabled || (position.turn == Side.white ? 'w' : 'b') == playerColor;
   bool get gameOver => position.isGameOver;
 
   String get statusLine {
@@ -85,25 +86,35 @@ class GameController extends ChangeNotifier {
     }
     if (position.isStalemate) return 'Stalemate';
     if (position.isInsufficientMaterial) return 'Draw — insufficient material';
+    if (!botEnabled) {
+      return 'Analysis — ${position.turn == Side.white ? "White" : "Black"} to move';
+    }
     if (botThinking) return '${persona?.name ?? "Bot"} is thinking…';
     return isPlayerTurn ? 'Your move' : '${persona?.name ?? "Bot"} to move';
   }
 
+  /// The grade shown in the strip/insight card: the player's latest move —
+  /// or, on the analysis board, simply the latest move of either side.
   MoveGrade? get lastPlayerGrade {
     for (var i = moves.length - 1; i >= 0; i--) {
-      if (moves[i].color == playerColor) return moves[i].grade;
+      if (!botEnabled || moves[i].color == playerColor) return moves[i].grade;
     }
     return null;
   }
 
+  String _settingsSig() =>
+      '${_settings.personaId}|${_settings.playerColor}|${_settings.botEnabled}';
+  late String _lastSettingsSig = _settingsSig();
+
   void _onSettings() {
-    final p = _bot.personaById(_settings.personaId);
-    if (p != null && p.id != persona?.id) {
-      persona = p;
-      newGame();
-    } else {
+    final sig = _settingsSig();
+    if (sig == _lastSettingsSig) {
       notifyListeners();
+      return;
     }
+    _lastSettingsSig = sig;
+    persona = _bot.personaById(_settings.personaId) ?? persona;
+    newGame();
   }
 
   // ---- game actions ----
@@ -123,15 +134,20 @@ class GameController extends ChangeNotifier {
     _maybeBotTurn();
   }
 
-  /// Undo the last player move (and the bot reply on top of it).
+  /// Undo the last player move (and the bot reply on top of it);
+  /// on the analysis board, one ply at a time.
   void undo() {
     if (moves.isEmpty || botThinking) return;
     _gen++;
     _arbiter.bumpGeneration();
-    while (moves.isNotEmpty && moves.last.color != playerColor) {
+    if (botEnabled) {
+      while (moves.isNotEmpty && moves.last.color != playerColor) {
+        moves.removeLast();
+      }
+      if (moves.isNotEmpty) moves.removeLast();
+    } else {
       moves.removeLast();
     }
-    if (moves.isNotEmpty) moves.removeLast();
     final fen = moves.isEmpty ? Chess.initial.fen : moves.last.fenAfter;
     position = Chess.fromSetup(Setup.parseFen(fen));
     lastMove =
@@ -194,9 +210,9 @@ class GameController extends ChangeNotifier {
       await Future.wait(_pendingGrades.toList())
           .timeout(const Duration(seconds: 12), onTimeout: () => []);
     }
-    final p = persona;
+    final p = botEnabled ? persona : null;
     final result = _result;
-    final botName = p == null ? 'Bot' : '${p.name} (${p.elo})';
+    final botName = p == null ? 'Analysis' : '${p.name} (${p.elo})';
     final youAreWhite = playerColor == 'w';
 
     final stored = moves.map(_storedMoveOf).toList();
@@ -208,7 +224,7 @@ class GameController extends ChangeNotifier {
       'pgn': _pgn(result, botName, youAreWhite),
       'botElo': p == null ? null : p.elo + 240, // internal scale (SCALE_OFFSET)
       if (p != null) 'botPersona': p.id,
-      'botColor': playerColor == 'w' ? 'b' : 'w',
+      'botColor': p == null ? null : (playerColor == 'w' ? 'b' : 'w'),
       'moveCount': moves.length,
       'whiteAccuracy': _bridgeAccuracy(stored, 'w'),
       'blackAccuracy': _bridgeAccuracy(stored, 'b'),
@@ -245,7 +261,7 @@ class GameController extends ChangeNotifier {
   }
 
   Future<void> _maybeBotTurn() async {
-    if (isPlayerTurn || gameOver || botThinking) return;
+    if (!botEnabled || isPlayerTurn || gameOver || botThinking) return;
     final p = persona;
     if (p == null) return;
     botThinking = true;

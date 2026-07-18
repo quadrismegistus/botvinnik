@@ -24,7 +24,11 @@ class _BoardPaneState extends State<BoardPane> {
     return GameData(
       fen: pos.fen,
       lastMove: game.lastMove,
-      playerSide: game.playerColor == 'w' ? PlayerSide.white : PlayerSide.black,
+      playerSide: !game.botEnabled
+          ? PlayerSide.both // analysis board: move either side
+          : game.playerColor == 'w'
+              ? PlayerSide.white
+              : PlayerSide.black,
       validMoves: makeLegalMoves(pos),
       sideToMove: pos.turn,
       kingSquareInCheck: pos.isCheck ? pos.board.kingOf(pos.turn) : null,
@@ -40,9 +44,11 @@ class _BoardPaneState extends State<BoardPane> {
   @override
   Widget build(BuildContext context) {
     final game = context.watch<GameController>();
+    final sig =
+        '${game.position.fen}|${game.botEnabled}|${game.playerColor}';
     _controller ??= ChessboardController(game: _gameData(game));
-    if (_lastFen != game.position.fen) {
-      _lastFen = game.position.fen;
+    if (_lastFen != sig) {
+      _lastFen = sig;
       _controller!.updatePosition(_gameData(game));
     }
 

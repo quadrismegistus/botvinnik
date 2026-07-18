@@ -27,8 +27,10 @@ import 'ui/games_list.dart';
 import 'ui/grade_strip.dart';
 import 'ui/insight_card.dart';
 import 'ui/move_list.dart';
+import 'ui/new_game_sheet.dart';
 import 'ui/practice_tab.dart';
 import 'ui/roster_picker.dart';
+import 'ui/settings_tab.dart';
 
 void main() {
   runApp(const BootGate());
@@ -73,7 +75,8 @@ class _BootGateState extends State<BootGate> {
     final db = await AppDb.open();
     final classTable = ClassTable(GradingApi(bridge).classTable());
     final practice = PracticeController(
-        db, PracticeApi(bridge), GradingApi(bridge), arbiter);
+        db, PracticeApi(bridge), GradingApi(bridge), arbiter)
+      ..settings = settings;
     await practice.load();
     return _Booted(bridge, arbiter, settings, classTable, db, practice);
   }
@@ -154,7 +157,12 @@ class _AppShellState extends State<AppShell> {
       appBar: _appBar(context),
       body: IndexedStack(
         index: _tab,
-        children: const [PlayTab(), PracticeTab(), GamesListBody()],
+        children: const [
+          PlayTab(),
+          PracticeTab(),
+          GamesListBody(),
+          SettingsTab(),
+        ],
       ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _tab,
@@ -186,6 +194,11 @@ class _AppShellState extends State<AppShell> {
             selectedIcon: Icon(Icons.history),
             label: 'Review',
           ),
+          const NavigationDestination(
+            icon: Icon(Icons.settings_outlined),
+            selectedIcon: Icon(Icons.settings),
+            label: 'Settings',
+          ),
         ],
       ),
     );
@@ -205,6 +218,9 @@ class _AppShellState extends State<AppShell> {
         );
       case 2:
         return AppBar(title: const Text('Games', style: TextStyle(fontSize: 16)));
+      case 3:
+        return AppBar(
+            title: const Text('Settings', style: TextStyle(fontSize: 16)));
       default:
         final game = context.watch<GameController>();
         return AppBar(
@@ -217,10 +233,17 @@ class _AppShellState extends State<AppShell> {
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Icon(Icons.smart_toy_outlined,
-                      size: 18, color: Colors.white70),
+                  Icon(
+                      game.botEnabled
+                          ? Icons.smart_toy_outlined
+                          : Icons.biotech_outlined,
+                      size: 18,
+                      color: Colors.white70),
                   const SizedBox(width: 6),
-                  Text(game.persona?.name ?? 'Opponent',
+                  Text(
+                      game.botEnabled
+                          ? (game.persona?.name ?? 'Opponent')
+                          : 'Analysis',
                       style: const TextStyle(fontSize: 15)),
                   const Icon(Icons.arrow_drop_down, color: Colors.white54),
                 ],
@@ -235,7 +258,7 @@ class _AppShellState extends State<AppShell> {
               tooltip: 'Undo',
             ),
             IconButton(
-              onPressed: game.newGame,
+              onPressed: () => showNewGameSheet(context),
               icon: const Icon(Icons.add_box_outlined),
               tooltip: 'New game',
             ),

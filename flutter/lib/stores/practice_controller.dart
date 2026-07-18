@@ -12,10 +12,14 @@ import '../brain/grading_api.dart';
 import '../brain/practice_api.dart';
 import '../db/app_db.dart';
 import '../engine/arbiter.dart';
+import 'settings_store.dart';
 
 const _kvKey = 'botvinnik-practice-v1'; // web's localStorage key name
 const double kPassDrop = 5; // ≤5% win-chance loss passes (web PASS_DROP)
-const double kCollectDrop = 15; // auto-collect threshold (web default)
+// Collect EVERYTHING ≥5% (the floor) — the settings threshold filters at
+// serve time, so tightening or loosening it later applies retroactively
+// to the whole collection instead of only to future games.
+const double kCollectMin = 5;
 
 class AttemptOutcome {
   final String san;
@@ -39,6 +43,7 @@ class PracticeController extends ChangeNotifier {
   final PracticeApi _api;
   final GradingApi _grading;
   final SearchArbiter _arbiter;
+  SettingsStore? settings; // injected post-boot (threshold filter)
 
   List<Map<String, dynamic>> items = [];
   bool loaded = false;
@@ -56,7 +61,15 @@ class PracticeController extends ChangeNotifier {
 
   PracticeController(this._db, this._api, this._grading, this._arbiter);
 
-  int get due => loaded ? _api.dueCount(items) : 0;
+  /// Items at or above the configured threshold — what practice serves.
+  List<Map<String, dynamic>> get servable {
+    final threshold = settings?.collectThreshold ?? 15;
+    return items
+        .where((i) => ((i['drop'] as num?)?.toDouble() ?? 0) >= threshold)
+        .toList();
+  }
+
+  int get due => loaded ? _api.dueCount(servable) : 0;
 
   Future<void> load() async {
     final raw = await _db.kvGet(_kvKey);
@@ -82,7 +95,7 @@ class PracticeController extends ChangeNotifier {
     if (!loaded) await load();
     final drop = (storedMove['wcDrop'] as num?)?.toDouble() ?? 0;
     final depth = (storedMove['depth'] as num?)?.toInt() ?? 0;
-    if (drop < kCollectDrop || depth < minDepth) return;
+    if (drop < kCollectMin || depth < minDepth) return;
     final data = _api.itemData(storedMove, setupUci);
     if (data == null) return;
     final next = _api.addItem(items, data);
@@ -97,11 +110,11 @@ class PracticeController extends ChangeNotifier {
   void startSession() {
     sessionSolved = 0;
     sessionStreak = 0;
-    _serve(_api.nextItem(items, easyFirst: true));
+    _serve(_api.nextItem(servable, easyFirst: true));
   }
 
   void nextPuzzle() =>
-      _serve(_api.nextItem(items, excludeId: current?['id'] as String?,
+      _serve(_api.nextItem(servable, excludeId: current?['id'] as String?,
           easyFirst: true));
 
   void _serve(Map<String, dynamic>? item) {
@@ -151,11 +164,14 @@ class PracticeController extends ChangeNotifier {
       evalPawns = (item['evalBestPawns'] as num?)?.toDouble();
       drop = 0;
     } else {
+      // depth 12 / 1.5s: the full-NNUE native engine evaluates slower per
+      // node than the web's lite build — a snappy verdict beats two extra
+      // plies of certainty here
       final lines = await _arbiter.search(
         fen: fenAfter,
-        depth: 14,
+        depth: 12,
         multiPv: 1,
-        movetimeMs: 2000, // bounded — a shallow verdict beats a long stall
+        movetimeMs: 1500,
         priority: SearchPriority.practiceCheck,
       );
       if (lines == null || lines.isEmpty) {
