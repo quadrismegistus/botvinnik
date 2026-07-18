@@ -1,34 +1,35 @@
 // The board's visual theme: grayscale squares so the overlay colors carry
 // ALL the signal — red/green control tints and threat arrows read instantly
 // against neutral squares (the brown theme's dark squares fought the red).
-// Squares sit just below/above the app background (0xFF161512) so the board
-// reads as a subtle inset panel. Last-move highlight is yellow.
+// Squares are mid-gray: dark enough to sit inside the near-black shell,
+// light enough that the black pieces keep their silhouette.
+// Last-move highlight is yellow.
 
 import 'package:chessground/chessground.dart';
 import 'package:dartchess/dartchess.dart' show Side;
 import 'package:flutter/widgets.dart';
 
 const ChessboardColorScheme kGrayScheme = ChessboardColorScheme(
-  lightSquare: Color(0xff2c2b28),
-  darkSquare: Color(0xff0e0d0c),
+  lightSquare: Color(0xff827f7a),
+  darkSquare: Color(0xff54524e),
   background: SolidColorChessboardBackground(
-    lightSquare: Color(0xff2c2b28),
-    darkSquare: Color(0xff0e0d0c),
+    lightSquare: Color(0xff827f7a),
+    darkSquare: Color(0xff54524e),
   ),
   whiteCoordBackground: SolidColorChessboardBackground(
-    lightSquare: Color(0xff2c2b28),
-    darkSquare: Color(0xff0e0d0c),
+    lightSquare: Color(0xff827f7a),
+    darkSquare: Color(0xff54524e),
     coordinates: true,
   ),
   blackCoordBackground: SolidColorChessboardBackground(
-    lightSquare: Color(0xff2c2b28),
-    darkSquare: Color(0xff0e0d0c),
+    lightSquare: Color(0xff827f7a),
+    darkSquare: Color(0xff54524e),
     coordinates: true,
     orientation: Side.black,
   ),
-  lastMove: HighlightDetails(solidColor: Color(0x99f0d000)),
-  selected: HighlightDetails(solidColor: Color(0x59ffffff)),
-  validMoves: Color(0x3affffff),
+  lastMove: HighlightDetails(solidColor: Color(0x80f0d000)),
+  selected: HighlightDetails(solidColor: Color(0x60303030)),
+  validMoves: Color(0x40222222),
   validPremoves: Color(0x40203085),
 );
 
