@@ -480,12 +480,23 @@ class GameController extends ChangeNotifier {
     return [for (final l in currentLines.take(_settings.arrowCount)) l.uci];
   }
 
-  /// The threat arrow's uci, when fresh and wanted.
-  String? get threatUci {
+  /// The live threat, when it is fresh and wanted — the move the opponent
+  /// would play with a free move, and what it nets them.
+  Map<String, dynamic>? get threat {
     if (!_settings.showThreats || blind) return null;
     final t = _threat;
-    return t != null && t['fen'] == position.fen ? t['uci'] as String? : null;
+    return t != null && t['fen'] == position.fen ? t : null;
   }
+
+  /// The threat arrow's uci.
+  String? get threatUci => threat?['uci'] as String?;
+
+  /// The threat in algebraic notation, e.g. 'Be6'.
+  String? get threatSan => threat?['san'] as String?;
+
+  /// What the threat nets them, in pawns. NULL MEANS MATE: the brain reports
+  /// Infinity there and JSON has no way to carry it across the bridge.
+  double? get threatGain => (threat?['gain'] as num?)?.toDouble();
 
   /// Square-control tint for the current position, when wanted.
   Map<String, String>? get controlMap {
