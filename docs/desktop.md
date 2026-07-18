@@ -8,6 +8,26 @@ which is the whole argument.
 cd flutter && flutter run -d macos
 ```
 
+### Iterate in the browser, not on macOS
+
+For UI work, run the web target instead:
+
+```sh
+cd flutter && ./stage-web-assets.sh && flutter run -d chrome
+```
+
+**Web is the only target with working hot reload** — measured at ~150ms,
+against a ~78s cold rebuild for macOS. The Stockfish isolate on the native
+targets hangs hot reload, so every change there costs a full restart.
+
+The rendering is the same Skia either way, so layout and theming work
+translates directly. What does NOT translate, and still needs a native run
+before you trust it: `ProcessEngine` (desktop spawns a real binary, web talks
+to a Worker), sqflite (native SQLite vs sqlite3 WASM), and anything about
+window management or the macOS sandbox. The engine also differs — web runs
+the calibrated WASM lite build, macOS runs whatever binary it finds — so
+compare bot strength on the target you mean.
+
 The engine is a real Stockfish binary talking UCI over stdin/stdout
 (`lib/engine/process_engine.dart`), looked up in the app bundle first so it
 works under the macOS sandbox. Stage it once:

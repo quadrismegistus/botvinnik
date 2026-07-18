@@ -331,7 +331,14 @@ class PlayTab extends StatefulWidget {
 }
 
 class _PlayTabState extends State<PlayTab> {
-  int _view = 0; // 0 insights, 1 moves
+  /// Phone: one panel at a time — there is no room to stack and the bar is
+  /// the only way back.
+  int _view = 0;
+
+  /// Wide windows: any combination, stacked in the order the bar shows them.
+  /// A wide window's whole advantage is seeing the tree AND the chart AND the
+  /// insight at once, which six mutually exclusive tabs throw away.
+  final Set<int> _stacked = {0};
 
   @override
   void initState() {
@@ -401,7 +408,10 @@ class _PlayTabState extends State<PlayTab> {
             ),
             Expanded(
               child: Column(
-                children: [_viewRow(), Expanded(child: _panel())],
+                children: [
+                  _viewRow(multi: true),
+                  Expanded(child: _stackedPanel()),
+                ],
               ),
             ),
           ],
@@ -409,6 +419,66 @@ class _PlayTabState extends State<PlayTab> {
       },
     );
   }
+
+  /// The selected panels, in bar order. Headed once more than one is up,
+  /// because otherwise a stack of unlabelled cards is a puzzle.
+  Widget _stackedPanel() {
+    final game = context.watch<GameController>();
+    final shown = _stacked.toList()..sort();
+    return SingleChildScrollView(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (game.gameOver)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 8, 14, 0),
+              child: Text(game.statusLine,
+                  style: const TextStyle(
+                      color: Color(0xFF81B64C), fontWeight: FontWeight.w600)),
+            ),
+          for (final i in shown) ...[
+            if (shown.length > 1) _panelHeader(i),
+            _paneAt(i),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _panelHeader(int i) => Padding(
+        padding: const EdgeInsets.fromLTRB(14, 10, 6, 2),
+        child: Row(
+          children: [
+            Icon(_tabs[i].$1, size: 13, color: Colors.white38),
+            const SizedBox(width: 6),
+            Text(_tabs[i].$2.toUpperCase(),
+                style: const TextStyle(
+                    fontSize: 10,
+                    letterSpacing: 1.1,
+                    color: Colors.white38,
+                    fontWeight: FontWeight.w600)),
+            const Spacer(),
+            IconButton(
+              icon: const Icon(Icons.close, size: 14),
+              color: Colors.white24,
+              visualDensity: VisualDensity.compact,
+              tooltip: 'Hide ${_tabs[i].$2}',
+              onPressed: () => setState(() {
+                if (_stacked.length > 1) _stacked.remove(i);
+              }),
+            ),
+          ],
+        ),
+      );
+
+  Widget _paneAt(int i) => switch (i) {
+        0 => const InsightCard(),
+        1 => const LinesPane(),
+        2 => const LinesTreePane(),
+        3 => const WinChart(),
+        4 => const MoveListPane(),
+        _ => const BookPane(),
+      };
 
   Widget _panel() {
     final game = context.watch<GameController>();
@@ -423,28 +493,26 @@ class _PlayTabState extends State<PlayTab> {
                   style: const TextStyle(
                       color: Color(0xFF81B64C), fontWeight: FontWeight.w600)),
             ),
-          switch (_view) {
-            0 => const InsightCard(),
-            1 => const LinesPane(),
-            2 => const LinesTreePane(),
-            3 => const WinChart(),
-            4 => const MoveListPane(),
-            _ => const BookPane(),
-          },
+          _paneAt(_view),
         ],
       ),
     );
   }
 
-  Widget _viewRow() {
-    const tabs = [
-      (Icons.lightbulb_outline, 'Insights'),
-      (Icons.manage_search, 'Lines'),
-      (Icons.account_tree_outlined, 'Tree'),
-      (Icons.show_chart, 'Chart'),
-      (Icons.list_alt, 'Moves'),
-      (Icons.menu_book_outlined, 'Book'),
-    ];
+  static const List<(IconData, String)> _tabs = [
+    (Icons.lightbulb_outline, 'Insights'),
+    (Icons.manage_search, 'Lines'),
+    (Icons.account_tree_outlined, 'Tree'),
+    (Icons.show_chart, 'Chart'),
+    (Icons.list_alt, 'Moves'),
+    (Icons.menu_book_outlined, 'Book'),
+  ];
+
+  /// [multi] makes the bar inclusive: tapping toggles a panel rather than
+  /// replacing the selection. The last one cannot be turned off — an empty
+  /// right-hand column would just look broken.
+  Widget _viewRow({bool multi = false}) {
+    const tabs = _tabs;
     return Container(
       color: const Color(0xFF1f1e1b),
       child: Row(
@@ -452,14 +520,20 @@ class _PlayTabState extends State<PlayTab> {
           for (var i = 0; i < tabs.length; i++)
             Expanded(
               child: InkWell(
-                onTap: () => setState(() => _view = i),
+                onTap: () => setState(() {
+                  if (!multi) {
+                    _view = i;
+                  } else if (!_stacked.remove(i) || _stacked.isEmpty) {
+                    _stacked.add(i);
+                  }
+                }),
                 child: Padding(
                   padding: const EdgeInsets.symmetric(vertical: 5),
                   child: Column(
                     children: [
                       Icon(tabs[i].$1,
                           size: 16,
-                          color: _view == i
+                          color: (multi ? _stacked.contains(i) : _view == i)
                               ? const Color(0xFF81B64C)
                               : Colors.white38),
                       Text(tabs[i].$2,
@@ -468,7 +542,7 @@ class _PlayTabState extends State<PlayTab> {
                           softWrap: false,
                           style: TextStyle(
                               fontSize: 9.5,
-                              color: _view == i
+                              color: (multi ? _stacked.contains(i) : _view == i)
                                   ? const Color(0xFF81B64C)
                                   : Colors.white38)),
                     ],
