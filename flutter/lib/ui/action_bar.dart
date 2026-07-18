@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../stores/game_controller.dart';
+import 'games_list.dart';
 import 'roster_picker.dart';
 
 class ActionBar extends StatelessWidget {
@@ -33,6 +34,15 @@ class ActionBar extends StatelessWidget {
             style: TextButton.styleFrom(foregroundColor: Colors.white70),
           ),
           const Spacer(),
+          IconButton(
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const GamesListScreen()),
+            ),
+            icon: const Icon(Icons.history),
+            tooltip: 'Games',
+            color: Colors.white70,
+          ),
           IconButton(
             onPressed:
                 game.moves.isEmpty || game.botThinking ? null : game.undo,

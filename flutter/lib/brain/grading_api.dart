@@ -38,4 +38,16 @@ class GradingApi {
   /// The CLASS table (glyph/color/noun per label), fetched once.
   Map<String, dynamic> classTable() =>
       (_bridge.call('CLASS', isProperty: true) as Map).cast<String, dynamic>();
+
+  /// Chess.com-style accuracy over a game's StoredMove array (null when the
+  /// side has no graded moves).
+  double? gameAccuracy(List<Map<String, dynamic>> storedMoves, String color) =>
+      (_bridge.call('gameAccuracy', args: [storedMoves, color]) as num?)
+          ?.toDouble();
+
+  /// {blunder: n, mistake: n, ...} for one side of a stored game.
+  Map<String, dynamic> labelCounts(
+          List<Map<String, dynamic>> storedMoves, String color) =>
+      (_bridge.call('labelCounts', args: [storedMoves, color]) as Map)
+          .cast<String, dynamic>();
 }

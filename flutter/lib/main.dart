@@ -14,40 +14,34 @@ import 'brain/bot_api.dart';
 import 'brain/chess_api.dart';
 import 'brain/grading_api.dart';
 import 'brain/js_bridge.dart';
+import 'db/app_db.dart';
 import 'engine/arbiter.dart';
 import 'engine/search_engine.dart';
 import 'stores/game_controller.dart';
+import 'stores/review_controller.dart';
 import 'stores/settings_store.dart';
 import 'ui/action_bar.dart';
 import 'ui/board_pane.dart';
+import 'ui/games_list.dart';
+import 'ui/review_screen.dart';
 import 'ui/grade_strip.dart';
 import 'ui/insight_card.dart';
 import 'ui/move_list.dart';
 
 void main() {
-  runApp(const BootApp());
+  runApp(const BootGate());
 }
 
-class BootApp extends StatelessWidget {
-  const BootApp({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'botvinnik',
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF81B64C),
-          brightness: Brightness.dark,
-        ),
-        scaffoldBackgroundColor: const Color(0xFF161512),
+ThemeData _theme() => ThemeData(
+      colorScheme: ColorScheme.fromSeed(
+        seedColor: const Color(0xFF81B64C),
+        brightness: Brightness.dark,
       ),
-      home: const BootGate(),
+      scaffoldBackgroundColor: const Color(0xFF161512),
     );
-  }
-}
 
-/// Async boot: JS brain + native engine, then the provider tree.
+/// Async boot: JS brain + native engine + db, then the provider tree ABOVE
+/// MaterialApp — pushed routes (archive, review) must see the providers.
 class BootGate extends StatefulWidget {
   const BootGate({super.key});
 
@@ -60,7 +54,8 @@ class _Booted {
   final SearchArbiter arbiter;
   final SettingsStore settings;
   final ClassTable classTable;
-  _Booted(this.bridge, this.arbiter, this.settings, this.classTable);
+  final AppDb db;
+  _Booted(this.bridge, this.arbiter, this.settings, this.classTable, this.db);
 }
 
 class _BootGateState extends State<BootGate> {
@@ -71,8 +66,9 @@ class _BootGateState extends State<BootGate> {
     final engine = await SearchEngine.start();
     final arbiter = SearchArbiter(engine);
     final settings = await SettingsStore.load();
+    final db = await AppDb.open();
     final classTable = ClassTable(GradingApi(bridge).classTable());
-    return _Booted(bridge, arbiter, settings, classTable);
+    return _Booted(bridge, arbiter, settings, classTable, db);
   }
 
   @override
@@ -81,20 +77,26 @@ class _BootGateState extends State<BootGate> {
       future: _boot,
       builder: (context, snap) {
         if (snap.hasError) {
-          return Scaffold(
-            body: Center(
-              child: Padding(
-                padding: const EdgeInsets.all(24),
-                child: Text('boot failed: ${snap.error}',
-                    style: const TextStyle(color: Colors.redAccent)),
+          return MaterialApp(
+            theme: _theme(),
+            home: Scaffold(
+              body: Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Text('boot failed: ${snap.error}',
+                      style: const TextStyle(color: Colors.redAccent)),
+                ),
               ),
             ),
           );
         }
         final booted = snap.data;
         if (booted == null) {
-          return const Scaffold(
-            body: Center(child: CircularProgressIndicator()),
+          return MaterialApp(
+            theme: _theme(),
+            home: const Scaffold(
+              body: Center(child: CircularProgressIndicator()),
+            ),
           );
         }
         return MultiProvider(
@@ -107,11 +109,19 @@ class _BootGateState extends State<BootGate> {
                 BotApi(booted.bridge),
                 GradingApi(booted.bridge),
                 booted.settings,
+                booted.db,
               ),
+            ),
+            ChangeNotifierProvider(
+              create: (_) => ReviewController(booted.db),
             ),
             Provider(create: (_) => ChessApi(booted.bridge)),
           ],
-          child: const GameScreen(),
+          child: MaterialApp(
+            title: 'botvinnik',
+            theme: _theme(),
+            home: const GameScreen(),
+          ),
         );
       },
     );
@@ -127,7 +137,8 @@ class GameScreen extends StatefulWidget {
 
 /// Debug-only: play a few scripted player moves so the whole pipeline
 /// (bot reply, grading, backfill, insight card) can be verified headlessly
-/// on the simulator. Flip to false for human play.
+/// on the simulator — then force-save and walk into the archive + review
+/// screens. Flip to false for human play.
 const bool kSelfTest = false;
 
 class _GameScreenState extends State<GameScreen> {
@@ -160,6 +171,28 @@ class _GameScreenState extends State<GameScreen> {
       final (_, san) = game.position.makeSan(move);
       game.playerMove(move, san);
     }
+    // let backfills land, then archive and walk the review flow
+    await Future.delayed(const Duration(seconds: 8));
+    if (!mounted) return;
+    await game.debugForceSave();
+    if (!mounted) return;
+    final review = context.read<ReviewController>();
+    await review.loadGames();
+    if (!mounted || review.games.isEmpty) return;
+    if (!mounted) return;
+    Navigator.push(
+      // ignore: use_build_context_synchronously
+      context,
+      MaterialPageRoute(builder: (_) => const GamesListScreen()),
+    );
+    await Future.delayed(const Duration(seconds: 3));
+    if (!mounted) return;
+    review.open(review.games.first);
+    Navigator.push(
+      // ignore: use_build_context_synchronously
+      context,
+      MaterialPageRoute(builder: (_) => const ReviewScreen()),
+    );
   }
 
   @override

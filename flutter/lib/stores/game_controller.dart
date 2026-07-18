@@ -16,6 +16,7 @@ import 'package:flutter/foundation.dart';
 import '../brain/bot_api.dart';
 import '../brain/grading_api.dart';
 import '../brain/types.dart';
+import '../db/app_db.dart';
 import '../engine/arbiter.dart';
 import 'settings_store.dart';
 
@@ -43,6 +44,7 @@ class GameController extends ChangeNotifier {
   final BotApi _bot;
   final GradingApi _grading;
   final SettingsStore _settings;
+  final AppDb? _db;
 
   Position position = Chess.initial;
   Move? lastMove;
@@ -50,12 +52,16 @@ class GameController extends ChangeNotifier {
   bool botThinking = false;
   String gameSeed = _newSeed();
   Persona? persona;
+  bool _saved = false;
 
   // analysis cache: fen → future of its MultiPV-5 deep lines
   final Map<String, Future<List<EngineMove>?>> _analysis = {};
+  // grade pipelines still in flight — save waits for them (bounded)
+  final Set<Future<void>> _pendingGrades = {};
   int _gen = 0;
 
-  GameController(this._arbiter, this._bot, this._grading, this._settings) {
+  GameController(this._arbiter, this._bot, this._grading, this._settings,
+      [this._db]) {
     persona = _bot.personaById(_settings.personaId) ?? _bot.personas().first;
     _settings.addListener(_onSettings);
     _analysisFor(position.fen);
@@ -107,6 +113,7 @@ class GameController extends ChangeNotifier {
     lastMove = null;
     moves.clear();
     botThinking = false;
+    _saved = false;
     gameSeed = _newSeed();
     _analysis.clear();
     _analysisFor(position.fen);
@@ -155,7 +162,108 @@ class GameController extends ChangeNotifier {
     moves.add(record);
     notifyListeners();
     _analysisFor(position.fen); // post-analysis = next move's pre-lines
-    _gradePipeline(record, _gen);
+    late final Future<void> pipeline;
+    pipeline = _gradePipeline(record, _gen)
+      ..whenComplete(() => _pendingGrades.remove(pipeline));
+    _pendingGrades.add(pipeline);
+    if (gameOver) _saveGame();
+  }
+
+  /// Debug/self-test only: archive the game regardless of game-over state.
+  @visibleForTesting
+  Future<void> debugForceSave() => _saveGame();
+
+  String get _result {
+    if (position.isCheckmate) {
+      return position.turn == Side.white ? '0-1' : '1-0';
+    }
+    if (position.isGameOver) return '1/2-1/2';
+    return '*';
+  }
+
+  /// Archive the finished game — the web's saveCurrentGame, same StoredGame
+  /// shape (JSON-compatible with the IndexedDB store for future import).
+  Future<void> _saveGame() async {
+    final db = _db;
+    if (db == null || moves.isEmpty || _saved) return;
+    _saved = true;
+    // let in-flight grading land so the archive gets labels (bounded — the
+    // terminal move's backfill may never come: a mate position has no lines)
+    if (_pendingGrades.isNotEmpty) {
+      await Future.wait(_pendingGrades.toList())
+          .timeout(const Duration(seconds: 12), onTimeout: () => []);
+    }
+    final p = persona;
+    final result = _result;
+    final botName = p == null ? 'Bot' : '${p.name} (${p.elo})';
+    final youAreWhite = playerColor == 'w';
+
+    final stored = moves.map((m) {
+      final g = m.grade;
+      final wcDrop = g == null
+          ? 0.0
+          : (_grading.winChance(g.bestEval, g.bestMate) -
+                  _grading.winChance(g.evalPawns, g.mate))
+              .clamp(0.0, 100.0);
+      return {
+        'ply': m.ply,
+        'san': m.san,
+        'uci': m.uci,
+        'color': m.color,
+        'fenBefore': m.fenBefore,
+        'fenAfter': m.fenAfter,
+        'evalPawns': g?.evalPawns,
+        'mate': g?.mate,
+        'pctBest': g?.pctBest,
+        'wcDrop': wcDrop,
+        if (g?.label != null) 'label': g!.label,
+        if (g != null) 'bestSan': g.bestSan,
+        if (g != null) 'bestUci': g.bestUci,
+        if (g?.explanation != null) 'explanation': g!.explanation!.raw,
+      };
+    }).toList();
+
+    final record = {
+      'id': 'g-${DateTime.now().millisecondsSinceEpoch}-${moves.length}',
+      'endedAt': DateTime.now().toIso8601String(),
+      'result': result,
+      'pgn': _pgn(result, botName, youAreWhite),
+      'botElo': p == null ? null : p.elo + 240, // internal scale (SCALE_OFFSET)
+      if (p != null) 'botPersona': p.id,
+      'botColor': playerColor == 'w' ? 'b' : 'w',
+      'moveCount': moves.length,
+      'whiteAccuracy': _bridgeAccuracy(stored, 'w'),
+      'blackAccuracy': _bridgeAccuracy(stored, 'b'),
+      'labelCounts': {
+        'w': _grading.labelCounts(stored, 'w'),
+        'b': _grading.labelCounts(stored, 'b'),
+      },
+      'labelVersion': 1,
+      'moves': stored,
+    };
+    await db.saveGame(record);
+  }
+
+  double? _bridgeAccuracy(List<Map<String, dynamic>> stored, String color) =>
+      _grading.gameAccuracy(stored, color);
+
+  String _pgn(String result, String botName, bool youAreWhite) {
+    final white = youAreWhite ? 'You' : botName;
+    final black = youAreWhite ? botName : 'You';
+    final date =
+        DateTime.now().toIso8601String().substring(0, 10).replaceAll('-', '.');
+    final sb = StringBuffer()
+      ..writeln('[White "$white"]')
+      ..writeln('[Black "$black"]')
+      ..writeln('[Date "$date"]')
+      ..writeln('[Result "$result"]')
+      ..writeln();
+    for (var i = 0; i < moves.length; i++) {
+      if (i.isEven) sb.write('${i ~/ 2 + 1}. ');
+      sb.write('${moves[i].san} ');
+    }
+    sb.write(result);
+    return sb.toString();
   }
 
   Future<void> _maybeBotTurn() async {
