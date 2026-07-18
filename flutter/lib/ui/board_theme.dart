@@ -149,16 +149,21 @@ StaticChessboardSettings staticBoardSettingsFor(SettingsStore s) =>
       pieceAssets: pieceSetFor(s).assets,
     );
 
-/// The web's top-3 engine-arrow brushes: green fading by rank. [peak] is the
+/// The engine-arrow brushes: one per analysis line, fading by rank.
+/// Blue, not green — green is the control tint's "your squares", and the
+/// arrows need to stay legible on top of both tints. [peak] is the
 /// opacity of the best move's arrow; the other two keep their relative
 /// weight beneath it, so one slider moves the whole set coherently.
-const Color kEngineArrowGreen = Color(0xFF15781B);
-const List<double> _kArrowRanks = [1.0, 0.55, 0.32];
+const Color kEngineArrowBlue = Color(0xFF2E6FD0);
+const List<double> _kArrowRanks = [1.0, 0.62, 0.42, 0.28, 0.18];
 
 List<Color> engineArrowColors(double peak) => [
       for (final rank in _kArrowRanks)
-        kEngineArrowGreen.withValues(alpha: peak * rank),
+        kEngineArrowBlue.withValues(alpha: peak * rank),
     ];
+
+/// The opponent's threat arrow: red, the color of danger on this board.
+const Color kThreatArrowColor = Color(0xE6C62828);
 
 /// The square-control tint, washed flat across the square at [peak].
 // Cooler than the web's yellow-green (0xFF81B64C): on warm boards that hue

@@ -23,6 +23,10 @@ const String kDefaultPieceSet = 'cburnett';
 const double kDefaultArrowOpacity = 0.72;
 const double kDefaultControlOpacity = 0.55;
 
+/// How many engine arrows to draw. Analysis already runs MultiPV-5, so all
+/// five lines exist regardless — this only decides how many are shown.
+const int kDefaultArrowCount = 5;
+
 class SettingsStore extends ChangeNotifier {
   final SharedPreferences _prefs;
 
@@ -40,6 +44,7 @@ class SettingsStore extends ChangeNotifier {
   String _pieceSet; // a chessground PieceSet name
   String _boardTexture; // a chessground board texture name; '' = flat colors
   double _arrowOpacity;
+  int _arrowCount;
   double _controlOpacity;
 
   // Named on purpose: these are a dozen fields of only three distinct types,
@@ -63,6 +68,7 @@ class SettingsStore extends ChangeNotifier {
     required String pieceSet,
     required String boardTexture,
     required double arrowOpacity,
+    required int arrowCount,
     required double controlOpacity,
   })  : _prefs = prefs,
         _personaId = personaId,
@@ -79,6 +85,7 @@ class SettingsStore extends ChangeNotifier {
         _pieceSet = pieceSet,
         _boardTexture = boardTexture,
         _arrowOpacity = arrowOpacity,
+        _arrowCount = arrowCount,
         _controlOpacity = controlOpacity;
 
   static Future<SettingsStore> load() async {
@@ -117,6 +124,7 @@ class SettingsStore extends ChangeNotifier {
       boardTexture: prefs.getString('botvinnik-board-texture') ?? '',
       arrowOpacity: prefs.getDouble('botvinnik-arrow-opacity') ??
           kDefaultArrowOpacity,
+      arrowCount: prefs.getInt('botvinnik-arrow-count') ?? kDefaultArrowCount,
       controlOpacity: prefs.getDouble('botvinnik-control-opacity') ??
           kDefaultControlOpacity,
     );
@@ -129,6 +137,15 @@ class SettingsStore extends ChangeNotifier {
     if (raw == null) return fallback;
     final v = int.tryParse(raw, radix: 16);
     return v == null ? fallback : Color(v);
+  }
+
+  int get arrowCount => _arrowCount;
+
+  set arrowCount(int n) {
+    if (n == _arrowCount) return;
+    _arrowCount = n;
+    _prefs.setInt('botvinnik-arrow-count', n);
+    notifyListeners();
   }
 
   double get arrowOpacity => _arrowOpacity;

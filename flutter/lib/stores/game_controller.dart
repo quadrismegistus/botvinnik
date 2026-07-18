@@ -430,7 +430,7 @@ class GameController extends ChangeNotifier {
   /// Top engine moves for the board's green arrows (web: top-3, fading).
   List<String> get engineArrowUcis {
     if (!_settings.showArrows || blind) return const [];
-    return [for (final l in currentLines.take(3)) l.uci];
+    return [for (final l in currentLines.take(_settings.arrowCount)) l.uci];
   }
 
   /// The threat arrow's uci, when fresh and wanted.

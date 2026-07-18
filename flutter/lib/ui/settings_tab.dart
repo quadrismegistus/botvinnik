@@ -36,6 +36,33 @@ class SettingsTab extends StatelessWidget {
           onChanged: (v) => settings.showArrows = v,
         ),
         if (settings.showArrows)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 12, 0),
+            child: Row(
+              children: [
+                const Text('Arrows shown',
+                    style: TextStyle(fontSize: 12, color: Colors.white70)),
+                const Spacer(),
+                // analysis is MultiPV-5, so five lines always exist
+                DropdownButton<int>(
+                  value: settings.arrowCount,
+                  underline: const SizedBox(),
+                  isDense: true,
+                  items: const [1, 2, 3, 4, 5]
+                      .map((n) => DropdownMenuItem(
+                            value: n,
+                            child: Text('$n',
+                                style: const TextStyle(fontSize: 13)),
+                          ))
+                      .toList(),
+                  onChanged: (v) {
+                    if (v != null) settings.arrowCount = v;
+                  },
+                ),
+              ],
+            ),
+          ),
+        if (settings.showArrows)
           _OpacitySlider(
             label: 'Arrow opacity',
             value: settings.arrowOpacity,
