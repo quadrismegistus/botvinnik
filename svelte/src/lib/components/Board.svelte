@@ -141,10 +141,13 @@
 		resetKey; // dep: re-sync pieces when bumped
 		const turnColor: Color = turn === 'w' ? 'white' : 'black';
 		const occ = occupiedSquares(fen);
+		// one glyph per square: threat/win rings and any arrowhead (red or
+		// green) outrank control's ring on the same piece
 		const threatSquares = new Set([
 			...threatTargets,
 			...winTargets,
-			...(threatArrow ? [threatArrow.slice(2, 4)] : [])
+			...(threatArrow ? [threatArrow.slice(2, 4)] : []),
+			...makeArrows().map(([, to]) => to)
 		]);
 		api.set({
 			fen,

@@ -181,11 +181,13 @@ class _BoardPaneState extends State<BoardPane> {
                 game.playerColor == 'w' ? 'w' : 'b',
                 settings.controlOpacity,
                 {for (final s in game.position.board.occupied.squares) s.name},
-                // the threat/win overlays' rings outrank control's on a piece
+                // one glyph per square: threat/win rings and any arrowhead
+                // (red or blue) outrank control's ring on the same piece
                 {
                   ...threatTargets,
                   ...winTargets,
                   if (threatUci != null) threatUci.substring(2, 4),
+                  for (final u in engineArrows) u.substring(2, 4),
                 },
               ),
             ),
