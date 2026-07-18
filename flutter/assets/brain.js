@@ -5023,20 +5023,20 @@ var brain = (() => {
     if (!nullFen || !best || best.pv.length === 0) return null;
     if (best.mate !== null) {
       if (best.mate <= 0) return null;
+      const king = kingSquare(fen);
       return {
         fen,
         uci: best.pv[0],
         san: getSan(nullFen, best.pv[0]) ?? best.pv[0],
         gain: Infinity,
-        target: kingSquare(fen)
-        // the mated side is the side to move in the real position
+        targets: king ? [king] : []
       };
     }
     const quiet = quietMaterialOverLine(nullFen, best.pv);
     const net = quiet.plies > 0 ? quiet.net : staticFirstCaptureGain(nullFen, best.pv[0]);
     if (net < MIN_GAIN) return null;
-    const target = quiet.plies > 0 ? victimSquare(nullFen, best.pv, quiet.plies) : best.pv[0].slice(2, 4);
-    return { fen, uci: best.pv[0], san: getSan(nullFen, best.pv[0]) ?? best.pv[0], gain: net, target };
+    const targets = quiet.plies > 0 ? victimSquares(nullFen, best.pv, quiet.plies) : [best.pv[0].slice(2, 4)];
+    return { fen, uci: best.pv[0], san: getSan(nullFen, best.pv[0]) ?? best.pv[0], gain: net, targets };
   }
   function kingSquare(fen) {
     const c = new Chess(fen);
@@ -5047,10 +5047,11 @@ var brain = (() => {
     }
     return null;
   }
-  function victimSquare(nullFen, ucis, plies) {
+  function victimSquares(nullFen, ucis, plies) {
     const c = new Chess(nullFen);
     const mover = c.turn();
     const defenderMoves = [];
+    const candidates = [];
     for (let i = 0; i < plies; i++) {
       let m;
       try {
@@ -5060,18 +5061,35 @@ var brain = (() => {
           promotion: ucis[i].length > 4 ? ucis[i][4] : void 0
         });
       } catch {
-        return null;
+        break;
       }
       if (m.color === mover && m.captured) {
         let sq = m.isEnPassant() ? m.to[0] + m.from[1] : m.to;
         for (let j = defenderMoves.length - 1; j >= 0; j--) {
           if (defenderMoves[j].to === sq) sq = defenderMoves[j].from;
         }
-        return sq;
+        candidates.push({ sq, ply: i });
       }
       if (m.color !== mover) defenderMoves.push({ from: m.from, to: m.to });
     }
-    return null;
+    if (candidates.length === 0) return [];
+    const afterThreat = new Chess(nullFen);
+    try {
+      afterThreat.move({
+        from: ucis[0].slice(0, 2),
+        to: ucis[0].slice(2, 4),
+        promotion: ucis[0].length > 4 ? ucis[0][4] : void 0
+      });
+    } catch {
+      return [];
+    }
+    const out = [];
+    for (const { sq, ply } of candidates) {
+      if (ply === 0 || afterThreat.attackers(sq, mover).length > 0) {
+        if (!out.includes(sq)) out.push(sq);
+      }
+    }
+    return out;
   }
   function staticFirstCaptureGain(fen, uci) {
     const c = new Chess(fen);

@@ -87,13 +87,14 @@ class _BoardPaneState extends State<BoardPane> {
     // the board is showing a preview or a past move
     final still = game.previewing || game.browsing;
     final threatUci = still ? null : game.threatUci;
-    // ring the piece the threat actually wins — only when the arrow doesn't
-    // already point at it (a quiet setup move: fork, mate threat, chase)
-    final rawTarget = still ? null : game.threatTarget;
-    final threatTarget =
-        threatUci != null && rawTarget != threatUci.substring(2, 4)
-            ? rawTarget
-            : null;
+    // ring the pieces the threat actually wins — minus the arrow's own
+    // destination square, which already carries the arrowhead
+    final threatTargets = still || threatUci == null
+        ? const <String>[]
+        : [
+            for (final t in game.threatTargets)
+              if (t != threatUci.substring(2, 4)) t
+          ];
     final control = still ? null : game.controlMap;
     final engineArrows = still ? const <String>[] : game.engineArrowUcis;
     final arrowColors = engineArrowColors(settings.arrowOpacity);
@@ -125,12 +126,13 @@ class _BoardPaneState extends State<BoardPane> {
                 orig: NormalMove.fromUci(threatUci).from,
                 dest: NormalMove.fromUci(threatUci).to,
               ),
-            // the piece that threat wins, ringed — the arrow shows the MOVE,
-            // and on a quiet setup move that isn't the victim
-            if (threatTarget != null)
+            // the pieces that threat wins, ringed — the arrow shows the MOVE,
+            // and on a quiet setup move (fork, mate threat, chase) the
+            // victims stand elsewhere
+            for (final t in threatTargets)
               Circle(
                 color: threatArrowColor(settings.threatOpacity),
-                orig: Square.fromName(threatTarget),
+                orig: Square.fromName(t),
               ),
           },
           settings: boardSettingsFor(settings),

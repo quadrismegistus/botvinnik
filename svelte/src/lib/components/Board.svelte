@@ -12,7 +12,7 @@
 		engineMoves?: EngineMove[];
 		botArrow?: string | null; // uci the bot is currently considering
 		threatArrow?: string | null; // what the opponent threatens (null-move probe), drawn as a warning
-		threatTarget?: string | null; // the piece that threat wins, when the arrow doesn't already point at it
+		threatTargets?: string[]; // the pieces that threat wins, minus the arrow's own destination
 		refutationArrow?: string | null; // opponent's punishing reply, drawn red
 		hintSquare?: string | null; // practice tier-2 hint: circle the best move's origin square
 		control?: Map<string, 'w' | 'b'> | null; // per-square control tint (see engine/control.ts)
@@ -31,7 +31,7 @@
 		engineMoves = [],
 		botArrow = null,
 		threatArrow = null,
-		threatTarget = null,
+		threatTargets = [],
 		refutationArrow = null,
 		hintSquare = null,
 		control = null,
@@ -167,9 +167,9 @@
 								}
 							]
 						: []),
-					// the piece the threat wins, ringed — the arrow shows the MOVE, and
-					// on a quiet setup move (fork, mate threat) that isn't the victim
-					...(threatTarget ? [{ orig: threatTarget as Key, brush: 'threat' }] : []),
+					// the pieces the threat wins, ringed — the arrow shows the MOVE, and
+					// on a quiet setup move (fork, mate threat, chase) the victims stand elsewhere
+					...threatTargets.map((t) => ({ orig: t as Key, brush: 'threat' })),
 					...(refutationArrow
 						? [
 								{

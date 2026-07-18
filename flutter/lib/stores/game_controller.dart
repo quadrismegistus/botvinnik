@@ -498,10 +498,11 @@ class GameController extends ChangeNotifier {
   /// Infinity there and JSON has no way to carry it across the bridge.
   double? get threatGain => (threat?['gain'] as num?)?.toDouble();
 
-  /// The square of the piece the threat wins (the mated king for a mate) —
-  /// where it stands NOW, which on a quiet setup move (fork, mate threat,
-  /// chase) is not the arrow's destination. Null when nothing rings.
-  String? get threatTarget => threat?['target'] as String?;
+  /// Current squares of the pieces the threat wins (the mated king for a
+  /// mate): attacked by the threat move THIS INSTANT, and lost even under
+  /// best defense in the line. A forked queen that escapes is neither.
+  List<String> get threatTargets =>
+      ((threat?['targets'] as List?) ?? const []).cast<String>();
 
   /// Square-control tint for the current position, when wanted.
   Map<String, String>? get controlMap {

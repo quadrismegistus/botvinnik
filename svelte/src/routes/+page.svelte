@@ -1233,11 +1233,11 @@
 		if (!showThreats || blindMode || mode === 'practice') return null;
 		return threat && threat.fen === game.fen ? threat.uci : null;
 	});
-	// ring the piece the threat actually wins — only when the arrow doesn't
-	// already point at it (a quiet setup move: fork, mate threat, chase)
-	const threatTarget = $derived.by(() => {
-		if (!threatArrow || !threat?.target) return null;
-		return threat.target === threatArrow.slice(2, 4) ? null : threat.target;
+	// ring the pieces the threat actually wins — minus the arrow's own
+	// destination square, which already carries the arrowhead
+	const threatTargets = $derived.by(() => {
+		if (!threatArrow || !threat) return [];
+		return threat.targets.filter((t) => t !== threatArrow.slice(2, 4));
 	});
 	// square-control tint — pure chess.js, recomputed per position
 	const controlMap = $derived.by(() => {
@@ -1483,7 +1483,7 @@
 				engineMoves={boardArrows}
 				botArrow={botThinking ? botConsidering : null}
 				threatArrow={threatArrow}
-				threatTarget={threatTarget}
+				threatTargets={threatTargets}
 				control={controlMap}
 				refutationArrow={mode === 'practice' && attempt && !attempt.pass ? (attempt.refutationUci ?? null) : null}
 				hintSquare={mode === 'practice' && hintTier >= 2 && !attempt && practiceRef

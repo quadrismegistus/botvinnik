@@ -17,11 +17,15 @@ export interface Threat {
 	uci: string;
 	san: string;
 	gain: number; // material the threatening side nets, in pawns (Infinity = mate)
-	// where the piece the threat wins stands NOW (the mated king for a mate) —
-	// the arrow shows the move, this shows the victim, and for a quiet setup
-	// move (a fork, a mate threat) they differ. Null when the gain has no one
-	// square to point at (e.g. a promotion push).
-	target: string | null;
+	// current squares of the pieces the line wins (the mated king for a mate).
+	// A pv is a fiction as a script but a proof as a bound: the defender's
+	// moves are best resistance, so it guarantees the VALUE, never the
+	// choreography. A piece is listed only on the two facts that survive that:
+	// the threat move attacks it THIS INSTANT (a static board fact), and best
+	// defense still loses it somewhere in the settled line. A piece that dies
+	// unattacked (it walked into a trade the engine chose for other reasons)
+	// is script, not threat; a forked queen that escapes is attacked, not lost.
+	targets: string[];
 }
 
 // pass the side to move: flip the active-colour field, void en passant.
@@ -90,12 +94,13 @@ export function judgeThreat(
 		// pv is best resistance, and any material it grabs along the way is a
 		// delaying tactic, not a threat
 		if (best.mate <= 0) return null;
+		const king = kingSquare(fen); // the mated side is the side to move in the real position
 		return {
 			fen,
 			uci: best.pv[0],
 			san: getSan(nullFen, best.pv[0]) ?? best.pv[0],
 			gain: Infinity,
-			target: kingSquare(fen) // the mated side is the side to move in the real position
+			targets: king ? [king] : []
 		};
 	}
 
@@ -110,11 +115,11 @@ export function judgeThreat(
 	const net = quiet.plies > 0 ? quiet.net : staticFirstCaptureGain(nullFen, best.pv[0]);
 	if (net < MIN_GAIN) return null;
 
-	const target =
+	const targets =
 		quiet.plies > 0
-			? victimSquare(nullFen, best.pv, quiet.plies)
-			: best.pv[0].slice(2, 4); // the fallback only fires on a bare first capture
-	return { fen, uci: best.pv[0], san: getSan(nullFen, best.pv[0]) ?? best.pv[0], gain: net, target };
+			? victimSquares(nullFen, best.pv, quiet.plies)
+			: [best.pv[0].slice(2, 4)]; // the fallback only fires on a bare first capture
+	return { fen, uci: best.pv[0], san: getSan(nullFen, best.pv[0]) ?? best.pv[0], gain: net, targets };
 }
 
 // the side to move's king square — the king that falls when the probe mates
@@ -128,15 +133,20 @@ function kingSquare(fen: string): string | null {
 	return null;
 }
 
-// Where, on the CURRENT board, is the piece the line wins? The first capture
-// by the threatening side inside the settled window names it — but the capture
-// may land plies deep, after the victim has run (or a blocker stepped in), so
-// walk the defender's earlier moves backwards to the square the piece stands
-// on right now. Null when the window's gain has no capture (promotion pushes).
-function victimSquare(nullFen: string, ucis: string[], plies: number): string | null {
+// Where, on the CURRENT board, do the pieces the line wins stand? Each capture
+// by the threatening side inside the settled window names a candidate — the
+// capture may land plies deep, after the victim has run (or a blocker stepped
+// in), so walk the defender's earlier moves backwards to the square the piece
+// stands on right now. Then the filter that keeps the claim honest: a victim
+// counts only if the threat move already attacks that square (checked in the
+// position after ply 1), or IS ply 1's own capture. A piece the line trades
+// off three plies deep without ever being attacked by the threat move died of
+// the engine's choreography, not of the threat.
+function victimSquares(nullFen: string, ucis: string[], plies: number): string[] {
 	const c = new Chess(nullFen);
 	const mover = c.turn();
 	const defenderMoves: { from: string; to: string }[] = [];
+	const candidates: { sq: string; ply: number }[] = [];
 	for (let i = 0; i < plies; i++) {
 		let m;
 		try {
@@ -146,7 +156,7 @@ function victimSquare(nullFen: string, ucis: string[], plies: number): string | 
 				promotion: ucis[i].length > 4 ? ucis[i][4] : undefined
 			});
 		} catch {
-			return null;
+			break;
 		}
 		if (m.color === mover && m.captured) {
 			// en passant: the pawn dies beside the landing square, not on it
@@ -154,11 +164,30 @@ function victimSquare(nullFen: string, ucis: string[], plies: number): string | 
 			for (let j = defenderMoves.length - 1; j >= 0; j--) {
 				if (defenderMoves[j].to === sq) sq = defenderMoves[j].from;
 			}
-			return sq;
+			candidates.push({ sq, ply: i });
 		}
 		if (m.color !== mover) defenderMoves.push({ from: m.from, to: m.to });
 	}
-	return null;
+	if (candidates.length === 0) return [];
+
+	// the board as it stands the instant the threat move lands
+	const afterThreat = new Chess(nullFen);
+	try {
+		afterThreat.move({
+			from: ucis[0].slice(0, 2) as Square,
+			to: ucis[0].slice(2, 4) as Square,
+			promotion: ucis[0].length > 4 ? ucis[0][4] : undefined
+		});
+	} catch {
+		return [];
+	}
+	const out: string[] = [];
+	for (const { sq, ply } of candidates) {
+		if (ply === 0 || afterThreat.attackers(sq as Square, mover).length > 0) {
+			if (!out.includes(sq)) out.push(sq);
+		}
+	}
+	return out;
 }
 
 export async function findThreat(

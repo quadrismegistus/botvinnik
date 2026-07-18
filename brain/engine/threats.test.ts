@@ -29,7 +29,7 @@ describe('findThreat', () => {
 		expect(t!.uci).toBe('e6d5');
 		expect(t!.san).toBe('exd5');
 		expect(t!.gain).toBe(3);
-		expect(t!.target).toBe('d5'); // the victim: a direct capture, so it is also the arrow's tip
+		expect(t!.targets).toEqual(['d5']); // the victim: a direct capture, so it is also the arrow's tip
 		expect(t!.fen).toBe(fen); // tagged with the original position, not the flipped probe
 		// probed the flipped (Black-to-move) position, not the original
 		expect(analyze.seen[0]).toContain(' b ');
@@ -57,7 +57,7 @@ describe('findThreat', () => {
 		const t = await findThreat(fen, analyze);
 		expect(t).not.toBeNull();
 		expect(t!.gain).toBe(Infinity);
-		expect(t!.target).toBe('e1'); // White is the side being probed against — their king falls
+		expect(t!.targets).toEqual(['e1']); // White is the side being probed against — their king falls
 	});
 
 	it('is silent when the free move still LOSES to forced mate (negative mate)', async () => {
@@ -78,7 +78,34 @@ describe('findThreat', () => {
 		expect(t).not.toBeNull();
 		expect(t!.uci).toBe('c7c6');
 		expect(t!.gain).toBe(9);
-		expect(t!.target).toBe('d5');
+		expect(t!.targets).toEqual(['d5']);
+	});
+
+	it('rings every forked piece that FALLS, not the one that escapes', async () => {
+		// Ryan's screenshot: Ng5 in place, Black to move — White's free move
+		// Nxf7 forks queen and rook. In the line the queen saves herself and
+		// the rook dies at home: targets are the f7 pawn and the h8 rook,
+		// never the queen (attacked is not lost).
+		const fen = '3qk2r/5p2/8/6N1/8/8/8/4K3 b k - 0 1';
+		const analyze = fakeAnalyze(['g5f7', 'd8d5', 'f7h8', 'e8e7']); // NxP, Q runs, NxR, quiet
+		const t = await findThreat(fen, analyze);
+		expect(t).not.toBeNull();
+		expect(t!.uci).toBe('g5f7');
+		expect(t!.gain).toBe(6); // pawn + rook
+		expect(t!.targets).toEqual(['f7', 'h8']);
+	});
+
+	it('does NOT ring a piece the threat move never attacks (it walked into the line)', async () => {
+		// The d2-pawn bug: after the free move Nc6, the line goes d4 exd4 —
+		// the pawn dies only because it ADVANCED into the capture. Nc6 attacks
+		// nothing on d2, so no ring; the threat itself (net +1) still shows.
+		const fen = 'rnbqkbnr/pppp1ppp/8/4p3/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 2';
+		const analyze = fakeAnalyze(['b8c6', 'd2d4', 'e5d4', 'g1f3']); // quiet Nf3 settles the count
+		const t = await findThreat(fen, analyze);
+		expect(t).not.toBeNull();
+		expect(t!.uci).toBe('b8c6');
+		expect(t!.gain).toBe(1);
+		expect(t!.targets).toEqual([]);
 	});
 
 	it('ignores a truncated pv that "wins" a defended piece (mid-exchange horizon)', async () => {
@@ -96,7 +123,7 @@ describe('findThreat', () => {
 		const t = await findThreat(fen, analyze);
 		expect(t).not.toBeNull();
 		expect(t!.gain).toBe(3);
-		expect(t!.target).toBe('f4'); // fallback path: the bare capture names its own victim
+		expect(t!.targets).toEqual(['f4']); // fallback path: the bare capture names its own victim
 	});
 
 	it('returns null on a finished game', async () => {
