@@ -78,11 +78,49 @@ void main() {
     expect(boardActionFor(_down(LogicalKeyboardKey.keyF)), BoardKeyAction.flip);
   });
 
-  test('every binding in the help sheet has a description', () {
-    expect(KeyboardControls.bindings, isNotEmpty);
-    for (final (keys, what) in KeyboardControls.bindings) {
-      expect(keys.trim(), isNotEmpty);
-      expect(what.trim(), isNotEmpty);
+  testWidgets('undo and redo take the platform-standard chords',
+      (tester) async {
+    // ⌘Z / ⇧⌘Z — the macOS standard
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.metaLeft);
+    expect(boardActionFor(_down(LogicalKeyboardKey.keyZ)), BoardKeyAction.undo);
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+    expect(boardActionFor(_down(LogicalKeyboardKey.keyZ)), BoardKeyAction.redo);
+    // ⌘Y is NOT redo on a Mac
+    expect(boardActionFor(_down(LogicalKeyboardKey.keyY)), isNull);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.metaLeft);
+
+    // Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y — the Windows and Linux set
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+    expect(boardActionFor(_down(LogicalKeyboardKey.keyZ)), BoardKeyAction.undo);
+    expect(boardActionFor(_down(LogicalKeyboardKey.keyY)), BoardKeyAction.redo);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+  });
+
+  testWidgets('other command chords are left to the OS', (tester) async {
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.metaLeft);
+    for (final key in [
+      LogicalKeyboardKey.keyR, // reload
+      LogicalKeyboardKey.keyW, // close tab
+      LogicalKeyboardKey.keyF, // find — must not flip the board
+      LogicalKeyboardKey.arrowLeft, // history back
+    ]) {
+      expect(boardActionFor(_down(key)), isNull);
     }
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.metaLeft);
+  });
+
+  test('every binding in the help sheet has a description', () {
+    for (final mac in [true, false]) {
+      final bindings = KeyboardControls.bindingsFor(mac: mac);
+      expect(bindings, isNotEmpty);
+      for (final (keys, what) in bindings) {
+        expect(keys.trim(), isNotEmpty);
+        expect(what.trim(), isNotEmpty);
+      }
+    }
+    // the modifier glyphs differ by platform
+    expect(KeyboardControls.bindingsFor(mac: true).last.$1, contains('⌘'));
+    expect(KeyboardControls.bindingsFor(mac: false).last.$1, contains('Ctrl'));
   });
 }

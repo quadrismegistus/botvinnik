@@ -5,6 +5,7 @@
 // that acts, space, starts a preview — which is also non-destructive and
 // stops on a second press.
 
+import 'package:flutter/foundation.dart' show defaultTargetPlatform, TargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -12,17 +13,33 @@ import '../stores/game_controller.dart';
 
 /// What a key press means. Kept separate from the widget so the mapping can
 /// be tested without standing up a GameController.
-enum BoardKeyAction { back, forward, start, live, flip, preview }
+enum BoardKeyAction { back, forward, start, live, flip, preview, undo, redo }
 
 /// The key, or null if this event is not ours. Repeats count, so holding an
-/// arrow scrubs; modifiers do not, so Cmd-R still reloads.
+/// arrow scrubs.
+///
+/// Undo and redo are the only bindings that take a modifier. ⌘Z / ⇧⌘Z is the
+/// macOS standard; Ctrl-Y is the Windows one and is accepted there too, but
+/// deliberately not on a Mac, where ⌘Y means something else in most apps.
 BoardKeyAction? boardActionFor(KeyEvent event) {
   if (event is! KeyDownEvent && event is! KeyRepeatEvent) return null;
-  if (HardwareKeyboard.instance.isControlPressed ||
-      HardwareKeyboard.instance.isMetaPressed ||
-      HardwareKeyboard.instance.isAltPressed) {
-    return null;
+  final keys = HardwareKeyboard.instance;
+  final command = keys.isMetaPressed || keys.isControlPressed;
+
+  if (command) {
+    if (event.logicalKey == LogicalKeyboardKey.keyZ) {
+      return keys.isShiftPressed ? BoardKeyAction.redo : BoardKeyAction.undo;
+    }
+    // Windows/Linux redo; on macOS ⌘Y is not this
+    if (event.logicalKey == LogicalKeyboardKey.keyY &&
+        keys.isControlPressed &&
+        !keys.isMetaPressed) {
+      return BoardKeyAction.redo;
+    }
+    return null; // every other combination belongs to the OS or the browser
   }
+  if (keys.isAltPressed) return null;
+
   return switch (event.logicalKey) {
     LogicalKeyboardKey.arrowLeft => BoardKeyAction.back,
     LogicalKeyboardKey.arrowRight => BoardKeyAction.forward,
@@ -50,13 +67,17 @@ class KeyboardControls extends StatelessWidget {
 
   /// What the keys do, for the help sheet — one list, so the sheet cannot
   /// drift from the bindings.
-  static const List<(String, String)> bindings = [
-    ('←  →', 'step back and forward through the game'),
-    ('↑  ↓', 'jump to the start, or back to the live position'),
-    ('space', 'play or stop a preview of the best line'),
-    ('f', 'flip the board'),
-    ('esc', 'stop previewing and return to the live position'),
-  ];
+  /// [mac] switches the modifier glyphs; the bindings themselves are the same
+  /// apart from Ctrl-Y, which is a Windows convention.
+  static List<(String, String)> bindingsFor({required bool mac}) => [
+        ('←  →', 'step back and forward through the game'),
+        ('↑  ↓', 'jump to the start, or back to the live position'),
+        ('space', 'play or stop a preview of the best line'),
+        ('f', 'flip the board'),
+        ('esc', 'stop previewing and return to the live position'),
+        (mac ? '⌘Z' : 'Ctrl+Z', 'undo'),
+        (mac ? '⇧⌘Z' : 'Ctrl+Shift+Z / Ctrl+Y', 'redo'),
+      ];
 
   KeyEventResult _onKey(FocusNode node, KeyEvent event) {
     final action = boardActionFor(event);
@@ -74,6 +95,10 @@ class KeyboardControls extends StatelessWidget {
         game.toggleFlip();
       case BoardKeyAction.preview:
         _togglePreview();
+      case BoardKeyAction.undo:
+        if (game.canUndo) game.undo();
+      case BoardKeyAction.redo:
+        if (game.canRedo) game.redo();
     }
     return KeyEventResult.handled;
   }
@@ -105,7 +130,8 @@ void showKeyboardHelp(BuildContext context) {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          for (final (keys, what) in KeyboardControls.bindings)
+          for (final (keys, what) in KeyboardControls.bindingsFor(
+              mac: defaultTargetPlatform == TargetPlatform.macOS))
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 4),
               child: Row(

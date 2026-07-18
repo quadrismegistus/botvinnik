@@ -296,10 +296,14 @@ class _AppShellState extends State<AppShell> {
           ),
           actions: [
             IconButton(
-              onPressed:
-                  game.moves.isEmpty || game.botThinking ? null : game.undo,
+              onPressed: game.canUndo ? game.undo : null,
               icon: const Icon(Icons.undo),
               tooltip: 'Undo',
+            ),
+            IconButton(
+              onPressed: game.canRedo ? game.redo : null,
+              icon: const Icon(Icons.redo),
+              tooltip: 'Redo',
             ),
             IconButton(
               onPressed: () {

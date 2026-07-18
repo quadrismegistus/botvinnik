@@ -138,6 +138,7 @@ class GameController extends ChangeNotifier {
 
   void newGame() {
     _browsePly = null;
+    _redoStack.clear();
     _gen++;
     _arbiter.bumpGeneration();
     position = Chess.initial;
@@ -156,6 +157,14 @@ class GameController extends ChangeNotifier {
     _maybeBotTurn();
   }
 
+  /// Moves taken off by undo, newest last, so redo can put them back exactly
+  /// as they were — including their grades, which cost engine time to earn.
+  /// Any new move discards them, as everywhere else.
+  final List<MoveRecord> _redoStack = [];
+
+  bool get canUndo => moves.isNotEmpty && !botThinking;
+  bool get canRedo => _redoStack.isNotEmpty && !botThinking;
+
   /// Undo the last player move (and the bot reply on top of it);
   /// on the analysis board, one ply at a time.
   void undo() {
@@ -163,18 +172,47 @@ class GameController extends ChangeNotifier {
     if (moves.isEmpty || botThinking) return;
     _gen++;
     _arbiter.bumpGeneration();
+    final undone = <MoveRecord>[];
     if (botEnabled) {
       while (moves.isNotEmpty && moves.last.color != playerColor) {
-        moves.removeLast();
+        undone.add(moves.removeLast());
       }
-      if (moves.isNotEmpty) moves.removeLast();
+      if (moves.isNotEmpty) undone.add(moves.removeLast());
     } else {
-      moves.removeLast();
+      undone.add(moves.removeLast());
     }
+    // collected newest-first above; store oldest-first so redo replays forward
+    _redoStack.addAll(undone.reversed);
     final fen = moves.isEmpty ? Chess.initial.fen : moves.last.fenAfter;
     position = Chess.fromSetup(Setup.parseFen(fen));
     lastMove =
         moves.isEmpty ? null : NormalMove.fromUci(moves.last.uci);
+    _threat = null;
+    _analysisFor(position.fen);
+    _syncTree();
+    _probeThreat();
+    notifyListeners();
+  }
+
+  /// Put back what undo took off. Replays the stored moves rather than
+  /// re-deriving them, so the grades and explanations come back intact
+  /// instead of being recomputed — or lost.
+  void redo() {
+    _browsePly = null;
+    if (_redoStack.isEmpty || botThinking) return;
+    _gen++;
+    _arbiter.bumpGeneration();
+    // one undo's worth: the player move and the bot's reply that sat on it
+    final restore = <MoveRecord>[];
+    restore.add(_redoStack.removeAt(0));
+    if (botEnabled) {
+      while (_redoStack.isNotEmpty && _redoStack.first.color != playerColor) {
+        restore.add(_redoStack.removeAt(0));
+      }
+    }
+    moves.addAll(restore);
+    position = Chess.fromSetup(Setup.parseFen(moves.last.fenAfter));
+    lastMove = NormalMove.fromUci(moves.last.uci);
     _threat = null;
     _analysisFor(position.fen);
     _syncTree();
