@@ -43,6 +43,54 @@ const List<BoardPreset> kBoardPresets = [
   BoardPreset('Symbol', Color(0xffffffff), Color(0xff58ac8a)),
 ];
 
+/// A textured board: chessground bundles the lichess board images, each with
+/// the square colors that go under it.
+class BoardTexture {
+  final String name;
+  final String label;
+  final ChessboardColorScheme scheme;
+  const BoardTexture(this.name, this.label, this.scheme);
+
+  /// The texture image itself, for previewing the board as what it is.
+  AssetImage? get image {
+    final bg = scheme.background;
+    return bg is ImageChessboardBackground ? bg.image : null;
+  }
+}
+
+const List<BoardTexture> kBoardTextures = [
+  BoardTexture('wood', 'Wood', ChessboardColorScheme.wood),
+  BoardTexture('wood2', 'Wood 2', ChessboardColorScheme.wood2),
+  BoardTexture('wood3', 'Wood 3', ChessboardColorScheme.wood3),
+  BoardTexture('wood4', 'Wood 4', ChessboardColorScheme.wood4),
+  BoardTexture('maple', 'Maple', ChessboardColorScheme.maple),
+  BoardTexture('maple2', 'Maple 2', ChessboardColorScheme.maple2),
+  BoardTexture('marble', 'Marble', ChessboardColorScheme.marble),
+  BoardTexture('blueMarble', 'Blue marble', ChessboardColorScheme.blueMarble),
+  BoardTexture('leather', 'Leather', ChessboardColorScheme.leather),
+  BoardTexture('canvas', 'Canvas', ChessboardColorScheme.canvas),
+  BoardTexture('metal', 'Metal', ChessboardColorScheme.metal),
+  BoardTexture('olive', 'Olive', ChessboardColorScheme.olive),
+  BoardTexture('grey', 'Grey', ChessboardColorScheme.grey),
+  BoardTexture('newspaper', 'Newspaper', ChessboardColorScheme.newspaper),
+  BoardTexture('purple', 'Purple', ChessboardColorScheme.purple),
+  BoardTexture('purpleDiag', 'Purple diag', ChessboardColorScheme.purpleDiag),
+  BoardTexture('pinkPyramid', 'Pink', ChessboardColorScheme.pinkPyramid),
+  BoardTexture('greenPlastic', 'Plastic', ChessboardColorScheme.greenPlastic),
+  BoardTexture('blue2', 'Blue', ChessboardColorScheme.blue2),
+  BoardTexture('blue3', 'Blue 3', ChessboardColorScheme.blue3),
+  BoardTexture('horsey', 'Horsey', ChessboardColorScheme.horsey),
+];
+
+/// The active texture, or null when the board is on custom colors.
+BoardTexture? textureFor(SettingsStore s) {
+  if (s.boardTexture.isEmpty) return null;
+  for (final t in kBoardTextures) {
+    if (t.name == s.boardTexture) return t;
+  }
+  return null;
+}
+
 /// The user's piece set, falling back to the default if a stored name no
 /// longer exists in chessground.
 PieceSet pieceSetFor(SettingsStore s) => PieceSet.values.firstWhere(
@@ -52,6 +100,14 @@ PieceSet pieceSetFor(SettingsStore s) => PieceSet.values.firstWhere(
 
 /// The color scheme for the user's chosen square/highlight colors.
 ChessboardColorScheme schemeFor(SettingsStore s) {
+  // A texture brings its own squares; the last-move color stays the user's
+  // in both modes, so that picker never silently stops working.
+  final texture = textureFor(s);
+  if (texture != null) {
+    return texture.scheme.copyWith(
+      lastMove: HighlightDetails(solidColor: s.lastMoveColor),
+    );
+  }
   final light = s.lightSquare;
   final dark = s.darkSquare;
   return ChessboardColorScheme(

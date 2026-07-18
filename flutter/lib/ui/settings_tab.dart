@@ -3,7 +3,7 @@
 // knobs.
 
 import 'package:chessground/chessground.dart';
-import 'package:dartchess/dartchess.dart' show NormalMove, Side;
+import 'package:dartchess/dartchess.dart' show NormalMove, PieceKind, Side;
 import 'package:flutter/material.dart';
 import 'package:flutter_colorpicker/flutter_colorpicker.dart';
 import 'package:provider/provider.dart';
@@ -55,7 +55,7 @@ class SettingsTab extends StatelessWidget {
           value: settings.showControl,
           onChanged: (v) => settings.showControl = v,
         ),
-        const _SectionLabel('Board colors'),
+        const _SectionLabel('Board theme'),
         const _BoardColorSection(),
         const _SectionLabel('Practice'),
         ListTile(
@@ -144,48 +144,61 @@ class _BoardColorSection extends StatelessWidget {
             ],
           ),
         ),
-        SizedBox(
-          height: 62,
-          child: ListView.separated(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            itemCount: kBoardPresets.length,
-            separatorBuilder: (_, _) => const SizedBox(width: 10),
-            itemBuilder: (context, i) {
-              final p = kBoardPresets[i];
-              final selected = p.light.toARGB32() == s.lightSquare.toARGB32() &&
-                  p.dark.toARGB32() == s.darkSquare.toARGB32();
-              return _PresetChip(
-                preset: p,
-                selected: selected,
-                onTap: () => s.applySquares(p.light, p.dark),
-              );
-            },
-          ),
+        _Strip(
+          label: 'Colors',
+          count: kBoardPresets.length,
+          builder: (i) {
+            final p = kBoardPresets[i];
+            return _Chip(
+              label: p.name,
+              selected: s.boardTexture.isEmpty &&
+                  p.light.toARGB32() == s.lightSquare.toARGB32() &&
+                  p.dark.toARGB32() == s.darkSquare.toARGB32(),
+              onTap: () => s.applySquares(p.light, p.dark),
+              child: Column(children: [
+                Row(children: [_cell(p.light), _cell(p.dark)]),
+                Row(children: [_cell(p.dark), _cell(p.light)]),
+              ]),
+            );
+          },
         ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 12, 0),
-          child: Row(
-            children: [
-              const Text('Pieces', style: TextStyle(fontSize: 13)),
-              const Spacer(),
-              DropdownButton<String>(
-                value: pieceSetFor(s).name,
-                underline: const SizedBox(),
-                isDense: true,
-                items: PieceSet.values
-                    .map((p) => DropdownMenuItem(
-                          value: p.name,
-                          child: Text(p.label,
-                              style: const TextStyle(fontSize: 13)),
-                        ))
-                    .toList(),
-                onChanged: (v) {
-                  if (v != null) s.pieceSet = v;
-                },
+        _Strip(
+          label: 'Textures',
+          count: kBoardTextures.length,
+          builder: (i) {
+            final t = kBoardTextures[i];
+            final image = t.image;
+            return _Chip(
+              label: t.label,
+              selected: s.boardTexture == t.name,
+              onTap: () => s.boardTexture = t.name,
+              // the texture previews as itself, scaled so the grain reads
+              child: image == null
+                  ? ColoredBox(color: t.scheme.darkSquare)
+                  : Image(image: image, fit: BoxFit.cover),
+            );
+          },
+        ),
+        _Strip(
+          label: 'Pieces',
+          count: PieceSet.values.length,
+          builder: (i) {
+            final set = PieceSet.values[i];
+            final scheme = schemeFor(s);
+            // both colorways, each on the square that contrasts with it —
+            // a white piece on a white board would preview as nothing
+            return _Chip(
+              label: set.label,
+              selected: pieceSetFor(s) == set,
+              onTap: () => s.pieceSet = set.name,
+              child: Row(
+                children: [
+                  _knight(set, PieceKind.whiteKnight, scheme.darkSquare),
+                  _knight(set, PieceKind.blackKnight, scheme.lightSquare),
+                ],
               ),
-            ],
-          ),
+            );
+          },
         ),
         Align(
           alignment: Alignment.centerRight,
@@ -202,58 +215,111 @@ class _BoardColorSection extends StatelessWidget {
   }
 }
 
-/// A preset shown as what it is: four squares of the actual board.
-class _PresetChip extends StatelessWidget {
-  final BoardPreset preset;
-  final bool selected;
-  final VoidCallback onTap;
-  const _PresetChip({
-    required this.preset,
-    required this.selected,
-    required this.onTap,
+/// A labelled horizontal row of choices. Everything here previews as the
+/// thing it selects — squares as squares, textures as their image, piece
+/// sets as a piece — so nothing has to be chosen by name alone.
+class _Strip extends StatelessWidget {
+  final String label;
+  final int count;
+  final Widget Function(int) builder;
+  const _Strip({
+    required this.label,
+    required this.count,
+    required this.builder,
   });
 
   @override
   Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 4),
+          child: Text(label,
+              style: const TextStyle(fontSize: 11.5, color: Colors.white38)),
+        ),
+        SizedBox(
+          height: 94,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            itemCount: count,
+            separatorBuilder: (_, _) => const SizedBox(width: 10),
+            itemBuilder: (context, i) => builder(i),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _Chip extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+  final Widget child;
+  const _Chip({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+    required this.child,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    const accent = Color(0xFF81B64C);
     return InkWell(
       onTap: onTap,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 34,
-            height: 34,
-            decoration: BoxDecoration(
-              border: Border.all(
-                color: selected ? const Color(0xFF81B64C) : Colors.white24,
-                width: selected ? 2 : 1,
+      child: SizedBox(
+        width: 76,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 64,
+              height: 64,
+              clipBehavior: Clip.hardEdge,
+              decoration: BoxDecoration(
+                border: Border.all(
+                  color: selected ? accent : Colors.white24,
+                  width: selected ? 2 : 1,
+                ),
+              ),
+              child: child,
+            ),
+            const SizedBox(height: 3),
+            Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 10.5,
+                color: selected ? accent : Colors.white54,
               ),
             ),
-            child: Column(
-              children: [
-                Row(children: [
-                  _cell(preset.light),
-                  _cell(preset.dark),
-                ]),
-                Row(children: [
-                  _cell(preset.dark),
-                  _cell(preset.light),
-                ]),
-              ],
-            ),
-          ),
-          const SizedBox(height: 3),
-          Text(preset.name,
-              style: TextStyle(
-                fontSize: 10,
-                color: selected ? const Color(0xFF81B64C) : Colors.white54,
-              )),
-        ],
+          ],
+        ),
       ),
     );
   }
+}
 
-  Widget _cell(Color c) => Container(width: 15, height: 15, color: c);
+Widget _cell(Color c) => Container(width: 30, height: 30, color: c);
+
+Widget _knight(PieceSet set, PieceKind kind, Color square) {
+  final image = set.assets[kind];
+  return Expanded(
+    child: ColoredBox(
+      color: square,
+      child: image == null
+          ? const SizedBox()
+          : Padding(
+              padding: const EdgeInsets.all(1),
+              child: Image(image: image, fit: BoxFit.contain),
+            ),
+    ),
+  );
 }
 
 class _Swatch extends StatelessWidget {

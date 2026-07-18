@@ -32,11 +32,42 @@ class SettingsStore extends ChangeNotifier {
   Color _darkSquare;
   Color _lastMoveColor;
   String _pieceSet; // a chessground PieceSet name
+  String _boardTexture; // a chessground board texture name; '' = flat colors
 
-  SettingsStore._(this._prefs, this._personaId, this._playerColor,
-      this._botEnabled, this._collectThreshold, this._showArrows, this._blind,
-      this._showThreats, this._showControl, this._lightSquare,
-      this._darkSquare, this._lastMoveColor, this._pieceSet);
+  // Named on purpose: these are a dozen fields of only three distinct types,
+  // so positional arguments would let a swapped pair compile silently.
+  // Initializing formals aren't available here — Dart forbids named
+  // parameters that start with an underscore.
+  // ignore_for_file: prefer_initializing_formals
+  SettingsStore._({
+    required SharedPreferences prefs,
+    required String personaId,
+    required String playerColor,
+    required bool botEnabled,
+    required int collectThreshold,
+    required bool showArrows,
+    required bool blind,
+    required bool showThreats,
+    required bool showControl,
+    required Color lightSquare,
+    required Color darkSquare,
+    required Color lastMoveColor,
+    required String pieceSet,
+    required String boardTexture,
+  })  : _prefs = prefs,
+        _personaId = personaId,
+        _playerColor = playerColor,
+        _botEnabled = botEnabled,
+        _collectThreshold = collectThreshold,
+        _showArrows = showArrows,
+        _blind = blind,
+        _showThreats = showThreats,
+        _showControl = showControl,
+        _lightSquare = lightSquare,
+        _darkSquare = darkSquare,
+        _lastMoveColor = lastMoveColor,
+        _pieceSet = pieceSet,
+        _boardTexture = boardTexture;
 
   static Future<SettingsStore> load() async {
     final prefs = await SharedPreferences.getInstance();
@@ -58,19 +89,20 @@ class SettingsStore extends ChangeNotifier {
         int.tryParse(prefs.getString('botvinnik-collect-threshold') ?? '') ??
             15;
     return SettingsStore._(
-      prefs,
-      personaId,
-      playerColor,
-      botEnabled,
-      threshold,
-      prefs.getString('botvinnik-arrows') != '0', // default ON, like web
-      prefs.getString('botvinnik-blind') == '1',
-      prefs.getString('botvinnik-threats') == '1',
-      prefs.getString('botvinnik-control') == '1',
-      _color(prefs, 'botvinnik-sq-light', kDefaultLightSquare),
-      _color(prefs, 'botvinnik-sq-dark', kDefaultDarkSquare),
-      _color(prefs, 'botvinnik-lastmove', kDefaultLastMove),
-      prefs.getString('botvinnik-pieces') ?? kDefaultPieceSet,
+      prefs: prefs,
+      personaId: personaId,
+      playerColor: playerColor,
+      botEnabled: botEnabled,
+      collectThreshold: threshold,
+      showArrows: prefs.getString('botvinnik-arrows') != '0', // ON, like web
+      blind: prefs.getString('botvinnik-blind') == '1',
+      showThreats: prefs.getString('botvinnik-threats') == '1',
+      showControl: prefs.getString('botvinnik-control') == '1',
+      lightSquare: _color(prefs, 'botvinnik-sq-light', kDefaultLightSquare),
+      darkSquare: _color(prefs, 'botvinnik-sq-dark', kDefaultDarkSquare),
+      lastMoveColor: _color(prefs, 'botvinnik-lastmove', kDefaultLastMove),
+      pieceSet: prefs.getString('botvinnik-pieces') ?? kDefaultPieceSet,
+      boardTexture: prefs.getString('botvinnik-board-texture') ?? '',
     );
   }
 
@@ -80,8 +112,18 @@ class SettingsStore extends ChangeNotifier {
     final raw = prefs.getString(key);
     if (raw == null) return fallback;
     final v = int.tryParse(raw, radix: 16);
-    debugPrint('[settings] $key raw=$raw parsed=${v?.toRadixString(16)}');
     return v == null ? fallback : Color(v);
+  }
+
+  String get boardTexture => _boardTexture;
+
+  /// Selecting a texture replaces the squares wholesale; '' returns the
+  /// board to whatever flat colors are set.
+  set boardTexture(String name) {
+    if (name == _boardTexture) return;
+    _boardTexture = name;
+    _prefs.setString('botvinnik-board-texture', name);
+    notifyListeners();
   }
 
   String get pieceSet => _pieceSet;
@@ -101,6 +143,7 @@ class SettingsStore extends ChangeNotifier {
     }
     _lightSquare = light;
     _darkSquare = dark;
+    _clearTexture();
     _prefs.setString(
         'botvinnik-sq-light', light.toARGB32().toRadixString(16).padLeft(8, '0'));
     _prefs.setString(
@@ -124,7 +167,14 @@ class SettingsStore extends ChangeNotifier {
     if (c.toARGB32() == get().toARGB32()) return;
     set(c);
     _prefs.setString(key, c.toARGB32().toRadixString(16).padLeft(8, '0'));
+    if (key != 'botvinnik-lastmove') _clearTexture();
     notifyListeners();
+  }
+
+  void _clearTexture() {
+    if (_boardTexture.isEmpty) return;
+    _boardTexture = '';
+    _prefs.remove('botvinnik-board-texture');
   }
 
   /// Puts all three board colors back to the shipped theme in one repaint.
@@ -137,6 +187,7 @@ class SettingsStore extends ChangeNotifier {
     _prefs.remove('botvinnik-lastmove');
     _pieceSet = kDefaultPieceSet;
     _prefs.remove('botvinnik-pieces');
+    _clearTexture();
     notifyListeners();
   }
 
