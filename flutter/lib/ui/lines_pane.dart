@@ -2,6 +2,8 @@
 // in as the search deepens. Tap a line to watch it play out on the board
 // (the same preview machinery as the insight card).
 
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -22,6 +24,24 @@ class _LinesPaneState extends State<LinesPane> {
   final Map<String, List<Map<String, dynamic>>> _stepCache = {};
   String _cacheFen = '';
 
+  /// Measured widths, keyed by the string itself. SANs repeat constantly
+  /// across lines and depths, so this stays small and warm.
+  final Map<String, double> _textWidth = {};
+
+  /// Column widths only ever grow while the position stands. The lines are
+  /// replaced wholesale on every depth update, so re-measuring from scratch
+  /// makes the columns twitch as the search streams; letting them settle at
+  /// their widest is calmer and costs a few pixels.
+  List<double> _colMax = [];
+
+  double _measure(String text) => _textWidth.putIfAbsent(text, () {
+        final tp = TextPainter(
+          text: TextSpan(text: text, style: _sanStyle),
+          textDirection: TextDirection.ltr,
+        )..layout();
+        return tp.width;
+      });
+
   @override
   Widget build(BuildContext context) {
     final game = context.watch<GameController>();
@@ -30,6 +50,7 @@ class _LinesPaneState extends State<LinesPane> {
     if (_cacheFen != fen) {
       _cacheFen = fen;
       _stepCache.clear();
+      _colMax = [];
     }
     if (game.blind && game.botEnabled) {
       return const Padding(
@@ -72,17 +93,25 @@ class _LinesPaneState extends State<LinesPane> {
             ),
             const SizedBox(width: 10),
             Expanded(
-              child: SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.only(right: 14),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    for (final line in lines.take(5))
-                      _lineRow(context, game, chess, fen, line),
-                  ],
-                ),
-              ),
+              child: Builder(builder: (context) {
+                final shown = lines.take(5).toList();
+                final rows = [
+                  for (final line in shown)
+                    _rowCells(fen, _steps(chess, fen, line))
+                ];
+                final widths = _columnWidths(rows);
+                return SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.only(right: 14),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      for (var i = 0; i < shown.length; i++)
+                        _lineRow(game, fen, shown[i], rows[i], widths),
+                    ],
+                  ),
+                );
+              }),
             ),
           ],
         ),
@@ -98,50 +127,65 @@ class _LinesPaneState extends State<LinesPane> {
   // CanvasKit does not resolve a 'monospace' family on the web, so padding
   // silently falls back to a proportional font and the columns drift.
   //
-  // The widths are sized for the longest legal SAN, which is 7 characters —
-  // Qa1xd4# (piece, full disambiguation, capture, square, mate) or exd8=Q+
-  // (pawn capture with promotion). Castling tops out at 6 (O-O-O#).
-  static const double _sanCell = 56;
-  static const double _numCell = 32;
+  // Column widths are measured per ply across the visible lines, so a column
+  // of e4/d4/Nf3 stays narrow and only a column that actually contains
+  // something like Qa1xd4# (the longest legal SAN, 7 characters) gets wide.
+  static const double _colGap = 9;
   static const TextStyle _sanStyle =
       TextStyle(fontSize: 12, color: Colors.white70, height: 1.45);
 
-  /// The variation as fixed-width cells, so the same ply sits in the same
-  /// column on every line. Every line starts from one position, so their cell
-  /// sequences match and the columns line up — which is what makes it
+  /// One line's cells as text: (content, isMoveNumber).
+  ///
+  /// Every line starts from the same position, so their cell sequences match
+  /// and column i is the same ply on every line — which is what makes it
   /// possible to see at a glance where two lines diverge.
-  List<Widget> _cells(String fen, List<Map<String, dynamic>> steps) {
+  List<(String, bool)> _rowCells(String fen, List<Map<String, dynamic>> steps) {
     final parts = fen.split(' ');
     var num = int.tryParse(parts.length > 5 ? parts[5] : '1') ?? 1;
     var whiteToMove = parts.length > 1 ? parts[1] == 'w' : true;
-    final out = <Widget>[];
-
-    void cell(String text, double width, {Color? color}) => out.add(SizedBox(
-          width: width,
-          child: Text(text,
-              maxLines: 1,
-              overflow: TextOverflow.clip,
-              style: color == null ? _sanStyle : _sanStyle.copyWith(color: color)),
-        ));
-
+    final out = <(String, bool)>[];
     for (final step in steps) {
       final san = (step['san'] as String?) ?? '';
       if (whiteToMove) {
-        cell('$num.', _numCell, color: Colors.white30);
-        cell(san, _sanCell);
-      } else {
+        out.add(('$num.', true));
+      } else if (out.isEmpty) {
         // a line starting mid-move still needs its white column, or its black
         // moves would sit under the white ones on every other line
-        if (out.isEmpty) {
-          cell('$num.', _numCell, color: Colors.white30);
-          cell('…', _sanCell, color: Colors.white24);
-        }
-        cell(san, _sanCell);
-        num++;
+        out
+          ..add(('$num.', true))
+          ..add(('…', false));
       }
+      out.add((san, false));
+      if (!whiteToMove) num++;
       whiteToMove = !whiteToMove;
     }
     return out;
+  }
+
+  /// The width of each column: the widest cell any line puts there, measured
+  /// rather than assumed. Sizing every cell for the longest legal SAN
+  /// (Qa1xd4#, 7 characters) would be correct and mostly wasted — nearly
+  /// every move is two to four.
+  List<double> _columnWidths(List<List<(String, bool)>> rows) {
+    var count = 0;
+    for (final r in rows) {
+      if (r.length > count) count = r.length;
+    }
+    final widths = [
+      for (var i = 0; i < count; i++)
+        rows.fold<double>(
+              0,
+              (w, r) => i < r.length ? math.max(w, _measure(r[i].$1)) : w,
+            ) +
+            _colGap,
+    ];
+    for (var i = 0; i < widths.length; i++) {
+      if (i < _colMax.length) {
+        widths[i] = math.max(widths[i], _colMax[i]);
+      }
+    }
+    _colMax = widths;
+    return widths;
   }
 
   void _preview(GameController game, String fen, EngineMove line) =>
@@ -182,19 +226,32 @@ class _LinesPaneState extends State<LinesPane> {
     );
   }
 
-  Widget _lineRow(BuildContext context, GameController game, ChessApi chess,
-      String fen, EngineMove line) {
-    final key = 'g3|${line.multipv}|${line.depth}|${line.pv.join()}';
-    // the whole line the engine actually has, not a fixed slice of it — its
-    // length is itself information (a shallow line means less was resolved)
-    final steps = _stepCache.putIfAbsent(key, () => chess.sanSteps(fen, line.pv));
+  /// The whole line the engine actually has, not a fixed slice of it — its
+  /// length is itself information (a shallow line means less was resolved).
+  List<Map<String, dynamic>> _steps(ChessApi chess, String fen, EngineMove line) =>
+      _stepCache.putIfAbsent('${line.multipv}|${line.depth}|${line.pv.join()}',
+          () => chess.sanSteps(fen, line.pv));
+
+  Widget _lineRow(GameController game, String fen, EngineMove line,
+      List<(String, bool)> cells, List<double> widths) {
     return SizedBox(
       height: _rowHeight,
       child: InkWell(
         onTap: () => _preview(game, fen, line),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.center,
-          children: _cells(fen, steps),
+          children: [
+            for (var i = 0; i < cells.length; i++)
+              SizedBox(
+                width: widths[i],
+                child: Text(cells[i].$1,
+                    maxLines: 1,
+                    overflow: TextOverflow.clip,
+                    style: cells[i].$2
+                        ? _sanStyle.copyWith(color: Colors.white30)
+                        : _sanStyle),
+              ),
+          ],
         ),
       ),
     );
