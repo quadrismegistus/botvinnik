@@ -13,6 +13,7 @@
 		botArrow?: string | null; // uci the bot is currently considering
 		threatArrow?: string | null; // what the opponent threatens (null-move probe), drawn as a warning
 		threatTargets?: string[]; // the pieces that threat wins, minus the arrow's own destination
+		winTargets?: string[]; // the pieces YOUR top line wins, drawn in the engine-arrow colour
 		refutationArrow?: string | null; // opponent's punishing reply, drawn red
 		hintSquare?: string | null; // practice tier-2 hint: circle the best move's origin square
 		control?: Map<string, 'w' | 'b'> | null; // per-square control tint (see engine/control.ts)
@@ -32,6 +33,7 @@
 		botArrow = null,
 		threatArrow = null,
 		threatTargets = [],
+		winTargets = [],
 		refutationArrow = null,
 		hintSquare = null,
 		control = null,
@@ -141,6 +143,7 @@
 		const occ = occupiedSquares(fen);
 		const threatSquares = new Set([
 			...threatTargets,
+			...winTargets,
 			...(threatArrow ? [threatArrow.slice(2, 4)] : [])
 		]);
 		api.set({
@@ -193,6 +196,8 @@
 					// the pieces the threat wins, ringed — the arrow shows the MOVE, and
 					// on a quiet setup move (fork, mate threat, chase) the victims stand elsewhere
 					...threatTargets.map((t) => ({ orig: t as Key, brush: 'threat' })),
+					// the pieces your own top line wins, in the arrows' colour
+					...winTargets.map((t) => ({ orig: t as Key, brush: 'g0' })),
 					...(refutationArrow
 						? [
 								{

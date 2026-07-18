@@ -54,6 +54,7 @@ var brain = (() => {
     gradeMove: () => gradeMove,
     isCapture: () => isCapture,
     itemDataFromStoredMove: () => itemDataFromStoredMove,
+    judgeTacticalWin: () => judgeTacticalWin,
     judgeThreat: () => judgeThreat,
     labelCounts: () => labelCounts,
     masteryStats: () => masteryStats,
@@ -5024,7 +5025,7 @@ var brain = (() => {
     if (!nullFen || !best || best.pv.length === 0) return null;
     if (best.mate !== null) {
       if (best.mate <= 0) return null;
-      const king = kingSquare(fen);
+      const king = kingSquare(fen, new Chess(fen).turn());
       return {
         fen,
         uci: best.pv[0],
@@ -5040,14 +5041,40 @@ var brain = (() => {
     if (targets.length === 0 && net < VICTIMLESS_MIN_GAIN) return null;
     return { fen, uci: best.pv[0], san: getSan(nullFen, best.pv[0]) ?? best.pv[0], gain: net, targets };
   }
-  function kingSquare(fen) {
+  function kingSquare(fen, color) {
     const c = new Chess(fen);
     for (const row of c.board()) {
       for (const cell of row) {
-        if (cell && cell.type === "k" && cell.color === c.turn()) return cell.square;
+        if (cell && cell.type === "k" && cell.color === color) return cell.square;
       }
     }
     return null;
+  }
+  function judgeTacticalWin(fen, best) {
+    let base;
+    try {
+      base = new Chess(fen);
+    } catch {
+      return null;
+    }
+    if (base.isGameOver() || !best || best.pv.length === 0) return null;
+    if (best.mate !== null) {
+      if (best.mate <= 0) return null;
+      const king = kingSquare(fen, base.turn() === "w" ? "b" : "w");
+      return {
+        fen,
+        uci: best.pv[0],
+        san: getSan(fen, best.pv[0]) ?? best.pv[0],
+        gain: Infinity,
+        targets: king ? [king] : []
+      };
+    }
+    const quiet = quietMaterialOverLine(fen, best.pv);
+    const net = quiet.plies > 0 ? quiet.net : staticFirstCaptureGain(fen, best.pv[0]);
+    if (net < MIN_GAIN) return null;
+    const targets = quiet.plies > 0 ? victimSquares(fen, best.pv, quiet.plies) : [best.pv[0].slice(2, 4)];
+    if (targets.length === 0 && net < VICTIMLESS_MIN_GAIN) return null;
+    return { fen, uci: best.pv[0], san: getSan(fen, best.pv[0]) ?? best.pv[0], gain: net, targets };
   }
   function victimSquares(nullFen, ucis, plies) {
     const c = new Chess(nullFen);

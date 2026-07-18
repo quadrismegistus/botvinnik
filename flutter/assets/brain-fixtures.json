@@ -1287,7 +1287,7 @@
      "id": "fix",
      "createdAt": "2026-01-01T00:00:00Z",
      "box": 2,
-     "dueAt": "2026-07-21T22:49:54.822Z",
+     "dueAt": "2026-07-21T23:03:49.163Z",
      "attempts": 3,
      "correct": 2,
      "lastResult": "pass"
@@ -1349,7 +1349,7 @@
      "id": "fix",
      "createdAt": "2026-01-01T00:00:00Z",
      "box": 0,
-     "dueAt": "2026-07-18T22:59:59.623Z",
+     "dueAt": "2026-07-18T23:13:53.964Z",
      "attempts": 3,
      "correct": 1,
      "lastResult": "fail"

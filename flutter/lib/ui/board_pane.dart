@@ -101,6 +101,18 @@ class _BoardPaneState extends State<BoardPane> {
     final control = still ? null : game.controlMap;
     final engineArrows = still ? const <String>[] : game.engineArrowUcis;
     final arrowColors = engineArrowColors(settings.arrowOpacity);
+    // the green mirror: pieces YOUR top line wins, in the engine-arrow
+    // grammar — minus the top arrow's own destination (a direct capture
+    // already carries the arrowhead). They can never collide with the red
+    // rings: threat victims are your pieces, win victims are theirs.
+    final winTargets = still
+        ? const <String>[]
+        : [
+            for (final t in game.winTargets)
+              if (engineArrows.isEmpty ||
+                  t != engineArrows.first.substring(2, 4))
+                t
+          ];
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -137,6 +149,12 @@ class _BoardPaneState extends State<BoardPane> {
                 color: threatArrowColor(settings.threatOpacity),
                 orig: Square.fromName(t),
               ),
+            // the pieces your own top line wins, in the arrows' colour
+            for (final t in winTargets)
+              Circle(
+                color: arrowColors.first,
+                orig: Square.fromName(t),
+              ),
           },
           settings: boardSettingsFor(settings),
         );
@@ -163,9 +181,10 @@ class _BoardPaneState extends State<BoardPane> {
                 game.playerColor == 'w' ? 'w' : 'b',
                 settings.controlOpacity,
                 {for (final s in game.position.board.occupied.squares) s.name},
-                // the threat overlay's rings outrank control's on a piece
+                // the threat/win overlays' rings outrank control's on a piece
                 {
                   ...threatTargets,
+                  ...winTargets,
                   if (threatUci != null) threatUci.substring(2, 4),
                 },
               ),

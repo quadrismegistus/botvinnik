@@ -44,6 +44,14 @@ class ChessApi {
     return r == null ? null : (r as Map).cast<String, dynamic>();
   }
 
+  /// The green mirror of judgeThreat: the same judgment on the side to
+  /// move's OWN top analysis line — what the mover wins by playing it.
+  /// Same shape as judgeThreat; costs no engine time.
+  Map<String, dynamic>? judgeTacticalWin(String fen, Map<String, dynamic> bestLine) {
+    final r = _bridge.call('judgeTacticalWin', args: [fen, bestLine]);
+    return r == null ? null : (r as Map).cast<String, dynamic>();
+  }
+
   /// Square-control tint: {square: 'w'|'b'} for squares one side owns.
   Map<String, String> controlSquares(String fen) =>
       (_bridge.call('controlSquares', args: [fen]) as Map)

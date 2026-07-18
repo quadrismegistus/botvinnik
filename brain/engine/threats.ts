@@ -1,4 +1,4 @@
-import { Chess, type Square } from 'chess.js';
+import { Chess, type Color, type Square } from 'chess.js';
 import { getSan } from './chess';
 import { PIECE_VAL, quietMaterialOverLine } from './explain';
 import type { EngineResult } from './types';
@@ -101,7 +101,8 @@ export function judgeThreat(
 		// pv is best resistance, and any material it grabs along the way is a
 		// delaying tactic, not a threat
 		if (best.mate <= 0) return null;
-		const king = kingSquare(fen); // the mated side is the side to move in the real position
+		// the mated side is the side to move in the real position
+		const king = kingSquare(fen, new Chess(fen).turn());
 		return {
 			fen,
 			uci: best.pv[0],
@@ -131,15 +132,56 @@ export function judgeThreat(
 	return { fen, uci: best.pv[0], san: getSan(nullFen, best.pv[0]) ?? best.pv[0], gain: net, targets };
 }
 
-// the side to move's king square — the king that falls when the probe mates
-function kingSquare(fen: string): string | null {
+function kingSquare(fen: string, color: Color): string | null {
 	const c = new Chess(fen);
 	for (const row of c.board()) {
 		for (const cell of row) {
-			if (cell && cell.type === 'k' && cell.color === c.turn()) return cell.square;
+			if (cell && cell.type === 'k' && cell.color === color) return cell.square;
 		}
 	}
 	return null;
+}
+
+/**
+ * The same judgment run on the side to move's OWN top line — what does the
+ * mover win by playing it? The green mirror of [judgeThreat]: same three
+ * facts behind each target (attacked the instant the first move lands, falls
+ * inside the settled window, not an even trade it initiated), same floors.
+ * The pv is the position's live analysis line, so this costs no extra search.
+ * Unlike the probe there is no turn flip and no in-check bail: an evasion
+ * that wins the checking piece is a perfectly good tactical win.
+ */
+export function judgeTacticalWin(
+	fen: string,
+	best: { pv: string[]; mate: number | null } | null | undefined
+): Threat | null {
+	let base: Chess;
+	try {
+		base = new Chess(fen);
+	} catch {
+		return null;
+	}
+	if (base.isGameOver() || !best || best.pv.length === 0) return null;
+
+	if (best.mate !== null) {
+		if (best.mate <= 0) return null;
+		const king = kingSquare(fen, base.turn() === 'w' ? 'b' : 'w'); // the OPPONENT king falls
+		return {
+			fen,
+			uci: best.pv[0],
+			san: getSan(fen, best.pv[0]) ?? best.pv[0],
+			gain: Infinity,
+			targets: king ? [king] : []
+		};
+	}
+
+	const quiet = quietMaterialOverLine(fen, best.pv);
+	const net = quiet.plies > 0 ? quiet.net : staticFirstCaptureGain(fen, best.pv[0]);
+	if (net < MIN_GAIN) return null;
+	const targets =
+		quiet.plies > 0 ? victimSquares(fen, best.pv, quiet.plies) : [best.pv[0].slice(2, 4)];
+	if (targets.length === 0 && net < VICTIMLESS_MIN_GAIN) return null;
+	return { fen, uci: best.pv[0], san: getSan(fen, best.pv[0]) ?? best.pv[0], gain: net, targets };
 }
 
 // Where, on the CURRENT board, do the pieces the line wins stand? Each capture

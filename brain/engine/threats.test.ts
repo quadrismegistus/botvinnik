@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { findThreat } from './threats';
+import { findThreat, judgeTacticalWin } from './threats';
 import type { EngineMove, EngineResult } from './types';
 
 // build a fake analyze() that returns a canned line, and records the fen it saw
@@ -175,5 +175,43 @@ describe('findThreat', () => {
 		const analyze = fakeAnalyze([]);
 		expect(await findThreat(fen, analyze)).toBeNull();
 		expect(analyze.seen).toHaveLength(0); // bailed on isGameOver, before ever probing
+	});
+});
+
+// the green mirror: the same judgment on the mover's OWN top line
+describe('judgeTacticalWin', () => {
+	it('rings the hanging piece the top line just takes', () => {
+		const fen = '4k3/8/8/3b4/8/8/3R4/4K3 w - - 0 1'; // Bd5 hangs to the rook
+		const w = judgeTacticalWin(fen, { pv: ['d2d5', 'e8e7'], mate: null });
+		expect(w).not.toBeNull();
+		expect(w!.gain).toBe(3);
+		expect(w!.targets).toEqual(['d5']);
+	});
+
+	it('rings the fork victims of your own line — no turn flip', () => {
+		// image 16 with White to move: Nxf7 forks queen and rook; the queen
+		// escapes, the pawn and rook fall
+		const fen = '3qk2r/5p2/8/6N1/8/8/8/4K3 w k - 0 1';
+		const w = judgeTacticalWin(fen, {
+			pv: ['g5f7', 'd8d5', 'f7h8', 'e8e7'],
+			mate: null
+		});
+		expect(w).not.toBeNull();
+		expect(w!.uci).toBe('g5f7');
+		expect(w!.gain).toBe(6);
+		expect(w!.targets).toEqual(['f7', 'h8']);
+	});
+
+	it('rings the OPPONENT king when your line mates', () => {
+		const fen = '4k3/8/8/3b4/8/8/3R4/4K3 w - - 0 1';
+		const w = judgeTacticalWin(fen, { pv: ['d2d5'], mate: 3 });
+		expect(w).not.toBeNull();
+		expect(w!.gain).toBe(Infinity);
+		expect(w!.targets).toEqual(['e8']);
+	});
+
+	it('is silent on a quiet line that wins nothing', () => {
+		const fen = '4k3/8/8/3b4/8/8/3R4/4K3 w - - 0 1';
+		expect(judgeTacticalWin(fen, { pv: ['d2c2', 'e8e7'], mate: null })).toBeNull();
 	});
 });

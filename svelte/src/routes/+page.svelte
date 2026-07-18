@@ -63,7 +63,7 @@
 	import { jsceMove } from '$lib/engine/jsce';
 	import { garboMove, preloadGarbo } from '$lib/engine/garbo';
 	import { computeControl } from '$brain/engine/control';
-	import { findThreat, type Threat } from '$brain/engine/threats';
+	import { findThreat, judgeTacticalWin, type Threat } from '$brain/engine/threats';
 	import {
 		addItem,
 		dueCount,
@@ -1239,6 +1239,17 @@
 		if (!threatArrow || !threat) return [];
 		return threat.targets.filter((t) => t !== threatArrow.slice(2, 4));
 	});
+	// the green mirror: pieces YOUR top line wins, judged by the same rules,
+	// from the analysis already streaming — no extra engine time. Never
+	// collides with the red rings (threat victims are yours, these are theirs).
+	const winTargets = $derived.by(() => {
+		if (!showThreats || blindMode || mode === 'practice') return [];
+		const top = engineMoves[0];
+		if (!top || top.pv.length === 0) return [];
+		const w = judgeTacticalWin(game.fen, { pv: top.pv, mate: top.mate });
+		if (!w) return [];
+		return w.targets.filter((t) => t !== top.pv[0].slice(2, 4));
+	});
 	// square-control tint — pure chess.js, recomputed per position
 	const controlMap = $derived.by(() => {
 		if (!showControl || blindMode || mode === 'practice') return null;
@@ -1484,6 +1495,7 @@
 				botArrow={botThinking ? botConsidering : null}
 				threatArrow={threatArrow}
 				threatTargets={threatTargets}
+				winTargets={winTargets}
 				control={controlMap}
 				refutationArrow={mode === 'practice' && attempt && !attempt.pass ? (attempt.refutationUci ?? null) : null}
 				hintSquare={mode === 'practice' && hintTier >= 2 && !attempt && practiceRef

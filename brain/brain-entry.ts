@@ -49,7 +49,7 @@ export { explainMove, explainGoodMove, bestMovePoint, motifTags, MOTIF_TAGS_VERS
 export { getSan, getSanLine, getNumberedSanLine, getFenAfter, isCapture } from './engine/chess';
 
 // ---- board overlays ----
-export { threatProbeFen, judgeThreat } from './engine/threats';
+export { threatProbeFen, judgeThreat, judgeTacticalWin } from './engine/threats';
 import { computeControl } from './engine/control';
 /** computeControl returns a Map (JSON-hostile) — flatten for the bridge. */
 export function controlSquares(fen: string): Record<string, 'w' | 'b'> {

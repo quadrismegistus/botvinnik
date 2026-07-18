@@ -504,6 +504,36 @@ class GameController extends ChangeNotifier {
   List<String> get threatTargets =>
       ((threat?['targets'] as List?) ?? const []).cast<String>();
 
+  // the green mirror: memoised per (fen, top line) — the judge is a pure
+  // bridge call, cheap but not free, and this getter runs on every rebuild
+  Map<String, dynamic>? _winCache;
+  String? _winKey;
+
+  /// What the side to move's OWN top line wins — judged by the same rules as
+  /// the threat (attacked after ply 1, falls in the window, no even trades).
+  /// Costs no engine time: the line is the live analysis already streaming.
+  Map<String, dynamic>? get tacticalWin {
+    if (!_settings.showThreats || blind) return null;
+    final chess = _chess;
+    if (chess == null) return null;
+    final lines = currentLines;
+    if (lines.isEmpty) return null;
+    final key = '${position.fen}|${lines.first.pv.join(' ')}';
+    if (_winKey != key) {
+      _winKey = key;
+      _winCache = chess.judgeTacticalWin(position.fen, {
+        'pv': lines.first.pv,
+        'mate': lines.first.mate,
+      });
+    }
+    return _winCache;
+  }
+
+  /// Current squares of the pieces YOUR top line wins (the enemy king for a
+  /// mate) — drawn as green rings in the engine-arrow grammar.
+  List<String> get winTargets =>
+      ((tacticalWin?['targets'] as List?) ?? const []).cast<String>();
+
   /// Square-control tint for the current position, when wanted.
   Map<String, String>? get controlMap {
     if (!_settings.showControl || blind) return null;
