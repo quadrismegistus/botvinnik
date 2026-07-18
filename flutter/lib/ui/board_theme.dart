@@ -8,24 +8,24 @@ import 'package:dartchess/dartchess.dart' show Side;
 import 'package:flutter/widgets.dart';
 
 const ChessboardColorScheme kGrayScheme = ChessboardColorScheme(
-  lightSquare: Color(0xffb0ada9),
-  darkSquare: Color(0xff7d7a76),
+  lightSquare: Color(0xffcfccc8),
+  darkSquare: Color(0xff9b9894),
   background: SolidColorChessboardBackground(
-    lightSquare: Color(0xffb0ada9),
-    darkSquare: Color(0xff7d7a76),
+    lightSquare: Color(0xffcfccc8),
+    darkSquare: Color(0xff9b9894),
   ),
   whiteCoordBackground: SolidColorChessboardBackground(
-    lightSquare: Color(0xffb0ada9),
-    darkSquare: Color(0xff7d7a76),
+    lightSquare: Color(0xffcfccc8),
+    darkSquare: Color(0xff9b9894),
     coordinates: true,
   ),
   blackCoordBackground: SolidColorChessboardBackground(
-    lightSquare: Color(0xffb0ada9),
-    darkSquare: Color(0xff7d7a76),
+    lightSquare: Color(0xffcfccc8),
+    darkSquare: Color(0xff9b9894),
     coordinates: true,
     orientation: Side.black,
   ),
-  lastMove: HighlightDetails(solidColor: Color(0x66e68f00)),
+  lastMove: HighlightDetails(solidColor: Color(0x80f0d000)),
   selected: HighlightDetails(solidColor: Color(0x60303030)),
   validMoves: Color(0x40222222),
   validPremoves: Color(0x40203085),
