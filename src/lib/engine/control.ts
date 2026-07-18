@@ -10,8 +10,10 @@
 // would just repaint the whole board.
 //
 // Pure chess.js — no engine time. The opponent's moves come from the same
-// null-move turn-flip the threat probe uses (ep voided); in check the flip is
-// meaningless, so control simply isn't computed that ply.
+// null-move turn-flip the threat probe uses (ep voided). That flip can leave
+// the other king attacked, so king captures are filtered out of move
+// generation; with those gone the map is computed in check too, where the
+// side to move is honestly limited to its evasion squares.
 
 import { Chess, type Color, type Square } from 'chess.js';
 import { PIECE_VAL } from './explain';
@@ -46,6 +48,11 @@ function bestNets(c: Chess): Map<string, number> {
 	const opp: Color = side === 'w' ? 'b' : 'w';
 	const out = new Map<string, number>();
 	for (const m of c.moves({ verbose: true })) {
+		// The turn-flip can leave the OTHER king attacked, and chess.js will
+		// then offer to capture it — a "gain" worth more than the board. Drop
+		// those: they can never arise in the real position, where a king
+		// capture is not a move anyone gets to make.
+		if (m.captured === 'k') continue;
 		const gain = m.captured ? PIECE_VAL[m.captured] : 0;
 		try {
 			c.move({ from: m.from, to: m.to, promotion: m.promotion });
@@ -76,7 +83,7 @@ export function computeControl(fen: string): ControlMap {
 	} catch {
 		return map;
 	}
-	if (real.isGameOver() || real.inCheck()) return map;
+	if (real.isGameOver()) return map;
 
 	const parts = fen.split(' ');
 	const flippedParts = [...parts];
@@ -88,7 +95,6 @@ export function computeControl(fen: string): ControlMap {
 	} catch {
 		return map;
 	}
-	if (flipped.inCheck()) return map; // impossible from a legal position, but stay safe
 
 	const mover = real.turn();
 	const nets: Record<Color, Map<string, number>> = {
