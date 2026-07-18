@@ -161,6 +161,12 @@ class AppShell extends StatefulWidget {
 class _AppShellState extends State<AppShell> {
   int _tab = 0;
 
+  /// Tabs are built on first visit and kept alive after that. IndexedStack
+  /// would otherwise build all four at boot — which on web means Settings'
+  /// preview strips fetch every board texture and piece set before you have
+  /// even seen the board (2.4MB gzipped of the first load).
+  final Set<int> _visited = {0};
+
   @override
   Widget build(BuildContext context) {
     final practice = context.watch<PracticeController>();
@@ -168,11 +174,9 @@ class _AppShellState extends State<AppShell> {
       appBar: _appBar(context),
       body: IndexedStack(
         index: _tab,
-        children: const [
-          PlayTab(),
-          PracticeTab(),
-          GamesListBody(),
-          SettingsTab(),
+        children: [
+          for (var i = 0; i < 4; i++)
+            if (_visited.contains(i)) _tabAt(i) else const SizedBox.shrink(),
         ],
       ),
       bottomNavigationBar: NavigationBar(
@@ -181,7 +185,10 @@ class _AppShellState extends State<AppShell> {
         backgroundColor: const Color(0xFF1f1e1b),
         indicatorColor: const Color(0xFF3a3733),
         onDestinationSelected: (i) {
-          setState(() => _tab = i);
+          setState(() {
+            _tab = i;
+            _visited.add(i);
+          });
           if (i == 1 && practice.current == null) practice.startSession();
           if (i == 2) context.read<ReviewController>().loadGames();
         },
@@ -214,6 +221,13 @@ class _AppShellState extends State<AppShell> {
       ),
     );
   }
+
+  Widget _tabAt(int i) => switch (i) {
+        0 => const PlayTab(),
+        1 => const PracticeTab(),
+        2 => const GamesListBody(),
+        _ => const SettingsTab(),
+      };
 
   PreferredSizeWidget _appBar(BuildContext context) {
     switch (_tab) {

@@ -31,8 +31,53 @@
 
   <title>botvinnik_mobile</title>
   <link rel="manifest" href="manifest.json">
+  <style>
+    /* Painted before any Dart or CanvasKit arrives. Flutter's first frame
+       covers it, then it fades out — so the user never sees a blank page. */
+    #boot { position: fixed; inset: 0; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 20px;
+      background: #161512; color: #b9b6b0; z-index: 9999;
+      font: 15px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      transition: opacity .35s ease; }
+    #boot.done { opacity: 0; pointer-events: none; }
+    #boot .board { width: 96px; height: 96px; display: grid;
+      grid-template: repeat(4, 1fr) / repeat(4, 1fr);
+      box-shadow: 0 8px 30px rgba(0,0,0,.45); }
+    #boot .board i:nth-child(odd)  { background: #f0d9b6; }
+    #boot .board i:nth-child(even) { background: #b58863; }
+    #boot .board i { animation: pulse 1.9s ease-in-out infinite; }
+    #boot .board i:nth-child(4n+2) { animation-delay: .15s; }
+    #boot .board i:nth-child(4n+3) { animation-delay: .3s; }
+    #boot .board i:nth-child(4n)   { animation-delay: .45s; }
+    @keyframes pulse { 0%,100% { opacity: 1 } 50% { opacity: .55 } }
+    #boot .bar { width: 168px; height: 3px; background: #2a2825;
+      border-radius: 2px; overflow: hidden; }
+    #boot .bar span { display: block; height: 100%; width: 30%;
+      background: #81b64c; border-radius: 2px; animation: slide 1.3s ease-in-out infinite; }
+    @keyframes slide { 0% { transform: translateX(-110%) } 100% { transform: translateX(370%) } }
+    #boot p { margin: 0; font-size: 12.5px; color: #6f6c66; }
+    @media (prefers-reduced-motion: reduce) {
+      #boot .board i, #boot .bar span { animation: none }
+    }
+  </style>
 </head>
 <body>
+  <div id="boot" role="status" aria-label="Loading botvinnik">
+    <div class="board"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+    <div class="bar"><span></span></div>
+    <p id="boot-msg">loading the board…</p>
+  </div>
+  <script>
+    // staged text: the engine and its network are the slow part, so say so
+    // rather than showing a bar that pretends to know a percentage
+    var _msg = document.getElementById('boot-msg');
+    setTimeout(function () { if (_msg) _msg.textContent = 'starting the engine…'; }, 2500);
+    setTimeout(function () { if (_msg) _msg.textContent = 'first visit downloads the engine once…'; }, 6000);
+    window.addEventListener('flutter-first-frame', function () {
+      var b = document.getElementById('boot');
+      if (b) { b.classList.add('done'); setTimeout(function () { b.remove(); }, 400); }
+    });
+  </script>
   <!-- the brain bundle: loaded before main.dart.js so JsBridge finds it -->
   <script src="brain.js"></script>
   <!--
