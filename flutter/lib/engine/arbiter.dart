@@ -34,6 +34,7 @@ class _Request {
   final int generation;
   final void Function(List<EngineMove>)? onUpdate; // streamed partials
   final Completer<List<EngineMove>?> completer = Completer();
+  bool cancelled = false; // resolve with partials, don't re-run
 
   _Request({
     required this.fen,
@@ -57,8 +58,44 @@ class SearchArbiter {
   Timer? _budgetTimer;
   bool _preempting = false;
   int _generation = 0;
+  int _runningStreamDepth = 0;
+  // a cancelled analysis is allowed to reach this depth before stopping, so
+  // the move it would have labeled still gets its backfill
+  static const int _kMinUsefulDepth = 12;
+  int? _stopAtDepth;
 
   SearchArbiter(this._engine);
+
+  /// The board moved on: analyses of positions other than [exceptFen] are
+  /// history. Queued ones resolve null; a running one is stopped as soon as
+  /// it has streamed enough to be useful (depth 12), resolving with its
+  /// partial lines. This is the web's only-analyze-the-current-position
+  /// semantic — without it a fast game builds a 3s-per-ply backlog.
+  void cancelAnalyses({required String exceptFen}) {
+    final keep = <_Request>[];
+    for (final r in _queue) {
+      if (r.priority == SearchPriority.analysis && r.fen != exceptFen) {
+        if (!r.completer.isCompleted) r.completer.complete(null);
+      } else {
+        keep.add(r);
+      }
+    }
+    _queue
+      ..clear()
+      ..addAll(keep);
+    final running = _running;
+    if (running != null &&
+        running.priority == SearchPriority.analysis &&
+        running.fen != exceptFen &&
+        !running.cancelled) {
+      running.cancelled = true;
+      if (_runningStreamDepth >= _kMinUsefulDepth) {
+        _engine.stop();
+      } else {
+        _stopAtDepth = _kMinUsefulDepth; // stop once it gets there
+      }
+    }
+  }
 
   int get generation => _generation;
 
@@ -148,6 +185,17 @@ class SearchArbiter {
     if (req.movetimeMs != null && req.depth > 0) {
       _budgetTimer = Timer(Duration(milliseconds: req.movetimeMs!), _engine.stop);
     }
+    _runningStreamDepth = 0;
+    _stopAtDepth = null;
+    void onStream(List<EngineMove> lines) {
+      _runningStreamDepth = lines.isEmpty ? 0 : lines.first.depth;
+      if (_stopAtDepth != null && _runningStreamDepth >= _stopAtDepth!) {
+        _stopAtDepth = null;
+        _engine.stop();
+      }
+      if (req.generation == _generation) req.onUpdate?.call(lines);
+    }
+
     List<EngineMove> lines;
     try {
       lines = await _engine.search(
@@ -155,7 +203,7 @@ class SearchArbiter {
         go: req.goCommand,
         multiPv: req.multiPv,
         extraOptions: req.extraOptions,
-        onUpdate: req.generation == _generation ? req.onUpdate : null,
+        onUpdate: onStream,
       );
     } catch (e) {
       _budgetTimer?.cancel();
@@ -174,6 +222,9 @@ class SearchArbiter {
         lines.isNotEmpty && lines.first.depth >= req.depth;
     if (req.generation != _generation) {
       if (!req.completer.isCompleted) req.completer.complete(null);
+    } else if (req.cancelled) {
+      // the board moved on — partial lines are all this position gets
+      req.completer.complete(lines);
     } else if (wasPreempted && !reachedTarget) {
       // interrupted by a higher-priority request before reaching its budget:
       // run again later from scratch (warm TT makes this cheap), same future

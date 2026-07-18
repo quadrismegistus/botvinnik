@@ -59,6 +59,9 @@ class GameController extends ChangeNotifier {
 
   // analysis cache: fen → future of its MultiPV-5 deep lines
   final Map<String, Future<List<EngineMove>?>> _analysis = {};
+  // the deepest streamed snapshot per fen — grading falls back to these when
+  // an analysis was cancelled because the board moved on
+  final Map<String, List<EngineMove>> _partials = {};
   // grade pipelines still in flight — save waits for them (bounded)
   final Set<Future<void>> _pendingGrades = {};
   int _gen = 0;
@@ -130,6 +133,7 @@ class GameController extends ChangeNotifier {
     _saved = false;
     gameSeed = _newSeed();
     _analysis.clear();
+    _partials.clear();
     _analysisFor(position.fen);
     notifyListeners();
     _maybeBotTurn();
@@ -181,6 +185,10 @@ class GameController extends ChangeNotifier {
     );
     moves.add(record);
     notifyListeners();
+    // the board moved on: older analyses wrap up at depth 12 and yield the
+    // engine — only the current position gets the full budget (web semantic;
+    // without this a fast game builds a 3s-per-ply backlog)
+    _arbiter.cancelAnalyses(exceptFen: position.fen);
     // post-analysis = next move's pre-lines; streamed partials backfill this
     // move's grade the moment the child search passes depth 10 (web parity —
     // the label shouldn't wait out the full 3s budget)
@@ -368,7 +376,11 @@ class GameController extends ChangeNotifier {
   Future<List<EngineMove>?> _analysisFor(String fen,
       {void Function(List<EngineMove>)? onUpdate}) {
     return _analysis.putIfAbsent(
-        fen, () => _arbiter.analysis(fen, onUpdate: onUpdate));
+        fen,
+        () => _arbiter.analysis(fen, onUpdate: (lines) {
+              _partials[fen] = lines;
+              onUpdate?.call(lines);
+            }));
   }
 
   // ---- line preview: animate an explanation's line on the main board ----
@@ -428,7 +440,10 @@ class GameController extends ChangeNotifier {
   }
 
   Future<void> _gradePipeline(MoveRecord record, int gen) async {
-    final pre = await _analysisFor(record.fenBefore);
+    // pre-lines: the completed (or cancelled-with-partials) analysis of the
+    // position the move was played from, falling back to streamed partials
+    var pre = await _analysisFor(record.fenBefore);
+    if (pre == null || pre.isEmpty) pre = _partials[record.fenBefore];
     if (gen != _gen || pre == null || pre.isEmpty) return;
     var grade = _grading.gradeMove(
       ply: record.ply,
@@ -440,11 +455,20 @@ class GameController extends ChangeNotifier {
     );
     record.grade = grade;
     notifyListeners();
+    // the child search may already have streamed past depth 10 while we
+    // waited on the pre-lines — backfill from the snapshot immediately
+    final snap = _partials[record.fenAfter];
+    if (snap != null) _earlyBackfill(record, snap, gen);
 
-    final child = await _analysisFor(record.fenAfter);
-    if (gen != _gen || child == null || child.isEmpty) return;
-    grade = _grading.backfillGrade(grade, child);
-    record.grade = grade;
+    var child = await _analysisFor(record.fenAfter);
+    if (child == null || child.isEmpty) child = _partials[record.fenAfter];
+    if (gen != _gen ||
+        child == null ||
+        child.isEmpty ||
+        child.first.depth < 10) {
+      return;
+    }
+    record.grade = _grading.backfillGrade(record.grade ?? grade, child);
     notifyListeners();
 
     // auto-collect big mistakes as practice puzzles (web maybeCollect)
