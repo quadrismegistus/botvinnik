@@ -5054,6 +5054,7 @@ var brain = (() => {
     const mover = c.turn();
     const defenderMoves = [];
     const candidates = [];
+    let defCapture = null;
     for (let i = 0; i < plies; i++) {
       let m;
       try {
@@ -5065,14 +5066,21 @@ var brain = (() => {
       } catch {
         break;
       }
-      if (m.color === mover && m.captured) {
-        let sq = m.isEnPassant() ? m.to[0] + m.from[1] : m.to;
-        for (let j = defenderMoves.length - 1; j >= 0; j--) {
-          if (defenderMoves[j].to === sq) sq = defenderMoves[j].from;
+      const capSq = m.captured ? m.isEnPassant() ? m.to[0] + m.from[1] : m.to : null;
+      if (m.color === mover && capSq) {
+        const fairTrade = defCapture !== null && defCapture.sq === capSq && defCapture.val >= PIECE_VAL[m.captured];
+        if (!fairTrade) {
+          let sq = capSq;
+          for (let j = defenderMoves.length - 1; j >= 0; j--) {
+            if (defenderMoves[j].to === sq) sq = defenderMoves[j].from;
+          }
+          candidates.push({ sq, ply: i });
         }
-        candidates.push({ sq, ply: i });
       }
-      if (m.color !== mover) defenderMoves.push({ from: m.from, to: m.to });
+      if (m.color !== mover) {
+        defenderMoves.push({ from: m.from, to: m.to });
+        defCapture = capSq ? { sq: capSq, val: PIECE_VAL[m.captured] } : null;
+      }
     }
     if (candidates.length === 0) return [];
     const afterThreat = new Chess(nullFen);

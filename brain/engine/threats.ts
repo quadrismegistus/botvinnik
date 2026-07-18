@@ -156,6 +156,8 @@ function victimSquares(nullFen: string, ucis: string[], plies: number): string[]
 	const mover = c.turn();
 	const defenderMoves: { from: string; to: string }[] = [];
 	const candidates: { sq: string; ply: number }[] = [];
+	// the defender's immediately-preceding capture: {landing square, value taken}
+	let defCapture: { sq: string; val: number } | null = null;
 	for (let i = 0; i < plies; i++) {
 		let m;
 		try {
@@ -167,15 +169,33 @@ function victimSquares(nullFen: string, ucis: string[], plies: number): string[]
 		} catch {
 			break;
 		}
-		if (m.color === mover && m.captured) {
-			// en passant: the pawn dies beside the landing square, not on it
-			let sq: string = m.isEnPassant() ? m.to[0] + m.from[1] : m.to;
-			for (let j = defenderMoves.length - 1; j >= 0; j--) {
-				if (defenderMoves[j].to === sq) sq = defenderMoves[j].from;
+		// en passant: the pawn dies beside the landing square, not on it
+		const capSq: string | null = m.captured
+			? m.isEnPassant()
+				? m.to[0] + m.from[1]
+				: m.to
+			: null;
+		if (m.color === mover && capSq) {
+			// captured ≠ lost: when this is the recapture of an exchange the
+			// DEFENDER initiated last ply on this square, the piece traded
+			// itself off — ring it only if it died for insufficient value
+			// (a desperado grab by a trapped piece), never for a fair trade
+			const fairTrade =
+				defCapture !== null &&
+				defCapture.sq === capSq &&
+				defCapture.val >= PIECE_VAL[m.captured!];
+			if (!fairTrade) {
+				let sq = capSq;
+				for (let j = defenderMoves.length - 1; j >= 0; j--) {
+					if (defenderMoves[j].to === sq) sq = defenderMoves[j].from;
+				}
+				candidates.push({ sq, ply: i });
 			}
-			candidates.push({ sq, ply: i });
 		}
-		if (m.color !== mover) defenderMoves.push({ from: m.from, to: m.to });
+		if (m.color !== mover) {
+			defenderMoves.push({ from: m.from, to: m.to });
+			defCapture = capSq ? { sq: capSq, val: PIECE_VAL[m.captured!] } : null;
+		}
 	}
 	if (candidates.length === 0) return [];
 

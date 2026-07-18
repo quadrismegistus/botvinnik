@@ -95,6 +95,40 @@ describe('findThreat', () => {
 		expect(t!.targets).toEqual(['f7', 'h8']);
 	});
 
+	it('does not ring a piece that trades itself off evenly (captured ≠ lost)', async () => {
+		// Ryan's screenshot: Nc3 double-attacks the e4 bishop and the d5 pawn.
+		// In the line the bishop CHOOSES Bxf3 and is recaptured — an even
+		// trade, not a loss — and the pawn falls later. Ring d5 only: the
+		// claim "you lose this piece" must not cover "this piece gets traded".
+		const fen = '3qk3/8/8/3p4/4b3/5N2/6B1/1N2K3 b - - 0 1';
+		const analyze = fakeAnalyze([
+			'b1c3', // the double attack (quiet)
+			'e4f3', // bishop trades itself for the knight
+			'g2f3', // recaptured — fair, no ring on e4
+			'e8d7',
+			'f3d5', // the pawn falls
+			'd7e7' // quiet, settles the count
+		]);
+		const t = await findThreat(fen, analyze);
+		expect(t).not.toBeNull();
+		expect(t!.uci).toBe('b1c3');
+		expect(t!.gain).toBe(1); // -N +B +P
+		expect(t!.targets).toEqual(['d5']);
+	});
+
+	it('still rings a trapped piece whose desperado grab is worth less than itself', async () => {
+		// Ryan's b5 screenshot: the free move b5 attacks the c4 bishop; its
+		// best is Bxb5 axb5 — it died for a pawn. That recapture is NOT a
+		// fair trade (1 < 3): the bishop was lost, ring it where it stands.
+		const fen = '4k3/1p6/p7/8/2B5/8/8/4K3 w - - 0 1';
+		const analyze = fakeAnalyze(['b7b5', 'c4b5', 'a6b5', 'e1e2']); // quiet Ke2 settles
+		const t = await findThreat(fen, analyze);
+		expect(t).not.toBeNull();
+		expect(t!.uci).toBe('b7b5');
+		expect(t!.gain).toBe(2); // bishop for a pawn
+		expect(t!.targets).toEqual(['c4']);
+	});
+
 	it('drops a small gain that names no victim (gambit-horizon noise)', async () => {
 		// The "threat: Nc6 costs 1.0" mirage: after the free move Nc6, the
 		// line goes d4 exd4 — the pawn dies only because it ADVANCED into the
