@@ -17,10 +17,11 @@ const Color kDefaultDarkSquare = Color(0xffb58863);
 const Color kDefaultLastMove = Color(0x809cc700);
 const String kDefaultPieceSet = 'cburnett';
 
-/// Peak opacity of the overlays. The engine arrows sat at fully opaque and
-/// dominated the position; the control tint was too faint to read at a
-/// glance. Both are user-adjustable.
-const double kDefaultArrowOpacity = 0.72;
+/// Peak opacity of the overlays. Both arrow kinds sit at 70%: fully opaque
+/// arrows dominated the position, and matching them keeps the engine's
+/// suggestion and the opponent's threat weighted the same. The control tint
+/// is separate — it was too faint to read at a glance.
+const double kDefaultArrowOpacity = 0.7;
 const double kDefaultControlOpacity = 0.55;
 
 /// The threat arrow's opacity. It sat at 90% while every other overlay
