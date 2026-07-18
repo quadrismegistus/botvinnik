@@ -290,6 +290,21 @@ class GameController extends ChangeNotifier {
     botThinking = true;
     notifyListeners();
     final gen = _gen;
+    // let the analysis of the player's move reach depth 10 before the bot's
+    // reply search preempts it — the player's grade label lands in <1s and
+    // the bot pausing a beat before answering reads human anyway
+    final graded = position.fen;
+    final sprintStart = DateTime.now();
+    while (gen == _gen &&
+        (_partials[graded]?.firstOrNull?.depth ?? 0) < 10 &&
+        DateTime.now().difference(sprintStart).inMilliseconds < 1500) {
+      await Future.delayed(const Duration(milliseconds: 50));
+    }
+    if (gen != _gen) {
+      botThinking = false;
+      notifyListeners();
+      return;
+    }
     try {
       final uci = await _pickBotMove(p);
       if (gen != _gen || uci == null) return;
