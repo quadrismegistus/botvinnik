@@ -2,6 +2,51 @@
 
 What's planned, roughly in priority order. See [README](README.md) for what's already shipped.
 
+## Platform split (decided 2026-07-18)
+
+Two apps, one brain. `brain/` holds everything that decides a move or grades
+one; `svelte/` and `flutter/` are consumers and neither depends on the other.
+
+- **Flutter owns mobile and desktop.** The Tauri shell is parked, not deleted
+  (see [docs/desktop.md](docs/desktop.md)). Sharing one UI across phone,
+  tablet and desktop beat Tauri's one real advantage: it runs the same
+  Stockfish WASM the web app does, so its calibration is right by
+  construction, where the Flutter desktop build spawns whatever binary it
+  finds.
+- **Svelte still owns the web deploy.** botvinnik.app stays SvelteKit until
+  Flutter web closes two gaps: the persona roster and offline support.
+- Flutter web works and is measured (9.22MB gzipped, 26 requests) but is not
+  a deploy candidate yet.
+
+### In order
+
+1. **Wide-window UI.** The highest-value work, because it is shared with
+   mobile rather than being web-only. Beyond the crude 720px split that
+   exists: multiple panels visible at once instead of six mutually exclusive
+   tabs, keyboard navigation (arrows to scrub, space for the bot's reply,
+   `f` to flip), resizable panes, a menu bar.
+2. **M5 — the rest of the roster.** The brain ships 35 personas across 7
+   families; Flutter exposes 20, the `square` and `fish` families only.
+   Missing: 6 Maia, 3 retro, 3 Dala, 2 Horizon, 1 Garbo. This is the real
+   parity gap and the reason Svelte still owns the web.
+3. **A real service worker for Flutter web.** Flutter 3.44 emits a
+   self-unregistering no-op, so the web build currently has no offline
+   support at all. Needs: a precache split (shell + engine; the textures and
+   40 piece sets are runtime-cached), an atomic per-build cache version —
+   load-bearing, because a stale `brain.js` against a new app hard-fails the
+   BRAIN_VERSION assert rather than degrading — Flutter's own SW neutralised,
+   and a build step that emits the manifest.
+4. **Notarization layout**, before any App Store attempt: the bundled engine
+   is ad-hoc signed in `Contents/Resources` and will be rejected. Moving it
+   to `Contents/MacOS` and signing it in the same build phase is the fix;
+   `ProcessEngine.resolveBinary` already probes that path.
+
+### Free win, independent of all the above
+
+botvinnik.app eagerly loads **6.31MB of ONNX runtime** for Maia and 1.34MB of
+commentary on every first visit, used or not. Deferring both roughly halves
+the first load of the app actually being shipped today.
+
 ## Next up
 
 ### Import games from chess.com / unanalysed Lichess games (phase 2)
