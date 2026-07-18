@@ -18,11 +18,13 @@ import 'brain/practice_api.dart';
 import 'db/app_db.dart';
 import 'engine/arbiter.dart';
 import 'engine/search_engine.dart';
+import 'stores/book_store.dart';
 import 'stores/game_controller.dart';
 import 'stores/practice_controller.dart';
 import 'stores/review_controller.dart';
 import 'stores/settings_store.dart';
 import 'ui/board_pane.dart';
+import 'ui/book_pane.dart';
 import 'ui/games_list.dart';
 import 'ui/grade_strip.dart';
 import 'ui/insight_card.dart';
@@ -131,6 +133,7 @@ class _BootGateState extends State<BootGate> {
             ChangeNotifierProvider(
               create: (_) => ReviewController(booted.db),
             ),
+            ChangeNotifierProvider(create: (_) => BookStore()),
             Provider(create: (_) => ChessApi(booted.bridge)),
           ],
           child: MaterialApp(
@@ -340,7 +343,8 @@ class _PlayTabState extends State<PlayTab> {
                   1 => const LinesPane(),
                   2 => const LinesTreePane(),
                   3 => const WinChart(),
-                  _ => const MoveListPane(),
+                  4 => const MoveListPane(),
+                  _ => const BookPane(),
                 },
               ],
             ),
@@ -357,6 +361,7 @@ class _PlayTabState extends State<PlayTab> {
       (Icons.account_tree_outlined, 'Tree'),
       (Icons.show_chart, 'Chart'),
       (Icons.list_alt, 'Moves'),
+      (Icons.menu_book_outlined, 'Book'),
     ];
     return Container(
       color: const Color(0xFF1f1e1b),
@@ -367,19 +372,20 @@ class _PlayTabState extends State<PlayTab> {
               child: InkWell(
                 onTap: () => setState(() => _view = i),
                 child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 6),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
+                  padding: const EdgeInsets.symmetric(vertical: 5),
+                  child: Column(
                     children: [
                       Icon(tabs[i].$1,
                           size: 16,
                           color: _view == i
                               ? const Color(0xFF81B64C)
                               : Colors.white38),
-                      const SizedBox(width: 5),
                       Text(tabs[i].$2,
+                          maxLines: 1,
+                          overflow: TextOverflow.fade,
+                          softWrap: false,
                           style: TextStyle(
-                              fontSize: 12,
+                              fontSize: 9.5,
                               color: _view == i
                                   ? const Color(0xFF81B64C)
                                   : Colors.white38)),
