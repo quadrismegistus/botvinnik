@@ -78,7 +78,16 @@ class _LinesTreePaneState extends State<LinesTreePane> {
             }
           },
           child: CustomPaint(
-            size: Size(max(tree.width, MediaQuery.of(context).size.width),
+            // reserve lookahead past the anchor: right after a move the old
+            // continuations are pruned and the new ones haven't streamed, so
+            // a nodes-only width briefly shrinks and the scroll clamp yanks
+            // the anchor to the right edge
+            size: Size(
+                [
+                  tree.width,
+                  (tree.nodes[tree.anchorId]?.x ?? 0) + 340,
+                  MediaQuery.of(context).size.width,
+                ].reduce(max),
                 _kHeight),
             painter: _TreePainter(tree, playable.keys.toSet()),
           ),
