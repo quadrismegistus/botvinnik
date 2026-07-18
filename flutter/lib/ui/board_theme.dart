@@ -149,9 +149,18 @@ StaticChessboardSettings staticBoardSettingsFor(SettingsStore s) =>
       pieceAssets: pieceSetFor(s).assets,
     );
 
-/// The web's top-3 engine-arrow brushes: green fading by rank.
-const List<Color> kEngineArrowColors = [
-  Color(0xFF15781B), // g0: opacity 1
-  Color(0x8C15781B), // g1: 0.55
-  Color(0x5215781B), // g2: 0.32
-];
+/// The web's top-3 engine-arrow brushes: green fading by rank. [peak] is the
+/// opacity of the best move's arrow; the other two keep their relative
+/// weight beneath it, so one slider moves the whole set coherently.
+const Color kEngineArrowGreen = Color(0xFF15781B);
+const List<double> _kArrowRanks = [1.0, 0.55, 0.32];
+
+List<Color> engineArrowColors(double peak) => [
+      for (final rank in _kArrowRanks)
+        kEngineArrowGreen.withValues(alpha: peak * rank),
+    ];
+
+/// The square-control tint: [peak] at the center of the square, fading out.
+const Color kControlOurs = Color(0xFF81B64C);
+const Color kControlTheirs = Color(0xFFCA3431);
+const double kControlEdgeRatio = 0.37;

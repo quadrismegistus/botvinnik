@@ -71,7 +71,9 @@ class _BoardPaneState extends State<BoardPane> {
     final orientation = game.playerColor == 'w' ? Side.white : Side.black;
     final threatUci = game.previewing ? null : game.threatUci;
     final control = game.previewing ? null : game.controlMap;
-    final engineArrows = game.previewing ? const <String>[] : game.engineArrowUcis;
+    final engineArrows =
+        game.previewing ? const <String>[] : game.engineArrowUcis;
+    final arrowColors = engineArrowColors(settings.arrowOpacity);
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -89,7 +91,7 @@ class _BoardPaneState extends State<BoardPane> {
             // the engine's top moves, green fading by rank (web's g0/g1/g2)
             for (var i = 0; i < engineArrows.length; i++)
               Arrow(
-                color: kEngineArrowColors[i],
+                color: arrowColors[i],
                 orig: NormalMove.fromUci(engineArrows[i]).from,
                 dest: NormalMove.fromUci(engineArrows[i]).to,
               ),
@@ -110,7 +112,7 @@ class _BoardPaneState extends State<BoardPane> {
             child: CustomPaint(
               size: Size(size, size),
               painter: _ControlPainter(control, orientation,
-                  game.playerColor == 'w' ? 'w' : 'b'),
+                  game.playerColor == 'w' ? 'w' : 'b', settings.controlOpacity),
             ),
           ),
         ]);
@@ -125,7 +127,8 @@ class _ControlPainter extends CustomPainter {
   final Map<String, String> control;
   final Side orientation;
   final String us;
-  _ControlPainter(this.control, this.orientation, this.us);
+  final double peak;
+  _ControlPainter(this.control, this.orientation, this.us, this.peak);
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -137,14 +140,14 @@ class _ControlPainter extends CustomPainter {
       final y = orientation == Side.white ? 7 - rank : rank;
       final center = Offset((x + 0.5) * sq, (y + 0.5) * sq);
       final ours = entry.value == us;
-      final base = ours ? const Color(0xFF81B64C) : const Color(0xFFCA3431);
+      final base = ours ? kControlOurs : kControlTheirs;
       canvas.drawCircle(
         center,
         sq * 0.5,
         Paint()
           ..shader = RadialGradient(colors: [
-            base.withValues(alpha: 0.38),
-            base.withValues(alpha: 0.14),
+            base.withValues(alpha: peak),
+            base.withValues(alpha: peak * kControlEdgeRatio),
           ]).createShader(
               Rect.fromCircle(center: center, radius: sq * 0.5)),
       );
@@ -153,5 +156,7 @@ class _ControlPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_ControlPainter old) =>
-      old.control != control || old.orientation != orientation;
+      old.control != control ||
+      old.orientation != orientation ||
+      old.peak != peak;
 }

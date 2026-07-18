@@ -35,6 +35,12 @@ class SettingsTab extends StatelessWidget {
           value: settings.showArrows,
           onChanged: (v) => settings.showArrows = v,
         ),
+        if (settings.showArrows)
+          _OpacitySlider(
+            label: 'Arrow opacity',
+            value: settings.arrowOpacity,
+            onChanged: (v) => settings.arrowOpacity = v,
+          ),
         SwitchListTile(
           dense: true,
           title: const Text('Threat arrow'),
@@ -55,8 +61,12 @@ class SettingsTab extends StatelessWidget {
           value: settings.showControl,
           onChanged: (v) => settings.showControl = v,
         ),
-        const _SectionLabel('Board theme'),
-        const _BoardColorSection(),
+        if (settings.showControl)
+          _OpacitySlider(
+            label: 'Control tint opacity',
+            value: settings.controlOpacity,
+            onChanged: (v) => settings.controlOpacity = v,
+          ),
         const _SectionLabel('Practice'),
         ListTile(
           dense: true,
@@ -87,7 +97,57 @@ class SettingsTab extends StatelessWidget {
             style: const TextStyle(fontSize: 11.5, color: Colors.white38),
           ),
         ),
+        const _SectionLabel('Board theme'),
+        const _BoardColorSection(),
       ],
+    );
+  }
+}
+
+/// A 0–1 opacity control. Shows the value so a setting can be described and
+/// restored, not just dragged until it looks right.
+class _OpacitySlider extends StatelessWidget {
+  final String label;
+  final double value;
+  final ValueChanged<double> onChanged;
+  const _OpacitySlider({
+    required this.label,
+    required this.value,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 148,
+            child: Text(label,
+                style: const TextStyle(fontSize: 12, color: Colors.white70)),
+          ),
+          Expanded(
+            child: Slider(
+              value: value,
+              min: 0.1,
+              max: 1.0,
+              divisions: 18,
+              label: '${(value * 100).round()}%',
+              onChanged: onChanged,
+            ),
+          ),
+          SizedBox(
+            width: 38,
+            child: Text('${(value * 100).round()}%',
+                textAlign: TextAlign.right,
+                style: const TextStyle(
+                    fontSize: 12,
+                    color: Colors.white38,
+                    fontFeatures: [FontFeature.tabularFigures()])),
+          ),
+        ],
+      ),
     );
   }
 }

@@ -17,6 +17,12 @@ const Color kDefaultDarkSquare = Color(0xffb58863);
 const Color kDefaultLastMove = Color(0x809cc700);
 const String kDefaultPieceSet = 'cburnett';
 
+/// Peak opacity of the overlays. The engine arrows sat at fully opaque and
+/// dominated the position; the control tint was too faint to read at a
+/// glance. Both are user-adjustable.
+const double kDefaultArrowOpacity = 0.72;
+const double kDefaultControlOpacity = 0.55;
+
 class SettingsStore extends ChangeNotifier {
   final SharedPreferences _prefs;
 
@@ -33,6 +39,8 @@ class SettingsStore extends ChangeNotifier {
   Color _lastMoveColor;
   String _pieceSet; // a chessground PieceSet name
   String _boardTexture; // a chessground board texture name; '' = flat colors
+  double _arrowOpacity;
+  double _controlOpacity;
 
   // Named on purpose: these are a dozen fields of only three distinct types,
   // so positional arguments would let a swapped pair compile silently.
@@ -54,6 +62,8 @@ class SettingsStore extends ChangeNotifier {
     required Color lastMoveColor,
     required String pieceSet,
     required String boardTexture,
+    required double arrowOpacity,
+    required double controlOpacity,
   })  : _prefs = prefs,
         _personaId = personaId,
         _playerColor = playerColor,
@@ -67,7 +77,9 @@ class SettingsStore extends ChangeNotifier {
         _darkSquare = darkSquare,
         _lastMoveColor = lastMoveColor,
         _pieceSet = pieceSet,
-        _boardTexture = boardTexture;
+        _boardTexture = boardTexture,
+        _arrowOpacity = arrowOpacity,
+        _controlOpacity = controlOpacity;
 
   static Future<SettingsStore> load() async {
     final prefs = await SharedPreferences.getInstance();
@@ -103,6 +115,10 @@ class SettingsStore extends ChangeNotifier {
       lastMoveColor: _color(prefs, 'botvinnik-lastmove', kDefaultLastMove),
       pieceSet: prefs.getString('botvinnik-pieces') ?? kDefaultPieceSet,
       boardTexture: prefs.getString('botvinnik-board-texture') ?? '',
+      arrowOpacity: prefs.getDouble('botvinnik-arrow-opacity') ??
+          kDefaultArrowOpacity,
+      controlOpacity: prefs.getDouble('botvinnik-control-opacity') ??
+          kDefaultControlOpacity,
     );
   }
 
@@ -113,6 +129,23 @@ class SettingsStore extends ChangeNotifier {
     if (raw == null) return fallback;
     final v = int.tryParse(raw, radix: 16);
     return v == null ? fallback : Color(v);
+  }
+
+  double get arrowOpacity => _arrowOpacity;
+  double get controlOpacity => _controlOpacity;
+
+  set arrowOpacity(double v) {
+    if (v == _arrowOpacity) return;
+    _arrowOpacity = v;
+    _prefs.setDouble('botvinnik-arrow-opacity', v);
+    notifyListeners();
+  }
+
+  set controlOpacity(double v) {
+    if (v == _controlOpacity) return;
+    _controlOpacity = v;
+    _prefs.setDouble('botvinnik-control-opacity', v);
+    notifyListeners();
   }
 
   String get boardTexture => _boardTexture;
