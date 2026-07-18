@@ -35,21 +35,19 @@
     /* Painted before any Dart or CanvasKit arrives. Flutter's first frame
        covers it, then it fades out — so the user never sees a blank page. */
     #boot { position: fixed; inset: 0; display: flex; flex-direction: column;
-      align-items: center; justify-content: center; gap: 20px;
+      align-items: center; justify-content: center; gap: 14px;
       background: #161512; color: #b9b6b0; z-index: 9999;
       font: 15px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       transition: opacity .35s ease; }
     #boot.done { opacity: 0; pointer-events: none; }
-    #boot .board { width: 96px; height: 96px; display: grid;
-      grid-template: repeat(4, 1fr) / repeat(4, 1fr);
-      box-shadow: 0 8px 30px rgba(0,0,0,.45); }
-    #boot .board i:nth-child(odd)  { background: #f0d9b6; }
-    #boot .board i:nth-child(even) { background: #b58863; }
-    #boot .board i { animation: pulse 1.9s ease-in-out infinite; }
-    #boot .board i:nth-child(4n+2) { animation-delay: .15s; }
-    #boot .board i:nth-child(4n+3) { animation-delay: .3s; }
-    #boot .board i:nth-child(4n)   { animation-delay: .45s; }
-    @keyframes pulse { 0%,100% { opacity: 1 } 50% { opacity: .55 } }
+    /* the app icon, inlined so it paints with the HTML — no second request */
+    #boot img { width: 112px; height: 112px; border-radius: 24px;
+      box-shadow: 0 10px 34px rgba(0,0,0,.5);
+      animation: breathe 2.6s ease-in-out infinite; }
+    @keyframes breathe {
+      0%,100% { transform: scale(1);    box-shadow: 0 10px 34px rgba(0,0,0,.5) }
+      50%     { transform: scale(1.04); box-shadow: 0 14px 40px rgba(0,0,0,.6) }
+    }
     #boot .bar { width: 168px; height: 3px; background: #2a2825;
       border-radius: 2px; overflow: hidden; }
     #boot .bar span { display: block; height: 100%; width: 30%;
@@ -57,13 +55,14 @@
     @keyframes slide { 0% { transform: translateX(-110%) } 100% { transform: translateX(370%) } }
     #boot p { margin: 0; font-size: 12.5px; color: #6f6c66; }
     @media (prefers-reduced-motion: reduce) {
-      #boot .board i, #boot .bar span { animation: none }
+      #boot img, #boot .bar span { animation: none }
     }
   </style>
 </head>
 <body>
   <div id="boot" role="status" aria-label="Loading botvinnik">
-    <div class="board"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+    <img src="data:image/png;base64,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" alt="botvinnik" width="112" height="112">
+    <strong style="font-size:17px;color:#e8e5df;letter-spacing:.2px;font-weight:600">botvinnik</strong>
     <div class="bar"><span></span></div>
     <p id="boot-msg">loading the board…</p>
   </div>
@@ -73,9 +72,17 @@
     var _msg = document.getElementById('boot-msg');
     setTimeout(function () { if (_msg) _msg.textContent = 'starting the engine…'; }, 2500);
     setTimeout(function () { if (_msg) _msg.textContent = 'first visit downloads the engine once…'; }, 6000);
-    window.addEventListener('flutter-first-frame', function () {
+    function _hideBoot() {
       var b = document.getElementById('boot');
       if (b) { b.classList.add('done'); setTimeout(function () { b.remove(); }, 400); }
+    }
+    // the app calls this once the engine, brain and database are up —
+    // Flutter's first frame lands well before that and would hand over to a
+    // bare spinner
+    window.botvinnikReady = _hideBoot;
+    // fallback: never trap the user behind the splash if boot dies silently
+    window.addEventListener('flutter-first-frame', function () {
+      setTimeout(_hideBoot, 20000);
     });
   </script>
   <!-- the brain bundle: loaded before main.dart.js so JsBridge finds it -->

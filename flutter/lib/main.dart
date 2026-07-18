@@ -38,6 +38,7 @@ import 'ui/new_game_sheet.dart';
 import 'ui/practice_tab.dart';
 import 'ui/roster_picker.dart';
 import 'ui/settings_tab.dart';
+import 'ui/splash.dart';
 import 'ui/win_chart.dart';
 
 void main() {
@@ -87,6 +88,7 @@ class _BootGateState extends State<BootGate> {
         db, PracticeApi(bridge), GradingApi(bridge), arbiter)
       ..settings = settings;
     await practice.load();
+    dismissSplash(); // web: hand over from the HTML splash (no-op elsewhere)
     return _Booted(bridge, arbiter, settings, classTable, db, practice);
   }
 
@@ -96,6 +98,7 @@ class _BootGateState extends State<BootGate> {
       future: _boot,
       builder: (context, snap) {
         if (snap.hasError) {
+          dismissSplash(); // never leave the splash covering an error
           return MaterialApp(
             theme: _theme(),
             home: Scaffold(
