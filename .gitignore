@@ -41,3 +41,11 @@ scripts/maia-spike/
 scripts/maia3-spike/
 scripts/engines/
 data/puzzles/*.zst
+
+# Flutter spike (flutter/) — generated/build noise; Dart tooling
+flutter/build/
+flutter/.dart_tool/
+flutter/.flutter-plugins*
+flutter/ios/Pods/
+flutter/ios/.symlinks/
+flutter/macos/Pods/
