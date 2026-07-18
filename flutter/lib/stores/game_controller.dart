@@ -137,6 +137,7 @@ class GameController extends ChangeNotifier {
   // ---- game actions ----
 
   void newGame() {
+    _browsePly = null;
     _gen++;
     _arbiter.bumpGeneration();
     position = Chess.initial;
@@ -158,6 +159,7 @@ class GameController extends ChangeNotifier {
   /// Undo the last player move (and the bot reply on top of it);
   /// on the analysis board, one ply at a time.
   void undo() {
+    _browsePly = null;
     if (moves.isEmpty || botThinking) return;
     _gen++;
     _arbiter.bumpGeneration();
@@ -486,6 +488,63 @@ class GameController extends ChangeNotifier {
       'mate': lines.first.mate,
     });
     if (position.fen == fen) notifyListeners();
+  }
+
+  // ---- view-only navigation ----
+  //
+  // Browsing and flipping never touch the game: the moves list, the engine
+  // and the grading pipeline all carry on against the live position. Only
+  // what the board draws changes.
+
+  /// Plies into the game, or null when following the live position.
+  /// 0 is the starting position, k is the position after moves[k-1].
+  int? _browsePly;
+  bool _flipped = false;
+
+  bool get browsing => _browsePly != null;
+  bool get flipped => _flipped;
+
+  String? get browseFen {
+    final p = _browsePly;
+    if (p == null) return null;
+    return p == 0 ? Chess.initial.fen : moves[p - 1].fenAfter;
+  }
+
+  NormalMove? get browseLastMove {
+    final p = _browsePly;
+    if (p == null || p == 0) return null;
+    return NormalMove.fromUci(moves[p - 1].uci);
+  }
+
+  /// Where the cursor sits, for a move list to highlight.
+  int get browsePly => _browsePly ?? moves.length;
+
+  void toggleFlip() {
+    _flipped = !_flipped;
+    notifyListeners();
+  }
+
+  /// Steps the cursor; stepping past the last move returns to live.
+  void browseBy(int delta) {
+    if (moves.isEmpty) return;
+    final next = (browsePly + delta).clamp(0, moves.length);
+    _browsePly = next == moves.length ? null : next;
+    notifyListeners();
+  }
+
+  void browseTo(int ply) {
+    if (moves.isEmpty) return;
+    final next = ply.clamp(0, moves.length);
+    _browsePly = next == moves.length ? null : next;
+    notifyListeners();
+  }
+
+  /// Back to the live position — also the escape hatch from a preview.
+  void browseLive() {
+    if (previewing) stopPreview();
+    if (_browsePly == null) return;
+    _browsePly = null;
+    notifyListeners();
   }
 
   /// The game-long exploration map (null until wired with a ChessApi).

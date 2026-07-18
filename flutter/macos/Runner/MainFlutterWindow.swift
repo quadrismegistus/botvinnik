@@ -8,6 +8,10 @@ class MainFlutterWindow: NSWindow {
     self.contentViewController = flutterViewController
     self.setFrame(windowFrame, display: true)
 
+    // Below roughly this, the board and the panel column stop being usable
+    // at the same time — the layout's own wide breakpoint is 720.
+    self.minSize = NSSize(width: 560, height: 620)
+
     RegisterGeneratedPlugins(registry: flutterViewController)
 
     super.awakeFromNib()

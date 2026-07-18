@@ -22,6 +22,19 @@ class _BoardPaneState extends State<BoardPane> {
   String? _lastFen;
 
   GameData _gameData(GameController game) {
+    // browsing history: show the past position, input off until you come back
+    final browseFen = game.browseFen;
+    if (browseFen != null) {
+      final pos = Chess.fromSetup(Setup.parseFen(browseFen));
+      return GameData(
+        fen: browseFen,
+        lastMove: game.browseLastMove,
+        playerSide: PlayerSide.none,
+        validMoves: makeLegalMoves(pos),
+        sideToMove: pos.turn,
+        kingSquareInCheck: pos.isCheck ? pos.board.kingOf(pos.turn) : null,
+      );
+    }
     // preview: the board narrates a line; input off until it comes home
     final previewFen = game.previewFen;
     if (previewFen != null) {
@@ -60,15 +73,16 @@ class _BoardPaneState extends State<BoardPane> {
   Widget build(BuildContext context) {
     final game = context.watch<GameController>();
     final settings = context.watch<SettingsStore>();
-    final sig =
-        '${game.previewFen ?? game.position.fen}|${game.botEnabled}|${game.playerColor}';
+    final sig = '${game.browseFen ?? game.previewFen ?? game.position.fen}'
+        '|${game.botEnabled}|${game.playerColor}';
     _controller ??= ChessboardController(game: _gameData(game));
     if (_lastFen != sig) {
       _lastFen = sig;
       _controller!.updatePosition(_gameData(game));
     }
 
-    final orientation = game.playerColor == 'w' ? Side.white : Side.black;
+    final white = (game.playerColor == 'w') != game.flipped;
+    final orientation = white ? Side.white : Side.black;
     final threatUci = game.previewing ? null : game.threatUci;
     final control = game.previewing ? null : game.controlMap;
     final engineArrows =

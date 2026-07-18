@@ -33,6 +33,15 @@ const double kDefaultThreatOpacity = 0.7;
 /// five lines exist regardless — this only decides how many are shown.
 const int kDefaultArrowCount = 5;
 
+/// Which panels are open on a wide window, by their index in the view bar.
+/// Insights alone to start.
+const Set<int> kDefaultPanels = {0};
+
+/// The board's share of a wide window's width.
+const double kDefaultSplit = 0.58;
+const double kMinSplit = 0.32;
+const double kMaxSplit = 0.75;
+
 /// One brush per rank in board_theme's fade; more arrows than brushes would
 /// index off the end.
 const int kMaxArrowCount = 5;
@@ -56,6 +65,8 @@ class SettingsStore extends ChangeNotifier {
   double _arrowOpacity;
   int _arrowCount;
   double _threatOpacity;
+  Set<int> _panels;
+  double _split;
   double _controlOpacity;
 
   // Named on purpose: these are a dozen fields of only three distinct types,
@@ -81,6 +92,8 @@ class SettingsStore extends ChangeNotifier {
     required double arrowOpacity,
     required int arrowCount,
     required double threatOpacity,
+    required Set<int> panels,
+    required double split,
     required double controlOpacity,
   })  : _prefs = prefs,
         _personaId = personaId,
@@ -99,6 +112,8 @@ class SettingsStore extends ChangeNotifier {
         _arrowOpacity = arrowOpacity,
         _arrowCount = arrowCount,
         _threatOpacity = threatOpacity,
+        _panels = panels,
+        _split = split,
         _controlOpacity = controlOpacity;
 
   static Future<SettingsStore> load() async {
@@ -143,6 +158,9 @@ class SettingsStore extends ChangeNotifier {
           .clamp(1, kMaxArrowCount),
       threatOpacity: prefs.getDouble('botvinnik-threat-opacity') ??
           kDefaultThreatOpacity,
+      panels: _panelSet(prefs.getString('botvinnik-panels')),
+      split: (prefs.getDouble('botvinnik-split') ?? kDefaultSplit)
+          .clamp(kMinSplit, kMaxSplit),
       controlOpacity: prefs.getDouble('botvinnik-control-opacity') ??
           kDefaultControlOpacity,
     );
@@ -161,6 +179,41 @@ class SettingsStore extends ChangeNotifier {
     final v = int.tryParse(raw, radix: 16);
     if (v == null || v < 0 || v > 0xFFFFFFFF) return fallback;
     return Color(opaque ? v | 0xFF000000 : v);
+  }
+
+  /// Stored as '0,2,3'. A missing or unparseable value falls back to the
+  /// default rather than leaving the panel column empty.
+  static Set<int> _panelSet(String? raw) {
+    if (raw == null || raw.isEmpty) return {...kDefaultPanels};
+    final out = <int>{};
+    for (final part in raw.split(',')) {
+      final v = int.tryParse(part);
+      if (v != null && v >= 0 && v < 6) out.add(v);
+    }
+    return out.isEmpty ? {...kDefaultPanels} : out;
+  }
+
+  Set<int> get panels => _panels;
+
+  /// Toggles a panel. The last one cannot be closed — an empty column just
+  /// looks broken.
+  void togglePanel(int i) {
+    final next = {..._panels};
+    if (!next.remove(i)) next.add(i);
+    if (next.isEmpty) return;
+    _panels = next;
+    _prefs.setString('botvinnik-panels', (next.toList()..sort()).join(','));
+    notifyListeners();
+  }
+
+  double get split => _split;
+
+  set split(double v) {
+    final c = v.clamp(kMinSplit, kMaxSplit);
+    if (c == _split) return;
+    _split = c;
+    _prefs.setDouble('botvinnik-split', c);
+    notifyListeners();
   }
 
   double get threatOpacity => _threatOpacity;
