@@ -388,15 +388,33 @@ class GameController extends ChangeNotifier {
     }
   }
 
+  /// The engine's live view of the current position (deepest streamed
+  /// snapshot) — feeds the Lines pane as the search deepens.
+  List<EngineMove> get currentLines => _partials[position.fen] ?? const [];
+
   Future<List<EngineMove>?> _analysisFor(String fen,
       {void Function(List<EngineMove>)? onUpdate}) {
     return _analysis.putIfAbsent(
         fen,
         () => _arbiter.analysis(fen, onUpdate: (lines) {
               _partials[fen] = lines;
+              if (fen == position.fen) notifyListeners();
               onUpdate?.call(lines);
             }));
   }
+
+  /// White-POV win chance per graded ply — the chart's data.
+  List<({int ply, String san, double wc, String? label})> get chartPoints => [
+        for (final m in moves)
+          if (m.grade != null)
+            (
+              ply: m.ply,
+              san: m.san,
+              wc: _grading.whitePovWinChance(
+                  m.color, m.grade!.evalPawns, m.grade!.mate),
+              label: m.grade!.label,
+            )
+      ];
 
   // ---- line preview: animate an explanation's line on the main board ----
 

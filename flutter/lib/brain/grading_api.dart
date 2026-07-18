@@ -35,6 +35,11 @@ class GradingApi {
   double winChance(double? evalPawns, int? mate) =>
       (_bridge.call('winChance', args: [evalPawns, mate]) as num).toDouble();
 
+  /// Win chance from White's perspective (evals are mover-perspective).
+  double whitePovWinChance(String color, double? evalPawns, int? mate) =>
+      (_bridge.call('whitePovWinChance', args: [color, evalPawns, mate]) as num)
+          .toDouble();
+
   /// The CLASS table (glyph/color/noun per label), fetched once.
   Map<String, dynamic> classTable() =>
       (_bridge.call('CLASS', isProperty: true) as Map).cast<String, dynamic>();

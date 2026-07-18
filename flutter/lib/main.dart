@@ -26,11 +26,13 @@ import 'ui/board_pane.dart';
 import 'ui/games_list.dart';
 import 'ui/grade_strip.dart';
 import 'ui/insight_card.dart';
+import 'ui/lines_pane.dart';
 import 'ui/move_list.dart';
 import 'ui/new_game_sheet.dart';
 import 'ui/practice_tab.dart';
 import 'ui/roster_picker.dart';
 import 'ui/settings_tab.dart';
+import 'ui/win_chart.dart';
 
 void main() {
   runApp(const BootGate());
@@ -331,7 +333,12 @@ class _PlayTabState extends State<PlayTab> {
                             color: Color(0xFF81B64C),
                             fontWeight: FontWeight.w600)),
                   ),
-                if (_view == 0) const InsightCard() else const MoveListPane(),
+                switch (_view) {
+                  0 => const InsightCard(),
+                  1 => const LinesPane(),
+                  2 => const WinChart(),
+                  _ => const MoveListPane(),
+                },
               ],
             ),
           ),
@@ -343,6 +350,8 @@ class _PlayTabState extends State<PlayTab> {
   Widget _viewRow() {
     const tabs = [
       (Icons.lightbulb_outline, 'Insights'),
+      (Icons.account_tree_outlined, 'Lines'),
+      (Icons.show_chart, 'Chart'),
       (Icons.list_alt, 'Moves'),
     ];
     return Container(
