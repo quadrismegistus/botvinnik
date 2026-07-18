@@ -157,7 +157,8 @@ class _PracticeTabState extends State<PracticeTab> {
     } else if (attempt.pass) {
       content = Text(
         '✓ ${attempt.san}'
-        '${attempt.drop <= 0 ? ' — as strong as the best move' : ' — costs ${attempt.drop.round()}%, good enough'}',
+        '${attempt.drop <= 0 ? ' — as strong as the best move' : ' — costs ${attempt.drop.round()}%, good enough'}'
+        '${practice.revealBest && attempt.uci != item['bestUci'] ? ' · best was ${item['bestSan']}' : ''}',
         style: const TextStyle(
             color: Color(0xFF81B64C), fontWeight: FontWeight.w600),
       );
@@ -179,6 +180,7 @@ class _PracticeTabState extends State<PracticeTab> {
 
   Widget _actionRow(PracticeController practice) {
     final attempt = practice.attempt;
+    final bestUci = practice.current?['bestUci'] as String?;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       color: const Color(0xFF1f1e1b),
@@ -196,13 +198,17 @@ class _PracticeTabState extends State<PracticeTab> {
                 style: const TextStyle(color: Colors.white70),
               ),
             ),
-          if (attempt != null && !attempt.pass)
+          // pass or fail: retry to hunt the best, reveal if you haven't
+          // found it (a "good enough" pass still has a better move to see)
+          if (attempt != null)
             TextButton(
               onPressed: practice.retry,
               child:
                   const Text('Retry', style: TextStyle(color: Colors.white70)),
             ),
-          if (attempt != null && !attempt.pass && !practice.revealBest)
+          if (attempt != null &&
+              !practice.revealBest &&
+              attempt.uci != bestUci)
             TextButton(
               onPressed: practice.reveal,
               child: const Text('Show best',
