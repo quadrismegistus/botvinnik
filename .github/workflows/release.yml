@@ -12,9 +12,9 @@ name: Release
 #   - Linux: deliberately omitted. The release build's embedded-asset webview
 #     stalls at about:blank on webkit2gtk (see ROADMAP + tauri-e2e.yml). Add a
 #     matrix entry here once that's fixed.
+# PARKED: Flutter owns desktop now, so a version tag no longer cuts Tauri
+# bundles. Preserved and runnable on demand. See docs/desktop.md.
 on:
-  push:
-    tags: ['v*']
   workflow_dispatch: # manual run (drafts a release tagged with the branch name)
 
 permissions:

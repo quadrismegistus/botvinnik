@@ -3,9 +3,10 @@ name: Tauri e2e
 # tauri-driver has no macOS backend, so the desktop shell's end-to-end test
 # lives here on Linux: build the app with a Linux stockfish sidecar, drive
 # the real window over WebDriver, assert the native analysis reaches the UI.
+# PARKED: Flutter owns desktop now (flutter/, macOS build). The Tauri shell
+# is preserved but no longer built on every push — run this manually if you
+# revive it. See docs/desktop.md.
 on:
-  push:
-    branches: [main, tauri]
   workflow_dispatch:
 
 jobs:
