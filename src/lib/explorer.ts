@@ -1,7 +1,12 @@
-// Lichess Opening Explorer (explorer.lichess.ovh) — CORS-open, no auth.
-// Book stats for the current position, merged with live engine lines into
-// one "unified moves" table: what's best (engine), what people play
-// (lichess db), what masters play (masters db).
+// The opening book — BAKED, not fetched. Lichess put its explorer API
+// behind auth in 2026; instead of asking every user for a token, the book
+// ships as static assets built from the public CC0 database dumps:
+//   static/book.json      scripts/build-book-from-dump.mts (move stats,
+//                         1200-2200 blitz/rapid/classical pool)
+//   static/openings.json  scripts/build-openings.mts (ECO/name table)
+// Same files the Flutter app bundles. Masters stats are gone (master games
+// aren't in the public dumps) — the unified table simply has no masters
+// column until we bake one from an OTB collection.
 import { getSan } from './engine/chess';
 import type { EngineMove } from './engine/stockfish';
 
@@ -28,63 +33,64 @@ export interface UnifiedMove {
 }
 
 const fenKey = (fen: string) => fen.split(' ').slice(0, 4).join(' ');
-const cache = new Map<string, Promise<ExplorerPosition | null>>();
 
-// The explorer requires an OAuth2 bearer token since ~2026 (any personal
-// lichess API token works, no scopes needed). Stored per-browser.
+// legacy token plumbing: the baked book needs no auth, but the setter stays
+// so old imports keep working (and clears nothing worth clearing)
 const TOKEN_KEY = 'botvinnik-lichess-token';
-
 export function getLichessToken(): string {
 	return typeof localStorage === 'undefined' ? '' : (localStorage.getItem(TOKEN_KEY) ?? '');
 }
-
 export function setLichessToken(token: string) {
 	localStorage.setItem(TOKEN_KEY, token.trim());
-	cache.clear(); // 401-free retries for everything previously in flight
 }
 
-async function fetchExplorer(kind: 'lichess' | 'masters', fen: string): Promise<ExplorerPosition> {
-	const params = new URLSearchParams({ fen, moves: '12', topGames: '0' });
-	if (kind === 'lichess') {
-		params.set('variant', 'standard');
-		params.set('speeds', 'blitz,rapid,classical');
-		params.set('ratings', '1400,1600,1800,2000,2200');
-		params.set('recentGames', '0');
-	}
-	const token = getLichessToken();
-	const res = await fetch(`https://explorer.lichess.org/${kind}?${params}`, {
-		headers: token ? { Authorization: `Bearer ${token}` } : {}
-	});
-	if (res.status === 401 || res.status === 403) throw new Error('auth');
-	if (!res.ok) throw new Error(`explorer ${res.status}`);
-	const data = await res.json();
+interface BakedMove {
+	uci: string;
+	san: string;
+	white: number;
+	draws: number;
+	black: number;
+}
+interface BakedNode {
+	white: number;
+	draws: number;
+	black: number;
+	moves: BakedMove[];
+}
+
+let bookPromise: Promise<Record<string, BakedNode>> | null = null;
+let openingsPromise: Promise<Record<string, [string, string]>> | null = null;
+
+function loadBook() {
+	bookPromise ??= fetch('/book.json')
+		.then((r) => (r.ok ? r.json() : { book: {} }))
+		.then((d) => d.book ?? {});
+	return bookPromise;
+}
+function loadOpenings() {
+	openingsPromise ??= fetch('/openings.json')
+		.then((r) => (r.ok ? r.json() : { openings: {} }))
+		.then((d) => d.openings ?? {});
+	return openingsPromise;
+}
+
+const EMPTY: ExplorerPosition = { total: 0, moves: [], opening: null };
+
+/** Book stats from the baked assets; 'masters' resolves empty (not baked). */
+export async function getExplorer(
+	kind: 'lichess' | 'masters',
+	fen: string
+): Promise<ExplorerPosition> {
+	if (kind === 'masters') return EMPTY;
+	const [book, openings] = await Promise.all([loadBook(), loadOpenings()]);
+	const key = fenKey(fen);
+	const node = book[key];
+	const op = openings[key];
 	return {
-		total: (data.white ?? 0) + (data.draws ?? 0) + (data.black ?? 0),
-		moves: (data.moves ?? []).map(
-			(m: { uci: string; san: string; white: number; draws: number; black: number }) => ({
-				uci: m.uci,
-				san: m.san,
-				white: m.white ?? 0,
-				draws: m.draws ?? 0,
-				black: m.black ?? 0
-			})
-		),
-		opening: data.opening ?? null
+		total: node ? node.white + node.draws + node.black : 0,
+		moves: node?.moves ?? [],
+		opening: op ? { eco: op[0], name: op[1] } : null
 	};
-}
-
-/** Cached per position (placement + side + castling + ep); failures are not cached. */
-export function getExplorer(kind: 'lichess' | 'masters', fen: string) {
-	const key = `${kind}|${fenKey(fen)}`;
-	let p = cache.get(key);
-	if (!p) {
-		p = fetchExplorer(kind, fen).catch((e) => {
-			cache.delete(key);
-			throw e;
-		});
-		cache.set(key, p);
-	}
-	return p;
 }
 
 // Softmax confidence over the engine's lines (same shape as botvinnik-app's

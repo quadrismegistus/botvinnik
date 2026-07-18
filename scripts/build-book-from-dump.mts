@@ -129,8 +129,9 @@ function writeAsset() {
 		book: out
 	});
 	writeFileSync(OUT, doc);
+	writeFileSync(OUT.replace('flutter/assets', 'static'), doc);
 	console.log(
-		`asset: ${Object.keys(out).length} positions, ${(doc.length / 1e6).toFixed(1)}MB → ${OUT}`
+		`asset: ${Object.keys(out).length} positions, ${(doc.length / 1e6).toFixed(1)}MB → ${OUT} (+static/)`
 	);
 }
 

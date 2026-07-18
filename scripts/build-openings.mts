@@ -45,5 +45,7 @@ for (const f of files) {
 	}
 }
 
-writeFileSync(OUT, JSON.stringify({ version: 1, openings: table }));
+const doc = JSON.stringify({ version: 1, openings: table });
+writeFileSync(OUT, doc);
+writeFileSync(OUT.replace('flutter/assets', 'static'), doc);
 console.log(`${rows} openings → ${OUT}`);
