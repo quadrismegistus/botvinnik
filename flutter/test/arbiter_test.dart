@@ -151,6 +151,67 @@ void main() {
     expect((await kept)!.first.uci, 'd2d4');
   });
 
+  test('threat probe preempts a running analysis, which then resumes',
+      () async {
+    final analysis = arbiter.analysis('fenA');
+    await tick();
+    expect(engine.current.fen, 'fenA');
+
+    // the probe searches a null-move fen but belongs to the board position
+    final threat = arbiter.search(
+        fen: 'fenA-nullmove',
+        ownerFen: 'fenA',
+        depth: 14,
+        multiPv: 1,
+        movetimeMs: 500,
+        priority: SearchPriority.threatProbe);
+    await tick();
+    expect(engine.current.stopped, isTrue); // analysis got out of the way
+
+    engine.current.finish([line('e2e4', depth: 9)]);
+    await tick();
+    expect(engine.current.fen, 'fenA-nullmove'); // probe runs next
+    engine.current.finish([line('d7d5', depth: 14)]);
+    expect((await threat)!.first.uci, 'd7d5');
+
+    // the preempted analysis re-runs rather than being lost
+    await tick();
+    expect(engine.current.fen, 'fenA');
+    engine.current.finish([line('g1f3', depth: 22)]);
+    expect((await analysis)!.first.uci, 'g1f3');
+  });
+
+  test('a queued threat probe is stale when its BOARD position is gone',
+      () async {
+    // a bot search holds the engine so both probes are genuinely queued
+    final bot = arbiter.search(
+        fen: 'fenBot', depth: 6, multiPv: 12, priority: SearchPriority.botMove);
+    await tick();
+    final threat = arbiter.search(
+        fen: 'old-nullmove',
+        ownerFen: 'old',
+        depth: 14,
+        multiPv: 1,
+        priority: SearchPriority.threatProbe);
+    final kept = arbiter.search(
+        fen: 'current-nullmove',
+        ownerFen: 'current',
+        depth: 14,
+        multiPv: 1,
+        priority: SearchPriority.threatProbe);
+
+    // matched on the position it serves, not the fen it searches
+    arbiter.cancelAnalyses(exceptFen: 'current');
+    expect(await threat, isNull);
+
+    engine.current.finish([line('e2e4', depth: 6)]);
+    expect((await bot)!.first.uci, 'e2e4');
+    await tick();
+    expect(engine.current.fen, 'current-nullmove'); // the fresh probe survived
+    engine.current.finish([line('e7e5', depth: 14)]);
+    expect((await kept)!.first.uci, 'e7e5');
+  });
+
   test('streamed updates reach the caller; stale generations are muted',
       () async {
     final got = <int>[];

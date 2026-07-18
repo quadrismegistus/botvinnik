@@ -461,10 +461,11 @@ class GameController extends ChangeNotifier {
     final gen = _gen;
     final lines = await _arbiter.search(
       fen: probe,
+      ownerFen: fen, // stale when the BOARD moves on, not the probe position
       depth: 14,
       multiPv: 1,
       movetimeMs: 500,
-      priority: SearchPriority.analysis,
+      priority: SearchPriority.threatProbe,
     );
     if (gen != _gen || lines == null || lines.isEmpty) return;
     _threat = chess.judgeThreat(fen, {

@@ -20,9 +20,10 @@ const String kDefaultPieceSet = 'cburnett';
 /// Peak opacity of the overlays. Both arrow kinds sit at 70%: fully opaque
 /// arrows dominated the position, and matching them keeps the engine's
 /// suggestion and the opponent's threat weighted the same. The control tint
-/// is separate — it was too faint to read at a glance.
+/// is separate: as a flat wash over the whole square, 30% carries further
+/// than the old fading circle did at 38%.
 const double kDefaultArrowOpacity = 0.7;
-const double kDefaultControlOpacity = 0.55;
+const double kDefaultControlOpacity = 0.3;
 
 /// The threat arrow's opacity. It sat at 90% while every other overlay
 /// became adjustable — loud for a hint you see on most moves.
