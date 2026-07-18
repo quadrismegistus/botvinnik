@@ -29,6 +29,15 @@ class InsightCard extends StatelessWidget {
 
     final label = grade.label;
     final expl = grade.explanation;
+    // the line to narrate on the board: the explanation's evidence line
+    // (played move + refutation) when there is one, else the best move's pv
+    final evidence = expl?.evidence;
+    final previewBase = evidence?['fen'] as String? ?? grade.fenBefore;
+    final previewUcis = evidence != null
+        ? (evidence['ucis'] as List).cast<String>()
+        : grade.bestPv;
+    final canPreview = previewUcis.isNotEmpty;
+
     final children = <Widget>[
       Row(
         children: [
@@ -41,6 +50,24 @@ class InsightCard extends StatelessWidget {
           if (grade.pctBest != null)
             Text('${grade.pctBest!.round()}%',
                 style: const TextStyle(color: Colors.white54, fontSize: 13)),
+          if (canPreview) ...[
+            const SizedBox(width: 6),
+            InkWell(
+              onTap: () => game.previewing
+                  ? game.stopPreview()
+                  : game.startPreview(previewBase, previewUcis),
+              borderRadius: BorderRadius.circular(14),
+              child: Icon(
+                game.previewing
+                    ? Icons.stop_circle_outlined
+                    : Icons.play_circle_outline,
+                size: 22,
+                color: game.previewing
+                    ? const Color(0xFF81B64C)
+                    : Colors.white54,
+              ),
+            ),
+          ],
         ],
       ),
     ];

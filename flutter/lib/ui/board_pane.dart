@@ -20,6 +20,19 @@ class _BoardPaneState extends State<BoardPane> {
   String? _lastFen;
 
   GameData _gameData(GameController game) {
+    // preview: the board narrates a line; input off until it comes home
+    final previewFen = game.previewFen;
+    if (previewFen != null) {
+      final pos = Chess.fromSetup(Setup.parseFen(previewFen));
+      return GameData(
+        fen: previewFen,
+        lastMove: game.previewLastMove,
+        playerSide: PlayerSide.none,
+        validMoves: makeLegalMoves(pos),
+        sideToMove: pos.turn,
+        kingSquareInCheck: pos.isCheck ? pos.board.kingOf(pos.turn) : null,
+      );
+    }
     final pos = game.position;
     return GameData(
       fen: pos.fen,
@@ -45,7 +58,7 @@ class _BoardPaneState extends State<BoardPane> {
   Widget build(BuildContext context) {
     final game = context.watch<GameController>();
     final sig =
-        '${game.position.fen}|${game.botEnabled}|${game.playerColor}';
+        '${game.previewFen ?? game.position.fen}|${game.botEnabled}|${game.playerColor}';
     _controller ??= ChessboardController(game: _gameData(game));
     if (_lastFen != sig) {
       _lastFen = sig;

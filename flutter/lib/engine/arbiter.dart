@@ -32,6 +32,7 @@ class _Request {
   final List<List<String>> extraOptions;
   final SearchPriority priority;
   final int generation;
+  final void Function(List<EngineMove>)? onUpdate; // streamed partials
   final Completer<List<EngineMove>?> completer = Completer();
 
   _Request({
@@ -42,6 +43,7 @@ class _Request {
     this.extraOptions = const [],
     required this.priority,
     required this.generation,
+    this.onUpdate,
   });
 
   String get goCommand =>
@@ -79,6 +81,7 @@ class SearchArbiter {
     int? movetimeMs,
     List<List<String>> extraOptions = const [],
     required SearchPriority priority,
+    void Function(List<EngineMove>)? onUpdate,
   }) {
     final req = _Request(
       fen: fen,
@@ -88,18 +91,22 @@ class SearchArbiter {
       extraOptions: extraOptions,
       priority: priority,
       generation: _generation,
+      onUpdate: onUpdate,
     );
     _enqueue(req);
     _pump();
     return req.completer.future;
   }
 
-  Future<List<EngineMove>?> analysis(String fen) => search(
+  Future<List<EngineMove>?> analysis(String fen,
+          {void Function(List<EngineMove>)? onUpdate}) =>
+      search(
         fen: fen,
         depth: kAnalysisDepth,
         multiPv: kAnalysisMultiPv,
         movetimeMs: kAnalysisMovetimeMs,
         priority: SearchPriority.analysis,
+        onUpdate: onUpdate,
       );
 
   void _enqueue(_Request req) {
@@ -148,6 +155,7 @@ class SearchArbiter {
         go: req.goCommand,
         multiPv: req.multiPv,
         extraOptions: req.extraOptions,
+        onUpdate: req.generation == _generation ? req.onUpdate : null,
       );
     } catch (e) {
       _budgetTimer?.cancel();

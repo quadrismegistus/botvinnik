@@ -17,6 +17,8 @@ class SearchEngine {
   final Stockfish _sf;
   final Map<int, EngineMove> _byMultipv = {};
   Completer<List<EngineMove>>? _search;
+  void Function(List<EngineMove>)? _onUpdate;
+  int _lastStreamedDepth = 0;
   late final StreamSubscription<String> _sub;
   int _currentMultiPv = 0;
 
@@ -58,10 +60,20 @@ class SearchEngine {
           depth: depth,
           multipv: multipv,
         );
+        // stream a snapshot once per completed depth (the last multipv line
+        // of a depth is the highest index we asked for, or multipv 1 when
+        // the position has fewer legal moves)
+        if (_onUpdate != null && depth > _lastStreamedDepth) {
+          _lastStreamedDepth = depth;
+          final moves = _byMultipv.values.toList()
+            ..sort((a, b) => a.multipv.compareTo(b.multipv));
+          _onUpdate!(moves);
+        }
       }
     } else if (line.startsWith('bestmove')) {
       final moves = _byMultipv.values.toList()
         ..sort((a, b) => a.multipv.compareTo(b.multipv));
+      _onUpdate = null;
       _search?.complete(moves);
       _search = null;
     }
@@ -81,9 +93,12 @@ class SearchEngine {
     required String go,
     required int multiPv,
     List<List<String>> extraOptions = const [],
+    void Function(List<EngineMove>)? onUpdate,
   }) {
     assert(_search == null, 'search while busy — arbiter bug');
     _byMultipv.clear();
+    _onUpdate = onUpdate;
+    _lastStreamedDepth = 0;
     final completer = Completer<List<EngineMove>>();
     _search = completer;
     if (_optionsDirty && extraOptions.isEmpty) {

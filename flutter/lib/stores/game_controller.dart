@@ -8,6 +8,7 @@
 // the previous one, cached by FEN. Bot searches run at `botMove` priority
 // and preempt analysis, so replies stay snappy.
 
+import 'dart:async';
 import 'dart:math';
 
 import 'package:dartchess/dartchess.dart';
@@ -166,6 +167,7 @@ class GameController extends ChangeNotifier {
   // ---- internals ----
 
   void _apply(NormalMove move, String san) {
+    stopPreview();
     final fenBefore = position.fen;
     position = position.playUnchecked(move);
     lastMove = move;
@@ -179,12 +181,25 @@ class GameController extends ChangeNotifier {
     );
     moves.add(record);
     notifyListeners();
-    _analysisFor(position.fen); // post-analysis = next move's pre-lines
+    // post-analysis = next move's pre-lines; streamed partials backfill this
+    // move's grade the moment the child search passes depth 10 (web parity —
+    // the label shouldn't wait out the full 3s budget)
+    final gen = _gen;
+    _analysisFor(position.fen,
+        onUpdate: (lines) => _earlyBackfill(record, lines, gen));
     late final Future<void> pipeline;
     pipeline = _gradePipeline(record, _gen)
       ..whenComplete(() => _pendingGrades.remove(pipeline));
     _pendingGrades.add(pipeline);
     if (gameOver) _saveGame();
+  }
+
+  void _earlyBackfill(MoveRecord record, List<EngineMove> lines, int gen) {
+    if (gen != _gen || lines.isEmpty || lines.first.depth < 10) return;
+    final grade = record.grade;
+    if (grade == null || grade.backfilled) return;
+    record.grade = _grading.backfillGrade(grade, lines);
+    notifyListeners();
   }
 
   /// Debug/self-test only: archive the game regardless of game-over state.
@@ -350,8 +365,66 @@ class GameController extends ChangeNotifier {
     }
   }
 
-  Future<List<EngineMove>?> _analysisFor(String fen) {
-    return _analysis.putIfAbsent(fen, () => _arbiter.analysis(fen));
+  Future<List<EngineMove>?> _analysisFor(String fen,
+      {void Function(List<EngineMove>)? onUpdate}) {
+    return _analysis.putIfAbsent(
+        fen, () => _arbiter.analysis(fen, onUpdate: onUpdate));
+  }
+
+  // ---- line preview: animate an explanation's line on the main board ----
+
+  List<String> _previewFens = [];
+  List<NormalMove?> _previewMoves = [];
+  int _previewIndex = 0;
+  Timer? _previewTimer;
+
+  bool get previewing => _previewTimer != null;
+  String? get previewFen =>
+      previewing ? _previewFens[_previewIndex] : null;
+  NormalMove? get previewLastMove =>
+      previewing ? _previewMoves[_previewIndex] : null;
+
+  /// Plays [ucis] out from [baseFen] on the board, one move per beat,
+  /// then returns to the live position. Tap again to stop early.
+  void startPreview(String baseFen, List<String> ucis) {
+    stopPreview();
+    Position pos;
+    try {
+      pos = Chess.fromSetup(Setup.parseFen(baseFen));
+    } catch (_) {
+      return;
+    }
+    final fens = <String>[baseFen];
+    final lastMoves = <NormalMove?>[null];
+    for (final uci in ucis) {
+      final m = NormalMove.fromUci(uci);
+      if (!pos.isLegal(m)) break;
+      pos = pos.playUnchecked(m);
+      fens.add(pos.fen);
+      lastMoves.add(m);
+    }
+    if (fens.length < 2) return;
+    _previewFens = fens;
+    _previewMoves = lastMoves;
+    _previewIndex = 0;
+    _previewTimer = Timer.periodic(const Duration(milliseconds: 850), (t) {
+      if (_previewIndex >= _previewFens.length - 1) {
+        // linger on the final position for a beat, then come home
+        t.cancel();
+        _previewTimer = Timer(const Duration(milliseconds: 1200), stopPreview);
+        return;
+      }
+      _previewIndex++;
+      notifyListeners();
+    });
+    notifyListeners();
+  }
+
+  void stopPreview() {
+    if (_previewTimer == null) return;
+    _previewTimer?.cancel();
+    _previewTimer = null;
+    notifyListeners();
   }
 
   Future<void> _gradePipeline(MoveRecord record, int gen) async {
