@@ -42,6 +42,13 @@ function nullMoveFen(fen: string): string | null {
 // to catch a clean pawn grab
 const MIN_GAIN = 1;
 
+// ...unless the gain names no victim. The settled window ends on a quiet ply,
+// but quiet is not settled: a gambit line is quiet and a pawn down ON PURPOSE,
+// and a weak engine's horizon turns that into "threat: Nc6 costs 1.0" with no
+// piece to point at. A victimless gain must be worth a real threat's while
+// (promotion pushes clear this easily); small ones are choreography noise.
+const VICTIMLESS_MIN_GAIN = 2;
+
 type Analyze = (
 	fen: string,
 	depth: number,
@@ -119,6 +126,8 @@ export function judgeThreat(
 		quiet.plies > 0
 			? victimSquares(nullFen, best.pv, quiet.plies)
 			: [best.pv[0].slice(2, 4)]; // the fallback only fires on a bare first capture
+	// a threat must either name a victim or be worth ≥ VICTIMLESS_MIN_GAIN
+	if (targets.length === 0 && net < VICTIMLESS_MIN_GAIN) return null;
 	return { fen, uci: best.pv[0], san: getSan(nullFen, best.pv[0]) ?? best.pv[0], gain: net, targets };
 }
 

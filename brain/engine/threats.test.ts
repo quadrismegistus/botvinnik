@@ -95,16 +95,26 @@ describe('findThreat', () => {
 		expect(t!.targets).toEqual(['f7', 'h8']);
 	});
 
-	it('does NOT ring a piece the threat move never attacks (it walked into the line)', async () => {
-		// The d2-pawn bug: after the free move Nc6, the line goes d4 exd4 —
-		// the pawn dies only because it ADVANCED into the capture. Nc6 attacks
-		// nothing on d2, so no ring; the threat itself (net +1) still shows.
+	it('drops a small gain that names no victim (gambit-horizon noise)', async () => {
+		// The "threat: Nc6 costs 1.0" mirage: after the free move Nc6, the
+		// line goes d4 exd4 — the pawn dies only because it ADVANCED into the
+		// capture, so Nc6 attacks nothing and there is no victim to ring. A
+		// quiet window is not a settled one (a gambit is quiet and a pawn
+		// down on purpose): victimless +1 is choreography, not a threat.
 		const fen = 'rnbqkbnr/pppp1ppp/8/4p3/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 2';
 		const analyze = fakeAnalyze(['b8c6', 'd2d4', 'e5d4', 'g1f3']); // quiet Nf3 settles the count
+		expect(await findThreat(fen, analyze)).toBeNull();
+	});
+
+	it('keeps a victimless gain that clears the higher bar (promotion push)', async () => {
+		// Black's free move promotes: no capture, so no square to ring, but
+		// +8 is no one's horizon noise — the threat shows, arrow only.
+		const fen = '4k3/8/8/8/8/8/p3K3/8 w - - 0 1';
+		const analyze = fakeAnalyze(['a2a1q', 'e2f3']); // promote, quiet king step settles
 		const t = await findThreat(fen, analyze);
 		expect(t).not.toBeNull();
-		expect(t!.uci).toBe('b8c6');
-		expect(t!.gain).toBe(1);
+		expect(t!.uci).toBe('a2a1q');
+		expect(t!.gain).toBe(8);
 		expect(t!.targets).toEqual([]);
 	});
 

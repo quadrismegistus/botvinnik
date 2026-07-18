@@ -5001,6 +5001,7 @@ var brain = (() => {
     return parts.join(" ");
   }
   var MIN_GAIN = 1;
+  var VICTIMLESS_MIN_GAIN = 2;
   function threatProbeFen(fen) {
     let base;
     try {
@@ -5036,6 +5037,7 @@ var brain = (() => {
     const net = quiet.plies > 0 ? quiet.net : staticFirstCaptureGain(nullFen, best.pv[0]);
     if (net < MIN_GAIN) return null;
     const targets = quiet.plies > 0 ? victimSquares(nullFen, best.pv, quiet.plies) : [best.pv[0].slice(2, 4)];
+    if (targets.length === 0 && net < VICTIMLESS_MIN_GAIN) return null;
     return { fen, uci: best.pv[0], san: getSan(nullFen, best.pv[0]) ?? best.pv[0], gain: net, targets };
   }
   function kingSquare(fen) {
