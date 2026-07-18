@@ -3,8 +3,6 @@
 // 3. programmatic arrows (our hint/threat/refutation annotations).
 // Chessground (lichess's board) + dartchess (their rules library).
 
-import 'dart:math';
-
 import 'package:chessground/chessground.dart';
 import 'package:dartchess/dartchess.dart';
 import 'package:flutter/material.dart' hide Step;
@@ -80,6 +78,12 @@ class _BoardPageState extends State<BoardPage> {
     });
   }
 
+  String _sanOfLast() {
+    // spike-grade: uci of the last move (real SAN needs the pre-move position)
+    final m = lastMove;
+    return m is NormalMove ? m.uci : '—';
+  }
+
   /// A fake "hint" arrow: the first legal move of the side to move —
   /// stands in for our engine-driven hint/threat/refutation arrows.
   Set<Shape> _annotationShapes() {
@@ -125,25 +129,51 @@ class _BoardPageState extends State<BoardPage> {
           ),
         ],
       ),
-      body: Center(
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final size = min(constraints.maxWidth, constraints.maxHeight);
-            return Chessboard(
-              controller: controller,
-              size: size,
-              orientation: Side.white,
-              onMove: _onMove,
-              shapes: _annotationShapes(),
-              settings: const ChessboardSettings(
-                enableCoordinates: true,
-                animationDuration: Duration(milliseconds: 150),
-                // let users draw their own arrows with a long press, like lichess
-                drawShape: DrawShapeOptions(enable: true),
-              ),
-            );
-          },
-        ),
+      body: Column(
+        children: [
+          LayoutBuilder(
+            builder: (context, constraints) {
+              return Chessboard(
+                controller: controller,
+                size: constraints.maxWidth,
+                orientation: Side.white,
+                onMove: _onMove,
+                shapes: _annotationShapes(),
+                settings: const ChessboardSettings(
+                  enableCoordinates: true,
+                  animationDuration: Duration(milliseconds: 150),
+                  // let users draw their own arrows with a long press, like lichess
+                  drawShape: DrawShapeOptions(enable: true),
+                ),
+              );
+            },
+          ),
+          // grade-strip mock: where the play→verdict loop will live
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            color: const Color(0xFF262421),
+            child: Row(
+              children: [
+                Text(
+                  lastMove != null ? _sanOfLast() : '—',
+                  style: const TextStyle(
+                      fontWeight: FontWeight.w700, fontSize: 15),
+                ),
+                const SizedBox(width: 10),
+                Text(
+                  lastMove != null ? '✓ excellent' : 'play a move',
+                  style: const TextStyle(
+                      color: Color(0xFF81B64C), fontSize: 14),
+                ),
+                const Spacer(),
+                const Text('94% of best',
+                    style:
+                        TextStyle(color: Colors.white38, fontSize: 12)),
+              ],
+            ),
+          ),
+        ],
       ),
       bottomNavigationBar: Padding(
         padding: const EdgeInsets.all(12),
