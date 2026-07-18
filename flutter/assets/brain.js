@@ -18,7 +18,7 @@ var brain = (() => {
   };
   var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 
-  // src/lib/brain-entry.ts
+  // brain/brain-entry.ts
   var brain_entry_exports = {};
   __export(brain_entry_exports, {
     BOT_MODEL: () => BOT_MODEL,
@@ -3537,7 +3537,7 @@ var brain = (() => {
     }
   };
 
-  // src/lib/engine/chess.ts
+  // brain/engine/chess.ts
   var game = new Chess();
   function getSanLine(fen, ucis) {
     const steps = [];
@@ -3614,7 +3614,7 @@ var brain = (() => {
     }
   }
 
-  // src/lib/engine/explain.ts
+  // brain/engine/explain.ts
   var PIECE_VAL = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 0 };
   var VAL = PIECE_VAL;
   var NAME = {
@@ -4188,7 +4188,7 @@ var brain = (() => {
     return void 0;
   }
 
-  // src/lib/engine/insights.ts
+  // brain/engine/insights.ts
   function lineCp(l) {
     if (l.mate !== null) return l.mate > 0 ? 9999 : -9999;
     return l.score * 100;
@@ -4303,7 +4303,7 @@ var brain = (() => {
     };
   }
 
-  // src/lib/engine/botRecipe.ts
+  // brain/engine/botRecipe.ts
   function specToRecipe(spec) {
     if (spec.kind === "sampler") {
       return {
@@ -4461,7 +4461,7 @@ var brain = (() => {
     return specToRecipe(botSpec(elo, s));
   }
 
-  // src/lib/bot.ts
+  // brain/bot.ts
   function lineCp2(l) {
     if (l.mate !== null) return l.mate > 0 ? 9999 : -9999;
     return l.score * 100;
@@ -4811,7 +4811,7 @@ var brain = (() => {
     return minMs + Math.floor(Math.random() * (maxMs - minMs + 1));
   }
 
-  // src/lib/repetition.ts
+  // brain/repetition.ts
   function posKey(fen) {
     return fen.split(" ").slice(0, 4).join(" ");
   }
@@ -4839,7 +4839,7 @@ var brain = (() => {
     return alt?.pv[0] ?? uci;
   }
 
-  // src/lib/bots.ts
+  // brain/bots.ts
   var SCALE_OFFSET = 240;
   function square(displayElo) {
     const label = shapedLabelFor(displayElo + SCALE_OFFSET);
@@ -4967,7 +4967,7 @@ var brain = (() => {
     return p.elo + SCALE_OFFSET;
   }
 
-  // src/lib/classifications.ts
+  // brain/classifications.ts
   var CLASS = {
     brilliant: { glyph: "\u203C", color: "#1baca6", noun: "brilliant", graphed: true },
     great: { glyph: "!", color: "#5b8bb0", noun: "a great move", graphed: true },
@@ -4991,7 +4991,7 @@ var brain = (() => {
     "blunder"
   ];
 
-  // src/lib/engine/threats.ts
+  // brain/engine/threats.ts
   function nullMoveFen(fen) {
     const parts = fen.split(" ");
     if (parts.length < 4) return null;
@@ -5039,7 +5039,7 @@ var brain = (() => {
     return PIECE_VAL[victim.type] - PIECE_VAL[capturer.type];
   }
 
-  // src/lib/engine/control.ts
+  // brain/engine/control.ts
   var KING_V = 100;
   function pieceVal(t) {
     return t === "k" ? KING_V : PIECE_VAL[t];
@@ -5118,7 +5118,7 @@ var brain = (() => {
     return map;
   }
 
-  // src/lib/practice.ts
+  // brain/practice.ts
   var KEY = "botvinnik-practice-v1";
   var INTERVAL_DAYS = [7e-3, 1, 3, 7, 21];
   function hasStorage() {
@@ -5259,7 +5259,7 @@ var brain = (() => {
     return next;
   }
 
-  // src/lib/gameStore.ts
+  // brain/gameStore.ts
   var LABEL_VERSION = 1;
   function moveAccuracy(wcDrop) {
     const a = 103.1668 * Math.exp(-0.04354 * Math.max(0, wcDrop)) - 3.1669 + 1;
@@ -5311,7 +5311,7 @@ var brain = (() => {
     return out;
   }
 
-  // src/lib/playerElo.ts
+  // brain/playerElo.ts
   function playerScore(g) {
     if (g.result === "1/2-1/2") return 0.5;
     if (g.result === "1-0") return g.botColor === "b" ? 1 : 0;
@@ -5358,7 +5358,7 @@ var brain = (() => {
     return { elo: best, se, games: outcomes.length };
   }
 
-  // src/lib/brain-entry.ts
+  // brain/brain-entry.ts
   var BRAIN_VERSION = 1;
   function controlSquares(fen) {
     return Object.fromEntries(computeControl(fen));

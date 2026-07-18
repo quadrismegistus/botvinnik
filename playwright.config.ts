@@ -4,7 +4,7 @@ import { defineConfig } from '@playwright/test';
 // cover what actually deploys. Engine searches make these slow-ish; they run
 // serially because every page boots its own Stockfish WASM worker.
 export default defineConfig({
-	testDir: 'e2e',
+	testDir: 'svelte/e2e',
 	timeout: 150_000,
 	expect: { timeout: 20_000 },
 	fullyParallel: false,

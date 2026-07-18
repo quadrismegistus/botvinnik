@@ -17,7 +17,7 @@ if (process.platform === 'darwin') {
 
 const DRIVER_PORT = 4444;
 const DRIVER = process.env.TAURI_DRIVER ?? 'tauri-driver';
-const APP = path.resolve(process.env.TAURI_APP ?? 'src-tauri/target/release/app');
+const APP = path.resolve(process.env.TAURI_APP ?? 'svelte/src-tauri/target/release/app');
 
 if (!existsSync(APP)) {
 	console.error(`app binary not found at ${APP} — build it first (cargo build --release)`);

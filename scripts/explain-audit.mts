@@ -14,7 +14,7 @@
 
 import { readFileSync } from 'node:fs';
 import { Chess } from 'chess.js';
-import { motifTags, type Motif } from '../src/lib/engine/explain';
+import { motifTags, type Motif } from '../brain/engine/explain';
 
 const argv = process.argv.slice(2);
 function opt(name: string, dflt: string): string {

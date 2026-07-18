@@ -19,6 +19,26 @@ Ported and distilled from a fork of [en-croissant](https://github.com/franciscoB
 
 See [ROADMAP.md](ROADMAP.md) for what's planned next.
 
+## Layout
+
+Two apps, one brain. Neither app depends on the other.
+
+```
+brain/      the shared truth: bot move selection, grading, explanations,
+            practice scheduling — pure TypeScript, no DOM, no framework.
+            The Svelte app imports it as $brain; the Flutter app bundles it
+            to flutter/assets/brain.js (npm run build:brain) and runs the
+            same code in an embedded JS engine.
+svelte/     the SvelteKit web app (botvinnik.app) and its Tauri desktop shell
+flutter/    the Flutter app — iOS, Android, macOS, and an experimental web build
+static/     web assets both apps serve: the Stockfish WASM engine, the baked
+            opening book, icons
+scripts/    shared tooling: the brain bundle, golden fixtures, book building
+vendor/     forks we maintain (see each FORK.md)
+```
+
+`build/` is the Svelte app's output, which is what deploys to botvinnik.app.
+
 ## Development
 
 ```sh

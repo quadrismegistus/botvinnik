@@ -29,9 +29,9 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { ccGameToAnalysed, fetchChesscomArchives, fetchChesscomMonth } from '../src/lib/chesscomCore';
-import { analysedGameToStored, type PracticeCandidate } from '../src/lib/lichessImport';
-import type { StoredGame } from '../src/lib/gameStore';
+import { ccGameToAnalysed, fetchChesscomArchives, fetchChesscomMonth } from '../brain/chesscomCore';
+import { analysedGameToStored, type PracticeCandidate } from '../brain/lichessImport';
+import type { StoredGame } from '../brain/gameStore';
 
 // ---------- args ----------
 const args = process.argv.slice(2);
