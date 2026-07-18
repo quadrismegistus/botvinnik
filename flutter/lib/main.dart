@@ -27,6 +27,7 @@ import 'ui/games_list.dart';
 import 'ui/grade_strip.dart';
 import 'ui/insight_card.dart';
 import 'ui/lines_pane.dart';
+import 'ui/lines_tree_pane.dart';
 import 'ui/move_list.dart';
 import 'ui/new_game_sheet.dart';
 import 'ui/practice_tab.dart';
@@ -124,6 +125,7 @@ class _BootGateState extends State<BootGate> {
                 booted.settings,
                 booted.db,
                 booted.practice,
+                ChessApi(booted.bridge),
               ),
             ),
             ChangeNotifierProvider(
@@ -336,7 +338,8 @@ class _PlayTabState extends State<PlayTab> {
                 switch (_view) {
                   0 => const InsightCard(),
                   1 => const LinesPane(),
-                  2 => const WinChart(),
+                  2 => const LinesTreePane(),
+                  3 => const WinChart(),
                   _ => const MoveListPane(),
                 },
               ],
@@ -350,7 +353,8 @@ class _PlayTabState extends State<PlayTab> {
   Widget _viewRow() {
     const tabs = [
       (Icons.lightbulb_outline, 'Insights'),
-      (Icons.account_tree_outlined, 'Lines'),
+      (Icons.manage_search, 'Lines'),
+      (Icons.account_tree_outlined, 'Tree'),
       (Icons.show_chart, 'Chart'),
       (Icons.list_alt, 'Moves'),
     ];

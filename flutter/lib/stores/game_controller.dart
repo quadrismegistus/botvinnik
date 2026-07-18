@@ -15,10 +15,12 @@ import 'package:dartchess/dartchess.dart';
 import 'package:flutter/foundation.dart';
 
 import '../brain/bot_api.dart';
+import '../brain/chess_api.dart';
 import '../brain/grading_api.dart';
 import '../brain/types.dart';
 import '../db/app_db.dart';
 import '../engine/arbiter.dart';
+import 'lines_tree_model.dart';
 import 'practice_controller.dart';
 import 'settings_store.dart';
 
@@ -67,7 +69,8 @@ class GameController extends ChangeNotifier {
   int _gen = 0;
 
   GameController(this._arbiter, this._bot, this._grading, this._settings,
-      [this._db, this._practice]) {
+      [this._db, this._practice, ChessApi? chessApi]) {
+    if (chessApi != null) linesTree = LinesTreeModel(chessApi);
     persona = _bot.personaById(_settings.personaId) ?? _bot.personas().first;
     _settings.addListener(_onSettings);
     _analysisFor(position.fen);
@@ -135,6 +138,7 @@ class GameController extends ChangeNotifier {
     _analysis.clear();
     _partials.clear();
     _analysisFor(position.fen);
+    _syncTree(); // playedSans is empty → the model wipes itself
     notifyListeners();
     _maybeBotTurn();
   }
@@ -158,6 +162,7 @@ class GameController extends ChangeNotifier {
     lastMove =
         moves.isEmpty ? null : NormalMove.fromUci(moves.last.uci);
     _analysisFor(position.fen);
+    _syncTree();
     notifyListeners();
   }
 
@@ -184,6 +189,7 @@ class GameController extends ChangeNotifier {
       fenAfter: position.fen,
     );
     moves.add(record);
+    _syncTree(); // extend the played path (and prune the old anchor's churn)
     notifyListeners();
     // the board moved on: older analyses wrap up at depth 12 and yield the
     // engine — only the current position gets the full budget (web semantic;
@@ -392,13 +398,28 @@ class GameController extends ChangeNotifier {
   /// snapshot) — feeds the Lines pane as the search deepens.
   List<EngineMove> get currentLines => _partials[position.fen] ?? const [];
 
+  /// The game-long exploration map (null until wired with a ChessApi).
+  LinesTreeModel? linesTree;
+
+  void _syncTree() {
+    linesTree?.ingest(
+      lines: currentLines,
+      fen: position.fen,
+      playedSans: moves.map((m) => m.san).toList(),
+      height: 300,
+    );
+  }
+
   Future<List<EngineMove>?> _analysisFor(String fen,
       {void Function(List<EngineMove>)? onUpdate}) {
     return _analysis.putIfAbsent(
         fen,
         () => _arbiter.analysis(fen, onUpdate: (lines) {
               _partials[fen] = lines;
-              if (fen == position.fen) notifyListeners();
+              if (fen == position.fen) {
+                _syncTree();
+                notifyListeners();
+              }
               onUpdate?.call(lines);
             }));
   }

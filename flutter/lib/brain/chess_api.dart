@@ -17,6 +17,12 @@ class ChessApi {
   String numberedSanLine(String fen, List<String> ucis, {int max = 12}) =>
       _bridge.call('getNumberedSanLine', args: [fen, ucis, max]) as String;
 
+  /// getSanLine: each step {san, uci, color, piece} for a uci line from fen.
+  List<Map<String, dynamic>> sanSteps(String fen, List<String> ucis) =>
+      (_bridge.call('getSanLine', args: [fen, ucis]) as List)
+          .map((s) => (s as Map).cast<String, dynamic>())
+          .toList();
+
   bool isCapture(String fen, String uci) =>
       _bridge.call('isCapture', args: [fen, uci]) as bool;
 }
