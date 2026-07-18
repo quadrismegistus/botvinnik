@@ -5,11 +5,47 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../stores/game_controller.dart';
+import '../stores/practice_controller.dart';
 import 'games_list.dart';
+import 'practice_screen.dart';
 import 'roster_picker.dart';
 
 class ActionBar extends StatelessWidget {
   const ActionBar({super.key});
+
+  Widget _practiceButton(BuildContext context) {
+    final practice = context.watch<PracticeController>();
+    final due = practice.due;
+    return Stack(
+      alignment: Alignment.topRight,
+      children: [
+        IconButton(
+          onPressed: () => Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const PracticeScreen()),
+          ),
+          icon: const Icon(Icons.fitness_center),
+          tooltip: 'Practice',
+          color: Colors.white70,
+        ),
+        if (due > 0)
+          Positioned(
+            top: 4,
+            right: 4,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+              decoration: BoxDecoration(
+                color: const Color(0xFFCA3431),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text('$due',
+                  style: const TextStyle(
+                      fontSize: 10, fontWeight: FontWeight.w700)),
+            ),
+          ),
+      ],
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -34,6 +70,7 @@ class ActionBar extends StatelessWidget {
             style: TextButton.styleFrom(foregroundColor: Colors.white70),
           ),
           const Spacer(),
+          _practiceButton(context),
           IconButton(
             onPressed: () => Navigator.push(
               context,

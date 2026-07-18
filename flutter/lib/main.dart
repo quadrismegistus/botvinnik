@@ -14,10 +14,12 @@ import 'brain/bot_api.dart';
 import 'brain/chess_api.dart';
 import 'brain/grading_api.dart';
 import 'brain/js_bridge.dart';
+import 'brain/practice_api.dart';
 import 'db/app_db.dart';
 import 'engine/arbiter.dart';
 import 'engine/search_engine.dart';
 import 'stores/game_controller.dart';
+import 'stores/practice_controller.dart';
 import 'stores/review_controller.dart';
 import 'stores/settings_store.dart';
 import 'ui/action_bar.dart';
@@ -55,7 +57,9 @@ class _Booted {
   final SettingsStore settings;
   final ClassTable classTable;
   final AppDb db;
-  _Booted(this.bridge, this.arbiter, this.settings, this.classTable, this.db);
+  final PracticeController practice;
+  _Booted(this.bridge, this.arbiter, this.settings, this.classTable, this.db,
+      this.practice);
 }
 
 class _BootGateState extends State<BootGate> {
@@ -68,7 +72,10 @@ class _BootGateState extends State<BootGate> {
     final settings = await SettingsStore.load();
     final db = await AppDb.open();
     final classTable = ClassTable(GradingApi(bridge).classTable());
-    return _Booted(bridge, arbiter, settings, classTable, db);
+    final practice = PracticeController(
+        db, PracticeApi(bridge), GradingApi(bridge), arbiter);
+    await practice.load();
+    return _Booted(bridge, arbiter, settings, classTable, db, practice);
   }
 
   @override
@@ -103,6 +110,7 @@ class _BootGateState extends State<BootGate> {
           providers: [
             Provider.value(value: booted.classTable),
             ChangeNotifierProvider.value(value: booted.settings),
+            ChangeNotifierProvider.value(value: booted.practice),
             ChangeNotifierProvider(
               create: (_) => GameController(
                 booted.arbiter,
@@ -110,6 +118,7 @@ class _BootGateState extends State<BootGate> {
                 GradingApi(booted.bridge),
                 booted.settings,
                 booted.db,
+                booted.practice,
               ),
             ),
             ChangeNotifierProvider(

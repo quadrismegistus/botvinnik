@@ -18,6 +18,7 @@ import '../brain/grading_api.dart';
 import '../brain/types.dart';
 import '../db/app_db.dart';
 import '../engine/arbiter.dart';
+import 'practice_controller.dart';
 import 'settings_store.dart';
 
 class MoveRecord {
@@ -45,6 +46,7 @@ class GameController extends ChangeNotifier {
   final GradingApi _grading;
   final SettingsStore _settings;
   final AppDb? _db;
+  final PracticeController? _practice;
 
   Position position = Chess.initial;
   Move? lastMove;
@@ -61,7 +63,7 @@ class GameController extends ChangeNotifier {
   int _gen = 0;
 
   GameController(this._arbiter, this._bot, this._grading, this._settings,
-      [this._db]) {
+      [this._db, this._practice]) {
     persona = _bot.personaById(_settings.personaId) ?? _bot.personas().first;
     _settings.addListener(_onSettings);
     _analysisFor(position.fen);
@@ -170,7 +172,6 @@ class GameController extends ChangeNotifier {
   }
 
   /// Debug/self-test only: archive the game regardless of game-over state.
-  @visibleForTesting
   Future<void> debugForceSave() => _saveGame();
 
   String get _result {
@@ -198,30 +199,7 @@ class GameController extends ChangeNotifier {
     final botName = p == null ? 'Bot' : '${p.name} (${p.elo})';
     final youAreWhite = playerColor == 'w';
 
-    final stored = moves.map((m) {
-      final g = m.grade;
-      final wcDrop = g == null
-          ? 0.0
-          : (_grading.winChance(g.bestEval, g.bestMate) -
-                  _grading.winChance(g.evalPawns, g.mate))
-              .clamp(0.0, 100.0);
-      return {
-        'ply': m.ply,
-        'san': m.san,
-        'uci': m.uci,
-        'color': m.color,
-        'fenBefore': m.fenBefore,
-        'fenAfter': m.fenAfter,
-        'evalPawns': g?.evalPawns,
-        'mate': g?.mate,
-        'pctBest': g?.pctBest,
-        'wcDrop': wcDrop,
-        if (g?.label != null) 'label': g!.label,
-        if (g != null) 'bestSan': g.bestSan,
-        if (g != null) 'bestUci': g.bestUci,
-        if (g?.explanation != null) 'explanation': g!.explanation!.raw,
-      };
-    }).toList();
+    final stored = moves.map(_storedMoveOf).toList();
 
     final record = {
       'id': 'g-${DateTime.now().millisecondsSinceEpoch}-${moves.length}',
@@ -379,6 +357,41 @@ class GameController extends ChangeNotifier {
     grade = _grading.backfillGrade(grade, child);
     record.grade = grade;
     notifyListeners();
+
+    // auto-collect big mistakes as practice puzzles (web maybeCollect)
+    final practice = _practice;
+    if (practice != null) {
+      final prevUci =
+          record.ply >= 2 ? moves[record.ply - 2].uci : null;
+      await practice.maybeCollect(_storedMoveOf(record),
+          setupUci: prevUci);
+    }
+  }
+
+  Map<String, dynamic> _storedMoveOf(MoveRecord m) {
+    final g = m.grade;
+    final wcDrop = g == null
+        ? 0.0
+        : (_grading.winChance(g.bestEval, g.bestMate) -
+                _grading.winChance(g.evalPawns, g.mate))
+            .clamp(0.0, 100.0);
+    return {
+      'ply': m.ply,
+      'san': m.san,
+      'uci': m.uci,
+      'color': m.color,
+      'fenBefore': m.fenBefore,
+      'fenAfter': m.fenAfter,
+      'evalPawns': g?.evalPawns,
+      'mate': g?.mate,
+      'pctBest': g?.pctBest,
+      'wcDrop': wcDrop,
+      'depth': g?.depth ?? 0,
+      if (g?.label != null) 'label': g!.label,
+      if (g != null) 'bestSan': g.bestSan,
+      if (g != null) 'bestUci': g.bestUci,
+      if (g?.explanation != null) 'explanation': g!.explanation!.raw,
+    };
   }
 
   List<String> _fenHistory() =>

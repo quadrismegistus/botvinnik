@@ -36,12 +36,15 @@ class JsBridge {
   }
 
   /// Calls `brain.fn(...args)` (or reads `brain.fn` when [isProperty]) and
-  /// returns the JSON-decoded result. Args must be json-encodable; Dart null
-  /// becomes JS null (the brain treats null and undefined alike).
+  /// returns the JSON-decoded result. Args must be json-encodable. Dart null
+  /// becomes JS `undefined`, not `null` — so the brain's defaulted parameters
+  /// (`now = Date.now()`, `rand = Math.random`) engage as if omitted.
   dynamic call(String fn, {List<Object?> args = const [], bool isProperty = false}) {
+    final encoded =
+        args.map((a) => a == null ? 'undefined' : jsonEncode(a)).join(',');
     final expr = isProperty
         ? 'JSON.stringify(brain.$fn)'
-        : 'JSON.stringify(brain.$fn(${args.map(jsonEncode).join(',')}) ?? null)';
+        : 'JSON.stringify(brain.$fn($encoded) ?? null)';
     final r = _js.evaluate(expr);
     if (r.isError) {
       throw StateError('brain.$fn failed: ${r.stringResult}');
