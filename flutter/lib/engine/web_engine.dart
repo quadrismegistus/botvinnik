@@ -13,6 +13,7 @@ import 'dart:js_interop';
 
 import 'uci_protocol.dart';
 
+@JS('Worker')
 extension type _Worker._(JSObject _) implements JSObject {
   external factory _Worker(String scriptUrl);
   external void postMessage(JSAny? message);

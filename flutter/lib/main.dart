@@ -18,6 +18,7 @@ import 'brain/grading_api.dart';
 import 'brain/js_bridge.dart';
 import 'brain/practice_api.dart';
 import 'db/app_db.dart';
+import 'db/db_init.dart';
 import 'engine/arbiter.dart';
 import 'engine/engine_factory.dart';
 import 'stores/book_store.dart';
@@ -75,6 +76,7 @@ class _BootGateState extends State<BootGate> {
   late final Future<_Booted> _boot = _start();
 
   Future<_Booted> _start() async {
+    initDatabaseFactory(); // web: sqlite3 WASM; native: no-op
     final bridge = await JsBridge.load();
     final engine = await startEngine();
     final arbiter = SearchArbiter(engine);

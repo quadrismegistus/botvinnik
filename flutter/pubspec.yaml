@@ -42,6 +42,7 @@ dependencies:
   shared_preferences: ^2.5.5
   sqflite: ^2.4.3
   flutter_colorpicker: ^1.1.0
+  sqflite_common_ffi_web: ^1.1.2
 
 dev_dependencies:
   flutter_test:
@@ -106,3 +107,10 @@ flutter:
   #
   # For details regarding fonts from package dependencies,
   # see https://flutter.dev/to/font-from-package
+
+# Spike: dartchess with web support (64-bit bitboards split into 32-bit halves
+# for the JS number type). Upstream targets native only. Perft-verified in
+# both Chrome and the VM — see vendor/dartchess/test/web_perft_test.dart.
+dependency_overrides:
+  dartchess:
+    path: ../vendor/dartchess
