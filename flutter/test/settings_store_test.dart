@@ -92,6 +92,42 @@ void main() {
     });
   });
 
+  group('defaults out of the box', () {
+    test('the explaining overlays are on', () async {
+      final s = await load();
+      expect(s.showThreats, isTrue);
+      expect(s.showControl, isTrue);
+      expect(s.showArrows, isTrue);
+    });
+
+    test('turning one off sticks', () async {
+      expect((await load({'flutter.botvinnik-threats': '0'})).showThreats,
+          isFalse);
+      expect((await load({'flutter.botvinnik-control': '0'})).showControl,
+          isFalse);
+    });
+
+    test('the board starts on a texture', () async {
+      expect((await load()).boardTexture, kDefaultBoardTexture);
+    });
+
+    test('choosing custom colours sticks rather than reverting', () async {
+      // an absent value now means "never chose", which is the default
+      // texture — so clearing has to be stored, not removed
+      final s = await load();
+      s.applySquares(const Color(0xff112233), const Color(0xff445566));
+      expect(s.boardTexture, isEmpty);
+      expect((await load({'flutter.botvinnik-board-texture': ''})).boardTexture,
+          isEmpty);
+    });
+
+    test('reset puts the texture back', () async {
+      final s = await load({'flutter.botvinnik-board-texture': ''});
+      s.resetBoardColors();
+      expect(s.boardTexture, kDefaultBoardTexture);
+    });
+  });
+
   test('arrow count is clamped to the number of brushes', () async {
     expect((await load({'flutter.botvinnik-arrow-count': 99})).arrowCount,
         kMaxArrowCount);

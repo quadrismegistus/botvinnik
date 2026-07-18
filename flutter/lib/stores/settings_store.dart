@@ -17,6 +17,15 @@ const Color kDefaultDarkSquare = Color(0xffb58863);
 const Color kDefaultLastMove = Color(0x809cc700);
 const String kDefaultPieceSet = 'cburnett';
 
+/// The board out of the box. Newspaper reads well against the app's dark
+/// shell and stays quiet under the overlays.
+const String kDefaultBoardTexture = 'newspaper';
+
+/// The two overlays that explain the position are on by default: they are the
+/// point of the app, and a first-time player will not know to go and find them.
+const bool kDefaultShowThreats = true;
+const bool kDefaultShowControl = true;
+
 /// Peak opacity of the overlays. Both arrow kinds sit at 70%: fully opaque
 /// arrows dominated the position, and matching them keeps the engine's
 /// suggestion and the opponent's threat weighted the same. The control tint
@@ -143,15 +152,17 @@ class SettingsStore extends ChangeNotifier {
       collectThreshold: threshold,
       showArrows: prefs.getString('botvinnik-arrows') != '0', // ON, like web
       blind: prefs.getString('botvinnik-blind') == '1',
-      showThreats: prefs.getString('botvinnik-threats') == '1',
-      showControl: prefs.getString('botvinnik-control') == '1',
+      // '0' means the user turned it off; absent means they never touched it
+      showThreats: prefs.getString('botvinnik-threats') != '0',
+      showControl: prefs.getString('botvinnik-control') != '0',
       lightSquare:
           _color(prefs, 'botvinnik-sq-light', kDefaultLightSquare, opaque: true),
       darkSquare:
           _color(prefs, 'botvinnik-sq-dark', kDefaultDarkSquare, opaque: true),
       lastMoveColor: _color(prefs, 'botvinnik-lastmove', kDefaultLastMove),
       pieceSet: prefs.getString('botvinnik-pieces') ?? kDefaultPieceSet,
-      boardTexture: prefs.getString('botvinnik-board-texture') ?? '',
+      boardTexture:
+          prefs.getString('botvinnik-board-texture') ?? kDefaultBoardTexture,
       arrowOpacity: prefs.getDouble('botvinnik-arrow-opacity') ??
           kDefaultArrowOpacity,
       arrowCount: (prefs.getInt('botvinnik-arrow-count') ?? kDefaultArrowCount)
@@ -310,7 +321,9 @@ class SettingsStore extends ChangeNotifier {
   void _clearTexture() {
     if (_boardTexture.isEmpty) return;
     _boardTexture = '';
-    _prefs.remove('botvinnik-board-texture');
+    // stored, not removed: an absent value means "never chose", which now
+    // means the default texture — picking a colour has to stick
+    _prefs.setString('botvinnik-board-texture', '');
   }
 
   /// Puts all three board colors back to the shipped theme in one repaint.
@@ -323,7 +336,8 @@ class SettingsStore extends ChangeNotifier {
     _prefs.remove('botvinnik-lastmove');
     _pieceSet = kDefaultPieceSet;
     _prefs.remove('botvinnik-pieces');
-    _clearTexture();
+    _boardTexture = kDefaultBoardTexture;
+    _prefs.remove('botvinnik-board-texture');
     notifyListeners();
   }
 
