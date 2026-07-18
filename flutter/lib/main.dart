@@ -1,11 +1,15 @@
-// Spike: prove the three things a botvinnik port needs from a Flutter board —
-// 1. render a position (FEN), 2. interactive moves with legal-move dots,
-// 3. programmatic arrows (our hint/threat/refutation annotations).
-// Chessground (lichess's board) + dartchess (their rules library).
+// Spike: the full botvinnik pipeline on a phone —
+//   native Stockfish (FFI) → MultiPV lines → bot.ts (JavaScriptCore) → move
+// You play White; Square 600 (the shaped bot, exact web code) plays Black.
+
+import 'dart:math';
 
 import 'package:chessground/chessground.dart';
 import 'package:dartchess/dartchess.dart';
 import 'package:flutter/material.dart' hide Step;
+
+import 'engine.dart';
+import 'shaping.dart';
 
 void main() {
   runApp(const SpikeApp());
@@ -30,6 +34,8 @@ class SpikeApp extends StatelessWidget {
   }
 }
 
+const int kLabel = 600; // Square 600 — the shaped bot's calibrated label
+
 class BoardPage extends StatefulWidget {
   const BoardPage({super.key});
 
@@ -41,16 +47,39 @@ class _BoardPageState extends State<BoardPage> {
   Position position = Chess.initial;
   Move? lastMove;
   late final ChessboardController controller;
-  bool showArrows = true;
+
+  SearchEngine? engine;
+  ShapingLayer? shaping;
+  String status = 'booting engine…';
+  String botSays = '';
+  bool botThinking = false;
+  final String gameSeed = 'spike${Random().nextInt(1 << 30)}';
 
   @override
   void initState() {
     super.initState();
     controller = ChessboardController(game: _gameData());
+    _boot();
+  }
+
+  Future<void> _boot() async {
+    try {
+      shaping = await ShapingLayer.load();
+      engine = await SearchEngine.start();
+      setState(() => status = 'Square $kLabel ready — you are White');
+      // pipeline self-test: play 1.e4 so the bot must answer through the
+      // whole chain (remove once the board is tappable by a human)
+      await Future.delayed(const Duration(milliseconds: 500));
+      await _onUserMove(NormalMove.fromUci('e2e4'));
+    } catch (e) {
+      setState(() => status = 'boot failed: $e');
+    }
   }
 
   @override
   void dispose() {
+    engine?.dispose();
+    shaping?.dispose();
     controller.dispose();
     super.dispose();
   }
@@ -59,9 +88,7 @@ class _BoardPageState extends State<BoardPage> {
     return GameData(
       fen: position.fen,
       lastMove: lastMove,
-      // both sides playable — it's a spike, not a game
-      playerSide:
-          position.turn == Side.white ? PlayerSide.white : PlayerSide.black,
+      playerSide: PlayerSide.white,
       validMoves: makeLegalMoves(position),
       sideToMove: position.turn,
       kingSquareInCheck:
@@ -69,42 +96,60 @@ class _BoardPageState extends State<BoardPage> {
     );
   }
 
-  void _onMove(Move move, {bool? viaDragAndDrop}) {
-    if (!position.isLegal(move)) return;
+  void _applyMove(Move move) {
+    position = position.playUnchecked(move);
+    lastMove = move;
+    controller.updatePosition(_gameData());
+  }
+
+  Future<void> _onUserMove(Move move, {bool? viaDragAndDrop}) async {
+    if (!position.isLegal(move) || botThinking) return;
+    setState(() => _applyMove(move));
+    await _botReply();
+  }
+
+  Future<void> _botReply() async {
+    final sf = engine;
+    final js = shaping;
+    if (sf == null || js == null || position.isGameOver) return;
+
     setState(() {
-      position = position.playUnchecked(move);
-      lastMove = move;
-      controller.updatePosition(_gameData());
+      botThinking = true;
+      status = 'Square $kLabel is thinking…';
     });
-  }
-
-  String _sanOfLast() {
-    // spike-grade: uci of the last move (real SAN needs the pre-move position)
-    final m = lastMove;
-    return m is NormalMove ? m.uci : '—';
-  }
-
-  /// A fake "hint" arrow: the first legal move of the side to move —
-  /// stands in for our engine-driven hint/threat/refutation arrows.
-  Set<Shape> _annotationShapes() {
-    if (!showArrows) return const {};
-    final entry = position.legalMoves.entries
-        .where((e) => e.value.squares.isNotEmpty)
-        .firstOrNull;
-    if (entry == null) return const {};
-    final from = entry.key;
-    final to = entry.value.squares.first;
-    return {
-      Arrow(
-        color: const Color(0xB33BAB4A), // green, translucent — hint style
-        orig: from,
-        dest: to,
-      ),
-      Circle(
-        color: const Color(0xB3CA3431), // red circle — threat style
-        orig: position.board.kingOf(position.turn) ?? Square.e4,
-      ),
-    };
+    try {
+      final depth = js.searchDepth(kLabel);
+      final lines = await sf.search(position.fen, depth);
+      final lastTo =
+          lastMove is NormalMove ? (lastMove as NormalMove).uci.substring(2, 4) : null;
+      final uci = js.pickMove(
+        lines: lines,
+        label: kLabel,
+        seed: gameSeed,
+        fen: position.fen,
+        lastMoveTo: lastTo,
+      );
+      final best = (lines.first['pv'] as List).first as String;
+      final chosen = uci ?? best;
+      final move = NormalMove.fromUci(chosen);
+      if (position.isLegal(move)) {
+        setState(() {
+          _applyMove(move);
+          botSays = chosen == best
+              ? 'played $chosen (the best move)'
+              : 'played $chosen (best was $best — shaped miss)';
+          status = position.isGameOver
+              ? 'game over'
+              : 'Square $kLabel ready — your move';
+        });
+      } else {
+        setState(() => status = 'illegal pick $chosen ?!');
+      }
+    } catch (e) {
+      setState(() => status = 'bot error: $e');
+    } finally {
+      setState(() => botThinking = false);
+    }
   }
 
   @override
@@ -114,16 +159,12 @@ class _BoardPageState extends State<BoardPage> {
         title: const Text('botvinnik flutter spike'),
         actions: [
           IconButton(
-            icon: Icon(showArrows ? Icons.visibility : Icons.visibility_off),
-            tooltip: 'Toggle annotation shapes',
-            onPressed: () => setState(() => showArrows = !showArrows),
-          ),
-          IconButton(
             icon: const Icon(Icons.refresh),
-            tooltip: 'Reset',
+            tooltip: 'New game',
             onPressed: () => setState(() {
               position = Chess.initial;
               lastMove = null;
+              botSays = '';
               controller.updatePosition(_gameData());
             }),
           ),
@@ -137,54 +178,37 @@ class _BoardPageState extends State<BoardPage> {
                 controller: controller,
                 size: constraints.maxWidth,
                 orientation: Side.white,
-                onMove: _onMove,
-                shapes: _annotationShapes(),
+                onMove: _onUserMove,
                 settings: const ChessboardSettings(
                   enableCoordinates: true,
                   animationDuration: Duration(milliseconds: 150),
-                  // let users draw their own arrows with a long press, like lichess
                   drawShape: DrawShapeOptions(enable: true),
                 ),
               );
             },
           ),
-          // grade-strip mock: where the play→verdict loop will live
+          // grade-strip slot: engine status + what the bot did
           Container(
             width: double.infinity,
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
             color: const Color(0xFF262421),
-            child: Row(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  lastMove != null ? _sanOfLast() : '—',
-                  style: const TextStyle(
-                      fontWeight: FontWeight.w700, fontSize: 15),
-                ),
-                const SizedBox(width: 10),
-                Text(
-                  lastMove != null ? '✓ excellent' : 'play a move',
-                  style: const TextStyle(
-                      color: Color(0xFF81B64C), fontSize: 14),
-                ),
-                const Spacer(),
-                const Text('94% of best',
-                    style:
-                        TextStyle(color: Colors.white38, fontSize: 12)),
+                Text(status,
+                    style: const TextStyle(
+                        color: Color(0xFF81B64C), fontSize: 14)),
+                if (botSays.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 2),
+                    child: Text(botSays,
+                        style: const TextStyle(
+                            color: Colors.white54, fontSize: 12)),
+                  ),
               ],
             ),
           ),
         ],
-      ),
-      bottomNavigationBar: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Text(
-          position.isCheckmate
-              ? 'Checkmate.'
-              : '${position.turn == Side.white ? "White" : "Black"} to move'
-                  ' — fen: ${position.fen.split(' ').first}',
-          style: const TextStyle(fontSize: 12, color: Colors.white54),
-          textAlign: TextAlign.center,
-        ),
       ),
     );
   }
