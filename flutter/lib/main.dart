@@ -128,7 +128,7 @@ class GameScreen extends StatefulWidget {
 /// Debug-only: play a few scripted player moves so the whole pipeline
 /// (bot reply, grading, backfill, insight card) can be verified headlessly
 /// on the simulator. Flip to false for human play.
-const bool kSelfTest = true;
+const bool kSelfTest = false;
 
 class _GameScreenState extends State<GameScreen> {
   int _tab = 0; // 0 insights, 1 moves
