@@ -260,11 +260,24 @@ costs nothing either way — it is pure chess.js.
    not one visit: CanvasKit is fetched before the worker takes control, so it
    is cached on the second load.
 
-   **Still open:** Flutter fetches Roboto and Noto from `fonts.gstatic.com` at
-   runtime — the only cross-origin request left. The worker caches them
-   opaquely, so they survive, but bundling the fonts locally would remove a
-   third-party dependency the Svelte app never had, and make the *first*
-   offline load typographically correct too.
+   **The fonts are closed too.** Flutter web fetched Roboto *and* Noto Sans
+   Symbols from `fonts.gstatic.com` at runtime. Roboto is now bundled
+   (Apache-2.0, from the SDK's own artifacts) and named in the theme, which is
+   what makes the web build stop asking Google for it.
+
+   Noto was subtler and needed measuring: Flutter downloads a fallback font
+   for any glyph no bundled font contains. Checking Roboto's cmap against
+   every non-ASCII character in `lib/` found **nine** it lacks — `→ ⌘ ✓ ⇧ 🔥
+   ✗ ← ↑ ↓` — of which eight were actually rendered, in the roster picker
+   (`▦ ◆ ◓`), the practice verdict (`✓ ✗`), the streak counter (`🔥`) and the
+   keyboard sheet (`⌘ ⇧ ← →`). They are now Material Icons (already bundled
+   and tree-shaken) or words. **Verified zero cross-origin requests** across
+   boot, roster picker, keyboard help and Practice — a boot-only check would
+   have missed all of them, since the offending glyphs live behind modals.
+
+   The lesson generalises: on Flutter web, an exotic Unicode glyph in a
+   `Text` is a network request. Prefer `Icons.` — the icon font is bundled and
+   tree-shaken, so it costs nothing.
 4. **Notarization layout**, before any App Store attempt: the bundled engine
    is ad-hoc signed in `Contents/Resources` and will be rejected. Moving it
    to `Contents/MacOS` and signing it in the same build phase is the fix;

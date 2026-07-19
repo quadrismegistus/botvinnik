@@ -70,19 +70,24 @@ class _RosterSheet extends StatelessWidget {
     );
   }
 
+  /// Material Icons rather than the Unicode glyphs these used to be (▦ ◆ ◓).
+  /// Those live in no bundled font, so drawing them made Flutter web fetch
+  /// Noto Sans Symbols 2 from fonts.gstatic.com the moment this sheet opened —
+  /// a third-party request, and one the offline build could not serve. The
+  /// icon font is already bundled and tree-shaken, so these cost ~nothing.
   Widget _familyMark(Persona p) {
-    final (glyph, color) = switch (p.family) {
-      'square' => ('▦', const Color(0xFFd0b755)),
-      'fish' => ('◆', const Color(0xFF5b8bb0)),
-      // a sun resting on the horizon line — the same idea as the web avatar:
-      // this engine cannot see past its own exchanges
-      'horizon' => ('◓', const Color(0xFFc4783f)),
-      _ => ('·', Colors.white38),
+    final (icon, color) = switch (p.family) {
+      'square' => (Icons.grid_view, const Color(0xFFd0b755)),
+      'fish' => (Icons.diamond_outlined, const Color(0xFF5b8bb0)),
+      // a sun resting on the horizon — the same idea as the web avatar: this
+      // engine cannot see past its own exchanges
+      'horizon' => (Icons.wb_twilight, const Color(0xFFc4783f)),
+      _ => (Icons.circle, Colors.white38),
     };
     return CircleAvatar(
       radius: 16,
       backgroundColor: const Color(0xFF1b1a17),
-      child: Text(glyph, style: TextStyle(color: color, fontSize: 15)),
+      child: Icon(icon, color: color, size: 17),
     );
   }
 }

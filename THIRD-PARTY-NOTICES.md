@@ -24,6 +24,7 @@ repository as the rest of the source.
 | Component | License |
 |---|---|
 | chess.js | BSD-2-Clause |
+| Roboto (Christian Robertson) — the app typeface, bundled into the Flutter build so the web app fetches no fonts from Google | Apache-2.0 |
 | js-chess-engine (Josef Jadrny) — the "Horizon" bot personas; bundled into `flutter/assets/brain.js` and served to the web in a lazy chunk | MIT |
 | Svelte / SvelteKit | MIT |
 | onnxruntime-web | MIT |

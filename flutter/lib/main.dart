@@ -51,6 +51,9 @@ ThemeData _theme() => ThemeData(
         brightness: Brightness.dark,
       ),
       scaffoldBackgroundColor: const Color(0xFF161512),
+      // naming it explicitly is what makes the web build use the BUNDLED
+      // Roboto (see pubspec) instead of fetching it from fonts.gstatic.com
+      fontFamily: 'Roboto',
     );
 
 /// Async boot: JS brain + native engine + db, then the provider tree ABOVE
@@ -270,8 +273,11 @@ class _AppShellState extends State<AppShell> {
         return AppBar(
           title: Text(
             'Practice'
-            '${practice.sessionSolved > 0 ? ' · ✓${practice.sessionSolved}' : ''}'
-            '${practice.sessionStreak > 1 ? ' · 🔥${practice.sessionStreak}' : ''}',
+            // words, not ✓ and 🔥: neither glyph is in Roboto, so the title
+            // alone pulled Noto Sans Symbols (and an emoji font) from
+            // fonts.gstatic.com the moment you solved one
+            '${practice.sessionSolved > 0 ? ' · ${practice.sessionSolved} solved' : ''}'
+            '${practice.sessionStreak > 1 ? ' · streak ${practice.sessionStreak}' : ''}',
             style: const TextStyle(fontSize: 16),
           ),
         );

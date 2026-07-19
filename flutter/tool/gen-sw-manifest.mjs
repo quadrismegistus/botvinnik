@@ -20,7 +20,11 @@ function isPrecache(p) {
   if (p === 'manifest.json' || p === 'favicon.png' || p === 'version.json') return true;
   if (p.startsWith('wasm/')) return true; // Stockfish — no engine, no game
   if (p.startsWith('icons/')) return true;
-  if (p.startsWith('assets/fonts/')) return true;
+  // note the doubled prefix: a font declared in pubspec as assets/fonts/X is
+  // emitted at assets/assets/fonts/X, so match the segment rather than a
+  // literal path — anchoring on 'assets/fonts/' silently dropped bundled
+  // Roboto into cache-on-first-use, i.e. absent on a first offline load
+  if (p.startsWith('assets/') && /(^|\/)fonts\//.test(p)) return true;
   if (p.startsWith('assets/packages/cupertino_icons/')) return true;
   if (p.startsWith('assets/AssetManifest') || p === 'assets/FontManifest.json') return true;
   return false;
