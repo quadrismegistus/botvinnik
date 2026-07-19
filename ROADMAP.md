@@ -289,6 +289,59 @@ costs nothing either way — it is pure chess.js.
    to `Contents/MacOS` and signing it in the same build phase is the fix;
    `ProcessEngine.resolveBinary` already probes that path.
 
+### App Store compliance (raised 2026-07-19)
+
+Everything needed to submit, separated into the one item that is a *decision*
+and the rest, which are chores. Nothing here is legal advice.
+
+**The decision: GPLv3 on the App Store.** This is not a checkbox and should be
+settled before effort goes into the chores. The project is GPLv3 because
+Stockfish, dartchess and chessground are, and on iOS all three are compiled
+into the binary. Apple's standard licence terms impose per-device usage
+restrictions, and GPLv3 forbids adding restrictions to what it grants — the
+conflict that got VLC pulled from the store in 2011.
+
+It is demonstrably survivable: **Lichess ships its own app under AGPL-3.0**,
+and dartchess and chessground are *theirs*, so they have already reconciled
+that for the components we borrow. The mechanism is that App Store Connect
+lets you supply a **custom EULA** replacing Apple's standard one. The residual
+risk is Stockfish, where we are not the copyright holder and the upstream team
+has enforced the GPL before (ChessBase). Worth deciding deliberately: ship
+with a custom EULA and the source offer honoured, or don't ship the engine
+compiled in.
+
+**Required by the platform:**
+- **`PrivacyInfo.xcprivacy`** — mandatory. Must declare the required-reason
+  APIs the plugins use: `shared_preferences` → UserDefaults (`CA92.1`),
+  `sqflite`/path_provider → file timestamps (`C617.1`) and disk space
+  (`E174.1`) if touched. Third-party SDKs on Apple's list must ship their own
+  signed manifest — check `stockfish`, `sqflite`, `path_provider`,
+  `shared_preferences`, `flutter_js`.
+- **`ITSAppUsesNonExemptEncryption = false`** in Info.plist. HTTPS-only use is
+  exempt, and declaring it skips the annual self-classification prompt.
+- **Privacy nutrition label** in App Store Connect. Our answer is unusually
+  clean: *no data collected*. No accounts, no analytics, no ads, nothing
+  leaves the device except what the user asks for — and that exception must be
+  described, not skipped: importing a game sends a **lichess or chess.com
+  username** to those services, and the Maia personas fetch weights from
+  HuggingFace. Neither is collection *by us*; both belong in the policy.
+- **Privacy policy URL and support URL** — both required and both must be
+  live pages, not placeholders. botvinnik.app can host them.
+- Age rating, screenshots at the current required device sizes, icon set,
+  launch screen, description/keywords/subtitle, copyright line.
+
+**Not needed, worth knowing so nobody builds them:** no account system, so no
+Sign in with Apple obligation and no account-deletion flow; no IAP; not a Kids
+Category app.
+
+**App Review practicalities:** reviewers test on restricted networks, and the
+Maia and Dala personas download weights on first use. Make sure the fallback
+to Stockfish is graceful and say so in the review notes, or a reviewer will
+file "the app doesn't work" against a bot that was merely offline. Ditto: the
+app needs no login, which is worth stating up front.
+
+**macOS** shares all of the above plus the notarization layout in item 4.
+
 ### ~~Free win, independent of all the above~~ — SHIPPED 2026-07-19 (#30)
 
 Three separate leaks, each paid for on a first visit by people who never
