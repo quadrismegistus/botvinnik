@@ -251,13 +251,45 @@ costs nothing either way — it is pure chess.js.
    slow cannot use it as-is either. Horizon fit because js-chess-engine is
    synchronous and answers in ~2ms. The other four each need their own
    mechanism on the Dart side first:
-   - **retro — NEXT (Ryan's call, 2026-07-19).** Three personas for one
+   - **retro — IN PROGRESS (Ryan's call, 2026-07-19).** Three personas for one
      mechanism, and the best-anchored ratings on the roster (the morlock bots'
-     real lichess numbers over 15k–48k human games). A Go module compiled to
-     wasm that already speaks minimal UCI, so the shape of the work is a wasm
-     runtime plus a UCI pump rather than a new protocol invented from scratch.
-     The open question is what runs the wasm on native Flutter — the web build
-     has `WebAssembly` for free, so it may land on Flutter web first.
+     real lichess numbers over 15k–48k human games).
+
+     **Web first, and it is mostly reuse.** The retro engines are complete UCI
+     engines in a Web Worker (`static/retro/retro-worker.js`), and Flutter web
+     already drives a Worker-based UCI engine — `WebEngine` over
+     `UciProtocol`, for Stockfish. So this is a second `UciProtocol`
+     implementation pointing at a different worker, not new protocol work. The
+     one piece that is not free: retro needs its OWN engine instance beside
+     the arbiter, never through it — a retro bot must not touch the analysis
+     engine, and vice versa.
+
+     **Native is more tractable than this roadmap previously assumed**, and
+     gomobile is not needed. Measured 2026-07-19 with Go 1.26.5 against the
+     vendored source at `scripts/engines/morlock-src`:
+
+     - The shipped `retro.wasm` is **GOOS=js**: `main.go` imports `syscall/js`
+       and talks to `wasm_exec.js`. So it cannot run in a plain wasm runtime —
+       that route needs a `GOOS=wasip1` rebuild, not the existing artifact.
+     - **macOS: nearly free.** `go build ./cmd/turochamp` produces a 3.7MB
+       native binary that speaks UCI on stdin/stdout — verified `readyok` then
+       `bestmove e2e3`. That is exactly what `ProcessEngine` already drives for
+       Stockfish, so desktop retro is a binary to ship plus a spawn path.
+     - **iOS: proven to compile.** `CGO_ENABLED=1 GOOS=ios GOARCH=arm64 go
+       build -buildmode=c-archive`, with CC pointed at Xcode's iphoneos clang,
+       produces a valid 3.5MB `ar` archive exporting a C symbol — callable
+       from `dart:ffi`. No gomobile, no extra toolchain beyond Xcode.
+
+     What iOS still needs, none of it unknown: a wrapper turning the stdin
+     UCI loop into `retro_send(line)` plus an output callback (the existing
+     `main.go` already has that shape for JS — swap `syscall/js` for `//export`),
+     an Xcode link phase for the archive, and one archive covering all three
+     engines selected by name, as the wasm build already does via
+     `retroConfig.engine`. Budget ~3.5MB of binary, once, for three personas.
+
+     Decision for now: **ship web-only**, which is where the roster gap
+     actually blocks the deploy, and treat native as a separately-scoped
+     follow-up rather than a blocker.
    - **Garbo** — a Worker script with its own postMessage protocol, and
      flutter_js has no Worker. Needs an onmessage/postMessage shim *and* a
      background isolate, since its ~1s search would block the UI.
