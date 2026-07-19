@@ -119,8 +119,11 @@ class InsightCard extends StatelessWidget {
         color: color.withValues(alpha: 0.18),
         borderRadius: BorderRadius.circular(10),
       ),
-      child: Text(
-        '${table.glyph(label)} ${table.noun(label)}',
+      child: Text.rich(
+        TextSpan(children: [
+          table.glyphSpan(label, size: 12, color: color),
+          TextSpan(text: ' ${table.noun(label)}'),
+        ]),
         style:
             TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.w600),
       ),

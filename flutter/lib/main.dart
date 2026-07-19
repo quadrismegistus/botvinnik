@@ -51,6 +51,16 @@ ThemeData _theme() => ThemeData(
         brightness: Brightness.dark,
       ),
       scaffoldBackgroundColor: const Color(0xFF161512),
+      // NOT what stops the gstatic fetch — that is the `fonts:` block in
+      // pubspec, which puts a family named Roboto in the FontManifest;
+      // canvaskit/fonts.dart gates the download on that alone. Drop the
+      // pubspec entry and the download returns however this line reads.
+      //
+      // What this line does do: override Typography's per-platform families,
+      // so macOS and iOS use Roboto rather than the system face. Deliberate —
+      // one typeface across every target — but it is a real change on those
+      // two, not a web-only fix.
+      fontFamily: 'Roboto',
     );
 
 /// Async boot: JS brain + native engine + db, then the provider tree ABOVE
@@ -96,8 +106,13 @@ class _BootGateState extends State<BootGate> {
   Future<_Booted> _start() async {
     initDatabaseFactory(); // web: sqlite3 WASM; native: no-op
     final bridge = await JsBridge.load();
-    final engine = await startEngine();
-    final arbiter = SearchArbiter(engine);
+    // Started, NOT awaited. On the web the engine is a 7MB WASM download plus
+    // a UCI handshake, and awaiting it here put all of that in front of the
+    // first frame: 17.3MB before anything was drawn, measured at 16s on fast
+    // 4G and 46s on slow. The board does not need the engine to appear — the
+    // arbiter queues searches until it answers — so the splash now lifts on
+    // brain + settings + db, and the engine arrives behind it.
+    final arbiter = SearchArbiter(startEngine());
     final settings = await SettingsStore.load();
     final db = await AppDb.open();
     final classTable = ClassTable(GradingApi(bridge).classTable());
@@ -270,8 +285,11 @@ class _AppShellState extends State<AppShell> {
         return AppBar(
           title: Text(
             'Practice'
-            '${practice.sessionSolved > 0 ? ' · ✓${practice.sessionSolved}' : ''}'
-            '${practice.sessionStreak > 1 ? ' · 🔥${practice.sessionStreak}' : ''}',
+            // words, not ✓ and 🔥: neither glyph is in Roboto, so the title
+            // alone pulled Noto Sans Symbols (and an emoji font) from
+            // fonts.gstatic.com the moment you solved one
+            '${practice.sessionSolved > 0 ? ' · ${practice.sessionSolved} solved' : ''}'
+            '${practice.sessionStreak > 1 ? ' · streak ${practice.sessionStreak}' : ''}',
             style: const TextStyle(fontSize: 16),
           ),
         );

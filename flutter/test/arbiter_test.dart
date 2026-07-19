@@ -62,12 +62,15 @@ Future<void> tick() => Future.delayed(Duration.zero);
 
 void main() {
   _budgets();
+  _lateEngine();
   late FakeEngine engine;
   late SearchArbiter arbiter;
 
   setUp(() {
     engine = FakeEngine();
-    arbiter = SearchArbiter(engine);
+    // the arbiter takes a FUTURE engine so boot need not wait on it; an
+    // already-resolved one keeps these tests synchronous
+    arbiter = SearchArbiter(Future.value(engine));
   });
 
   test('one search in flight; queue drains in priority order', () async {
@@ -236,6 +239,63 @@ void main() {
 // Appended: budget invariants. These are constants rather than behaviour, but
 // getting the relationship wrong fails SILENTLY — a game archives without its
 // closing labels because a timeout fired, which no other test would notice.
+// Boot no longer waits for the engine (main.dart passes startEngine() without
+// awaiting), so requests can arrive before it exists. Getting this wrong is
+// silent: the first attempt marked a request "running" during the load window,
+// which crashed on a stop for a search that had never started; the second
+// guarded the stop and thereby DROPPED the preemption instead.
+void _lateEngine() {
+  group('engine that is not ready yet', () {
+    test('queues work, then runs it in priority order once it arrives',
+        () async {
+      final gate = Completer<UciSearcher>();
+      final engine = FakeEngine();
+      final arbiter = SearchArbiter(gate.future);
+
+      arbiter.analysis('fenA');
+      arbiter.search(
+          fen: 'fenBot',
+          depth: 6,
+          multiPv: 12,
+          priority: SearchPriority.botMove);
+      await tick();
+
+      // nothing may be in flight before the engine exists
+      expect(engine.searches, isEmpty);
+
+      gate.complete(engine);
+      await tick();
+
+      // the bot request outranks the analysis and must go first — the
+      // preemption that arrived during the wait cannot be lost
+      expect(engine.searches.length, 1);
+      expect(engine.current.fen, 'fenBot');
+    });
+
+    test('an engine that never boots resolves null and records why', () async {
+      final gate = Completer<UciSearcher>();
+      final arbiter = SearchArbiter(gate.future);
+      final pending = arbiter.analysis('fenA');
+      await tick();
+      expect(arbiter.engineError, isNull, reason: 'still loading, not failed');
+
+      gate.completeError(StateError('no engine'));
+      await tick();
+
+      // NULL, not an error. Every caller already handles null ("forget this
+      // ply"); completing with an error instead threw out of five
+      // fire-and-forget call sites with no zone guard, and left Practice
+      // wedged with `checking` stuck true for the life of the app.
+      expect(await pending, isNull);
+      // a request made AFTER the failure gets the same treatment
+      expect(await arbiter.analysis('fenB'), isNull);
+      // the reason is available so the UI can say so rather than showing a
+      // board whose bot silently never moves
+      expect(arbiter.engineError, isA<StateError>());
+    });
+  });
+}
+
 void _budgets() {
   group('analysis budget', () {
     test('the save wait outlives the analysis it waits on', () {

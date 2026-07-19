@@ -82,6 +82,20 @@ flutter:
     - assets/openings.json
     - assets/book.json
 
+  # Roboto, bundled rather than fetched. Flutter web otherwise downloads its
+  # default font from fonts.gstatic.com at runtime — a third-party request on
+  # every cold load, and the last thing standing between this build and real
+  # offline support. Apache-2.0, copied from the Flutter SDK's own
+  # material_fonts artifacts; licence alongside the files.
+  fonts:
+    - family: Roboto
+      fonts:
+        - asset: assets/fonts/Roboto-Regular.ttf
+        - asset: assets/fonts/Roboto-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/Roboto-Bold.ttf
+          weight: 700
+
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images
 

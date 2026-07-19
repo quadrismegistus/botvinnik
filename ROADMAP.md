@@ -13,8 +13,10 @@ one; `svelte/` and `flutter/` are consumers and neither depends on the other.
   Stockfish WASM the web app does, so its calibration is right by
   construction, where the Flutter desktop build spawns whatever binary it
   finds.
-- **Svelte still owns the web deploy.** botvinnik.app stays SvelteKit until
-  Flutter web closes two gaps: the persona roster and offline support.
+- **Svelte still owns the web deploy**, and is now **frozen** — see below.
+  botvinnik.app stays SvelteKit until Flutter web closes the one remaining
+  gap: the persona roster. (Offline closed 2026-07-19; payload accepted the
+  same day.)
 - Flutter web works and is measured (9.22MB gzipped, 26 requests as of
   2026-07-18) but is not a deploy candidate yet. Since that measurement,
   `brain.js` has grown ~24KB gzipped from bundling js-chess-engine for the
@@ -35,13 +37,44 @@ immutable, and it does not invite drift.
 Retiring the Svelte app is the one step that cannot be walked back cheaply,
 so here is what has to be true first.
 
-**Three gaps, all measured, all open:**
-1. **Offline.** Flutter web registers no service worker at all (verified on
-   3.44.6, above). The Svelte app is a working PWA with a deliberate precache.
-   This is a capability regression users would feel on day one.
-2. **Payload.** Svelte deploys ~270KB gzipped of JS. Flutter web is 9.22MB
-   gzipped over 26 requests — **about 34×**. Acceptable for an app you install;
-   a different proposition for a link someone opens.
+**Three gaps, all measured. Only the roster is still open:**
+1. ~~**Offline.**~~ **CLOSED 2026-07-19** — Flutter web is a real PWA: boots
+   with no network, and makes no third-party requests either (the fonts it
+   used to fetch from Google are bundled). See the service-worker item below
+   for what precaches and why.
+2. ~~**Payload.**~~ **ACCEPTED 2026-07-19** — not a blocker. It is a full
+   chess app behind a splash screen, and it is a PWA you install rather than a
+   page you skim.
+
+   Measured cold anyway (cache cleared, service worker blocked), time until
+   the app is *usable*, before and after the boot fix below:
+
+   | | Flutter before | Flutter after | Svelte |
+   |---|---|---|---|
+   | unthrottled | 1.1s | **0.9s** | 0.1s |
+   | fast 4G, 9 Mbps | 16.3s | **10.5s** | 0.5s |
+   | slow 4G, 3 Mbps | 46.0s | **30.0s** | 1.4s |
+
+   The useful finding was that the gap was never about size alone: `_start()`
+   awaited `startEngine()` before `dismissSplash()`, so the splash covered the
+   screen until the *entire* 17.3MB was down — including 7MB of Stockfish you
+   do not need in order to look at a board. **Fixed**: `SearchArbiter` now
+   takes a `Future<UciSearcher>` and queues work until it arrives, so boot
+   waits on brain + settings + db only. About 35% off, on both mobile
+   profiles.
+
+   (The two "ready" definitions differ deliberately: Flutter's is a complete
+   boot because that is when it shows you anything; Svelte's is first usable
+   board.)
+
+   What is left is Flutter's own floor — CanvasKit 5.5MB plus the Dart bundle
+   2.9MB — and getting under that means questioning the renderer, not trimming
+   assets. Not worth doing for its own sake. Revisit only if the web build
+   ever needs to win a first click from a stranger.
+
+   (The drive-by concern this used to carry — a visitor who never installs
+   still paying for a 12MB precache — dissolved with the shell-only change:
+   they now cache only what they actually used.)
 3. **Roster.** 22 of 35 personas. And note *what* the missing ones are: the
    Svelte app is the **reference implementation** for Maia, retro, Garbo and
    Dala. Removing it while porting exactly those is removing the thing being
@@ -52,7 +85,8 @@ What keeping it actually costs while frozen, so the trade is honest: the
 shared brain changes. That second one has caught real bugs in both directions,
 so it is not purely a tax.
 
-**Gap 1 is next up** — see the service-worker item below.
+**Next toward this**: the roster, which is now the only thing between Flutter
+web and the deploy — M5, with retro the next family.
 
 ### Flutter UI backlog (raised 2026-07-19)
 
@@ -236,20 +270,127 @@ costs nothing either way — it is pure chess.js.
    because the web imports brain modules individually and never the entry
    barrel. That is how js-chess-engine got to Flutter for +104 eager bytes on
    the web.
-3. **A real service worker for Flutter web.** Verified on Flutter 3.44.6:
-   the emitted `flutter_service_worker.js` is 784 bytes whose entire body
-   calls `self.registration.unregister()` and reloads clients, and
-   `web/index.html` does not register it in the first place — so the web
-   build has no offline support at all, doubly so. Needs: a precache split
-   (shell + engine; the textures and
-   40 piece sets are runtime-cached), an atomic per-build cache version —
-   load-bearing, because a stale `brain.js` against a new app hard-fails the
-   BRAIN_VERSION assert rather than degrading — Flutter's own SW neutralised,
-   and a build step that emits the manifest.
+3. ~~**A real service worker for Flutter web.**~~ **SHIPPED 2026-07-19.**
+   `web/sw.js` + `tool/gen-sw-manifest.mjs`, built by `build-web.sh` (which CI
+   now calls). Verified offline in a real browser with every cross-origin
+   request aborted at the route level, so the browser's own HTTP cache could
+   not stand in: the app boots complete — board, engine arrows, control
+   tinting — with no network.
+
+   **Only the shell precaches — 10 files, 142KB.** Everything else caches on
+   first use, from the fetches the app was already making. Precaching the
+   heavy files was measurably *worse* than not: the page fetches
+   `main.dart.js`, `brain.js`, sqlite and the 7MB engine during boot while
+   `cache.addAll` fetches the same files again, concurrently, so no HTTP cache
+   can dedupe them — ~12MB of duplicate transfer on every first visit and
+   every deploy, reproduced with `Cache-Control` set. With the shell-only
+   precache the worker's marginal cost is **zero**: a cold visit transfers
+   9.3MB with it active against 10.3MB with it blocked.
+
+   Two things the worker does that are easy to miss. Every fetch it makes
+   passes `cache: 'reload'`: the default mode lets the browser's HTTP cache
+   answer, so a worker installing for build N could fill N's cache with build
+   N-1's bytes — the content hash names the cache after the build it was made
+   FOR, not what went into it, and the result was a new `main.dart.js` beside
+   a stale `brain.js` refusing to boot. And an uncached board asset falls back
+   to any cached one, because only the piece set in use is cached while
+   Settings offers all 40: picking an unused one offline left the board with
+   no pieces at all, until the network returned.
+
+   The shell is not arbitrary — it is exactly what answers an offline
+   navigation, which is what makes the app **installable** and is the one
+   thing runtime caching cannot bootstrap (the navigate handler only reads).
+   Verified: offline, cross-origin blocked, a *fresh page at a different URL*
+   returns 200 and boots the whole app.
+
+   The cache version is a hash of **every** shipped file, not just the shell,
+   so a cache can never mix builds. That is not fastidiousness: a new
+   `main.dart.js` beside a stale `brain.js` trips the BRAIN_VERSION assert and
+   refuses to boot rather than degrading.
+
+   **Two things worth knowing.** `--no-web-resources-cdn` is now *required*,
+   not a preference: without it CanvasKit comes from `www.gstatic.com`, which
+   the worker cannot cache — and the app still appears to work offline while
+   the browser's HTTP cache holds it, which is precisely how the first test
+   here produced a false pass. And full offline lands after one **reload**,
+   not one visit: CanvasKit is fetched before the worker takes control, so it
+   is cached on the second load.
+
+   **The fonts are closed too.** Flutter web fetched Roboto *and* Noto Sans
+   Symbols from `fonts.gstatic.com` at runtime. Roboto is now bundled
+   (Apache-2.0, from the SDK's own artifacts) and named in the theme, which is
+   what makes the web build stop asking Google for it.
+
+   Noto was subtler and needed measuring: Flutter downloads a fallback font
+   for any glyph no bundled font contains. Checking Roboto's cmap against
+   every non-ASCII character in `lib/` found **nine** it lacks — `→ ⌘ ✓ ⇧ 🔥
+   ✗ ← ↑ ↓` — of which eight were actually rendered, in the roster picker
+   (`▦ ◆ ◓`), the practice verdict (`✓ ✗`), the streak counter (`🔥`) and the
+   keyboard sheet (`⌘ ⇧ ← →`). They are now Material Icons (already bundled
+   and tree-shaken) or words. **Verified zero cross-origin requests** across
+   boot, roster picker, keyboard help and Practice — a boot-only check would
+   have missed all of them, since the offending glyphs live behind modals.
+
+   The lesson generalises: on Flutter web, an exotic Unicode glyph in a
+   `Text` is a network request. Prefer `Icons.` — the icon font is bundled and
+   tree-shaken, so it costs nothing.
 4. **Notarization layout**, before any App Store attempt: the bundled engine
    is ad-hoc signed in `Contents/Resources` and will be rejected. Moving it
    to `Contents/MacOS` and signing it in the same build phase is the fix;
    `ProcessEngine.resolveBinary` already probes that path.
+
+### App Store compliance (raised 2026-07-19)
+
+Everything needed to submit, separated into the one item that is a *decision*
+and the rest, which are chores. Nothing here is legal advice.
+
+**The decision: GPLv3 on the App Store.** This is not a checkbox and should be
+settled before effort goes into the chores. The project is GPLv3 because
+Stockfish, dartchess and chessground are, and on iOS all three are compiled
+into the binary. Apple's standard licence terms impose per-device usage
+restrictions, and GPLv3 forbids adding restrictions to what it grants — the
+conflict that got VLC pulled from the store in 2011.
+
+It is demonstrably survivable: **Lichess ships its own app under AGPL-3.0**,
+and dartchess and chessground are *theirs*, so they have already reconciled
+that for the components we borrow. The mechanism is that App Store Connect
+lets you supply a **custom EULA** replacing Apple's standard one. The residual
+risk is Stockfish, where we are not the copyright holder and the upstream team
+has enforced the GPL before (ChessBase). Worth deciding deliberately: ship
+with a custom EULA and the source offer honoured, or don't ship the engine
+compiled in.
+
+**Required by the platform:**
+- **`PrivacyInfo.xcprivacy`** — mandatory. Must declare the required-reason
+  APIs the plugins use: `shared_preferences` → UserDefaults (`CA92.1`),
+  `sqflite`/path_provider → file timestamps (`C617.1`) and disk space
+  (`E174.1`) if touched. Third-party SDKs on Apple's list must ship their own
+  signed manifest — check `stockfish`, `sqflite`, `path_provider`,
+  `shared_preferences`, `flutter_js`.
+- **`ITSAppUsesNonExemptEncryption = false`** in Info.plist. HTTPS-only use is
+  exempt, and declaring it skips the annual self-classification prompt.
+- **Privacy nutrition label** in App Store Connect. Our answer is unusually
+  clean: *no data collected*. No accounts, no analytics, no ads, nothing
+  leaves the device except what the user asks for — and that exception must be
+  described, not skipped: importing a game sends a **lichess or chess.com
+  username** to those services, and the Maia personas fetch weights from
+  HuggingFace. Neither is collection *by us*; both belong in the policy.
+- **Privacy policy URL and support URL** — both required and both must be
+  live pages, not placeholders. botvinnik.app can host them.
+- Age rating, screenshots at the current required device sizes, icon set,
+  launch screen, description/keywords/subtitle, copyright line.
+
+**Not needed, worth knowing so nobody builds them:** no account system, so no
+Sign in with Apple obligation and no account-deletion flow; no IAP; not a Kids
+Category app.
+
+**App Review practicalities:** reviewers test on restricted networks, and the
+Maia and Dala personas download weights on first use. Make sure the fallback
+to Stockfish is graceful and say so in the review notes, or a reviewer will
+file "the app doesn't work" against a bot that was merely offline. Ditto: the
+app needs no login, which is worth stating up front.
+
+**macOS** shares all of the above plus the notarization layout in item 4.
 
 ### ~~Free win, independent of all the above~~ — SHIPPED 2026-07-19 (#30)
 

@@ -164,6 +164,22 @@ class _PracticeTabState extends State<PracticeTab> {
     return shapes;
   }
 
+  /// Icon plus text. Replaces the ✓ / ✗ these lines used to start with: those
+  /// glyphs are in no bundled font, so drawing them made Flutter web fetch
+  /// Noto Sans Symbols from fonts.gstatic.com — on every graded attempt, and
+  /// unservable offline. The icon font is already here and tree-shaken.
+  Widget _verdict(IconData icon, Color color, String text, {TextStyle? style}) =>
+      Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(top: 1.5, right: 6),
+            child: Icon(icon, color: color, size: 15),
+          ),
+          Expanded(child: Text(text, style: style)),
+        ],
+      );
+
   Widget _promptStrip(Map<String, dynamic> item, PracticeController practice,
       String sideToMove) {
     final attempt = practice.attempt;
@@ -188,16 +204,20 @@ class _PracticeTabState extends State<PracticeTab> {
         ],
       );
     } else if (attempt.pass) {
-      content = Text(
-        '✓ ${attempt.san}'
+      content = _verdict(
+        Icons.check_circle_outline,
+        const Color(0xFF81B64C),
+        '${attempt.san}'
         '${attempt.drop <= 0 ? ' — as strong as the best move' : ' — costs ${attempt.drop.round()}%, good enough'}'
         '${practice.revealBest && attempt.uci != item['bestUci'] ? ' · best was ${item['bestSan']}' : ''}',
         style: const TextStyle(
             color: Color(0xFF81B64C), fontWeight: FontWeight.w600),
       );
     } else {
-      content = Text(
-        '✗ ${attempt.san} — drops ${attempt.drop.round()}% '
+      content = _verdict(
+        Icons.cancel_outlined,
+        const Color(0xFFCA3431),
+        '${attempt.san} — drops ${attempt.drop.round()}% '
         '${practice.revealBest ? '· best was ${item['bestSan']}' : ''}',
         style: const TextStyle(
             color: Color(0xFFCA3431), fontWeight: FontWeight.w600),

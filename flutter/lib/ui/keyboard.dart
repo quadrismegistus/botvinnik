@@ -94,13 +94,20 @@ class KeyboardControls extends StatelessWidget {
   /// [mac] switches the modifier glyphs; the bindings themselves are the same
   /// apart from Ctrl-Y, which is a Windows convention.
   static List<(String, String)> bindingsFor({required bool mac}) => [
-        ('←  →', 'step back and forward through the game'),
-        ('↑  ↓', 'jump to the start, or back to the live position'),
+        // spelled out rather than ← → ↑ ↓ ⌘ ⇧: none of those glyphs exist in
+        // Roboto, so drawing them made Flutter web fetch Noto Sans Symbols
+        // from fonts.gstatic.com — a third-party request the offline build
+        // cannot serve, for a sheet most people open once. When this becomes
+        // the per-tab sheet the roadmap describes, use Material Icons
+        // (keyboard_command_key, arrow_back, …) rather than bringing the
+        // Unicode back.
+        ('Left / Right', 'step back and forward through the game'),
+        ('Up / Down', 'jump to the start, or back to the live position'),
         ('space', 'play or stop a preview of the best line'),
         ('f', 'flip the board'),
         ('esc', 'stop previewing and return to the live position'),
-        (mac ? '⌘Z' : 'Ctrl+Z', 'undo'),
-        (mac ? '⇧⌘Z' : 'Ctrl+Shift+Z / Ctrl+Y', 'redo'),
+        (mac ? 'Cmd Z' : 'Ctrl+Z', 'undo'),
+        (mac ? 'Shift Cmd Z' : 'Ctrl+Shift+Z / Ctrl+Y', 'redo'),
       ];
 
   KeyEventResult _onKey(FocusNode node, KeyEvent event) {
@@ -163,7 +170,9 @@ void showKeyboardHelp(BuildContext context) {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   SizedBox(
-                    width: 62,
+                    // 'Shift Cmd Z' is ~67px at this size; the old ⇧⌘Z was 8.
+                    // Too narrow and the rows silently wrap to two lines.
+                    width: 84,
                     child: Text(keys,
                         style: const TextStyle(
                             fontSize: 12.5,

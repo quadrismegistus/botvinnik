@@ -120,7 +120,7 @@ void main() {
       }
     }
     // the modifier glyphs differ by platform
-    expect(KeyboardControls.bindingsFor(mac: true).last.$1, contains('⌘'));
+    expect(KeyboardControls.bindingsFor(mac: true).last.$1, contains('Cmd'));
     expect(KeyboardControls.bindingsFor(mac: false).last.$1, contains('Ctrl'));
   });
 }

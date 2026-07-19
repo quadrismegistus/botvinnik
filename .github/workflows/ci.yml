@@ -92,9 +92,12 @@ jobs:
         working-directory: flutter
       - run: flutter test
         working-directory: flutter
-      - name: Web build — the only thing that type-checks the web branch of
-              every conditional import
+      # Also the only thing that type-checks the web branch of every
+      # conditional import. Via build-web.sh rather than `flutter build web`
+      # so the service worker's manifest is generated and its own guards run
+      # (missing required file, unsubstituted bootstrap token). Note it cannot
+      # catch an UNPROCESSED sw.js — it is the step that processes it; what
+      # protects against that is every build path going through this script.
+      - name: Web build, with the offline manifest
         working-directory: flutter
-        run: |
-          ./stage-web-assets.sh
-          flutter build web --release --no-web-resources-cdn
+        run: ./build-web.sh

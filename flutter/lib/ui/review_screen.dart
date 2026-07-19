@@ -121,7 +121,11 @@ class ReviewBody extends StatelessWidget {
                     fontWeight: FontWeight.w700, fontSize: 15)),
             const SizedBox(width: 8),
             if (label != null)
-              Text('${table.glyph(label)} ${table.noun(label)}',
+              Text.rich(
+                  TextSpan(children: [
+                    table.glyphSpan(label, size: 14),
+                    TextSpan(text: ' ${table.noun(label)}'),
+                  ]),
                   style: TextStyle(
                       color: table.color(label),
                       fontWeight: FontWeight.w600,
@@ -176,7 +180,7 @@ class ReviewBody extends StatelessWidget {
                 Text(m['san'] as String, style: const TextStyle(fontSize: 13)),
                 if (label != null) ...[
                   const SizedBox(width: 3),
-                  Text(table.glyph(label),
+                  Text.rich(table.glyphSpan(label, size: 11),
                       style:
                           TextStyle(color: table.color(label), fontSize: 11)),
                 ],

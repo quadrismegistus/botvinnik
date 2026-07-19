@@ -13,6 +13,36 @@ class ClassTable {
   const ClassTable(this.raw);
 
   String glyph(String label) => (raw[label]?['glyph'] as String?) ?? '';
+
+  /// Icon stand-ins for the three glyphs no bundled font contains.
+  ///
+  /// The brain ships `★` best, `✔` excellent, `✓` good (classifications.ts).
+  /// None is in Roboto, so drawing them made Flutter web fetch a Noto face
+  /// from fonts.gstatic.com — on the verdict line under the board, i.e. on
+  /// every graded move. That is a third-party request, and unservable on a
+  /// cold offline start.
+  ///
+  /// The other six (`‼ ! ?! ? × ??`) are Roboto-covered and stay as text.
+  /// Substituting on THIS side rather than in classifications.ts leaves the
+  /// Svelte app's rendering alone, where browser fallback fonts have them.
+  static const Map<String, IconData> _iconGlyphs = {
+    'best': Icons.star,
+    'excellent': Icons.done_all,
+    'good': Icons.check,
+  };
+
+  /// The label's mark, as an inline span: an icon where Roboto has no glyph,
+  /// plain text otherwise. Callers use `Text.rich` so the noun beside it keeps
+  /// the normal font.
+  InlineSpan glyphSpan(String label, {double size = 13, Color? color}) {
+    final icon = _iconGlyphs[label];
+    if (icon == null) return TextSpan(text: glyph(label));
+    return WidgetSpan(
+      alignment: PlaceholderAlignment.middle,
+      child: Icon(icon, size: size, color: color ?? this.color(label)),
+    );
+  }
+
   String noun(String label) => (raw[label]?['noun'] as String?) ?? label;
   Color color(String label) {
     final hex = raw[label]?['color'] as String?;
@@ -79,7 +109,11 @@ class GradeStrip extends StatelessWidget {
                   const TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
           const SizedBox(width: 8),
           if (label != null)
-            Text('${table.glyph(label)} ${table.noun(label)}',
+            Text.rich(
+                TextSpan(children: [
+                  table.glyphSpan(label, size: 14),
+                  TextSpan(text: ' ${table.noun(label)}'),
+                ]),
                 style: TextStyle(
                     color: table.color(label),
                     fontWeight: FontWeight.w600,
