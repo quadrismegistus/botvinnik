@@ -81,6 +81,18 @@ class _BootGateState extends State<BootGate> {
     onTimeout: () => throw StateError('boot timed out'),
   );
 
+  /// Which tab is up. Owned here rather than in [AppShell] because the
+  /// keyboard layer sits above the shell (it must, to hold focus) and has to
+  /// know whether the board it drives is actually on screen. [AppShell] is the
+  /// only writer, and it setStates on every write, so no listener is needed.
+  final ValueNotifier<int> _tab = ValueNotifier(0);
+
+  @override
+  void dispose() {
+    _tab.dispose();
+    super.dispose();
+  }
+
   Future<_Booted> _start() async {
     initDatabaseFactory(); // web: sqlite3 WASM; native: no-op
     final bridge = await JsBridge.load();
@@ -154,7 +166,8 @@ class _BootGateState extends State<BootGate> {
             home: Builder(
               builder: (context) => KeyboardControls(
                 game: context.read<GameController>(),
-                child: const AppShell(),
+                enabled: () => _tab.value == 0,
+                child: AppShell(tab: _tab),
               ),
             ),
           ),
@@ -165,14 +178,17 @@ class _BootGateState extends State<BootGate> {
 }
 
 class AppShell extends StatefulWidget {
-  const AppShell({super.key});
+  /// The selected tab, held above us so the keyboard layer can read it.
+  final ValueNotifier<int> tab;
+  const AppShell({super.key, required this.tab});
 
   @override
   State<AppShell> createState() => _AppShellState();
 }
 
 class _AppShellState extends State<AppShell> {
-  int _tab = 0;
+  int get _tab => widget.tab.value;
+  set _tab(int i) => widget.tab.value = i;
 
   /// Tabs are built on first visit and kept alive after that. IndexedStack
   /// would otherwise build all four at boot — which on web means Settings'

@@ -1257,12 +1257,14 @@
 		const key = `${game.fen}|${top.mate}|${top.pv.join(' ')}`;
 		if (winMemo?.key !== key) {
 			const w = judgeTacticalWin(game.fen, { pv: top.pv, mate: top.mate });
-			winMemo = {
-				key,
-				targets: w ? w.targets.filter((t) => t !== top.pv[0].slice(2, 4)) : []
-			};
+			winMemo = { key, targets: w ? w.targets : [] };
 		}
-		return winMemo.targets;
+		// the top move's own destination already carries its arrowhead — but only
+		// if the arrows are actually on. With arrows off and threats on, dropping
+		// it would leave the primary victim as the one piece with no glyph.
+		if (boardArrows.length === 0) return winMemo.targets;
+		const dest = top.pv[0].slice(2, 4);
+		return winMemo.targets.filter((t) => t !== dest);
 	});
 	// square-control tint — pure chess.js, recomputed per position
 	const controlMap = $derived.by(() => {
@@ -1409,8 +1411,20 @@
 		redoStack.pop();
 		for (const p of entry.plies) {
 			if (!makeMove(p.from, p.to, p.promotion)) {
-				redoStack = []; // desynced with the game — drop the stale future
+				// desynced with the game — drop the stale future. Some plies may
+				// already have landed, so this is a real new position: it needs the
+				// same repair as a normal move, or the overlays keep describing the
+				// one before it (a stale mate score would ring the wrong king).
+				redoStack = [];
+				const moves = getState().moves;
+				// keep the grades belonging to the plies that DID land, or the move
+				// list is short of the board (grades are sparse — one may still be
+				// in flight — so go by ply number, not by count)
+				moveHistory = [...moveHistory, ...entry.grades.filter((g) => g.ply <= moves.length)];
+				const applied = moves.at(-1);
+				lastMove = applied ? [applied.from, applied.to] : null;
 				refresh();
+				runAnalysis();
 				return;
 			}
 		}

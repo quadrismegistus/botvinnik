@@ -305,28 +305,35 @@ class GameController extends ChangeNotifier {
     final db = _db;
     if (db == null || moves.isEmpty || _saved) return;
     _saved = true;
+    // Snapshot the finished game BEFORE the wait below. The wait can run for
+    // seconds, and an undo during it would otherwise archive a truncated game
+    // with a result that no longer matches. The records themselves are safe to
+    // hold: grading fills them in place (which is what we are waiting for) and
+    // undo only removes them from the list.
+    final played = List<MoveRecord>.of(moves);
+    final p = botEnabled ? persona : null;
+    final result = _result;
+    final botName = p == null ? 'Analysis' : '${p.name} (${p.elo})';
+    final youAreWhite = playerColor == 'w';
+
     // let in-flight grading land so the archive gets labels (bounded — the
     // terminal move's backfill may never come: a mate position has no lines)
     if (_pendingGrades.isNotEmpty) {
       await Future.wait(_pendingGrades.toList())
           .timeout(const Duration(seconds: 12), onTimeout: () => []);
     }
-    final p = botEnabled ? persona : null;
-    final result = _result;
-    final botName = p == null ? 'Analysis' : '${p.name} (${p.elo})';
-    final youAreWhite = playerColor == 'w';
 
-    final stored = moves.map(_storedMoveOf).toList();
+    final stored = played.map(_storedMoveOf).toList();
 
     final record = {
-      'id': 'g-${DateTime.now().millisecondsSinceEpoch}-${moves.length}',
+      'id': 'g-${DateTime.now().millisecondsSinceEpoch}-${played.length}',
       'endedAt': DateTime.now().toIso8601String(),
       'result': result,
-      'pgn': _pgn(result, botName, youAreWhite),
+      'pgn': _pgn(played, result, botName, youAreWhite),
       'botElo': p == null ? null : p.elo + 240, // internal scale (SCALE_OFFSET)
       if (p != null) 'botPersona': p.id,
       'botColor': p == null ? null : (playerColor == 'w' ? 'b' : 'w'),
-      'moveCount': moves.length,
+      'moveCount': played.length,
       'whiteAccuracy': _bridgeAccuracy(stored, 'w'),
       'blackAccuracy': _bridgeAccuracy(stored, 'b'),
       'labelCounts': {
@@ -342,7 +349,8 @@ class GameController extends ChangeNotifier {
   double? _bridgeAccuracy(List<Map<String, dynamic>> stored, String color) =>
       _grading.gameAccuracy(stored, color);
 
-  String _pgn(String result, String botName, bool youAreWhite) {
+  String _pgn(List<MoveRecord> played, String result, String botName,
+      bool youAreWhite) {
     final white = youAreWhite ? 'You' : botName;
     final black = youAreWhite ? botName : 'You';
     final date =
@@ -353,9 +361,9 @@ class GameController extends ChangeNotifier {
       ..writeln('[Date "$date"]')
       ..writeln('[Result "$result"]')
       ..writeln();
-    for (var i = 0; i < moves.length; i++) {
+    for (var i = 0; i < played.length; i++) {
       if (i.isEven) sb.write('${i ~/ 2 + 1}. ');
-      sb.write('${moves[i].san} ');
+      sb.write('${played[i].san} ');
     }
     sb.write(result);
     return sb.toString();

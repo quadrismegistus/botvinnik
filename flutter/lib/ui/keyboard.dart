@@ -74,7 +74,20 @@ BoardKeyAction? boardActionFor(KeyEvent event) {
 class KeyboardControls extends StatelessWidget {
   final GameController game;
   final Widget child;
-  const KeyboardControls({super.key, required this.game, required this.child});
+
+  /// Whether the keys mean anything right now. The focus node has to sit above
+  /// the whole shell to reliably hold focus, but the game it drives is only on
+  /// screen in one tab — without this, ⌘Z from Settings silently undoes a move
+  /// on a board you cannot see. Returning ignored also lets the arrow keys
+  /// scroll the other tabs, which is what they should do there.
+  final bool Function() enabled;
+
+  const KeyboardControls({
+    super.key,
+    required this.game,
+    required this.child,
+    required this.enabled,
+  });
 
   /// What the keys do, for the help sheet — one list, so the sheet cannot
   /// drift from the bindings.
@@ -91,6 +104,7 @@ class KeyboardControls extends StatelessWidget {
       ];
 
   KeyEventResult _onKey(FocusNode node, KeyEvent event) {
+    if (!enabled()) return KeyEventResult.ignored;
     final action = boardActionFor(event);
     if (action == null) return KeyEventResult.ignored;
     switch (action) {
