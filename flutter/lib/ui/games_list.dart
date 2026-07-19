@@ -1,5 +1,6 @@
 // The Review tab: stored games, newest first — result, opponent, accuracy,
-// blunder/mistake counts. Tap to review (pushed route).
+// blunder/mistake counts. Tap to review — which opens IN THIS TAB, replacing
+// the list, so the shell and its bottom tabs stay on screen.
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -21,6 +22,9 @@ class _GamesListBodyState extends State<GamesListBody> {
   @override
   Widget build(BuildContext context) {
     final review = context.watch<ReviewController>();
+    // a game under review replaces the list within this tab, so the shell —
+    // and the bottom tabs — stay put
+    if (review.current != null) return const ReviewBody();
     if (!review.loaded) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -80,13 +84,9 @@ class _GamesListBodyState extends State<GamesListBody> {
         '${mistakes > 0 ? ' · $mistakes ?' : ''}',
         style: const TextStyle(fontSize: 11.5, color: Colors.white38),
       ),
-      onTap: () {
-        review.open(g);
-        Navigator.push(
-          context,
-          MaterialPageRoute(builder: (_) => const ReviewScreen()),
-        );
-      },
+      // opens in place, inside this tab — pushing a route would cover the
+      // shell and take the bottom tabs with it
+      onTap: () => review.open(g),
       onLongPress: () => showDialog<void>(
         context: context,
         builder: (dctx) => AlertDialog(

@@ -118,7 +118,6 @@ class _PracticeTabState extends State<PracticeTab> {
             children: [
               Center(child: board(size)),
               _promptStrip(item, practice, sideToMove),
-              const Spacer(),
               _actionRow(practice),
             ],
           );
@@ -129,11 +128,14 @@ class _PracticeTabState extends State<PracticeTab> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             board(size),
+            // Hint/Retry/Next belong directly under the prompt they answer.
+            // A Spacer here pushed them to the far bottom-right of the pane,
+            // half a screen from the sentence they respond to.
             Expanded(
               child: Column(
+                mainAxisSize: MainAxisSize.min,
                 children: [
                   _promptStrip(item, practice, sideToMove),
-                  const Spacer(),
                   _actionRow(practice),
                 ],
               ),
