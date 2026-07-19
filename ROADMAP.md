@@ -49,20 +49,22 @@ one; `svelte/` and `flutter/` are consumers and neither depends on the other.
   per-tab action map rather than one map switched off.
 
   Wanted bindings:
-  - **Play:** `b` toggles blind mode (currently unbound; `b` reads better than
-    `h`, which suggests hint/help).
+  - **Play:** `h` toggles blind mode — "hide". Both keys are free; `h` was
+    chosen over `b` precisely because it leaves `b` to mean "show best" and
+    nothing else, in any tab. The residual tension is that Practice has a
+    Hint action, so if that ever wants a key it cannot have `h`.
   - **Review:** ← / → step between moves, and it should be possible to review
     with the keyboard alone. `ReviewController` already has `prev`, `next`,
     `goto`, `canPrev`, `canNext` — this is wiring, not new logic.
   - **Practice:** `r` *or* ← retries, `n` next puzzle, `b` shows best.
     `PracticeController` already has `retry`, `nextPuzzle`, `reveal`, `hint`.
 
-  **Two collisions, deliberate but worth deciding explicitly.** `b` means
-  blind in Play and show-best in Practice; ← means step-back in Play and
-  Review but retry in Practice. Tab scoping makes that safe, but it means
-  `KeyboardControls.bindingsFor` — the single list the help sheet renders, so
-  that the sheet cannot drift from the bindings — has to become per-tab too,
-  or the sheet will confidently describe the wrong app. Also decide whether
+  **One collision left, and it is deliberate:** ← means step-back in Play and
+  Review but retry in Practice. Tab scoping makes that safe, but it still
+  means `KeyboardControls.bindingsFor` — the single list the help sheet
+  renders, so that the sheet cannot drift from the bindings — has to become
+  per-tab, or the sheet will confidently describe the wrong app. Also decide
+  whether
   `n`/`r`/`b` should repeat on key-hold; the existing `_repeatable` set says
   browse keys yes, state-changing keys no, and all three of these change
   state.
