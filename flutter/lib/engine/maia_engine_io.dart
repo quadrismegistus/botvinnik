@@ -34,5 +34,7 @@ class MaiaEngine {
   }) async =>
       null;
 
+  void cancelPending() {}
+
   void dispose() {}
 }

@@ -15,7 +15,7 @@
 // ort, the network, and IndexedDB. Keeping that line intact is what stops the
 // two apps' Maia from quietly diverging.
 //
-// Protocol (one request in flight, Dart serialises):
+// Protocol (this worker serialises; Dart also cancels before re-asking):
 //   ← {id, fenHistory, band, temperature}
 //   → {id, status: 'fetching'}      once, only when the weights are NOT cached
 //   → {id, move: string | null}     the answer
@@ -118,17 +118,34 @@ interface Loaded {
 
 const loads = new Map<number, Promise<Loaded>>();
 
-/// Once loading has failed, stop trying for the rest of the session.
+/// Bands whose weights TIMED OUT loading. Those are not retried this session.
 ///
-/// This mirrors the Svelte client's `broken` flag, and dropping it was a real
-/// regression rather than a simplification. Without it, a network that ACCEPTS
-/// and never answers — a captive portal, a stalled hotspot — costs a full
+/// The point is to kill a retry storm that can never be cheap: a network that
+/// ACCEPTS and never answers — captive portal, stalled hotspot — costs a full
 /// LOAD_TIMEOUT_MS on every move, forever, because each move re-enters a
-/// deleted `loads` entry. Measured: two moves, two 60s waits, two attempts.
-/// Worse, each retry re-announces "downloading… once", which by then is a lie.
+/// deleted `loads` entry. Measured before this existed: three moves, three
+/// attempts, 60s each.
 ///
-/// A retry that can never be cheap is not worth having. A reload resets it.
-let broken = false;
+/// Three things about the shape of it, each learned by getting it wrong first
+/// (a global `broken` flag, checked before the cache lookup, latching on any
+/// failure):
+///
+///   * **Per band, not global.** A 401 on one band used to kill a DIFFERENT
+///     band that had a live in-memory session and cached weights.
+///   * **Checked only on a cache MISS**, so a band already loaded keeps
+///     working no matter what happened to any other.
+///   * **Timeouts only.** A fast failure — 404, a corrupt cached model, an
+///     ort init error — costs nothing to retry, so latching on it buys
+///     nothing and silently substitutes Stockfish for the rest of the
+///     session. That is precisely the "different opponent wearing the
+///     persona's name" the roster picker exists to prevent.
+const timedOutBands = new Set<number>();
+
+/** A stall, as opposed to a failure that answered quickly. */
+function isTimeout(e: unknown): boolean {
+	if (e instanceof DOMException && e.name === 'TimeoutError') return true; // AbortSignal.timeout
+	return e instanceof Error && e.message.includes('timed out'); // withTimeout
+}
 
 /** Whether this band's weights are already on disk — decides the UI message. */
 async function isCached(band: number): Promise<boolean> {
@@ -136,9 +153,12 @@ async function isCached(band: number): Promise<boolean> {
 }
 
 function load(band: number): Promise<Loaded> {
-	if (broken) return Promise.reject(new Error('maia is unavailable in this session'));
 	let p = loads.get(band);
 	if (!p) {
+		// only here — a band already loaded is never affected
+		if (timedOutBands.has(band)) {
+			return Promise.reject(new Error(`maia-${band} timed out earlier this session`));
+		}
 		p = (async () => {
 			const key = `maia-${band}`;
 			let bytes = await getCached(key);
@@ -162,9 +182,9 @@ function load(band: number): Promise<Loaded> {
 			return { session, inputName, policyName };
 		})();
 		loads.set(band, p);
-		p.catch(() => {
+		p.catch((e) => {
 			loads.delete(band);
-			broken = true;
+			if (isTimeout(e)) timedOutBands.add(band);
 		});
 	}
 	return p;
@@ -183,7 +203,9 @@ async function move(
 		.map((m) => m.from + m.to + (m.promotion ?? ''));
 	if (legal.length === 0) return null;
 
-	if (!(await isCached(band))) announce();
+	// not for a band we will refuse to load — announcing "downloading… once"
+	// and then not downloading is the lie this used to tell on every move
+	if (!timedOutBands.has(band) && !(await isCached(band))) announce();
 
 	const { session, inputName, policyName } = await load(band);
 	const planes = encodeFenHistory(fenHistory);
@@ -197,7 +219,17 @@ async function move(
 	return decodePolicyOutput(policy, legal, isBlack, temperature).best.move;
 }
 
-self.onmessage = async (e: MessageEvent) => {
+/// Requests are handled one at a time.
+///
+/// Dart cancels its side before posting a new request, but cancelling is not
+/// the same as not sending: `postMessage` still fires, so this worker can
+/// receive a second request while the first is inside `session.run()`. ORT's
+/// wasm bridge brackets a run with a process-global stack save/restore, so
+/// overlapping runs on one InferenceSession is exactly the hazard the
+/// protocol comment above claims does not exist. Now it does not.
+let chain: Promise<unknown> = Promise.resolve();
+
+self.onmessage = (e: MessageEvent) => {
 	const req = e.data as {
 		id: number;
 		fenHistory: string[];
@@ -205,6 +237,15 @@ self.onmessage = async (e: MessageEvent) => {
 		temperature?: number;
 	};
 	if (!req || typeof req.id !== 'number') return;
+	chain = chain.then(() => handle(req)).catch(() => {});
+};
+
+async function handle(req: {
+	id: number;
+	fenHistory: string[];
+	band: number;
+	temperature?: number;
+}): Promise<void> {
 	try {
 		const uci = await move(req.fenHistory, req.band, req.temperature ?? 0, () =>
 			self.postMessage({ id: req.id, status: 'fetching' })
@@ -213,4 +254,4 @@ self.onmessage = async (e: MessageEvent) => {
 	} catch (err) {
 		self.postMessage({ id: req.id, error: String(err) });
 	}
-};
+}

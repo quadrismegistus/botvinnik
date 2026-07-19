@@ -143,6 +143,14 @@ class MaiaEngine {
     );
   }
 
+  /// Abandon every outstanding request without tearing the worker down.
+  ///
+  /// Called when the game they belonged to is gone. Without it the ids stay
+  /// in [_pending], so a late `status:'fetching'` from an abandoned download
+  /// still passes the "is this wanted" check and re-raises the downloading
+  /// flag on a game that is not downloading anything.
+  void cancelPending() => _failAll();
+
   void dispose() {
     _disposed = true;
     final worker = _worker;

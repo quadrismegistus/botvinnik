@@ -207,7 +207,13 @@ class GameController extends ChangeNotifier {
     // abandoned but its future is not, so nothing else clears this. Left set,
     // statusLine claimed the NEXT persona was downloading a model it does not
     // have, for up to 90s, suppressing the real status line the whole time.
+    //
+    // Both halves are needed. Clearing alone left a race: the abandoned
+    // request was still in the engine's _pending, so a 'fetching' announce
+    // arriving just after this line passed the is-this-wanted check and set
+    // the flag straight back.
     maiaFetching = false;
+    _maia?.cancelPending();
     _saved = false;
     gameSeed = _newSeed();
     _analysis.clear();
