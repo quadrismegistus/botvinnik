@@ -29,7 +29,28 @@ bool _positionScoped(SearchPriority p) =>
 
 /// Web-app analysis budget (stockfish.ts DEFAULT_BUDGET + MULTIPV).
 const int kAnalysisDepth = 22;
-const int kAnalysisMovetimeMs = 3000;
+
+/// A BACKSTOP for pathological positions, not a routine truncator.
+///
+/// At 3000ms it was the latter. Measured in a real browser on the app's own
+/// engine (SF18 lite-single, MultiPV 5), time to reach depth 22:
+///
+///   start position   3755ms      open middlegame  5954ms (7437ms to finish)
+///   complex midgame  4180ms      pawn endgame     2010ms
+///
+/// So three of four positions were being cut off around depth 19-21 — the
+/// arrows were never showing the depth they advertised. MultiPV 5 is what
+/// costs this: five principal variations prune far less than one.
+///
+/// Raising it is nearly free HERE and would not be on the web. Flutter ranks
+/// threatProbe and botMove ABOVE analysis and preempts, so a long analysis
+/// yields the moment anything else needs the engine; the web's single-slot
+/// queue runs its threat probe only after analysis settles, so the same change
+/// there would delay every threat arrow by the same amount.
+///
+/// The remaining cost is CPU while you think — which is why this stays a cap.
+/// Must remain comfortably under [kSaveGradeWaitSeconds]; see there.
+const int kAnalysisMovetimeMs = 10000;
 const int kAnalysisMultiPv = 5;
 const int kBotMultiPv = 12;
 

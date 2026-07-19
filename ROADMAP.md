@@ -123,14 +123,30 @@ node in the current position's tree. It is deliberately cheap and outranks
 analysis in the arbiter (depth 14, MultiPV 1, 500ms).
 
 So when the arrows feel weak against a full-strength engine, the cause is the
-**budget**, not a per-feature cap: depth 22 / **3000ms** / **MultiPV 5** on the
-single-threaded lite WASM build. MultiPV 5 is the expensive part — holding five
-PVs prunes far less than MultiPV 1, so the same milliseconds buy materially
-less depth, and the movetime cap often binds before depth 22. Levers, roughly
-in order of value: raise the movetime for the settled analysis; drop to MultiPV
-1 for the *arrow* while keeping 5 for the panels (two reads of one search, not
-two searches); or give desktop/native its own budget, since it is not on lite
-WASM. Control tinting costs nothing either way — it is pure chess.js.
+**budget**: depth 22 / MultiPV 5, on the single-threaded lite WASM build.
+MultiPV 5 is the expensive part — five principal variations prune far less than
+one, so the same milliseconds buy materially less depth.
+
+**Measured** in a real browser on the app's own engine, time to reach depth 22:
+start 3755ms, open middlegame 5954ms (7437ms to finish), complex midgame
+4180ms, pawn endgame 2010ms. The old 3000ms cap therefore truncated **three of
+four** positions around depth 19-21 — the arrows never reached the depth they
+advertised. Flutter's cap is now 10000ms, a backstop rather than the routine
+limit (`kAnalysisMovetimeMs`, with `kSaveGradeWaitSeconds` above it because a
+grade pipeline awaits its position's analysis).
+
+**Not changed on the web, deliberately.** Flutter ranks `threatProbe` and
+`botMove` above `analysis` and preempts, so a longer analysis yields the
+instant anything else needs the engine. The web is a single-slot supersede
+queue and runs `computeThreat` only after `await analyze(...)` returns, so the
+same change there would delay every threat arrow by the same amount. Fixing
+that means giving the web real priorities, not a bigger number.
+
+Still open: drop to MultiPV 1 for the *arrow* while keeping 5 for the panels
+(two reads of one search, not two searches); give native its own budget, since
+it is not on lite WASM and reaches depth far sooner; and decide whether mobile
+wants a smaller cap, since this is CPU spent while you think. Control tinting
+costs nothing either way — it is pure chess.js.
 
 ### In order
 

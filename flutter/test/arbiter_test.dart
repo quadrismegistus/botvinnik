@@ -12,6 +12,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:botvinnik_mobile/brain/types.dart';
 import 'package:botvinnik_mobile/engine/arbiter.dart';
 import 'package:botvinnik_mobile/engine/uci_protocol.dart';
+import 'package:botvinnik_mobile/stores/game_controller.dart' show kSaveGradeWaitSeconds;
 
 EngineMove line(String uci, {double score = 0.3, int depth = 12, int mpv = 1}) =>
     EngineMove(pv: [uci], score: score, mate: null, depth: depth, multipv: mpv);
@@ -60,6 +61,7 @@ class FakeEngine implements UciSearcher {
 Future<void> tick() => Future.delayed(Duration.zero);
 
 void main() {
+  _budgets();
   late FakeEngine engine;
   late SearchArbiter arbiter;
 
@@ -228,5 +230,30 @@ void main() {
     arbiter.bumpGeneration();
     engine.current.stream([line('e2e4', depth: 11)]); // stale: dropped
     expect(got, [9, 10]);
+  });
+}
+
+// Appended: budget invariants. These are constants rather than behaviour, but
+// getting the relationship wrong fails SILENTLY — a game archives without its
+// closing labels because a timeout fired, which no other test would notice.
+void _budgets() {
+  group('analysis budget', () {
+    test('the save wait outlives the analysis it waits on', () {
+      // a grade pipeline awaits the analysis of the position after its move,
+      // so the slowest grade cannot land before the slowest analysis
+      expect(kSaveGradeWaitSeconds * 1000, greaterThan(kAnalysisMovetimeMs),
+          reason: 'finishing a game mid-search would drop its last labels');
+      expect(kSaveGradeWaitSeconds * 1000 - kAnalysisMovetimeMs,
+          greaterThanOrEqualTo(4000),
+          reason: 'leave margin for the grade work either side of the search');
+    });
+
+    test('the movetime is a backstop, not the routine limit', () {
+      // measured worst case to finish depth 22 at MultiPV 5 on the app engine
+      // (SF18 lite-single, real browser): 7437ms. Under that and the cap is
+      // truncating ordinary positions again, which is what it was doing at
+      // 3000ms — the arrows never reached the depth they advertised.
+      expect(kAnalysisMovetimeMs, greaterThanOrEqualTo(8000));
+    });
   });
 }
