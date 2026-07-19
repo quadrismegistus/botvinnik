@@ -40,6 +40,45 @@ function cacheable(url) {
   );
 }
 
+/**
+ * A board asset we do not have, offline: serve a DIFFERENT one we do.
+ *
+ * Only the piece set and board texture in use get cached, but Settings offers
+ * all 40 sets. Picking an uncached one with no network left the board with no
+ * pieces at all — 13 failed image loads — and it persisted across reloads
+ * until the network came back, because nothing retries. A board wearing the
+ * wrong pieces is strictly better than a board wearing none.
+ *
+ * Matched on the trailing segments so a piece is replaced by the SAME piece at
+ * the same resolution from another set (`3.0x/wQ.webp`), and a board texture by
+ * any cached board.
+ */
+async function boardAssetFallback(url) {
+  const p = url.pathname;
+  const isPiece = p.includes('/piece_sets/');
+  if (!isPiece && !p.includes('/boards/')) return null;
+  const cache = await caches.open(CACHE);
+  const keys = await cache.keys();
+  // pieces: same filename, and same resolution folder when there is one
+  const parts = p.split('/');
+  const file = parts[parts.length - 1];
+  const scale = /^\d+(\.\d+)?x$/.test(parts[parts.length - 2] ?? '')
+    ? parts[parts.length - 2]
+    : null;
+  const sameFile = (q) => q.includes('/piece_sets/') && q.endsWith(`/${file}`);
+  const paths = keys.map((r) => [r, new URL(r.url).pathname]);
+  // Prefer the same piece at the same resolution; accept any resolution
+  // rather than nothing. Chessground caches some sets WITHOUT a scale folder
+  // (`cburnett/wQ.webp`) and others with (`merida/3.0x/wQ.webp`), so
+  // insisting on a scale match found nothing and left the board empty.
+  const hit = isPiece
+      ? (scale !== null &&
+              paths.find(([, q]) => sameFile(q) && q.includes(`/${scale}/`))) ||
+          paths.find(([, q]) => sameFile(q))
+      : paths.find(([, q]) => q.includes('/boards/'));
+  return hit ? cache.match(hit[0]) : null;
+}
+
 self.addEventListener('install', (event) => {
   event.waitUntil(
     (async () => {
@@ -72,6 +111,18 @@ self.addEventListener('install', (event) => {
 // PREVIOUS build and then purge the cache those pages are still fetching from
 // — and here that is worse than a missing chunk: a new brain.js under an old
 // main.dart.js trips the version assert and the app refuses to boot.
+// The page asks for the update when the user accepts it. Without this a new
+// version waits for every tab to close, which for an installed PWA that is
+// never fully closed means indefinitely — verified: a waiting worker stayed
+// waiting across reloads and new tabs, serving the old build throughout.
+//
+// This does not undo the no-skipWaiting stance below. The difference is
+// consent plus an immediate reload: activate claims every client, and each one
+// reloads on controllerchange, so no page keeps running against the old cache.
+self.addEventListener('message', (event) => {
+  if (event.data === 'botvinnik:skip-waiting') self.skipWaiting();
+});
+
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     (async () => {
@@ -110,7 +161,18 @@ self.addEventListener('fetch', (event) => {
       if (hit) return hit;
       // 'reload' bypasses the HTTP cache — see the note in install. Without
       // it this is the line that mixes builds.
-      const res = await fetch(req, { cache: 'reload' });
+      let res;
+      try {
+        res = await fetch(req, { cache: 'reload' });
+      } catch (e) {
+        const fallback = await boardAssetFallback(url);
+        if (fallback) return fallback;
+        throw e;
+      }
+      if (!res.ok) {
+        const fallback = await boardAssetFallback(url);
+        if (fallback) return fallback;
+      }
       // opaque responses (cross-origin fonts) have status 0 and cache fine; a
       // real error would too, which is the accepted cost of not being able to
       // see across origins. Same-origin misses are checked properly.

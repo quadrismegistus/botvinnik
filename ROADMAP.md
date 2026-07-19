@@ -287,6 +287,16 @@ costs nothing either way — it is pure chess.js.
    precache the worker's marginal cost is **zero**: a cold visit transfers
    9.3MB with it active against 10.3MB with it blocked.
 
+   Two things the worker does that are easy to miss. Every fetch it makes
+   passes `cache: 'reload'`: the default mode lets the browser's HTTP cache
+   answer, so a worker installing for build N could fill N's cache with build
+   N-1's bytes — the content hash names the cache after the build it was made
+   FOR, not what went into it, and the result was a new `main.dart.js` beside
+   a stale `brain.js` refusing to boot. And an uncached board asset falls back
+   to any cached one, because only the piece set in use is cached while
+   Settings offers all 40: picking an unused one offline left the board with
+   no pieces at all, until the network returned.
+
    The shell is not arbitrary — it is exactly what answers an offline
    navigation, which is what makes the app **installable** and is the one
    thing runtime caching cannot bootstrap (the navigate handler only reads).
