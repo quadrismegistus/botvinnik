@@ -6,7 +6,9 @@ import 'types.dart';
 
 class BotApi {
   final JsBridge _bridge;
-  const BotApi(this._bridge);
+  // Not const, unlike its sibling facades: this one memoises SCALE_OFFSET
+  // below, and a class that caches is not a constant.
+  BotApi(this._bridge);
 
   /// shapedBotMove — the Squares' miss-the-tactic picker (v4.1 scan model).
   /// Returns the UCI move or null (caller falls back to the top line).
@@ -58,6 +60,25 @@ class BotApi {
       lines.map((l) => l.toJson()).toList(),
     ]) as String;
   }
+
+  /// The Horizon personas' move — js-chess-engine, bundled into brain.js and
+  /// run right here in the JS runtime, so this family needs no engine search
+  /// at all. Synchronous and ~10ms at levels 1-2. Null means it had nothing
+  /// legal (or threw), and the caller should fall back.
+  String? horizonMove(String fen, int level) =>
+      _bridge.call('horizonMove', args: [fen, level]) as String?;
+
+  /// Display elo + this = the internal WASM scale. Read once: it is a
+  /// constant, and the alternative — calling `personaInternalElo` — shipped a
+  /// whole persona map across the bridge to read a single field, with a
+  /// NaN-to-null failure mode if that field were ever missing.
+  late final int _scaleOffset =
+      (_bridge.call('SCALE_OFFSET', isProperty: true) as num).toInt();
+
+  /// The persona's strength on the internal WASM scale. Defined for EVERY
+  /// family, unlike `numericElo`, which only the fish family carries — so this
+  /// is what a fallback search should use.
+  int internalElo(Persona p) => p.elo + _scaleOffset;
 
   /// The roster available on this runtime (native=false: no lc0 sidecar).
   List<Persona> personas() {
