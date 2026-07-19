@@ -15,20 +15,45 @@ one; `svelte/` and `flutter/` are consumers and neither depends on the other.
   finds.
 - **Svelte still owns the web deploy.** botvinnik.app stays SvelteKit until
   Flutter web closes two gaps: the persona roster and offline support.
-- Flutter web works and is measured (9.22MB gzipped, 26 requests) but is not
-  a deploy candidate yet.
+- Flutter web works and is measured (9.22MB gzipped, 26 requests as of
+  2026-07-18) but is not a deploy candidate yet. Since that measurement,
+  `brain.js` has grown ~24KB gzipped from bundling js-chess-engine for the
+  Horizon personas — and note it is script-tagged *synchronously ahead of*
+  `main.dart.js`, so it sits on the critical boot path.
 
 ### In order
 
-1. **Wide-window UI.** The highest-value work, because it is shared with
-   mobile rather than being web-only. Beyond the crude 720px split that
-   exists: multiple panels visible at once instead of six mutually exclusive
-   tabs, keyboard navigation (arrows to scrub, space for the bot's reply,
-   `f` to flip), resizable panes, a menu bar.
+1. ~~**Wide-window UI.**~~ **SHIPPED 2026-07-19 (#29).** Multiple panels
+   visible at once (inclusive view bar, selection persisted), keyboard
+   navigation scoped to the Play tab, resizable and persisted split, macOS
+   minimum window size — plus the board-overlay grammar that came with it
+   (threat/win rings, control rings vs wash; see ARCHITECTURE.md).
+   **Still open from the original scope: a menu bar, and per-panel collapse.**
 2. **M5 — the rest of the roster.** The brain ships 35 personas across 7
-   families; Flutter exposes 20, the `square` and `fish` families only.
-   Missing: 6 Maia, 3 retro, 3 Dala, 2 Horizon, 1 Garbo. This is the real
-   parity gap and the reason Svelte still owns the web.
+   families; Flutter plays 22 — `square`, `fish`, and `horizon` since #32.
+   Missing: 6 Maia, 3 retro, 3 Dala, 1 Garbo. This is the real parity gap and
+   the reason Svelte still owns the web.
+
+   **The constraint that decides the order** (learned doing Horizon): the Dart
+   bridge is synchronous — one eval in, one JSON string out — so a brain
+   function returning a Promise crosses as `{}`. *Anything async is not
+   expressible through it*, and the calls run on the UI isolate, so anything
+   slow cannot use it as-is either. Horizon fit because js-chess-engine is
+   synchronous and answers in ~2ms. The other four each need their own
+   mechanism on the Dart side first:
+   - **Garbo** — a Worker script with its own postMessage protocol, and
+     flutter_js has no Worker. Needs an onmessage/postMessage shim *and* a
+     background isolate, since its ~1s search would block the UI.
+   - **Maia** — the `onnxruntime` pub package. Import it lazily from day one;
+     see the payload note below for what the eager version cost the web.
+   - **retro** — a Go wasm module.
+   - **Dala** — stays desktop-only; needs the native lc0 sidecar.
+
+   Useful trick from #32: a dependency imported **only** from
+   `brain/brain-entry.ts` reaches `brain.js` but never the Svelte bundle,
+   because the web imports brain modules individually and never the entry
+   barrel. That is how js-chess-engine got to Flutter for +104 eager bytes on
+   the web.
 3. **A real service worker for Flutter web.** Flutter 3.44 emits a
    self-unregistering no-op, so the web build currently has no offline
    support at all. Needs: a precache split (shell + engine; the textures and
@@ -41,11 +66,33 @@ one; `svelte/` and `flutter/` are consumers and neither depends on the other.
    to `Contents/MacOS` and signing it in the same build phase is the fix;
    `ProcessEngine.resolveBinary` already probes that path.
 
-### Free win, independent of all the above
+### ~~Free win, independent of all the above~~ — SHIPPED 2026-07-19 (#30)
 
-botvinnik.app eagerly loads **6.31MB of ONNX runtime** for Maia and 1.34MB of
-commentary on every first visit, used or not. Deferring both roughly halves
-the first load of the app actually being shipped today.
+Three separate leaks, each paid for on a first visit by people who never
+touched the feature behind it. The pre-fix note here claimed "6.31MB of ONNX";
+measured against a real build it was both smaller and differently distributed,
+which is why the fix is described in measured numbers:
+
+- **`commentary.json`, 1.34MB gzipped**, fetched on mount because the effect
+  read `game.fen` — so the whole YouTube corpus downloaded whether or not the
+  panel was ever opened. Now gated on the panel being shown, which means the
+  panel opens *before* its data exists and needed a loading state: the old
+  empty message would otherwise claim there is no commentary for a position
+  while the corpus is still in flight.
+- **onnxruntime-web in the page entry chunk** — a static `import * as ort` in
+  `lib/engine/maia.ts`, so every visitor paid for the neural bots. Now a
+  dynamic import on first use. Entry chunk **188KB → 82KB gzipped**.
+- **26MB of ort wasm precached by the service worker** — `PRECACHE` spread
+  `...build` unfiltered, and Vite emits that blob into `_app/immutable/assets`.
+  Nothing ever requested it (ort is pointed at a CDN by `wasmPaths`), so it was
+  26MB per version bump for a file the app does not use.
+
+`svelte/e2e/payload.spec.ts` pins the property, since one stray static import
+undoes it silently.
+
+**Loose end:** Vite still *emits* that 26MB wasm into the build directory even
+with the dynamic import. Nothing fetches it and nothing precaches it, but it is
+~half of the deploy upload. Excluding it from the build output is unfinished.
 
 ## Next up
 
@@ -195,13 +242,15 @@ Shipped so far:
     first. Unmaintained (2012 code, last push 2023); would need a small
     protocol shim both for the harness (node) and for our
     TransportFactory (its worker speaks its own message format, not UCI).
-  - **js-chess-engine** (https://github.com/josefjadrny/js-chess-engine):
-    the sleeper. Probe: level 1 played Qxf6?? hanging the queen — no
-    quiescence at low levels ⇒ horizon-effect blunders, i.e. weak the way
-    the shaped bot is DESIGNED to be weak, but architecturally. If the
-    gym confirms level 1-2 land sub-1500 honest, it's both a web persona
-    (npm import) and independent corroboration for the shaped curve's
-    low end. UCI shim done (scripts/shims/jsce-uci.mjs, devDependency).
+  - **js-chess-engine** (https://github.com/josefjadrny/js-chess-engine)
+    — **ADOPTED. Shipped as the "Horizon" family**, web and Flutter (#32).
+    The sleeper, and it paid off. Probe: level 1 played Qxf6?? hanging the
+    queen — no quiescence at low levels ⇒ horizon-effect blunders, i.e. weak
+    the way the shaped bot is DESIGNED to be weak, but architecturally. The
+    gym confirmed it (L1≈535, L2≈860 lichess-equiv), so it is both a persona
+    family and independent corroboration for the shaped curve's low end.
+    Horizon 550 is now the weakest opponent in either app. UCI shim at
+    scripts/shims/jsce-uci.mjs; `brain/horizon.ts` for the app path.
   - **Wasabi** (https://github.com/mhonert/chess): AssemblyScript engine
     already built for browser WebWorkers, 6 levels, GPL-3, ships a
     standalone WASI UCI binary (run via wasmtime/node WASI) — gym-ready
@@ -352,20 +401,30 @@ Shipped so far:
     selected move into view when stepping with ‹/›, so mid-game the
     highlight goes offscreen.
 - **Square control refinements** (v1 shipped 2026-07-13 as the "Control"
-  toggle — `engine/control.ts`, tint via chessground `highlight.custom`,
-  green = bottom side, red = top): possible next steps are intensity
-  gradation by exchange margin, x-ray attackers in the swap lists (batteries
-  currently invisible), an option to tint *held* occupied squares (v1 tints
-  occupied squares only when the piece is outright winnable, to avoid
-  repainting the whole board), and skipping the null-move flip so control
-  renders while in check.
+  toggle — `brain/engine/control.ts`; **rendering reworked in #29**: a soft
+  ring around a piece on an occupied square, a flat wash on an empty one,
+  because the two are different claims — "this piece is falling where it
+  stands" versus "this side owns this territory". Threat/win rings and any
+  arrowhead outrank control on the same square; one glyph per square).
+  The *semantics* are unchanged, so these remain open: intensity gradation by
+  exchange margin, x-ray attackers in the swap lists (batteries are still
+  invisible), an option to mark *held* occupied squares (today a square is
+  marked only when the piece is outright losable, to avoid repainting the
+  board), and skipping the null-move flip so control renders while in check.
 
 ## Design notes / known quirks
 
-- Testing layout: vitest = `src/**/*.test.ts` (pure logic; 31 tests),
-  `e2e/` = @playwright/test against the built bundle (6 tests; local Chrome
-  via `npm run test:e2e`, chromium in CI), `npm run test:rust` = bridge unit
-  tests, tauri e2e = Linux CI only (no macOS WebDriver backend).
+- Testing layout: vitest = `brain/**/*.test.ts` + `svelte/src/**/*.test.ts`
+  (pure logic; 264 tests in 17 files), `svelte/e2e/` = @playwright/test against
+  the built bundle (9 tests in 7 files; local Chrome via `npm run test:e2e`,
+  chromium in CI), `cd flutter && flutter test` = Dart unit tests (50),
+  `npm run test:rust` = bridge unit tests, tauri e2e = Linux CI only (no macOS
+  WebDriver backend).
+  **Not in CI:** `flutter/integration_test/` needs a real device, so CI only
+  *analyses* it. Run those locally against the real bridge with
+  `flutter test integration_test/<file>.dart -d macos` — that is JavaScriptCore,
+  and it is the only thing that catches marshalling bugs (Dart null vs the
+  string `"null"`, precision, dropped fields) that a node replay cannot see.
 
 - Practice pass = the attempt labels **good or better** (win-chance loss
   < 5%, the good/inaccuracy boundary) so the ✓/✗ can never contradict the
@@ -415,5 +474,11 @@ Shipped so far:
   skips positions where the bot is about to reply). Threat arrows are also
   fen-tagged: display checks `threat.fen === game.fen` so a stale arrow
   can't survive a move while the next probe is still running.
+  **This is Svelte-only.** Flutter enforces the same ordering guarantee with
+  completely different machinery — a four-level preempting priority queue
+  (`botMove > practiceCheck > threatProbe > analysis`, `engine/arbiter.dart`)
+  plus a 1.5s "sprint" wait that lets your move's analysis reach depth 10
+  before the bot's search preempts it. A fix to one does not carry to the
+  other; see ARCHITECTURE.md.
 - localhost and the deployed site are separate origins with separate
   storage; Export/Import data is the bridge.
