@@ -54,9 +54,12 @@ one; `svelte/` and `flutter/` are consumers and neither depends on the other.
    because the web imports brain modules individually and never the entry
    barrel. That is how js-chess-engine got to Flutter for +104 eager bytes on
    the web.
-3. **A real service worker for Flutter web.** Flutter 3.44 emits a
-   self-unregistering no-op, so the web build currently has no offline
-   support at all. Needs: a precache split (shell + engine; the textures and
+3. **A real service worker for Flutter web.** Verified on Flutter 3.44.6:
+   the emitted `flutter_service_worker.js` is 784 bytes whose entire body
+   calls `self.registration.unregister()` and reloads clients, and
+   `web/index.html` does not register it in the first place — so the web
+   build has no offline support at all, doubly so. Needs: a precache split
+   (shell + engine; the textures and
    40 piece sets are runtime-cached), an atomic per-build cache version —
    load-bearing, because a stale `brain.js` against a new app hard-fails the
    BRAIN_VERSION assert rather than degrading — Flutter's own SW neutralised,
