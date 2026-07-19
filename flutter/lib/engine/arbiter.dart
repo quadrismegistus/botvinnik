@@ -234,13 +234,24 @@ class SearchArbiter {
   bool _waitingForEngine = false;
   Object? _engineError;
 
-  void _failAll(Object e) {
+  /// The engine will never arrive. Resolve pending work as NULL, not as an
+  /// error: null is the contract every caller already handles ("forget this
+  /// ply"), and completing with an error instead turned a dead engine into
+  /// unhandled async exceptions from five fire-and-forget call sites, plus a
+  /// Practice tab wedged with `checking` stuck true. The failure is surfaced
+  /// through [engineError] rather than thrown at people who cannot act on it.
+  void _failAll() {
     final pending = _queue.toList();
     _queue.clear();
     for (final r in pending) {
-      if (!r.completer.isCompleted) r.completer.completeError(e);
+      if (!r.completer.isCompleted) r.completer.complete(null);
     }
   }
+
+  /// Why the engine never started, if it didn't. Null while it is still
+  /// loading AND once it is up — callers show it rather than guess why every
+  /// search comes back empty.
+  Object? get engineError => _engineError;
 
   void _pump() {
     if (_running != null || _queue.isEmpty) return;
@@ -250,7 +261,7 @@ class SearchArbiter {
     // and preemption path depends on. Without it a higher-priority arrival
     // during the load window silently lost its preemption.
     if (_engine == null) {
-      if (_engineError != null) return _failAll(_engineError!);
+      if (_engineError != null) return _failAll();
       if (!_waitingForEngine) {
         _waitingForEngine = true;
         _ready.then((_) {
@@ -260,11 +271,10 @@ class SearchArbiter {
           // Boot used to await the engine, so a failure showed the boot-error
           // screen. Now it does not — and swallowing this left every search
           // queued forever, which looks like a hung app rather than a broken
-          // engine. Fail them instead: callers log it, and the board stays
-          // usable for browsing.
+          // engine. Resolve them null and record why, so the UI can say so.
           _waitingForEngine = false;
           _engineError = e;
-          _failAll(e);
+          _failAll();
         });
       }
       return;

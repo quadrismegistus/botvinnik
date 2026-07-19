@@ -19,4 +19,15 @@ flutter build web --release --no-web-resources-cdn "$@"
 
 node tool/gen-sw-manifest.mjs build/web
 
+# Flutter substitutes {{flutter_js}} and {{flutter_build_config}} into our
+# bootstrap template, and web_template.dart returns the token UNCHANGED when a
+# built-in is missing rather than warning. An SDK upgrade that renames one
+# would emit a literal `{{flutter_js}}`, i.e. a ReferenceError and a dead app —
+# with green CI, which builds but never boots the page.
+if grep -q '{{' build/web/flutter_bootstrap.js; then
+  echo "error: unsubstituted {{token}} left in build/web/flutter_bootstrap.js" >&2
+  grep -o '{{[a-z_]*}}' build/web/flutter_bootstrap.js | sort -u >&2
+  exit 1
+fi
+
 echo "built flutter/build/web (offline-capable)"

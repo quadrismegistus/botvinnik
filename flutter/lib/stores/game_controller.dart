@@ -108,6 +108,9 @@ class GameController extends ChangeNotifier {
     if (!botEnabled) {
       return 'Analysis — ${position.turn == Side.white ? "White" : "Black"} to move';
     }
+    // a dead engine used to show the boot-error screen; boot no longer waits
+    // for it, so without this the symptom is a board whose bot never moves
+    if (_arbiter.engineError != null) return 'Engine unavailable — no analysis';
     if (botThinking) return '${persona?.name ?? "Bot"} is thinking…';
     return isPlayerTurn ? 'Your move' : '${persona?.name ?? "Bot"} to move';
   }

@@ -175,6 +175,9 @@ class PracticeController extends ChangeNotifier {
         priority: SearchPriority.practiceCheck,
       );
       if (lines == null || lines.isEmpty) {
+        // null now also means "the engine never started" — the arbiter resolves
+        // null rather than throwing so this path is reached instead of leaving
+        // `checking` stuck true, which wedged the tab for the app's lifetime
         checking = false;
         pendingUci = null;
         notifyListeners();

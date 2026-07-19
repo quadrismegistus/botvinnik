@@ -88,7 +88,11 @@ class _WinChartState extends State<WinChart> {
           style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
       if (label != null) ...[
         const SizedBox(width: 6),
-        Text('${table.glyph(label)} ${table.noun(label)}',
+        Text.rich(
+            TextSpan(children: [
+              table.glyphSpan(label, size: 12),
+              TextSpan(text: ' ${table.noun(label)}'),
+            ]),
             style: TextStyle(color: table.color(label), fontSize: 12)),
       ],
       const Spacer(),

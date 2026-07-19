@@ -49,10 +49,20 @@ self.addEventListener('install', (event) => {
         throw new Error('sw.js: manifest placeholder was never replaced');
       }
       const cache = await caches.open(CACHE);
-      // addAll is all-or-nothing, which is the property we want: a cache
-      // holding a new main.dart.js next to a stale brain.js would hard-fail
-      // the BRAIN_VERSION assert at boot rather than degrade
-      await cache.addAll(MANIFEST.precache);
+      // `cache: 'reload'` on every fetch this worker makes, here and below:
+      // the DEFAULT mode lets the browser's HTTP cache answer, so a worker
+      // installing for build N could fill N's cache with build N-1's bytes.
+      // The cache name being a content hash does NOT prevent that — it names
+      // the cache after the build it was made FOR, not what went into it.
+      // Demonstrated: a new main.dart.js beside a stale brain.js, which trips
+      // the BRAIN_VERSION assert and refuses to boot, unrecoverable by reload.
+      await Promise.all(
+        MANIFEST.precache.map(async (url) => {
+          const res = await fetch(url, { cache: 'reload' });
+          if (!res.ok) throw new Error(`precache ${url}: ${res.status}`);
+          await cache.put(url, res);
+        })
+      );
     })()
   );
 });
@@ -98,13 +108,18 @@ self.addEventListener('fetch', (event) => {
     (async () => {
       const hit = await caches.match(req);
       if (hit) return hit;
-      const res = await fetch(req);
+      // 'reload' bypasses the HTTP cache — see the note in install. Without
+      // it this is the line that mixes builds.
+      const res = await fetch(req, { cache: 'reload' });
       // opaque responses (cross-origin fonts) have status 0 and cache fine; a
       // real error would too, which is the accepted cost of not being able to
       // see across origins. Same-origin misses are checked properly.
-      if (res && (res.type === 'opaque' || res.ok)) {
+      //
+      // status === 200 rather than res.ok: a 206 is "ok" but Cache.put rejects
+      // partial responses, and an unawaited put would reject unhandled.
+      if (res && (res.type === 'opaque' || res.status === 200)) {
         const cache = await caches.open(CACHE);
-        cache.put(req, res.clone());
+        cache.put(req, res.clone()).catch(() => {});
       }
       return res;
     })()

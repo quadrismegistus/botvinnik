@@ -272,17 +272,26 @@ void _lateEngine() {
       expect(engine.current.fen, 'fenBot');
     });
 
-    test('an engine that never boots does not wedge the queue', () async {
+    test('an engine that never boots resolves null and records why', () async {
       final gate = Completer<UciSearcher>();
       final arbiter = SearchArbiter(gate.future);
-      // attach the expectation BEFORE the failure is delivered, or the error
-      // is briefly unhandled and the zone fails the test for it
-      final expectation =
-          expectLater(arbiter.analysis('fenA'), throwsA(isA<StateError>()));
+      final pending = arbiter.analysis('fenA');
       await tick();
+      expect(arbiter.engineError, isNull, reason: 'still loading, not failed');
+
       gate.completeError(StateError('no engine'));
-      // the failure surfaces to the caller rather than hanging forever
-      await expectation;
+      await tick();
+
+      // NULL, not an error. Every caller already handles null ("forget this
+      // ply"); completing with an error instead threw out of five
+      // fire-and-forget call sites with no zone guard, and left Practice
+      // wedged with `checking` stuck true for the life of the app.
+      expect(await pending, isNull);
+      // a request made AFTER the failure gets the same treatment
+      expect(await arbiter.analysis('fenB'), isNull);
+      // the reason is available so the UI can say so rather than showing a
+      // board whose bot silently never moves
+      expect(arbiter.engineError, isA<StateError>());
     });
   });
 }

@@ -55,7 +55,7 @@ class MoveListPane extends StatelessWidget {
         Text(m.san, style: const TextStyle(fontSize: 13)),
         if (label != null) ...[
           const SizedBox(width: 4),
-          Text(table.glyph(label),
+          Text.rich(table.glyphSpan(label, size: 11),
               style: TextStyle(color: table.color(label), fontSize: 11)),
         ],
       ]),
