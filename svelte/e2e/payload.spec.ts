@@ -16,13 +16,19 @@ test('commentary and ort stay off the critical path', async ({ page }) => {
 	expect(commentaryEarly, 'commentary.json must not load on first paint').toHaveLength(0);
 	expect(ortEarly, 'onnxruntime must not load on first paint').toHaveLength(0);
 
-	// opening the panel is what pays for it
+	// opening the panel is what pays for it. commentary.json is 4.1MB, and
+	// these specs run serially on a runner that is also compiling Stockfish
+	// WASM, so the fetch + parse + render genuinely wants more than the 20s
+	// this used to allow — that budget flaked the whole web-e2e job (a false
+	// red on #38 that passed on re-run). 60s is still well under the 150s
+	// per-test cap and only bites if the panel truly never resolves.
+	const slow = 60_000;
 	await page.getByRole('button', { name: /^Commentary/ }).click();
-	await page.waitForResponse((r) => r.url().includes('commentary.json'), { timeout: 20000 });
+	await page.waitForResponse((r) => r.url().includes('commentary.json'), { timeout: slow });
 	await expect(page.locator('.commentary-panel')).toBeVisible();
 	// and it resolves to a real state, not a stuck "Loading…"
 	await expect(page.locator('.commentary-panel .empty, .commentary-panel .list')).not.toHaveText(
 		/Loading/,
-		{ timeout: 20000 }
+		{ timeout: slow }
 	);
 });
