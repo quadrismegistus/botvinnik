@@ -21,6 +21,36 @@ one; `svelte/` and `flutter/` are consumers and neither depends on the other.
   Horizon personas — and note it is script-tagged *synchronously ahead of*
   `main.dart.js`, so it sits on the critical boot path.
 
+### Consolidating on Flutter — the gate, not the date (raised 2026-07-19)
+
+The intent is for Flutter to own every target including web, and to stop
+splitting effort. Worth writing down what has to be true first, because
+retiring the Svelte app is the one step that cannot be walked back cheaply.
+
+**Three gaps, all measured, all open:**
+1. **Offline.** Flutter web registers no service worker at all (verified on
+   3.44.6, above). The Svelte app is a working PWA with a deliberate precache.
+   This is a capability regression users would feel on day one.
+2. **Payload.** Svelte deploys ~270KB gzipped of JS. Flutter web is 9.22MB
+   gzipped over 26 requests — **about 34×**. Acceptable for an app you install;
+   a different proposition for a link someone opens.
+3. **Roster.** 22 of 35 personas. And note *what* the missing ones are: the
+   Svelte app is the **reference implementation** for Maia, retro, Garbo and
+   Dala. Removing it while porting exactly those is removing the thing being
+   ported from.
+
+**So: freeze, don't delete.** Stop adding features to Svelte and let it keep
+serving botvinnik.app until Flutter web closes the three. The focus comes from
+the decision, not from moving code — and note a *branch* would not archive
+anything anyway, since the history stays in `main` regardless; a branch only
+matters if Svelte is then deleted from `main`, which is the part to defer.
+When that day comes, a **tag** is the better archive than a branch: immutable,
+and it does not invite drift.
+
+What keeping it actually costs today, so the trade is honest: the `web-e2e` CI
+job, and the discipline of keeping both apps working whenever the shared brain
+changes. That second one has caught real bugs in both directions.
+
 ### Flutter UI backlog (raised 2026-07-19)
 
 - ~~**Practice and Review overflow on a wide window.**~~ **FIXED (#33).** Not
@@ -119,8 +149,24 @@ the Lines pane, the Tree and the bot's repetition guard all read the same
 
 The only *extra* engine run is the threat probe, and it cannot be folded in:
 it searches the **null-move position** (side to move flipped), which is not a
-node in the current position's tree. It is deliberately cheap and outranks
-analysis in the arbiter (depth 14, MultiPV 1, 500ms).
+node in the current position's tree. The opponent replies that *do* appear in
+your PVs are replies to **your move** — which is precisely what a threat is
+not. There is nothing to merge. It is deliberately cheap and outranks analysis
+in the arbiter (depth 14, MultiPV 1, 500ms).
+
+**But it could refine as it deepens, and the plumbing already exists.**
+`_probeThreat` passes no `onUpdate`, so it is one-shot: one search, one answer.
+`SearchArbiter.search` already takes `onUpdate` — that is how the engine arrows
+stream. Passing one, and giving the probe a longer budget, would make threat
+arrows sharpen the way engine arrows do. Two cautions before doing it:
+- **One engine.** Threat and analysis are serialized whatever the priorities.
+  The probe outranks analysis *because* it is short; making it long and
+  high-priority would starve the thing it jumps ahead of.
+- **Deeper is not obviously better here.** The overlay was built around
+  *immediate* threats — that is what the three-fact ring rule enforces. A much
+  deeper probe surfaces remoter, more speculative threats, i.e. exactly what
+  those rules exist to filter out. Test whether the rings get better or just
+  noisier before committing to a bigger budget.
 
 So when the arrows feel weak against a full-strength engine, the cause is the
 **budget**: depth 22 / MultiPV 5, on the single-threaded lite WASM build.
