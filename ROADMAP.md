@@ -68,9 +68,15 @@ one; `svelte/` and `flutter/` are consumers and neither depends on the other.
 
   The per-tab sets still differ (Play has `f`, space, `h`, ⌘Z; Practice has
   `r`, `n`, `b`), so `KeyboardControls.bindingsFor` — the single list the help
-  sheet renders, so that the sheet cannot drift from the bindings — still has
-  to become per-tab, or the sheet will list keys that do nothing where you are
-  standing. Also decide whether
+  sheet renders, so that the sheet cannot drift from the bindings — has to
+  grow a tab dimension. **Show all of them, grouped under per-tab headings,
+  rather than only the active tab's**: one dialog with no context threaded
+  into it, and you learn Practice's keys while sitting in Play, which is where
+  you would want to have learned them. The load-bearing part is unchanged —
+  the same structure must drive both the dialog and the dispatch, or the
+  drift guarantee it exists for is gone. If the dialog covers every tab, its
+  app-bar button probably should not stay Play-only either. Also decide
+  whether
   `n`/`r`/`b` should repeat on key-hold; the existing `_repeatable` set says
   browse keys yes, state-changing keys no, and all three of these change
   state.
