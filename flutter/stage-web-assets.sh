@@ -4,8 +4,9 @@
 #   web/brain.js   <- assets/brain.js   (built by `npm run build:brain`)
 #   web/wasm/      <- ../static/wasm/   (the Stockfish WASM the Svelte app ships)
 #   web/retro/     <- ../static/retro/  (the historical engines, wasm + worker)
+#   web/garbo/     <- ../static/garbo/  (Garbochess-JS 2011, worker + LICENSE)
 #
-# All three are gitignored, so a fresh clone has none. Run this before ANY
+# All four are gitignored, so a fresh clone has none. Run this before ANY
 # `flutter build web` — without brain.js the app fails loudly at boot, and
 # without the engine it used to boot fine and then never move (now it fails
 # loudly too, see WebEngine.start).
@@ -29,4 +30,9 @@ cp -R ../static/wasm web/wasm
 rm -rf web/retro
 cp -R ../static/retro web/retro
 
-echo "staged web/brain.js, web/wasm/ ($(ls web/wasm | tr '\n' ' ')) and web/retro/"
+# garbo: 82KB of hand-written 2011 JavaScript, committed. The LICENSE beside
+# it is BSD and must travel with the engine — copy the directory, not the file.
+rm -rf web/garbo
+cp -R ../static/garbo web/garbo
+
+echo "staged web/brain.js, web/wasm/ ($(ls web/wasm | tr '\n' ' ')), web/retro/ and web/garbo/"

@@ -75,19 +75,19 @@ so here is what has to be true first.
    (The drive-by concern this used to carry — a visitor who never installs
    still paying for a 12MB precache — dissolved with the shell-only change:
    they now cache only what they actually used.)
-3. **Roster.** 25 of 35 personas on the web (retro landed in #36). And note
-   *what* the missing ones are: the Svelte app is the **reference
-   implementation** for Maia, Garbo and Dala. Removing it while porting
-   exactly those is removing the thing being ported from.
+3. **Roster.** 26 of 35 on the web (retro #36, Garbo #37) — and 32 is parity,
+   since Dala is desktop-only in both. So this reduces to **Maia**, for which
+   the Svelte app is still the **reference implementation**. Removing it while
+   porting exactly that is removing the thing being ported from.
 
 What keeping it actually costs while frozen, so the trade is honest: the
 `web-e2e` CI job, and the discipline of keeping both apps working whenever the
 shared brain changes. That second one has caught real bugs in both directions,
 so it is not purely a tax.
 
-**Next toward this**: the roster, which is now the only thing between Flutter
-web and the deploy — M5. retro is done; Maia is the next family, and the
-largest remaining block at six personas.
+**Next toward this**: Maia — the last family standing between Flutter web and
+the deploy. Six personas, and the only remaining web gap now that retro (#36)
+and Garbo (#37) have landed.
 
 ### Flutter UI backlog (raised 2026-07-19)
 
@@ -241,14 +241,15 @@ costs nothing either way — it is pure chess.js.
    (threat/win rings, control rings vs wash; see ARCHITECTURE.md).
    **Still open from the original scope: a menu bar, and per-panel collapse.**
 2. **M5 — the rest of the roster.** The brain ships 35 personas across 7
-   families; Flutter plays **25 on the web** — `square`, `fish`, `horizon`
-   since #32, and `retro` since #36. Missing: 6 Maia, 3 Dala, 1 Garbo. This is
-   the real parity gap and the reason Svelte still owns the web.
+   families; Flutter plays **26 on the web** — `square`, `fish`, `horizon`
+   since #32, `retro` since #36, and `garbo` since #37. Missing: 6 Maia and
+   3 Dala, and Dala is desktop-only in both apps.
 
-   (25 on the web, 22 on native: retro is wasm, so `RetroEngine.supported` is
-   false on macOS/iOS and the roster picker does not offer those three there.
-   That split is new, and it is the first time the two builds have shipped
-   different rosters — worth remembering when reading a persona count.)
+   **So the web deploy is 6 personas away, all of them Maia.**
+
+   (26 on the web, 22 on native: retro and garbo are Web Workers, so
+   `.supported` is false on macOS/iOS and the roster picker does not offer
+   those four there. Worth remembering when reading a persona count.)
 
    **The constraint that decides the order** (learned doing Horizon): the Dart
    bridge is synchronous — one eval in, one JSON string out — so a brain
@@ -307,13 +308,26 @@ costs nothing either way — it is pure chess.js.
      blocks the deploy. Native stays a separately-scoped follow-up — the
      findings above are recorded in `retro_engine_io.dart` beside the stub, so
      whoever picks it up finds them without going through this file.
-   - **Garbo** — the difficulty here is **native-only**, and doing retro made
-     that obvious. Garbo is a Worker script with its own postMessage protocol.
-     On native that is genuinely awkward: flutter_js has no Worker, so it needs
-     an onmessage/postMessage shim *and* a background isolate, since its ~1s
-     search would block the UI. **On web it is the retro pattern exactly** —
-     a Worker is a Worker, Dart talks to it directly, and the synchronous
-     bridge never enters into it. One persona, and the cheapest one left.
+   - **Garbo — SHIPPED on web (#37, 2026-07-19).** As predicted, the retro
+     pattern almost exactly, and cheaper: no boot handshake, since the worker
+     protocol is built into garbochess.js itself. Two things worth keeping:
+
+     *Failure is recoverable here*, unlike retro. 2011 code paths call
+     `alert()`, undefined in a worker, so a crash is live rather than
+     theoretical — `GarboEngine` scraps the worker and respawns on the next
+     move, where `RetroEngine` gives up for good.
+
+     *A bad FEN throws rather than reporting.* Measured, after a test that
+     asserted the opposite failed: `InitializeFromFen` does not report the
+     error, the search emits ~99 "stalemate" progress lines, and then the
+     worker throws a TypeError with no move ever posted. That makes the
+     onerror handler the ONLY thing that ends such a search, and makes the
+     `pv ` filter load-bearing rather than cosmetic.
+
+     Native remains harder than retro's native gap, despite Garbo being plain
+     JavaScript: flutter_js has no Worker (needs an onmessage/postMessage
+     shim) *and* the ~1s search would freeze the UI isolate (needs a
+     background isolate with its own JS runtime). See `garbo_engine_io.dart`.
    - **Maia** — the `onnxruntime` pub package. Import it lazily from day one;
      see the payload note below for what the eager version cost the web.
    - **Dala** — stays desktop-only; needs the native lc0 sidecar.

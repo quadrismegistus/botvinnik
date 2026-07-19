@@ -20,6 +20,7 @@ import '../brain/grading_api.dart';
 import '../brain/types.dart';
 import '../db/app_db.dart';
 import '../engine/arbiter.dart';
+import '../engine/garbo_engine.dart';
 import '../engine/retro_engine.dart';
 import 'lines_tree_model.dart';
 import 'practice_controller.dart';
@@ -83,6 +84,8 @@ class GameController extends ChangeNotifier {
   // at most one retro worker alive, matching the active persona
   RetroEngine? _retro;
   String? _retroKey;
+  // garbo has a single configuration, so one lazy engine is enough
+  GarboEngine? _garbo;
 
   GameController(this._arbiter, this._bot, this._grading, this._settings,
       [this._db, this._practice, ChessApi? chessApi]) {
@@ -504,6 +507,19 @@ class GameController extends ChangeNotifier {
         return _bot.avoidRepetition(uci, _fenHistory(), currentLines);
       }
       debugPrint('[bot] retro had no move; falling back to the engine');
+    }
+    if (p.family == 'garbo') {
+      // Same shape as retro: its own worker, never the arbiter. Unlike retro
+      // there is nothing to configure, so the engine is built on first use
+      // rather than tracked against the persona.
+      if (GarboEngine.supported) {
+        _garbo ??= GarboEngine();
+        final uci = await _garbo!.move(fen, movetimeMs: p.garboMs ?? 1000);
+        if (uci != null) {
+          return _bot.avoidRepetition(uci, _fenHistory(), currentLines);
+        }
+      }
+      debugPrint('[bot] garbo had no move; falling back to the engine');
     }
     // Fish, and the fallback for anything that could not answer for itself.
     // internalElo rather than numericElo: only fish carries numericElo, and a
@@ -945,6 +961,7 @@ class GameController extends ChangeNotifier {
   void dispose() {
     _settings.removeListener(_onSettings);
     _retro?.dispose();
+    _garbo?.dispose();
     super.dispose();
   }
 }

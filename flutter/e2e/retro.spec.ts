@@ -9,26 +9,7 @@
 
 import { expect, test } from '@playwright/test';
 
-/** Every legal move from the initial position, in UCI. */
-const OPENING_MOVES = new Set([
-	'a2a3', 'a2a4', 'b2b3', 'b2b4', 'c2c3', 'c2c4', 'd2d3', 'd2d4',
-	'e2e3', 'e2e4', 'f2f3', 'f2f4', 'g2g3', 'g2g4', 'h2h3', 'h2h4',
-	'b1a3', 'b1c3', 'g1f3', 'g1h3'
-]);
-
-const START = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
-
-/**
- * Load the app past service-worker installation. The first load installs the
- * worker and the bootstrap reloads once it takes control; evaluating through
- * that navigation destroys the execution context mid-test.
- */
-async function loadSettled(page: import('@playwright/test').Page) {
-	await page.goto('/');
-	await page.waitForTimeout(8000);
-	await page.goto('/');
-	await page.waitForTimeout(3000);
-}
+import { OPENING_MOVES, START, loadSettled, seedPersona } from './helpers';
 
 // The roster's three retro personas, and the name each engine reports. All
 // three share one retro.wasm, selected by the boot message — so a wasm built
@@ -82,7 +63,7 @@ test(`${engine} answers UCI with a legal move`, async ({ page }) => {
 	// it is the engine we think it is, not Stockfish under another name
 	expect(result.ids.join()).toContain(id);
 	expect(result.bm).not.toBe('TIMEOUT');
-	expect([...OPENING_MOVES]).toContain(result.bm.split(/\s+/)[1]);
+	expect(OPENING_MOVES).toContain(result.bm.split(/\s+/)[1]);
 });
 }
 
@@ -100,21 +81,7 @@ test('the app itself boots a retro worker and plays with it', async ({ page }) =
 	const logs: string[] = [];
 	page.on('console', (m) => logs.push(m.text()));
 
-	// An init script rather than goto-then-evaluate: the service worker
-	// reloads the page once it takes control, and an evaluate landing in that
-	// window dies with "execution context was destroyed". This runs before
-	// page scripts on EVERY document, including the one after that reload.
-	await page.addInitScript(() => {
-		// shared_preferences_web stores JSON-encoded values under a 'flutter.'
-		// prefix, so a string setting is double-encoded. The stored colour is
-		// the BOT's: white here, so it moves first and we need no board input.
-		localStorage.setItem(
-			'flutter.botvinnik-bot-v1',
-			JSON.stringify(
-				JSON.stringify({ personaId: 'retro-turochamp-1', enabled: true, color: 'w' })
-			)
-		);
-	});
+	await seedPersona(page, 'retro-turochamp-1');
 	await page.goto('/');
 
 	// the wasm fetch is the proof the boot message was understood

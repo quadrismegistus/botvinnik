@@ -14,18 +14,20 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../brain/types.dart';
+import '../engine/garbo_engine.dart';
 import '../engine/retro_engine.dart';
 import '../stores/game_controller.dart';
 import '../stores/settings_store.dart';
 
-// retro is platform-conditional rather than simply present: the historical
-// engines ship as wasm, so they play on the web and nowhere else yet. Listing
-// them on macOS would be the exact substitution this filter exists to prevent.
+// retro and garbo are platform-conditional rather than simply present: both
+// are Web Workers, so they play on the web and nowhere else yet. Listing them
+// on macOS would be the exact substitution this filter exists to prevent.
 final _playableFamilies = {
   'square',
   'fish',
   'horizon',
   if (RetroEngine.supported) 'retro',
+  if (GarboEngine.supported) 'garbo',
 };
 
 void showRosterPicker(BuildContext context) {
@@ -93,6 +95,8 @@ class _RosterSheet extends StatelessWidget {
       'horizon' => (Icons.wb_twilight, const Color(0xFFc4783f)),
       // a valve, for the machines that had them
       'retro' => (Icons.memory, const Color(0xFF9a7bb0)),
+      // hand-written JavaScript, so: braces
+      'garbo' => (Icons.data_object, const Color(0xFF6f9e8a)),
       _ => (Icons.circle, Colors.white38),
     };
     return CircleAvatar(

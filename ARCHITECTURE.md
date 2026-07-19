@@ -241,23 +241,22 @@ web branch of every conditional import.
 
 ## Known gaps
 
-- **The roster gap.** The brain ships 35 personas; Flutter implements four
-  families — Square, Fish, Horizon, and Retro on the web — so it offers **25
-  on the web and 22 on native**. Missing: 6 Maia, 3 Dala, 1 Garbo. This is the
-  reason the Svelte app still owns the web deploy, and all three are blocked
-  on the same thing — they are asynchronous, and the bridge is not.
+- **The roster gap.** The brain ships 35 personas; Flutter implements five
+  families — Square, Fish, Horizon, and Retro + Garbo on the web — so it
+  offers **26 on the web and 22 on native**. Missing: 6 Maia and 3 Dala, and
+  Dala is desktop-only in *both* apps, so parity for the web deploy is 32.
+  **The gap is therefore Maia, and only Maia.**
 
-  Retro is the exception that shows the shape of the answer: it does not use
-  the bridge at all. The engines are a UCI Worker, so `RetroEngine` talks to
-  them directly in Dart and the synchronous bridge never enters into it. The
-  same escape is available to Garbo (also a Worker) and, in a different form,
-  to Maia (`onnxruntime`) — the bridge is only a constraint on work that has
-  to go *through the brain*.
+  Retro and Garbo showed the shape of the answer: neither uses the bridge at
+  all. Both engines are Workers, so their Dart clients talk to them directly
+  and the synchronous bridge never enters into it. A version of the same
+  escape is available to Maia (`onnxruntime`) — the bridge is only a
+  constraint on work that has to go *through the brain*.
 
-  The web/native split is real and new: retro ships as wasm, so
-  `RetroEngine.supported` is false on macOS/iOS and the roster picker does not
-  offer those three there. Native retro is scoped and measured (see
-  `flutter/lib/engine/retro_engine_io.dart`), not blocked.
+  The web/native split is real: both are Web Workers, so `.supported` is false
+  on macOS/iOS and the roster picker does not offer those four there. Native
+  retro is scoped and measured (`retro_engine_io.dart`); native Garbo is
+  harder despite being plain JavaScript, and `garbo_engine_io.dart` says why.
 - **Only JavaScriptCore has ever run the brain.** `ios/` and `macos/` are the
   only native targets that exist; QuickJS is the runtime on Android and is
   untested. Bundling js-chess-engine put BigInt literals in `brain.js`, and
