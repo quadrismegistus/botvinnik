@@ -26,8 +26,11 @@ repository as the rest of the source.
 | chess.js | BSD-2-Clause |
 | Roboto (Christian Robertson) — the app typeface, bundled into the Flutter build so the web app fetches no fonts from Google | Apache-2.0 |
 | js-chess-engine (Josef Jadrny) — the "Horizon" bot personas; bundled into `flutter/assets/brain.js` and served to the web in a lazy chunk | MIT |
+| morlock (Henning Rohde) — the "retro" bot engines (TUROCHAMP, BERNSTEIN, SARGON), re-implementations compiled to WebAssembly and served at `retro/retro.wasm` | MIT |
+| Garbochess-JS (Gary Linscott) — the "Garbo" bot persona; the 2011 engine verbatim, served at `garbo/garbochess.js` with its LICENSE alongside | BSD-3-Clause |
+| `wasm_exec.js` (The Go Authors) — the Go↔WASM runtime shim the retro engines load | BSD-3-Clause |
 | Svelte / SvelteKit | MIT |
-| onnxruntime-web | MIT |
+| onnxruntime-web — the ONNX runtime for the Maia bots, on the web | MIT |
 | flutter_js | MIT |
 | flutter_colorpicker | MIT |
 | sqflite | BSD-2-Clause |
@@ -39,6 +42,13 @@ repository as the rest of the source.
 |---|---|
 | Lichess open database (used to bake the offline opening book) | CC0 |
 | lichess-org/chess-openings (opening names) | CC0 |
+| Maia weights (CSSLab; via shermansiu/maia-\*) — the neural nets for the "Maia" bots, **fetched at runtime from HuggingFace and never redistributed with this app** | GPL-3.0 |
+| Dala / lc0 weights — the neural nets for the desktop-only "Dala" bots, **fetched to disk at runtime, never bundled** | GPL-3.0 |
+
+The two neural-net sets are data, not code, and are downloaded on first use
+rather than shipped in any build — so this app never redistributes them, and
+the obligation to provide *their* source stays with their upstreams. They are
+listed here as attribution.
 
 ## What the GPL asks of you
 
