@@ -307,12 +307,23 @@ costs nothing either way — it is pure chess.js.
      blocks the deploy. Native stays a separately-scoped follow-up — the
      findings above are recorded in `retro_engine_io.dart` beside the stub, so
      whoever picks it up finds them without going through this file.
-   - **Garbo** — a Worker script with its own postMessage protocol, and
-     flutter_js has no Worker. Needs an onmessage/postMessage shim *and* a
-     background isolate, since its ~1s search would block the UI.
+   - **Garbo** — the difficulty here is **native-only**, and doing retro made
+     that obvious. Garbo is a Worker script with its own postMessage protocol.
+     On native that is genuinely awkward: flutter_js has no Worker, so it needs
+     an onmessage/postMessage shim *and* a background isolate, since its ~1s
+     search would block the UI. **On web it is the retro pattern exactly** —
+     a Worker is a Worker, Dart talks to it directly, and the synchronous
+     bridge never enters into it. One persona, and the cheapest one left.
    - **Maia** — the `onnxruntime` pub package. Import it lazily from day one;
      see the payload note below for what the eager version cost the web.
    - **Dala** — stays desktop-only; needs the native lc0 sidecar.
+
+   **So parity for the web deploy is 32, not 35.** Dala is desktop-only in the
+   *Svelte* app too — `svelte/src/lib/engine/dala.ts` imports
+   `@tauri-apps/api`, so it cannot run in a browser there either. The web gap
+   between the two apps is therefore **Maia (6) + Garbo (1) = 7 personas**,
+   not 10, and one of those seven is now cheap. Worth knowing before treating
+   the roster as a bigger wall than it is.
 
    Useful trick from #32: a dependency imported **only** from
    `brain/brain-entry.ts` reaches `brain.js` but never the Svelte bundle,
@@ -393,21 +404,48 @@ costs nothing either way — it is pure chess.js.
 Everything needed to submit, separated into the one item that is a *decision*
 and the rest, which are chores. Nothing here is legal advice.
 
-**The decision: GPLv3 on the App Store.** This is not a checkbox and should be
-settled before effort goes into the chores. The project is GPLv3 because
-Stockfish, dartchess and chessground are, and on iOS all three are compiled
-into the binary. Apple's standard licence terms impose per-device usage
-restrictions, and GPLv3 forbids adding restrictions to what it grants — the
-conflict that got VLC pulled from the store in 2011.
+**The decision: GPLv3 on the App Store.** Researched properly on 2026-07-19;
+it is a smaller and better-precedented decision than this section used to
+claim. Nothing here is legal advice.
 
-It is demonstrably survivable: **Lichess ships its own app under AGPL-3.0**,
-and dartchess and chessground are *theirs*, so they have already reconciled
-that for the components we borrow. The mechanism is that App Store Connect
-lets you supply a **custom EULA** replacing Apple's standard one. The residual
-risk is Stockfish, where we are not the copyright holder and the upstream team
-has enforced the GPL before (ChessBase). Worth deciding deliberately: ship
-with a custom EULA and the source offer honoured, or don't ship the engine
-compiled in.
+The project is GPL-3.0-or-later because Stockfish, dartchess and chessground
+are, and on iOS all three are compiled into the binary. Apple's Usage Rules
+impose per-device install limits and require accepting its ToS; GPLv3 forbids
+adding restrictions to what it grants. That is a real conflict — it got GNU Go
+pulled in 2010 on an FSF complaint, and VLC pulled in 2011 after a single
+contributor objected. (VLC later relicensed its core to LGPL to return.)
+
+Three corrections to what was written here before:
+
+- **A custom EULA does not cure it.** App Store Connect does let you supply
+  one, but Apple's *minimum required terms* still impose restrictions, so the
+  "further restrictions" problem survives. No source found says otherwise.
+  Treat a custom EULA as hygiene, not as the mechanism.
+- **The mechanism is that only a copyright holder can enforce.** There is no
+  compliance step that makes this clean; there is only the question of whether
+  a Stockfish copyright holder would object. Both precedents above were
+  copyright-holder complaints, not Apple-initiated removals.
+- **Lichess's *app* is GPL-3.0-or-later, not AGPL** (AGPL is lila, the
+  server). That matters, because the app is the precedent: `lichess-org/mobile`
+  is Flutter, depends on `multistockfish` from pub.dev, ships on the iOS App
+  Store, and its COPYING.md grants no exception and no custom EULA. Same
+  stack as ours, same licence, shipping since 2015.
+
+Stockfish upstream does police non-compliance (discussion #4855 lists
+offending iOS apps), but the complaint there is about apps **not publishing
+source** — not about App Store distribution as such. Lichess publishes source
+and has been left alone.
+
+**Recommended posture:** take the Lichess one. Stay GPL-3.0-or-later, publish
+the source, link to it from inside the app, ship both licence texts. Residual
+exposure is a takedown risk, not a damages risk, and it is identical whether
+or not retro ever ships natively.
+
+Two things that are already right and should not drift:
+- **Maia and Dala weights are GPL-3.0 and are fetched at runtime, never
+  redistributed.** Keep it that way — shipping weights in the bundle is a
+  materially worse position than linking Stockfish.
+- **retro is MIT** (morlock), so it adds nothing to any of this.
 
 **Required by the platform:**
 - **`PrivacyInfo.xcprivacy`** — mandatory. Must declare the required-reason
