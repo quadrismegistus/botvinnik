@@ -10,7 +10,7 @@
 // Runs on onnxruntime-web/wasm with numThreads=1, so no SharedArrayBuffer / no
 // cross-origin-isolation headers (matches our lite-single setup).
 
-import * as ort from 'onnxruntime-web';
+import type * as Ort from 'onnxruntime-web';
 import { Chess } from 'chess.js';
 import { encodeFenHistory } from './maia/encoding';
 import { decodePolicyOutput } from './maia/decoding';
@@ -58,16 +58,22 @@ export function maiaBroken(): boolean {
 	return broken;
 }
 
-let ortConfigured = false;
-function configureOrt(): void {
-	if (ortConfigured) return;
-	ort.env.wasm.numThreads = 1; // single policy eval → no SharedArrayBuffer needed
-	ort.env.wasm.wasmPaths = WASM_PATHS;
-	ortConfigured = true;
+// onnxruntime-web is ~190KB gzipped of JS glue that only the Maia bands need,
+// so it is imported on FIRST USE rather than at module load — a static import
+// here rides in the page's entry chunk and every visitor pays for it, Maia or
+// not. Configured on the way in, so there is one place that can be awaited.
+let ortPromise: Promise<typeof Ort> | null = null;
+function ortRuntime(): Promise<typeof Ort> {
+	ortPromise ??= import('onnxruntime-web').then((ort) => {
+		ort.env.wasm.numThreads = 1; // single policy eval → no SharedArrayBuffer needed
+		ort.env.wasm.wasmPaths = WASM_PATHS;
+		return ort;
+	});
+	return ortPromise;
 }
 
 interface Loaded {
-	session: ort.InferenceSession;
+	session: Ort.InferenceSession;
 	inputName: string;
 	policyName: string;
 }
@@ -78,7 +84,7 @@ async function load(band: number): Promise<Loaded> {
 	let p = loads.get(band);
 	if (!p) {
 		p = (async () => {
-			configureOrt();
+			const ort = await ortRuntime();
 			const key = `maia-${band}`;
 			let bytes = await getCachedModel(key);
 			if (!bytes) {
@@ -134,6 +140,7 @@ export async function maiaMove(
 
 	const isBlack = fen.split(' ')[1] === 'b';
 	const { session, inputName, policyName } = await load(maiaBand(elo));
+	const ort = await ortRuntime(); // already resolved — load() awaited it first
 	const planes = encodeFenHistory(fenHistory);
 	const out = await withTimeout(
 		session.run({ [inputName]: new ort.Tensor('float32', planes, [1, 112, 8, 8]) }),

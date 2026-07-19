@@ -3,9 +3,12 @@
 
 	interface Props {
 		entries: CommentaryEntry[];
+		/** The dataset is fetched on first open, so "empty" and "not here yet"
+		 *  are different states and must not read the same. */
+		loading?: boolean;
 	}
 
-	let { entries }: Props = $props();
+	let { entries, loading = false }: Props = $props();
 
 	function fmtTime(s: number): string {
 		const m = Math.floor(s / 60);
@@ -18,7 +21,9 @@
 </script>
 
 <div class="commentary-panel">
-	{#if entries.length === 0}
+	{#if loading && entries.length === 0}
+		<div class="empty">Loading commentary…</div>
+	{:else if entries.length === 0}
 		<div class="empty">
 			No YouTube commentary for this position — hits are most common in the opening.
 		</div>
