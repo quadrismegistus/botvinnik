@@ -21,6 +21,63 @@ one; `svelte/` and `flutter/` are consumers and neither depends on the other.
   Horizon personas — and note it is script-tagged *synchronously ahead of*
   `main.dart.js`, so it sits on the critical boot path.
 
+### Flutter UI backlog (raised 2026-07-19)
+
+- **Practice and Review overflow on a wide window — BUG, do first.** Not a
+  missing port: both tabs exist and work. They just never got #29's
+  wide-window layout. `practice_tab.dart:91` and `review_screen.dart:38` both
+  size the board to `constraints.maxWidth` with no height cap, so on a desktop
+  window a square board is as tall as the window is wide — measured overflow
+  945px (Practice) and 871px (Review), with the action bar pushed off-screen.
+  `PlayTab` already solves this with `narrowBoardSize`/`wideBoardSize` in
+  `ui/layout.dart`; the fix is to route these two through the same helpers,
+  and ideally to stop having three call sites that each decide board size.
+- **New-game flow.** Opponent selection belongs in the New Game sheet, not
+  behind the app-bar title — choosing who you play is part of starting a game,
+  not a persistent global setting. While there: allow **both** sides to be
+  bots, which also gives us bot-vs-bot games for free (useful for calibration
+  spot-checks and genuinely fun to watch).
+- **Panel order.** "Lines" should sit directly above "Moves", so "Tree" and
+  "Chart" come above "Lines" — analysis first, then the line list, then the
+  move list. Affects the `_tabs` order in `main.dart` and the persisted panel
+  indices in settings, so it needs a migration or index-independent keys.
+- **Blind-mode keyboard shortcut.** Nothing toggles it from the keyboard
+  today. `b` is free — `ui/keyboard.dart` binds only `f` (flip), space
+  (preview), the arrows, and ⌘Z/⇧⌘Z — and reads better than `h`, which
+  suggests "hint" or "help". Add it to `bindingsFor` in the same commit, so
+  the help sheet cannot drift from the bindings. Note it is the one binding
+  that would *change* what you can see, so it should probably not repeat on
+  key-hold (the existing `_repeatable` set already handles that).
+- **Default board texture → Olive.** `kDefaultBoardTexture` is `'newspaper'`
+  (`settings_store.dart:22`); `'olive'` already exists (`board_theme.dart:73`).
+  One-word change, but it only applies to profiles with no stored preference —
+  `prefs.getString('botvinnik-board-texture') ?? kDefaultBoardTexture` — so
+  anyone who has already opened Settings keeps what they have. Decide whether
+  that is the intent or whether existing newspaper-by-default users should be
+  migrated; also `resetToDefaults` at `:339` reads the same constant.
+
+### Analysis budget — one search already, but a modest one
+
+Worth recording because the instinct is to look for a redundant search, and
+there isn't one. **Arrows are not capped below the panels.** `engineArrowUcis`,
+the Lines pane, the Tree and the bot's repetition guard all read the same
+`currentLines` (`_partials[position.fen]`) — one analysis, one source of truth.
+
+The only *extra* engine run is the threat probe, and it cannot be folded in:
+it searches the **null-move position** (side to move flipped), which is not a
+node in the current position's tree. It is deliberately cheap and outranks
+analysis in the arbiter (depth 14, MultiPV 1, 500ms).
+
+So when the arrows feel weak against a full-strength engine, the cause is the
+**budget**, not a per-feature cap: depth 22 / **3000ms** / **MultiPV 5** on the
+single-threaded lite WASM build. MultiPV 5 is the expensive part — holding five
+PVs prunes far less than MultiPV 1, so the same milliseconds buy materially
+less depth, and the movetime cap often binds before depth 22. Levers, roughly
+in order of value: raise the movetime for the settled analysis; drop to MultiPV
+1 for the *arrow* while keeping 5 for the panels (two reads of one search, not
+two searches); or give desktop/native its own budget, since it is not on lite
+WASM. Control tinting costs nothing either way — it is pure chess.js.
+
 ### In order
 
 1. ~~**Wide-window UI.**~~ **SHIPPED 2026-07-19 (#29).** Multiple panels
@@ -41,12 +98,18 @@ one; `svelte/` and `flutter/` are consumers and neither depends on the other.
    slow cannot use it as-is either. Horizon fit because js-chess-engine is
    synchronous and answers in ~2ms. The other four each need their own
    mechanism on the Dart side first:
+   - **retro — NEXT (Ryan's call, 2026-07-19).** Three personas for one
+     mechanism, and the best-anchored ratings on the roster (the morlock bots'
+     real lichess numbers over 15k–48k human games). A Go module compiled to
+     wasm that already speaks minimal UCI, so the shape of the work is a wasm
+     runtime plus a UCI pump rather than a new protocol invented from scratch.
+     The open question is what runs the wasm on native Flutter — the web build
+     has `WebAssembly` for free, so it may land on Flutter web first.
    - **Garbo** — a Worker script with its own postMessage protocol, and
      flutter_js has no Worker. Needs an onmessage/postMessage shim *and* a
      background isolate, since its ~1s search would block the UI.
    - **Maia** — the `onnxruntime` pub package. Import it lazily from day one;
      see the payload note below for what the eager version cost the web.
-   - **retro** — a Go wasm module.
    - **Dala** — stays desktop-only; needs the native lc0 sidecar.
 
    Useful trick from #32: a dependency imported **only** from
