@@ -85,8 +85,13 @@ class _RosterSheet extends StatelessWidget {
                 if (p.maiaBand != null)
                   const Padding(
                     padding: EdgeInsets.only(top: 3),
+                    // Not "a 3.5MB model, once": that is the weights alone and
+                    // omits the ~3.3MB runtime, which a deploy re-fetches (see
+                    // MaiaProgress.reassurance). "A short download" promises
+                    // neither a size nor a frequency it cannot keep; "then
+                    // plays offline" is the durable truth.
                     child: Text(
-                      'downloads a 3.5MB model the first time — then works offline',
+                      'a short download the first time — then plays offline',
                       style: TextStyle(fontSize: 10.5, color: Color(0xFF9a8f7a)),
                     ),
                   ),

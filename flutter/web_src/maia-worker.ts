@@ -17,7 +17,8 @@
 //
 // Protocol (this worker serialises; Dart also cancels before re-asking):
 //   ← {id, fenHistory, band, temperature}
-//   → {id, status: 'fetching'}      once, only when the weights are NOT cached
+//   → {id, status: 'fetching', received, total}   while pulling the weights
+//   → {id, status: 'starting'}                    while ORT compiles/builds
 //   → {id, move: string | null}     the answer
 //   → {id, error: string}           gave up; the caller falls back to Stockfish
 
@@ -141,6 +142,54 @@ const loads = new Map<number, Promise<Loaded>>();
 ///     persona's name" the roster picker exists to prevent.
 const timedOutBands = new Set<number>();
 
+/** What the UI is told while a move waits on something other than inference. */
+type Progress = { phase: 'fetching' | 'starting'; received?: number; total?: number };
+
+/**
+ * Read a response body, reporting as it arrives.
+ *
+ * Falls back to arrayBuffer() when the body is not streamable — some
+ * browsers, and any response that has already been consumed. A download with
+ * no progress is worse than one with; a download that FAILS because we
+ * insisted on streaming it would be worse still.
+ */
+async function readWithProgress(
+	res: Response,
+	report: (p: Progress) => void
+): Promise<ArrayBuffer> {
+	const total = Number(res.headers.get('content-length')) || 0;
+	const reader = res.body?.getReader();
+	if (!reader) return res.arrayBuffer();
+
+	const chunks: Uint8Array[] = [];
+	let received = 0;
+	// Report every ~4% rather than every chunk: a 3.5MB body arrives in
+	// hundreds of pieces, and each postMessage crosses into Dart and rebuilds
+	// a widget. The last chunk always reports, so the line always finishes.
+	const step = total > 0 ? Math.max(total / 25, 65536) : 262144;
+	let reported = 0;
+	report({ phase: 'fetching', received: 0, total });
+	for (;;) {
+		const { done, value } = await reader.read();
+		if (done) break;
+		chunks.push(value);
+		received += value.length;
+		if (received - reported >= step) {
+			reported = received;
+			report({ phase: 'fetching', received, total });
+		}
+	}
+	report({ phase: 'fetching', received, total: total || received });
+
+	const out = new Uint8Array(received);
+	let at = 0;
+	for (const c of chunks) {
+		out.set(c, at);
+		at += c.length;
+	}
+	return out.buffer;
+}
+
 /** A stall, as opposed to a failure that answered quickly. */
 function isTimeout(e: unknown): boolean {
 	if (e instanceof DOMException && e.name === 'TimeoutError') return true; // AbortSignal.timeout
@@ -152,7 +201,7 @@ async function isCached(band: number): Promise<boolean> {
 	return (await getCached(`maia-${band}`)) !== null;
 }
 
-function load(band: number): Promise<Loaded> {
+function load(band: number, report: (p: Progress) => void): Promise<Loaded> {
 	let p = loads.get(band);
 	if (!p) {
 		// only here — a band already loaded is never affected
@@ -167,9 +216,16 @@ function load(band: number): Promise<Loaded> {
 					signal: AbortSignal.timeout(LOAD_TIMEOUT_MS)
 				});
 				if (!res.ok) throw new Error(`maia-${band} fetch failed: ${res.status}`);
-				bytes = await res.arrayBuffer();
+				bytes = await readWithProgress(res, report);
 				await putCached(key, bytes);
 			}
+			// ORT fetches and compiles ~13MB of WebAssembly here, on the first
+			// session of the page. It reports nothing and there is no total to
+			// divide by, so this phase gets a NAME rather than a bar. Without
+			// it the progress line runs to 100% and the app then sits silent
+			// through the longest part of the wait, which reads as a hang —
+			// which is the whole complaint this is answering.
+			report({ phase: 'starting' });
 			const session = await withTimeout(
 				ort.InferenceSession.create(new Uint8Array(bytes), { executionProviders: ['wasm'] }),
 				LOAD_TIMEOUT_MS,
@@ -194,7 +250,7 @@ async function move(
 	fenHistory: string[],
 	band: number,
 	temperature: number,
-	announce: () => void
+	report: (p: Progress) => void
 ): Promise<string | null> {
 	const fen = fenHistory[fenHistory.length - 1];
 	if (!fen) return null;
@@ -203,11 +259,7 @@ async function move(
 		.map((m) => m.from + m.to + (m.promotion ?? ''));
 	if (legal.length === 0) return null;
 
-	// not for a band we will refuse to load — announcing "downloading… once"
-	// and then not downloading is the lie this used to tell on every move
-	if (!timedOutBands.has(band) && !(await isCached(band))) announce();
-
-	const { session, inputName, policyName } = await load(band);
+	const { session, inputName, policyName } = await load(band, report);
 	const planes = encodeFenHistory(fenHistory);
 	const out = await withTimeout(
 		session.run({ [inputName]: new ort.Tensor('float32', planes, [1, 112, 8, 8]) }),
@@ -247,8 +299,8 @@ async function handle(req: {
 	temperature?: number;
 }): Promise<void> {
 	try {
-		const uci = await move(req.fenHistory, req.band, req.temperature ?? 0, () =>
-			self.postMessage({ id: req.id, status: 'fetching' })
+		const uci = await move(req.fenHistory, req.band, req.temperature ?? 0, (p) =>
+			self.postMessage({ id: req.id, ...p, status: p.phase })
 		);
 		self.postMessage({ id: req.id, move: uci });
 	} catch (err) {

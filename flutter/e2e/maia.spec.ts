@@ -73,18 +73,47 @@ test('@network the worker returns the move a human would play', async ({ page })
 	// the session is reused across moves rather than reloaded per position
 	expect(out.secondMs).toBeLessThan(3000);
 
-	// It announced the download exactly once, and before the first answer.
+	// It reported progress throughout, then named the compile phase, then
+	// answered — in that order.
 	//
-	// `toBeLessThanOrEqual(1)` was the original, and it accepts ZERO — so
-	// deleting the announcement entirely left this green, and with it the
-	// whole status:'fetching' → onFetching → statusLine path that exists to
-	// stop the first Maia move looking like a hang. Each context starts with
-	// an empty IndexedDB, so exactly one is the right number, not at most one.
-	const events = out.events as { id?: number; status?: string; move?: string }[];
-	const fetchingAt = events.findIndex((e) => e?.status === 'fetching');
+	// This used to be a single `status: 'fetching'` announcement, and the
+	// assertion was `toBeLessThanOrEqual(1)`, which accepts ZERO: deleting the
+	// announcement entirely left it green. It is now a stream, so the test can
+	// ask for something much stronger than "at least one happened".
+	type Ev = { id?: number; status?: string; received?: number; total?: number; move?: string };
+	const events = out.events as Ev[];
 	const firstAnswerAt = events.findIndex((e) => e?.move !== undefined);
-	expect(events.filter((e) => e?.status === 'fetching')).toHaveLength(1);
-	expect(fetchingAt).toBeLessThan(firstAnswerAt);
+	const fetching = events.filter((e) => e?.status === 'fetching');
+	const starting = events.filter((e) => e?.status === 'starting');
+
+	// a real stream, not one token message
+	expect(fetching.length).toBeGreaterThan(3);
+	// with real numbers in it — a bar needs a denominator, and HuggingFace
+	// does send content-length. If it ever stops, fraction goes null and the
+	// bar goes indeterminate rather than sitting at zero.
+	const withBytes = fetching.filter((e) => (e.received ?? 0) > 0);
+	expect(withBytes.length).toBeGreaterThan(0);
+	expect(withBytes[0].total).toBeGreaterThan(1_000_000);
+	// monotonic: a bar that goes backwards is worse than no bar
+	const received = fetching.map((e) => e.received ?? 0);
+	expect(received).toEqual([...received].sort((a, b) => a - b));
+	// and it ADVANCES through the middle, not 0-then-snap-to-100. This is the
+	// property the comment claims ("progress throughout") and the one a review
+	// proved was untested: a bar frozen at 0 with only the final total report
+	// passed everything else here, because a flat [0,…,0,total] is sorted and
+	// ends at total. Several distinct intermediate values is what a real bar
+	// looks like.
+	const distinct = new Set(received);
+	expect(distinct.size).toBeGreaterThan(3);
+	const intermediate = received.filter((r) => r > 0 && r < withBytes[0].total!);
+	expect(intermediate.length).toBeGreaterThan(1);
+	// and it finishes, rather than stalling at 80% while the work continues
+	expect(received[received.length - 1]).toBe(withBytes[0].total);
+
+	// the compile phase is named, and lands between the download and the move
+	expect(starting.length).toBeGreaterThan(0);
+	expect(events.indexOf(starting[0])).toBeGreaterThan(events.indexOf(fetching[0]));
+	expect(events.indexOf(starting[0])).toBeLessThan(firstAnswerAt);
 });
 
 test('@network the app itself plays with it', async ({ page }) => {

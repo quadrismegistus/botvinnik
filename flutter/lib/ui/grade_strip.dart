@@ -5,6 +5,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../engine/maia_progress.dart';
 import '../stores/game_controller.dart';
 
 /// The brain's CLASS table {label: {glyph, color, noun}}, provided at boot.
@@ -86,6 +87,36 @@ class GradeStrip extends StatelessWidget {
     );
   }
 
+  /// What a Maia is doing before it can play: a determinate bar while the
+  /// weights arrive, an indeterminate one while the runtime compiles.
+  ///
+  /// The second bar matters as much as the first. Compiling ~13MB of
+  /// WebAssembly is the longest single part of the wait on a phone and it
+  /// reports nothing, so a determinate bar that fills and then stops would
+  /// look more broken than no bar at all.
+  Widget _loadingLine(MaiaProgress p, String name) => Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(p.describe(name),
+              style: const TextStyle(color: Colors.white70, fontSize: 13)),
+          const SizedBox(height: 5),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(2),
+            child: LinearProgressIndicator(
+              value: p.fraction, // null → indeterminate, which is honest
+              minHeight: 3,
+              backgroundColor: const Color(0xFF3a3733),
+              valueColor:
+                  const AlwaysStoppedAnimation<Color>(Color(0xFFb06f8a)),
+            ),
+          ),
+          const SizedBox(height: 3),
+          Text(p.reassurance,
+              style: const TextStyle(color: Colors.white30, fontSize: 10.5)),
+        ],
+      );
+
   @override
   Widget build(BuildContext context) {
     final game = context.watch<GameController>();
@@ -93,7 +124,14 @@ class GradeStrip extends StatelessWidget {
     final grade = game.lastPlayerGrade;
 
     Widget content;
-    if (grade == null) {
+    final loading = game.maiaProgress;
+    if (loading != null) {
+      // Takes precedence over the grade: the grade is about a move already
+      // made, this is about why nothing is happening now. This strip is the
+      // only always-visible slot under the board — statusLine is not, both of
+      // its call sites being behind `if (game.gameOver)`.
+      content = _loadingLine(loading, game.persona?.name ?? 'Maia');
+    } else if (grade == null) {
       content = Text(
         game.moves.isEmpty
             ? 'your moves are graded as you play'
