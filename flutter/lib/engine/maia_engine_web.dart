@@ -12,7 +12,7 @@
 //     real history — passing only the current FEN works but plays worse.
 //   * **First use downloads ~3.5MB of weights** from HuggingFace (GPL-3.0, so
 //     deliberately not redistributed with the app). The worker announces that
-//     before it starts, and [onFetching] exists so the UI can say so out loud
+//     as it goes, and [onProgress] exists so the UI can show it out loud
 //     rather than showing a mystery pause.
 //   * **Requests are correlated by id.** A model download can outlive the
 //     position that triggered it, so a reply has to be matched rather than

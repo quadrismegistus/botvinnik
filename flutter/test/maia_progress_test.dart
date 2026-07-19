@@ -33,13 +33,15 @@ void main() {
   });
 
   group('describe', () {
-    test('names the persona and both real numbers while downloading', () {
+    test('names the persona and both real numbers, received before total', () {
       final line = const MaiaProgress('fetching',
               received: 1048576, total: 3670016)
           .describe('Maia I');
       expect(line, contains('Maia I'));
-      expect(line, contains('1.0MB'));
-      expect(line, contains('3.5MB'));
+      // the ORDER matters — "1.0MB of 3.5MB", not the reverse. Asserting each
+      // substring independently let a received/total swap through, which a
+      // review caught: "3.5MB of 1.0MB" is nonsense a person would notice.
+      expect(line, contains('1.0MB of 3.5MB'));
     });
 
     test('reports bytes alone when there is no total', () {
@@ -57,6 +59,18 @@ void main() {
       expect(line, contains('Maia IX'));
       expect(line.toLowerCase(), contains('neural net'));
       expect(line, isNot(contains('MB')));
+    });
+
+    test('the reassurance never promises "one time" for the runtime', () {
+      // The runtime lives in the SW cache, which every deploy rotates, so it
+      // is not one-time — and `starting` IS the runtime phase, shown alone to
+      // a returning visitor after a deploy. Neither phase may claim "one time".
+      for (final phase in ['fetching', 'starting']) {
+        final r = MaiaProgress(phase).reassurance;
+        expect(r.toLowerCase(), isNot(contains('one time')),
+            reason: '$phase promised one-time');
+        expect(r.toLowerCase(), contains('offline')); // the durable truth stays
+      }
     });
 
     test('never promises a size it does not know', () {

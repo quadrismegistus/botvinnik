@@ -97,6 +97,16 @@ test('@network the worker returns the move a human would play', async ({ page })
 	// monotonic: a bar that goes backwards is worse than no bar
 	const received = fetching.map((e) => e.received ?? 0);
 	expect(received).toEqual([...received].sort((a, b) => a - b));
+	// and it ADVANCES through the middle, not 0-then-snap-to-100. This is the
+	// property the comment claims ("progress throughout") and the one a review
+	// proved was untested: a bar frozen at 0 with only the final total report
+	// passed everything else here, because a flat [0,…,0,total] is sorted and
+	// ends at total. Several distinct intermediate values is what a real bar
+	// looks like.
+	const distinct = new Set(received);
+	expect(distinct.size).toBeGreaterThan(3);
+	const intermediate = received.filter((r) => r > 0 && r < withBytes[0].total!);
+	expect(intermediate.length).toBeGreaterThan(1);
 	// and it finishes, rather than stalling at 80% while the work continues
 	expect(received[received.length - 1]).toBe(withBytes[0].total);
 

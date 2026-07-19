@@ -112,8 +112,8 @@ class GradeStrip extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 3),
-          const Text('one time — then this bot works offline',
-              style: TextStyle(color: Colors.white30, fontSize: 10.5)),
+          Text(p.reassurance,
+              style: const TextStyle(color: Colors.white30, fontSize: 10.5)),
         ],
       );
 

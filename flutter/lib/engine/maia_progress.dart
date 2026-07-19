@@ -22,6 +22,24 @@ class MaiaProgress {
   double? get fraction =>
       total > 0 ? (received / total).clamp(0.0, 1.0) : null;
 
+  /// The reassurance under the bar — that this pause is setup, not every move.
+  ///
+  /// Deliberately NOT "one time — then works offline". Two reviews caught that
+  /// as a half-truth: the WEIGHTS are one time (IndexedDB, survives deploys),
+  /// but the ONNX runtime lives in the service-worker cache, whose name hashes
+  /// every shipped file — so any release purges it and the `starting` phase
+  /// re-fetches it. And `starting` is exactly when a returning-after-a-deploy
+  /// visitor sees this line ALONE, the weights already cached, so the old copy
+  /// showed its least-true claim at its most-visible moment.
+  ///
+  /// "setup" is honest about a compile that can recur after an update; "plays
+  /// offline" is the durable truth worth stating, and holds once both halves
+  /// are cached whenever that happened.
+  String get reassurance => switch (phase) {
+        'fetching' => 'first-time setup — then this bot plays offline',
+        _ => 'setting up — then this bot plays offline',
+      };
+
   static String _mb(int bytes) => '${(bytes / 1048576).toStringAsFixed(1)}MB';
 
   /// A line to put in front of a person who is waiting.
