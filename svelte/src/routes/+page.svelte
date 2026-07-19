@@ -94,6 +94,7 @@
 	let bookOpen = $state(false);
 	let commentaryOpen = $state(false); // desktop play: commentary card via footer link
 	let commentary: CommentaryEntry[] = $state([]);
+	let commentaryLoading = $state(false);
 
 	// switching away from an active practice/review session ends it (the mode
 	// switcher is the only way in AND out; the guards keep a lobby visit from
@@ -106,11 +107,27 @@
 		gearOpen = false;
 	}
 
-	// human commentary for the position on the board (placement-keyed, lazy-loaded)
+	// Human commentary for the position on the board (placement-keyed). The
+	// dataset behind it is 1.34MB gzipped, so it is fetched only once something
+	// is actually showing it — otherwise every first visit paid for a panel most
+	// people never open. The cost is that the footer link cannot show a count
+	// until you open it once, which is the honest trade.
+	const commentaryShown = $derived.by(() => commentaryOpen || sideView === 'review');
 	$effect(() => {
+		if (!commentaryShown) {
+			commentary = []; // no stale count on the footer link
+			return;
+		}
 		const fen = game.fen;
+		// the panel now opens BEFORE its data exists, so it has to be able to say
+		// "loading" — the empty state would otherwise claim there is no commentary
+		// for a position while the dataset is still on the wire
+		commentaryLoading = true;
 		void getCommentary(fen).then((c) => {
-			if (fen === game.fen) commentary = c;
+			if (fen === game.fen) {
+				commentary = c;
+				commentaryLoading = false;
+			}
 		});
 	});
 	let blindMode = $state(false);
@@ -1687,7 +1704,7 @@
 		{/snippet}
 
 		{#snippet commentaryBody()}
-			<CommentaryPanel entries={commentary} />
+			<CommentaryPanel entries={commentary} loading={commentaryLoading} />
 		{/snippet}
 
 		{#snippet practiceBody()}

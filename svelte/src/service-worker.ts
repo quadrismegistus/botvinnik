@@ -11,8 +11,14 @@ import { build, files, prerendered, version } from '$service-worker';
 const sw = self as unknown as ServiceWorkerGlobalScope;
 const CACHE = `botvinnik-${version}`;
 
+// `build` is Vite's output, and it carries any .wasm a dependency pulled in —
+// here onnxruntime's 26MB blob, which the running app never even fetches (ort
+// is pointed at a CDN by env.wasm.wasmPaths). Precaching it meant a 26MB
+// install on every version bump for a file nothing requests. The engine's own
+// wasm arrives through `files` below and is precached deliberately; anything
+// else lands under the cache-on-first-use policy this file already follows.
 const PRECACHE = [
-	...build,
+	...build.filter((f) => !f.endsWith('.wasm')),
 	...prerendered,
 	...files.filter((f) => f.startsWith('/wasm/') || f.startsWith('/icons/') || f === '/manifest.webmanifest')
 ];
