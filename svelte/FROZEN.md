@@ -3,11 +3,24 @@
 Decided 2026-07-19. **No new features here.** Effort goes to `flutter/`, which
 is to own every target including web.
 
-Frozen does not mean dead. Until Flutter web can replace it, this app:
+**It no longer serves botvinnik.app.** The Flutter web app took the apex on
+2026-07-19, once the roster reached parity. This app:
 
-- still serves **botvinnik.app** — it is the shipping product, not a legacy copy
+- is **no longer the shipping product** — `pages.yml` deploys `flutter/`
 - still gets **bug fixes**, and still has to keep working when `brain/` changes
 - still runs in CI (`web-e2e`), which is what makes that last point true
+- is still the **reference implementation for Dala**, which no browser can run
+
+Rolling back is a two-line revert of `pages.yml` (`npm run build`, `path:
+build`) — nothing about the switch is one-way.
+
+Note `flutter/web/service-worker.js`: a tombstone at THIS app's worker path,
+which unregisters it and drops its caches. It is not optional. This app's
+worker is cache-first for the app shell, so without it a returning browser
+keeps serving the cached Svelte `index.html` forever and the new app never
+loads. Verified by simulating the deploy on one origin: with the tombstone,
+the browser lands on Flutter immediately; without it, it was still serving
+Svelte after a full reload.
 
 ## Why it is still here
 

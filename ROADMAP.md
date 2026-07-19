@@ -84,10 +84,11 @@ What keeping it actually costs while frozen, so the trade is honest: the
 shared brain changes. That second one has caught real bugs in both directions,
 so it is not purely a tax.
 
-**Next toward this**: nothing on the roster — it is done. What remains before
-Flutter web can take the deploy is no longer about personas: it is the switch
-itself (`pages.yml` builds the Svelte app today), and whatever soak-testing
-that deserves.
+**Next toward this**: nothing — the switch happened on 2026-07-19.
+`pages.yml` builds and deploys `flutter/` to the botvinnik.app apex. What is
+left is soak-testing it in the wild, and deciding when the Svelte app's own
+code (as opposed to its role as Dala's reference implementation) stops being
+worth keeping.
 
 ### Flutter UI backlog (raised 2026-07-19)
 

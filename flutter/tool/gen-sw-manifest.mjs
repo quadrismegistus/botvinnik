@@ -33,9 +33,17 @@ function isShell(p) {
   return false;
 }
 
-/** Never cache: our own worker, and Flutter's deprecated one. */
+/** Never cache: our own worker, Flutter's deprecated one, and the tombstone. */
 function isExcluded(p) {
-  return p === 'sw.js' || p === 'flutter_service_worker.js' || p.endsWith('.map');
+  // service-worker.js is the Svelte app's path, kept only to unregister that
+  // worker. Caching it would be pointless at best — and pinning a tombstone
+  // in our own cache is a silly way to keep it alive.
+  return (
+    p === 'sw.js' ||
+    p === 'flutter_service_worker.js' ||
+    p === 'service-worker.js' ||
+    p.endsWith('.map')
+  );
 }
 
 function walk(dir, out = []) {
