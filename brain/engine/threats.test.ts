@@ -215,3 +215,75 @@ describe('judgeTacticalWin', () => {
 		expect(judgeTacticalWin(fen, { pv: ['d2c2', 'e8e7'], mate: null })).toBeNull();
 	});
 });
+
+// the fair-trade filter's bookkeeping, hardened by review: the old one-ply
+// defCapture missed delayed recaptures, en passant landing squares, and
+// promotion surpluses — three ways to ring a piece that was never lost
+describe('victim bookkeeping (via the judges)', () => {
+	it('a zwischenzug does not defeat the fair-trade filter', async () => {
+		// the PR's own even-trade case (Nc3, Bxf3, recapture) with the
+		// recapture delayed one ply by Nxd5 — the bishop still traded itself
+		// evenly and must not ring, however late the recapture settles
+		const fen = '3qk3/8/8/3p4/4b3/5N2/6B1/1N2K3 b - - 0 1';
+		const analyze = fakeAnalyze([
+			'b1c3', // the double attack
+			'e4f3', // bishop trades itself for the knight
+			'c3d5', // zwischenzug: grab the pawn FIRST
+			'e8d7',
+			'g2f3', // the delayed recapture — still a fair trade
+			'd7d6' // quiet, settles
+		]);
+		const t = await findThreat(fen, analyze);
+		expect(t).not.toBeNull();
+		expect(t!.gain).toBe(1); // -N +P +B
+		expect(t!.targets).toEqual(['d5']);
+	});
+
+	it('an even en-passant trade does not ring (landing square, not corpse square)', () => {
+		// e4, dxe3 e.p., fxe3 is a plain pawn-for-pawn trade; the line then
+		// wins the a3 rook — only the rook rings
+		const fen = '6k1/8/8/8/3p4/r7/2N1PP2/4K3 w - - 0 1';
+		const w = judgeTacticalWin(fen, {
+			pv: ['e2e4', 'd4e3', 'f2e3', 'g8f8', 'c2a3', 'f8g8'],
+			mate: null
+		});
+		expect(w).not.toBeNull();
+		expect(w!.gain).toBe(5);
+		expect(w!.targets).toEqual(['a3']);
+	});
+
+	it('a WINNING promotion desperado is a fair trade, not a manufactured threat', () => {
+		// ...gxh1=Q wins rook-plus-promotion for a pawn; Nxh1 merely settles
+		// it. The old code compared the raw rook value against the queen,
+		// ringed the pawn, and conjured a gain-1 "threat" out of nothing.
+		const fen = '6k1/8/8/8/8/6N1/5rp1/4KB1R w - - 0 1';
+		const w = judgeTacticalWin(fen, {
+			pv: ['e1d1', 'g2h1q', 'g3h1', 'g8f8', 'h1f2', 'f8g8'],
+			mate: null
+		});
+		expect(w).toBeNull();
+	});
+
+	it('a castled rook traces through the rook leg, never ringing empty f8', () => {
+		// Black castles inside the line and the rook is later captured on f8;
+		// the trace-back must follow the castling rook's h8→f8 leg. Neither
+		// traced square is attacked the instant Bc5 lands, so no ring at all —
+		// but never a ring on f8, where no piece currently stands.
+		const fen = '2n1k2r/8/8/8/8/B7/8/4K3 w k - 0 1';
+		const w = judgeTacticalWin(fen, {
+			pv: ['a3c5', 'c8d6', 'e1e2', 'e8g8', 'c5d6', 'g8h8', 'd6f8', 'h8h7'],
+			mate: null
+		});
+		expect(w).not.toBeNull();
+		expect(w!.gain).toBe(8); // knight + rook
+		expect(w!.targets).toEqual([]);
+	});
+
+	it('the bare-pv fallback names an en-passant victim on its real square', () => {
+		const fen = '4k3/8/8/3pP3/8/8/8/4K3 w - d6 0 2';
+		const w = judgeTacticalWin(fen, { pv: ['e5d6'], mate: null });
+		expect(w).not.toBeNull();
+		expect(w!.gain).toBe(1);
+		expect(w!.targets).toEqual(['d5']); // the pawn, beside the landing square
+	});
+});

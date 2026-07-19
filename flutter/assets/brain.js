@@ -5003,6 +5003,7 @@ var brain = (() => {
   }
   var MIN_GAIN = 1;
   var VICTIMLESS_MIN_GAIN = 2;
+  var MAX_JUDGE_PLIES = 16;
   function threatProbeFen(fen) {
     let base;
     try {
@@ -5034,12 +5035,14 @@ var brain = (() => {
         targets: king ? [king] : []
       };
     }
-    const quiet = quietMaterialOverLine(nullFen, best.pv);
-    const net = quiet.plies > 0 ? quiet.net : staticFirstCaptureGain(nullFen, best.pv[0]);
+    const pv = best.pv.slice(0, MAX_JUDGE_PLIES);
+    const quiet = quietMaterialOverLine(nullFen, pv);
+    const first = quiet.plies > 0 ? null : staticFirstCapture(nullFen, pv[0]);
+    const net = quiet.plies > 0 ? quiet.net : first?.gain ?? 0;
     if (net < MIN_GAIN) return null;
-    const targets = quiet.plies > 0 ? victimSquares(nullFen, best.pv, quiet.plies) : [best.pv[0].slice(2, 4)];
+    const targets = quiet.plies > 0 ? victimSquares(nullFen, pv, quiet.plies) : [first.sq];
     if (targets.length === 0 && net < VICTIMLESS_MIN_GAIN) return null;
-    return { fen, uci: best.pv[0], san: getSan(nullFen, best.pv[0]) ?? best.pv[0], gain: net, targets };
+    return { fen, uci: pv[0], san: getSan(nullFen, pv[0]) ?? pv[0], gain: net, targets };
   }
   function kingSquare(fen, color) {
     const c = new Chess(fen);
@@ -5069,19 +5072,20 @@ var brain = (() => {
         targets: king ? [king] : []
       };
     }
-    const quiet = quietMaterialOverLine(fen, best.pv);
-    const net = quiet.plies > 0 ? quiet.net : staticFirstCaptureGain(fen, best.pv[0]);
+    const pv = best.pv.slice(0, MAX_JUDGE_PLIES);
+    const quiet = quietMaterialOverLine(fen, pv);
+    const first = quiet.plies > 0 ? null : staticFirstCapture(fen, pv[0]);
+    const net = quiet.plies > 0 ? quiet.net : first?.gain ?? 0;
     if (net < MIN_GAIN) return null;
-    const targets = quiet.plies > 0 ? victimSquares(fen, best.pv, quiet.plies) : [best.pv[0].slice(2, 4)];
+    const targets = quiet.plies > 0 ? victimSquares(fen, pv, quiet.plies) : [first.sq];
     if (targets.length === 0 && net < VICTIMLESS_MIN_GAIN) return null;
-    return { fen, uci: best.pv[0], san: getSan(fen, best.pv[0]) ?? best.pv[0], gain: net, targets };
+    return { fen, uci: pv[0], san: getSan(fen, pv[0]) ?? pv[0], gain: net, targets };
   }
   function victimSquares(nullFen, ucis, plies) {
     const c = new Chess(nullFen);
     const mover = c.turn();
     const defenderMoves = [];
     const candidates = [];
-    let defCapture = null;
     for (let i = 0; i < plies; i++) {
       let m;
       try {
@@ -5095,7 +5099,14 @@ var brain = (() => {
       }
       const capSq = m.captured ? m.isEnPassant() ? m.to[0] + m.from[1] : m.to : null;
       if (m.color === mover && capSq) {
-        const fairTrade = defCapture !== null && defCapture.sq === capSq && defCapture.val >= PIECE_VAL[m.captured];
+        let arrivalGain = null;
+        for (let j = defenderMoves.length - 1; j >= 0; j--) {
+          if (defenderMoves[j].to === capSq) {
+            arrivalGain = defenderMoves[j].gained;
+            break;
+          }
+        }
+        const fairTrade = arrivalGain !== null && arrivalGain >= PIECE_VAL[m.captured];
         if (!fairTrade) {
           let sq = capSq;
           for (let j = defenderMoves.length - 1; j >= 0; j--) {
@@ -5105,8 +5116,13 @@ var brain = (() => {
         }
       }
       if (m.color !== mover) {
-        defenderMoves.push({ from: m.from, to: m.to });
-        defCapture = capSq ? { sq: capSq, val: PIECE_VAL[m.captured] } : null;
+        const gained = m.captured ? PIECE_VAL[m.captured] + (m.promotion ? PIECE_VAL[m.promotion] - 1 : 0) : m.promotion ? PIECE_VAL[m.promotion] - 1 : null;
+        defenderMoves.push({ from: m.from, to: m.to, gained });
+        if (m.isKingsideCastle()) {
+          defenderMoves.push({ from: "h" + m.from[1], to: "f" + m.from[1], gained: null });
+        } else if (m.isQueensideCastle()) {
+          defenderMoves.push({ from: "a" + m.from[1], to: "d" + m.from[1], gained: null });
+        }
       }
     }
     if (candidates.length === 0) return [];
@@ -5128,14 +5144,18 @@ var brain = (() => {
     }
     return out;
   }
-  function staticFirstCaptureGain(fen, uci) {
+  function staticFirstCapture(fen, uci) {
     const c = new Chess(fen);
-    const victimSq = uci.slice(2, 4);
-    const victim = c.get(victimSq);
     const capturer = c.get(uci.slice(0, 2));
-    if (!victim || !capturer || victim.color === capturer.color) return 0;
-    if (c.attackers(victimSq, victim.color).length === 0) return PIECE_VAL[victim.type];
-    return PIECE_VAL[victim.type] - PIECE_VAL[capturer.type];
+    let victimSq = uci.slice(2, 4);
+    let victim = c.get(victimSq);
+    if (!victim && capturer?.type === "p" && uci[0] !== uci[2]) {
+      victimSq = uci[2] + uci[1];
+      victim = c.get(victimSq);
+    }
+    if (!victim || !capturer || victim.color === capturer.color) return null;
+    const gain = c.attackers(victimSq, victim.color).length === 0 ? PIECE_VAL[victim.type] : PIECE_VAL[victim.type] - PIECE_VAL[capturer.type];
+    return { gain, sq: victimSq };
   }
 
   // brain/engine/control.ts

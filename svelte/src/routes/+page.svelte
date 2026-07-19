@@ -1242,13 +1242,27 @@
 	// the green mirror: pieces YOUR top line wins, judged by the same rules,
 	// from the analysis already streaming — no extra engine time. Never
 	// collides with the red rings (threat victims are yours, these are theirs).
+	// Memoised outside the reactive graph: the stream re-assigns engineMoves
+	// many times per position and the judge replays the pv each call.
+	let winMemo: { key: string; targets: string[] } | null = null;
 	const winTargets = $derived.by(() => {
 		if (!showThreats || blindMode || mode === 'practice') return [];
+		// in a bot game "your line" only exists on YOUR turn — during the
+		// bot's think the streamed lines are ITS tactics, and green rings for
+		// them would invert the overlay (your own king ringed as a "win")
+		if (botEnabled && mode === 'play' && !game.isGameOver && game.turn === botColor)
+			return [];
 		const top = engineMoves[0];
 		if (!top || top.pv.length === 0) return [];
-		const w = judgeTacticalWin(game.fen, { pv: top.pv, mate: top.mate });
-		if (!w) return [];
-		return w.targets.filter((t) => t !== top.pv[0].slice(2, 4));
+		const key = `${game.fen}|${top.mate}|${top.pv.join(' ')}`;
+		if (winMemo?.key !== key) {
+			const w = judgeTacticalWin(game.fen, { pv: top.pv, mate: top.mate });
+			winMemo = {
+				key,
+				targets: w ? w.targets.filter((t) => t !== top.pv[0].slice(2, 4)) : []
+			};
+		}
+		return winMemo.targets;
 	});
 	// square-control tint — pure chess.js, recomputed per position
 	const controlMap = $derived.by(() => {

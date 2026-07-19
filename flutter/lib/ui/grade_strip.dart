@@ -29,6 +29,9 @@ class GradeStrip extends StatelessWidget {
   /// this out to decide whether to draw the arrow at all — it just used to
   /// throw the answer away, leaving a warning with no explanation.
   Widget? _threatLine(GameController game) {
+    // the board hides its overlays while browsing/previewing — a strip line
+    // asserting a live threat under a historical position would contradict it
+    if (game.browsing || game.previewing) return null;
     final san = game.threatSan;
     if (san == null) return null;
     final gain = game.threatGain;

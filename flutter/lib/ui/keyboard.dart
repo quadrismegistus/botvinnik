@@ -15,8 +15,17 @@ import '../stores/game_controller.dart';
 /// be tested without standing up a GameController.
 enum BoardKeyAction { back, forward, start, live, flip, preview, undo, redo }
 
-/// The key, or null if this event is not ours. Repeats count, so holding an
-/// arrow scrubs.
+// holding an arrow scrubs; holding f or space must not strobe
+const _repeatable = {
+  BoardKeyAction.back,
+  BoardKeyAction.forward,
+  BoardKeyAction.start,
+  BoardKeyAction.live,
+};
+
+/// The key, or null if this event is not ours. Repeats count only for the
+/// browse keys, so holding an arrow scrubs but holding f doesn't spin the
+/// board and holding space doesn't toggle the preview thirty times a second.
 ///
 /// Undo and redo are the only bindings that take a modifier. ⌘Z / ⇧⌘Z is the
 /// macOS standard; Ctrl-Y is the Windows one and is accepted there too, but
@@ -40,7 +49,7 @@ BoardKeyAction? boardActionFor(KeyEvent event) {
   }
   if (keys.isAltPressed) return null;
 
-  return switch (event.logicalKey) {
+  final action = switch (event.logicalKey) {
     LogicalKeyboardKey.arrowLeft => BoardKeyAction.back,
     LogicalKeyboardKey.arrowRight => BoardKeyAction.forward,
     LogicalKeyboardKey.arrowUp || LogicalKeyboardKey.home =>
@@ -53,6 +62,8 @@ BoardKeyAction? boardActionFor(KeyEvent event) {
     LogicalKeyboardKey.space => BoardKeyAction.preview,
     _ => null,
   };
+  if (event is KeyRepeatEvent && !_repeatable.contains(action)) return null;
+  return action;
 }
 
 /// Wraps the app in a focus scope that turns key presses into navigation.

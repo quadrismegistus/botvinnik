@@ -150,6 +150,7 @@ class GameController extends ChangeNotifier {
     gameSeed = _newSeed();
     _analysis.clear();
     _partials.clear();
+    _controlCache.clear(); // per-fen maps would accrete for the process life
     _threat = null;
     _analysisFor(position.fen);
     _syncTree(); // playedSans is empty → the model wipes itself
@@ -163,7 +164,11 @@ class GameController extends ChangeNotifier {
   /// to earn. Any new move discards them (see _apply).
   final RedoStack _redoStack = RedoStack();
 
-  bool get canUndo => moves.isNotEmpty && !botThinking;
+  bool get canUndo =>
+      !botThinking &&
+      (botEnabled
+          ? moves.any((m) => m.color == playerColor)
+          : moves.isNotEmpty);
   bool get canRedo => _redoStack.isNotEmpty && !botThinking;
 
   /// Undo the last player move (and the bot reply on top of it);
@@ -171,6 +176,9 @@ class GameController extends ChangeNotifier {
   void undo() {
     _browsePly = null;
     if (moves.isEmpty || botThinking) return;
+    // in a bot game there must be a player move to take back: undoing the
+    // bot's lone opening move would leave the bot on turn with input dead
+    if (botEnabled && !moves.any((m) => m.color == playerColor)) return;
     _gen++;
     _arbiter.bumpGeneration();
     final undone = <MoveRecord>[];
@@ -188,11 +196,13 @@ class GameController extends ChangeNotifier {
     position = Chess.fromSetup(Setup.parseFen(fen));
     lastMove =
         moves.isEmpty ? null : NormalMove.fromUci(moves.last.uci);
+    _saved = false; // a re-finished game is a new game to archive
     _threat = null;
     _analysisFor(position.fen);
     _syncTree();
     _probeThreat();
     notifyListeners();
+    _maybeBotTurn(); // safety: never leave the bot on turn (no-op otherwise)
   }
 
   /// Put back what undo took off. Replays the stored moves rather than
@@ -512,11 +522,17 @@ class GameController extends ChangeNotifier {
   /// Costs no engine time: the line is the live analysis already streaming.
   Map<String, dynamic>? get tacticalWin {
     if (!_settings.showThreats || blind) return null;
+    // in a bot game, "your line" only exists on YOUR turn — during the bot's
+    // think the streamed lines are ITS tactics, and green rings for them
+    // would invert the overlay's meaning (your own king ringed "win")
+    if (botEnabled && !isPlayerTurn) return null;
     final chess = _chess;
     if (chess == null) return null;
     final lines = currentLines;
     if (lines.isEmpty) return null;
-    final key = '${position.fen}|${lines.first.pv.join(' ')}';
+    // mate is load-bearing: an unchanged pv can convert cp→mate as the
+    // search deepens, and the judgment flips with it
+    final key = '${position.fen}|${lines.first.mate}|${lines.first.pv.join(' ')}';
     if (_winKey != key) {
       _winKey = key;
       _winCache = chess.judgeTacticalWin(position.fen, {
@@ -556,15 +572,21 @@ class GameController extends ChangeNotifier {
     }
     final gen = _gen;
     _probeInFlightFen = fen;
-    final lines = await _arbiter.search(
-      fen: probe,
-      ownerFen: fen, // stale when the BOARD moves on, not the probe position
-      depth: 14,
-      multiPv: 1,
-      movetimeMs: 500,
-      priority: SearchPriority.threatProbe,
-    );
-    if (_probeInFlightFen == fen) _probeInFlightFen = null;
+    List<EngineMove>? lines;
+    try {
+      lines = await _arbiter.search(
+        fen: probe,
+        ownerFen: fen, // stale when the BOARD moves on, not the probe position
+        depth: 14,
+        multiPv: 1,
+        movetimeMs: 500,
+        priority: SearchPriority.threatProbe,
+      );
+    } catch (_) {
+      lines = null; // an engine error must not wedge the in-flight flag
+    } finally {
+      if (_probeInFlightFen == fen) _probeInFlightFen = null;
+    }
     if (gen != _gen || lines == null || lines.isEmpty) return;
     _threat = chess.judgeThreat(fen, {
       'pv': lines.first.pv,
@@ -685,6 +707,7 @@ class GameController extends ChangeNotifier {
   /// Plays [ucis] out from [baseFen] on the board, one move per beat,
   /// then returns to the live position. Tap again to stop early.
   void startPreview(String baseFen, List<String> ucis) {
+    _browsePly = null; // the board prefers browseFen; an unseen preview is a dead key
     stopPreview();
     Position pos;
     try {
