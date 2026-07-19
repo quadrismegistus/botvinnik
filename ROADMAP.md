@@ -56,10 +56,25 @@ one; `svelte/` and `flutter/` are consumers and neither depends on the other.
   - **Review:** ← / → step between moves, and it should be possible to review
     with the keyboard alone. `ReviewController` already has `prev`, `next`,
     `goto`, `canPrev`, `canNext` — this is wiring, not new logic.
-  - **Practice:** `r` retries, `n` next puzzle, `b` shows best. The arrows
-    stay unbound here — `r` already covers retry, and Practice has no move
-    history to step through. `PracticeController` already has `retry`,
+  - **Practice:** `r` retries, `n` next puzzle, `b` shows best, `?` hints.
+    The arrows stay unbound here — `r` already covers retry, and Practice has
+    no move history to step through. `PracticeController` already has `retry`,
     `nextPuzzle`, `reveal`, `hint`.
+
+    `?` over `q` or `s`: it is the near-universal help convention, it escalates
+    the way the feature does (press again for more), and it is the only one of
+    the three that is not arbitrary — `q` conventionally means quit, and `s`
+    for "show" would collide semantically with `b` for "show best", which is
+    exactly the memorability problem dropping the left-arrow binding removed.
+    Implementable as-is: `boardActionFor` excludes only Alt on the
+    non-modifier path, so a bare `?` (Shift+`/`) arrives normally — match
+    `LogicalKeyboardKey.question`, and consider accepting `slash` too, since
+    `?` sits elsewhere on non-US layouts.
+
+    Note hint and reveal **converge**: `hint()` escalates a tier per press and
+    sets `revealBest` at tier 3, so `?` three times lands where `b` does. That
+    is good progressive disclosure, not a bug — but wire them knowing it, so
+    the two do not fight over `revealBest`.
 
   **No key means two things.** Worth keeping it that way: ← / → mean "step
   through the moves of a game" everywhere they are bound, and are simply
