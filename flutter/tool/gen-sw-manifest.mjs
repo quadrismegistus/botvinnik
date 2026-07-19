@@ -65,6 +65,9 @@ for (const required of [
   'retro/retro.wasm',
   'retro/retro-worker.js',
   'garbo/garbochess.js',
+  'maia/maia-worker.js',
+  'maia/ort-wasm-simd-threaded.wasm',
+  'maia/ort-wasm-simd-threaded.mjs',
 ]) {
   if (!all.includes(required)) {
     throw new Error(`gen-sw-manifest: ${required} is missing from the build`);

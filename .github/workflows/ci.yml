@@ -116,8 +116,15 @@ jobs:
           path: ~/.cache/ms-playwright
           key: playwright-${{ hashFiles('package-lock.json') }}
       - run: npx playwright install --with-deps chromium
-      - name: Flutter web e2e (the retro workers, in a real browser)
-        run: npx playwright test -c flutter/playwright.config.ts
+      # --grep-invert @network skips the two Maia tests that download ~3.5MB
+      # of weights from HuggingFace. Those weights are GPL-3.0 and deliberately
+      # not redistributed with the app, so reaching the network on first use is
+      # a permanent property of that family rather than a test-environment
+      # quirk — and not one worth making CI's uptime depend on. What DOES run
+      # here is the guard that matters most: that a non-Maia game makes no
+      # third-party request at all.
+      - name: Flutter web e2e (engine workers, in a real browser)
+        run: npx playwright test -c flutter/playwright.config.ts --grep-invert "@network"
       - uses: actions/upload-artifact@v4
         if: failure()
         with:

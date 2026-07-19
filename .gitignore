@@ -60,6 +60,7 @@ flutter/macos/Runner/Resources/stockfish
 flutter/web/wasm/
 flutter/web/retro/
 flutter/web/garbo/
+flutter/web/maia/
 flutter/web/brain.js
 
 # sqflite's shared-worker build: unused (db_init_web uses the no-worker

@@ -12,8 +12,8 @@
 
 import type * as Ort from 'onnxruntime-web';
 import { Chess } from 'chess.js';
-import { encodeFenHistory } from './maia/encoding';
-import { decodePolicyOutput } from './maia/decoding';
+import { encodeFenHistory } from '$brain/maia/encoding';
+import { decodePolicyOutput } from '$brain/maia/decoding';
 import { getCachedModel, putCachedModel } from './maia/modelCache';
 
 const BANDS = [1100, 1200, 1300, 1400, 1500, 1600, 1700, 1800, 1900];

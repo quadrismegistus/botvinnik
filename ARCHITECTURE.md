@@ -241,22 +241,29 @@ web branch of every conditional import.
 
 ## Known gaps
 
-- **The roster gap.** The brain ships 35 personas; Flutter implements five
-  families — Square, Fish, Horizon, and Retro + Garbo on the web — so it
-  offers **26 on the web and 22 on native**. Missing: 6 Maia and 3 Dala, and
-  Dala is desktop-only in *both* apps, so parity for the web deploy is 32.
-  **The gap is therefore Maia, and only Maia.**
+- **The roster gap is closed on the web** (2026-07-19). The brain ships 35
+  personas; Flutter web offers **32**, which is parity — Dala needs a native
+  lc0 sidecar and is desktop-only in *both* apps. Native Flutter still offers
+  22.
 
-  Retro and Garbo showed the shape of the answer: neither uses the bridge at
-  all. Both engines are Workers, so their Dart clients talk to them directly
-  and the synchronous bridge never enters into it. A version of the same
-  escape is available to Maia (`onnxruntime`) — the bridge is only a
-  constraint on work that has to go *through the brain*.
+  The way it closed is the interesting part: **none of the last three families
+  uses the brain bridge at all.** Retro, Garbo and Maia are Workers, so their
+  Dart clients talk to them directly and the synchronous bridge never enters
+  into it. The bridge is a constraint only on work that has to go *through the
+  brain* — which is why the "everything left is async and the bridge is not"
+  framing turned out to be the wrong way to see the problem.
 
-  The web/native split is real: both are Web Workers, so `.supported` is false
-  on macOS/iOS and the roster picker does not offer those four there. Native
-  retro is scoped and measured (`retro_engine_io.dart`); native Garbo is
-  harder despite being plain JavaScript, and `garbo_engine_io.dart` says why.
+  Maia does still share code with the brain, but by a different route: its
+  encoding and decoding are pure functions over a FEN history, so they live in
+  `brain/maia/` and are imported by both apps' workers rather than called
+  across the bridge.
+
+  The web/native split is real: all three need a Web Worker, so `.supported`
+  is false on macOS/iOS and the roster picker does not offer those ten there.
+  Each `*_engine_io.dart` documents what its native path would cost — retro is
+  scoped and measured, Maia is the most tractable (the `onnxruntime` pub
+  package needs no runtime port), Garbo is the awkward one despite being plain
+  JavaScript.
 - **Only JavaScriptCore has ever run the brain.** `ios/` and `macos/` are the
   only native targets that exist; QuickJS is the runtime on Android and is
   untested. Bundling js-chess-engine put BigInt literals in `brain.js`, and

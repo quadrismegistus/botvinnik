@@ -15,6 +15,7 @@ import 'package:provider/provider.dart';
 
 import '../brain/types.dart';
 import '../engine/garbo_engine.dart';
+import '../engine/maia_engine.dart';
 import '../engine/retro_engine.dart';
 import '../stores/game_controller.dart';
 import '../stores/settings_store.dart';
@@ -28,6 +29,7 @@ final _playableFamilies = {
   'horizon',
   if (RetroEngine.supported) 'retro',
   if (GarboEngine.supported) 'garbo',
+  if (MaiaEngine.supported) 'maia',
 };
 
 void showRosterPicker(BuildContext context) {
@@ -67,10 +69,29 @@ class _RosterSheet extends StatelessWidget {
             leading: _familyMark(p),
             title: Text('${p.name}  ·  ${p.elo}',
                 style: const TextStyle(fontSize: 14)),
-            subtitle: Text(p.blurb,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontSize: 11.5, color: Colors.white38)),
+            subtitle: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(p.blurb,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style:
+                        const TextStyle(fontSize: 11.5, color: Colors.white38)),
+                // Maia is the one persona family that reaches the network, and
+                // the only place the app does at all. Say so before it is
+                // chosen rather than during the pause it causes — the weights
+                // are GPL-3.0 and deliberately not shipped with the app, so
+                // this is a permanent property, not a first-run detail.
+                if (p.maiaBand != null)
+                  const Padding(
+                    padding: EdgeInsets.only(top: 3),
+                    child: Text(
+                      'downloads a 3.5MB model the first time — then works offline',
+                      style: TextStyle(fontSize: 10.5, color: Color(0xFF9a8f7a)),
+                    ),
+                  ),
+              ],
+            ),
             onTap: () {
               settings.personaId = p.id;
               Navigator.pop(context);
@@ -97,6 +118,8 @@ class _RosterSheet extends StatelessWidget {
       'retro' => (Icons.memory, const Color(0xFF9a7bb0)),
       // hand-written JavaScript, so: braces
       'garbo' => (Icons.data_object, const Color(0xFF6f9e8a)),
+      // a net trained on people
+      'maia' => (Icons.psychology_outlined, const Color(0xFFb06f8a)),
       _ => (Icons.circle, Colors.white38),
     };
     return CircleAvatar(

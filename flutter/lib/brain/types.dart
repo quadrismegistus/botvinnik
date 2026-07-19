@@ -90,4 +90,8 @@ class Persona {
   Map<String, dynamic>? get retro => raw['retro'] as Map<String, dynamic>?;
   /// garbo: Garbochess-JS movetime in ms
   int? get garboMs => raw['garboMs'] as int?;
+  /// maia: which net band (1100 / 1500 / 1900)
+  int? get maiaBand => raw['maiaBand'] as int?;
+  /// maia: policy-sampling temperature; absent or 0 means play the argmax
+  double? get maiaTemp => (raw['maiaTemp'] as num?)?.toDouble();
 }

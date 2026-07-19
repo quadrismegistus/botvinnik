@@ -7,8 +7,8 @@ import * as ort from 'onnxruntime-web';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { Chess } from 'chess.js';
 import { serializeInference } from './ort-serialize.mts';
-import { encodeFenHistory } from '../brain/engine/maia/encoding';
-import { decodePolicyOutput } from '../brain/engine/maia/decoding';
+import { encodeFenHistory } from '../brain/maia/encoding';
+import { decodePolicyOutput } from '../brain/maia/decoding';
 
 ort.env.wasm.numThreads = 1; // ort-web finds its wasm in node_modules under Node
 
