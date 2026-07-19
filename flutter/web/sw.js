@@ -6,40 +6,37 @@
 // a build error, not a silent no-op; see the guard in install.
 const MANIFEST = /*__MANIFEST__*/ null;
 
-// What goes in the precache and what does not, decided by measuring an actual
-// boot (28 requests, 16.8MB uncompressed):
+// PRECACHE THE SHELL ONLY (~150KB); everything else caches on first use.
 //
-//   PRECACHED — needed every session regardless of browser or settings:
-//     the shell, main.dart.js, brain.js, sqlite3.wasm, and wasm/ (Stockfish,
-//     7.1MB, the single biggest item and the one you cannot play without).
+// Precaching the heavy files was measurably worse than not: the page fetches
+// main.dart.js, brain.js, sqlite3.wasm and the 7MB engine during boot while
+// `cache.addAll` fetches the same files again, CONCURRENTLY — so no HTTP cache
+// can dedupe the pair. Measured at ~12MB of duplicate transfer on every first
+// visit and every deploy, and reproduced with Cache-Control set, so it is not
+// an artifact of a bare test server.
 //
-//   CACHE ON FIRST USE — real but conditional, so precaching them would mean
-//   downloading things most users never touch:
-//     canvaskit/ — Flutter ships several renderer variants and the browser
-//       picks one at runtime (Chrome takes canvaskit/chromium/, 5.6MB).
-//       Precaching every variant is ~12.6MB of which one is used.
-//     assets/packages/chessground/ — 14.6MB of 40 piece sets and the board
-//       textures, of which a session uses one set and one board.
-//     fonts.gstatic.com — Flutter fetches Roboto and Noto from Google at
-//       runtime. Cross-origin, so these cache opaquely: we cannot tell a 404
-//       from a hit, which is exactly why they are not precached. Missing them
-//       offline costs the intended typeface, not the app.
+// What the shell buys is the thing that actually needs guaranteeing: a valid
+// response for an offline navigation. That is what makes the app INSTALLABLE —
+// Chrome checks it — and it is not something runtime caching can bootstrap,
+// since the navigate handler below only reads.
 //
-// So: full offline after one complete online visit; the heavy shared parts
-// are there from the first install.
+// Offline capability is unchanged in practice. CanvasKit (the browser picks
+// one of several renderer variants at runtime) was always cache-on-first-use,
+// so "fully offline" already required one real visit; now the rest arrives the
+// same way, from the fetches the app was making anyway.
 
 const CACHE = `botvinnik-flutter-${MANIFEST ? MANIFEST.version : 'dev'}`;
 
-/** Cache on first use rather than at install. */
-function runtimeCacheable(url) {
-  if (url.origin === 'https://fonts.gstatic.com' || url.origin === 'https://fonts.googleapis.com') {
-    return true;
-  }
-  if (url.origin !== self.location.origin) return false;
+/** Everything we serve, plus fonts if any ever come from Google again. */
+function cacheable(url) {
+  if (url.origin === self.location.origin) return true;
+  // Defence only: Roboto is bundled now and a sweep found no cross-origin
+  // requests. If a glyph outside the bundled fonts ever reappears, Flutter
+  // will fetch a fallback from here, and offline should degrade to the wrong
+  // typeface rather than a failed load.
   return (
-    url.pathname.includes('/canvaskit/') ||
-    url.pathname.includes('/assets/packages/chessground/') ||
-    url.pathname.endsWith('/assets/NOTICES')
+    url.origin === 'https://fonts.gstatic.com' ||
+    url.origin === 'https://fonts.googleapis.com'
   );
 }
 
@@ -92,29 +89,24 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  const precached = MANIFEST && MANIFEST.precache.includes(url.pathname.replace(/^\//, ''));
-  if (precached) {
-    // immutable for the life of this cache version — the version changes when
-    // the bytes do, so there is nothing to revalidate
-    event.respondWith((async () => (await caches.match(req)) || fetch(req))());
-    return;
-  }
+  if (!cacheable(url)) return;
 
-  if (runtimeCacheable(url)) {
-    event.respondWith(
-      (async () => {
-        const hit = await caches.match(req);
-        if (hit) return hit;
-        const res = await fetch(req);
-        // opaque responses (cross-origin fonts) have status 0 and cache fine;
-        // a real error would too, which is the accepted cost of not being able
-        // to see across origins. Same-origin misses are checked properly.
-        if (res && (res.type === 'opaque' || res.ok)) {
-          const cache = await caches.open(CACHE);
-          cache.put(req, res.clone());
-        }
-        return res;
-      })()
-    );
-  }
+  // Cache-first, filling on miss. Entries are immutable for the life of this
+  // cache version — the version is a hash of every shipped file, so it changes
+  // whenever any of them does and there is nothing to revalidate.
+  event.respondWith(
+    (async () => {
+      const hit = await caches.match(req);
+      if (hit) return hit;
+      const res = await fetch(req);
+      // opaque responses (cross-origin fonts) have status 0 and cache fine; a
+      // real error would too, which is the accepted cost of not being able to
+      // see across origins. Same-origin misses are checked properly.
+      if (res && (res.type === 'opaque' || res.ok)) {
+        const cache = await caches.open(CACHE);
+        cache.put(req, res.clone());
+      }
+      return res;
+    })()
+  );
 });

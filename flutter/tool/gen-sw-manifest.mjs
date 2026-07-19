@@ -13,20 +13,23 @@ import { join, relative, sep } from 'node:path';
 
 const root = process.argv[2] ?? 'build/web';
 
-/** Needed every session regardless of browser or settings. */
-function isPrecache(p) {
+/**
+ * The SHELL: just enough to answer an offline navigation, which is what makes
+ * the app installable — Chrome checks that the worker returns a valid response
+ * for the start URL with no network. ~150KB.
+ *
+ * Everything else caches on first use instead of being precached. Precaching
+ * it cost a measured ~12MB of DUPLICATE transfer on every first visit and
+ * every deploy: the page fetches the engine and the Dart bundle while the
+ * worker's cache.addAll fetches them again, concurrently, so no HTTP cache can
+ * dedupe the pair (verified with Cache-Control set, not just on a bare test
+ * server). Offline capability is unchanged in practice — CanvasKit was always
+ * cache-on-first-use, so full offline already needed one real visit.
+ */
+function isShell(p) {
   if (p === 'index.html' || p === 'flutter_bootstrap.js' || p === 'flutter.js') return true;
-  if (p === 'main.dart.js' || p === 'brain.js' || p === 'sqlite3.wasm') return true;
   if (p === 'manifest.json' || p === 'favicon.png' || p === 'version.json') return true;
-  if (p.startsWith('wasm/')) return true; // Stockfish — no engine, no game
   if (p.startsWith('icons/')) return true;
-  // note the doubled prefix: a font declared in pubspec as assets/fonts/X is
-  // emitted at assets/assets/fonts/X, so match the segment rather than a
-  // literal path — anchoring on 'assets/fonts/' silently dropped bundled
-  // Roboto into cache-on-first-use, i.e. absent on a first offline load
-  if (p.startsWith('assets/') && /(^|\/)fonts\//.test(p)) return true;
-  if (p.startsWith('assets/packages/cupertino_icons/')) return true;
-  if (p.startsWith('assets/AssetManifest') || p === 'assets/FontManifest.json') return true;
   return false;
 }
 
@@ -45,15 +48,26 @@ function walk(dir, out = []) {
 }
 
 const all = walk(root).filter((p) => !isExcluded(p));
-const precache = all.filter(isPrecache).sort();
+const precache = all.filter(isShell).sort();
 
-if (!precache.includes('main.dart.js') || !precache.includes('brain.js')) {
-  // a rename upstream would otherwise produce a cheerful, useless cache
-  throw new Error('gen-sw-manifest: precache is missing the app or the brain — check isPrecache');
+if (!precache.includes('index.html') || !precache.includes('flutter_bootstrap.js')) {
+  // without these the worker cannot answer an offline navigation, which
+  // silently costs installability as well as offline
+  throw new Error('gen-sw-manifest: shell is missing index.html or the bootstrap');
+}
+for (const required of ['main.dart.js', 'brain.js', 'wasm/stockfish.wasm']) {
+  if (!all.includes(required)) {
+    throw new Error(`gen-sw-manifest: ${required} is missing from the build`);
+  }
 }
 
+// Hash EVERY shipped file, not just the shell. The cache name is the only
+// thing keeping one build's entries away from another's, and most entries now
+// arrive by runtime caching — a version derived from the shell alone would not
+// change when main.dart.js did, and a stale brain.js beside a new app trips
+// the BRAIN_VERSION assert rather than degrading.
 const hash = createHash('sha256');
-for (const p of precache) {
+for (const p of all.slice().sort()) {
   hash.update(p);
   hash.update(readFileSync(join(root, p)));
 }
@@ -72,7 +86,7 @@ writeFileSync(
 
 const bytes = precache.reduce((n, p) => n + statSync(join(root, p)).size, 0);
 console.log(
-  `sw manifest: ${precache.length} files precached, ` +
-    `${(bytes / 1048576).toFixed(1)}MB, version ${version}\n` +
+  `sw manifest: shell ${precache.length} files / ${(bytes / 1024).toFixed(0)}KB, ` +
+    `version ${version}\n` +
     `             ${all.length - precache.length} more cache on first use`
 );

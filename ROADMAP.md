@@ -72,17 +72,9 @@ so here is what has to be true first.
    assets. Not worth doing for its own sake. Revisit only if the web build
    ever needs to win a first click from a stranger.
 
-   **One tension this leaves, worth deciding rather than drifting into.** The
-   service worker registers for *every* visitor, not only those who install,
-   and its precache is 12.0MB — including the 6.96MB of Stockfish that the
-   boot fix just took off the critical path. So someone who opens the link
-   once and leaves still pulls 12MB in the background. Accepting the payload
-   *for an installed app* is sound; doing it for a drive-by is a different
-   bargain. If that matters, gate the heavy half of the precache on the
-   `appinstalled` event or a `display-mode: standalone` check, and precache
-   only the shell otherwise. (For reference: a warm install is ~17.9MB —
-   12.0 precached, CanvasKit 5.5 and one piece set on first use. The other 39
-   piece sets, ~14MB, are never fetched unless you switch sets.)
+   (The drive-by concern this used to carry — a visitor who never installs
+   still paying for a 12MB precache — dissolved with the shell-only change:
+   they now cache only what they actually used.)
 3. **Roster.** 22 of 35 personas. And note *what* the missing ones are: the
    Svelte app is the **reference implementation** for Maia, retro, Garbo and
    Dala. Removing it while porting exactly those is removing the thing being
@@ -285,14 +277,26 @@ costs nothing either way — it is pure chess.js.
    not stand in: the app boots complete — board, engine arrows, control
    tinting — with no network.
 
-   What the build measured, and what it decided: a boot is 28 requests /
-   16.8MB, so **20 files (11.5MB) precache** — shell, `main.dart.js`,
-   `brain.js`, `sqlite3.wasm` and Stockfish — while CanvasKit (the browser
-   picks one of several variants) and the 14.6MB of piece sets and boards
-   (a session uses one of each) **cache on first use**. The cache version is a
-   hash of the precached bytes, so a cache can never mix builds; that is not
-   fastidiousness, since a new `main.dart.js` beside a stale `brain.js` trips
-   the BRAIN_VERSION assert and refuses to boot rather than degrading.
+   **Only the shell precaches — 10 files, 142KB.** Everything else caches on
+   first use, from the fetches the app was already making. Precaching the
+   heavy files was measurably *worse* than not: the page fetches
+   `main.dart.js`, `brain.js`, sqlite and the 7MB engine during boot while
+   `cache.addAll` fetches the same files again, concurrently, so no HTTP cache
+   can dedupe them — ~12MB of duplicate transfer on every first visit and
+   every deploy, reproduced with `Cache-Control` set. With the shell-only
+   precache the worker's marginal cost is **zero**: a cold visit transfers
+   9.3MB with it active against 10.3MB with it blocked.
+
+   The shell is not arbitrary — it is exactly what answers an offline
+   navigation, which is what makes the app **installable** and is the one
+   thing runtime caching cannot bootstrap (the navigate handler only reads).
+   Verified: offline, cross-origin blocked, a *fresh page at a different URL*
+   returns 200 and boots the whole app.
+
+   The cache version is a hash of **every** shipped file, not just the shell,
+   so a cache can never mix builds. That is not fastidiousness: a new
+   `main.dart.js` beside a stale `brain.js` trips the BRAIN_VERSION assert and
+   refuses to boot rather than degrading.
 
    **Two things worth knowing.** `--no-web-resources-cdn` is now *required*,
    not a preference: without it CanvasKit comes from `www.gstatic.com`, which
