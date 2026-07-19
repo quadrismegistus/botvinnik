@@ -75,19 +75,19 @@ so here is what has to be true first.
    (The drive-by concern this used to carry — a visitor who never installs
    still paying for a 12MB precache — dissolved with the shell-only change:
    they now cache only what they actually used.)
-3. **Roster.** 26 of 35 on the web (retro #36, Garbo #37) — and 32 is parity,
-   since Dala is desktop-only in both. So this reduces to **Maia**, for which
-   the Svelte app is still the **reference implementation**. Removing it while
-   porting exactly that is removing the thing being ported from.
+3. ~~**Roster.**~~ **CLOSED as of #38.** 32 of 35 on the web, which is parity
+   — Dala is desktop-only in both apps. Svelte is no longer the reference
+   implementation for anything Flutter web lacks.
 
 What keeping it actually costs while frozen, so the trade is honest: the
 `web-e2e` CI job, and the discipline of keeping both apps working whenever the
 shared brain changes. That second one has caught real bugs in both directions,
 so it is not purely a tax.
 
-**Next toward this**: Maia — the last family standing between Flutter web and
-the deploy. Six personas, and the only remaining web gap now that retro (#36)
-and Garbo (#37) have landed.
+**Next toward this**: nothing on the roster — it is done. What remains before
+Flutter web can take the deploy is no longer about personas: it is the switch
+itself (`pages.yml` builds the Svelte app today), and whatever soak-testing
+that deserves.
 
 ### Flutter UI backlog (raised 2026-07-19)
 
@@ -241,15 +241,15 @@ costs nothing either way — it is pure chess.js.
    (threat/win rings, control rings vs wash; see ARCHITECTURE.md).
    **Still open from the original scope: a menu bar, and per-panel collapse.**
 2. **M5 — the rest of the roster.** The brain ships 35 personas across 7
-   families; Flutter plays **26 on the web** — `square`, `fish`, `horizon`
-   since #32, `retro` since #36, and `garbo` since #37. Missing: 6 Maia and
-   3 Dala, and Dala is desktop-only in both apps.
+   families; Flutter plays **32 on the web** — `square`, `fish`, `horizon`
+   since #32, `retro` since #36, `garbo` since #37, and `maia` since #38.
+   The only family left is Dala, which is desktop-only in *both* apps.
 
-   **So the web deploy is 6 personas away, all of them Maia.**
+   **So Flutter web is at parity. The roster no longer blocks the deploy.**
 
-   (26 on the web, 22 on native: retro and garbo are Web Workers, so
-   `.supported` is false on macOS/iOS and the roster picker does not offer
-   those four there. Worth remembering when reading a persona count.)
+   (32 on the web, 22 on native: retro, garbo and maia all need a Web Worker,
+   so `.supported` is false on macOS/iOS and the roster picker does not offer
+   those ten there. Worth remembering when reading a persona count.)
 
    **The constraint that decides the order** (learned doing Horizon): the Dart
    bridge is synchronous — one eval in, one JSON string out — so a brain
@@ -328,8 +328,33 @@ costs nothing either way — it is pure chess.js.
      JavaScript: flutter_js has no Worker (needs an onmessage/postMessage
      shim) *and* the ~1s search would freeze the UI isolate (needs a
      background isolate with its own JS runtime). See `garbo_engine_io.dart`.
-   - **Maia** — the `onnxruntime` pub package. Import it lazily from day one;
-     see the payload note below for what the eager version cost the web.
+   - **Maia — SHIPPED on web (#38, 2026-07-19).** Six personas, three nets,
+     one worker. The pieces worth remembering:
+
+     **The pure half moved to `brain/maia/`.** `encoding.ts`, `decoding.ts`
+     and `policyIndex.ts` are pure functions over a FEN history, so both apps
+     now share them and cannot drift. `modelCache.ts` (IndexedDB) and the ort
+     plumbing stayed app-side, because brain/ takes no storage and no fetch.
+
+     **Nothing about Maia is in git.** The worker is built by
+     `stage-web-assets.sh` from `flutter/web_src/maia-worker.ts`, and ort's
+     runtime is copied out of the pinned `onnxruntime-web` devDependency. No
+     committed bundle, so nothing for CI to diff.
+
+     **Cost, measured:** ort runtime 12.9MB raw / **3.3MB gzipped**, plus
+     ~3.5MB of weights per band. Both are cache-on-first-use, so a visitor who
+     never picks a Maia pays **nothing**, and one who does pays ~7MB once.
+     Second and later moves infer in ~7ms.
+
+     **It is the app's only third-party request**, and it reaches two hosts:
+     `huggingface.co` redirects to `us.aws.cdn.hf.co`. The weights are GPL-3.0
+     and deliberately not redistributed, so this is permanent rather than a
+     shortcut. The roster picker says so before you choose a Maia, and
+     `statusLine` says so during the download.
+
+     Native is the most tractable of the three remaining native gaps — the
+     `onnxruntime` pub package needs no runtime port and the encoding is
+     already shared. See `maia_engine_io.dart`.
    - **Dala** — stays desktop-only; needs the native lc0 sidecar.
 
    **So parity for the web deploy is 32, not 35.** Dala is desktop-only in the

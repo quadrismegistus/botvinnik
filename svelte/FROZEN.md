@@ -11,24 +11,27 @@ Frozen does not mean dead. Until Flutter web can replace it, this app:
 
 ## Why it is still here
 
-Flutter web cannot replace it yet for one remaining reason: it plays **26 of
-the 35 personas** (retro #36, Garbo #37) — and parity is 32, not 35, because
-Dala is desktop-only here too. So the gap is **Maia, and only Maia**. The
-other two gaps closed on
-2026-07-19 — it is now a real PWA that works offline and makes no third-party
-requests, and its cold-load payload was accepted as fine for an installable
-chess app (see ROADMAP.md for the numbers).
+**As of 2026-07-19 (#38), Flutter web is at parity.** It plays 32 of the 35
+personas, and 32 is the ceiling for any browser: Dala needs a native lc0
+sidecar and is desktop-only here too. It is also a real PWA that works
+offline, makes no third-party request unless you pick a Maia, and has a
+cold-load payload accepted as fine for an installable chess app (see
+ROADMAP.md for the numbers).
 
-And a fourth reason that is easy to miss: **this app is the reference
-implementation** for what Flutter still lacks — Maia (`lib/engine/maia.ts`),
-and Dala (`lib/engine/dala.ts`) for the desktop build. Porting those to
-Flutter means porting *from here*. Deleting this app while M5 is in flight
-would delete the source.
+So this app is now kept for the **switch**, not for the gap. What is left is
+deploying Flutter web in its place — `pages.yml` still builds this one — and
+whatever soak-testing that deserves.
 
-`lib/engine/retro.ts` and `lib/engine/garbo.ts` are the worked examples of
-what that porting looks like: `flutter/lib/engine/retro_engine_web.dart` and
-`garbo_engine_web.dart` are direct translations of them, down to the worker
-protocols and the timeouts, and the comments in each point at the other.
+It is still the reference implementation for **Dala**
+(`lib/engine/dala.ts`), which no browser can run, and for the desktop build
+generally. That is the last thing here that exists nowhere else.
+
+Everything else has a Flutter counterpart now, each a direct translation with
+comments pointing back: `retro.ts` → `retro_engine_web.dart`, `garbo.ts` →
+`garbo_engine_web.dart`, `maia.ts` → `flutter/web_src/maia-worker.ts`. Maia
+went further — its pure half (`encoding`, `decoding`, `policyIndex`) moved
+into `brain/maia/` and is now shared by both apps rather than duplicated, so
+this app imports it from `$brain` too.
 
 ## If you are about to add something
 

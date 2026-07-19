@@ -5,8 +5,9 @@
 #   web/wasm/      <- ../static/wasm/   (the Stockfish WASM the Svelte app ships)
 #   web/retro/     <- ../static/retro/  (the historical engines, wasm + worker)
 #   web/garbo/     <- ../static/garbo/  (Garbochess-JS 2011, worker + LICENSE)
+#   web/maia/      <- BUILT here, plus ort's runtime from node_modules
 #
-# All four are gitignored, so a fresh clone has none. Run this before ANY
+# All five are gitignored, so a fresh clone has none. Run this before ANY
 # `flutter build web` — without brain.js the app fails loudly at boot, and
 # without the engine it used to boot fine and then never move (now it fails
 # loudly too, see WebEngine.start).
@@ -35,4 +36,25 @@ cp -R ../static/retro web/retro
 rm -rf web/garbo
 cp -R ../static/garbo web/garbo
 
-echo "staged web/brain.js, web/wasm/ ($(ls web/wasm | tr '\n' ' ')), web/retro/ and web/garbo/"
+# maia: unlike brain.js this worker is BUILT here rather than committed, so
+# there is no bundle for CI to diff against its source — nothing about Maia
+# lands in git at all. Its runtime comes straight from the pinned
+# onnxruntime-web devDependency, so the version is package-lock's problem.
+#
+# Both ort files are needed. The "bundle" build is documented as self-contained
+# and is not: it still dynamically imports ort-wasm-simd-threaded.mjs at
+# runtime, which fails as "no available backend found" — a message that says
+# nothing about a missing file. Staging only the .wasm is the mistake to avoid.
+ORT=../node_modules/onnxruntime-web/dist
+[ -f "$ORT/ort-wasm-simd-threaded.wasm" ] || {
+  echo "error: onnxruntime-web is missing — run 'npm ci' first" >&2
+  exit 1
+}
+rm -rf web/maia
+mkdir -p web/maia
+npx --no-install esbuild web_src/maia-worker.ts \
+  --bundle --format=iife --platform=browser --target=es2022 \
+  --outfile=web/maia/maia-worker.js --log-level=warning
+cp "$ORT/ort-wasm-simd-threaded.mjs" "$ORT/ort-wasm-simd-threaded.wasm" web/maia/
+
+echo "staged web/brain.js, web/wasm/ ($(ls web/wasm | tr '\n' ' ')), web/retro/, web/garbo/ and web/maia/"
