@@ -22,6 +22,7 @@ import '../db/app_db.dart';
 import '../engine/arbiter.dart';
 import '../engine/garbo_engine.dart';
 import '../engine/maia_engine.dart';
+import '../engine/maia_progress.dart';
 import '../engine/retro_engine.dart';
 import 'lines_tree_model.dart';
 import 'practice_controller.dart';
@@ -91,11 +92,15 @@ class GameController extends ChangeNotifier {
   // engine serves all six personas without reloading between them
   MaiaEngine? _maia;
 
-  /// True while a Maia move is waiting on its weights to download rather than
-  /// on inference. Surfaced in [statusLine]: the first Maia move can take
-  /// several seconds on a slow connection, and an unexplained pause reads as
-  /// the app being broken.
-  bool maiaFetching = false;
+  /// Non-null while a Maia move is waiting on its weights or on the runtime
+  /// rather than on inference, with enough detail to show a real bar.
+  ///
+  /// Surfaced by [GradeStrip], NOT by [statusLine]. statusLine looks like the
+  /// right home and is not: both of its call sites sit behind
+  /// `if (game.gameOver)`, so nothing it returns is ever visible during a
+  /// game. The download line lived there and was never once shown — which is
+  /// exactly why the first Maia move looked like a hang.
+  MaiaProgress? maiaProgress;
 
   GameController(this._arbiter, this._bot, this._grading, this._settings,
       [this._db, this._practice, ChessApi? chessApi]) {
@@ -130,9 +135,6 @@ class GameController extends ChangeNotifier {
     // a dead engine used to show the boot-error screen; boot no longer waits
     // for it, so without this the symptom is a board whose bot never moves
     if (_arbiter.engineError != null) return 'Engine unavailable — no analysis';
-    if (maiaFetching) {
-      return 'Downloading ${persona?.name ?? "Maia"}\u2019s model — about 3.5MB, once';
-    }
     if (botThinking) return '${persona?.name ?? "Bot"} is thinking…';
     return isPlayerTurn ? 'Your move' : '${persona?.name ?? "Bot"} to move';
   }
@@ -205,14 +207,14 @@ class GameController extends ChangeNotifier {
     botThinking = false;
     // A Maia download outlives the game that started it — the request is
     // abandoned but its future is not, so nothing else clears this. Left set,
-    // statusLine claimed the NEXT persona was downloading a model it does not
-    // have, for up to 90s, suppressing the real status line the whole time.
+    // the strip claimed the NEXT persona was downloading a model it does not
+    // have, for up to 90s.
     //
     // Both halves are needed. Clearing alone left a race: the abandoned
-    // request was still in the engine's _pending, so a 'fetching' announce
+    // request was still in the engine's _pending, so a progress message
     // arriving just after this line passed the is-this-wanted check and set
-    // the flag straight back.
-    maiaFetching = false;
+    // it straight back.
+    maiaProgress = null;
     _maia?.cancelPending();
     _saved = false;
     gameSeed = _newSeed();
@@ -552,8 +554,8 @@ class GameController extends ChangeNotifier {
       // which is the order the net expects.
       final band = p.maiaBand;
       if (MaiaEngine.supported && band != null) {
-        _maia ??= MaiaEngine(onFetching: () {
-          maiaFetching = true;
+        _maia ??= MaiaEngine(onProgress: (p) {
+          maiaProgress = p;
           notifyListeners();
         });
         final uci = await _maia!.move(
@@ -561,8 +563,8 @@ class GameController extends ChangeNotifier {
           band: band,
           temperature: p.maiaTemp ?? 0,
         );
-        if (maiaFetching) {
-          maiaFetching = false;
+        if (maiaProgress != null) {
+          maiaProgress = null;
           notifyListeners();
         }
         if (uci != null) {

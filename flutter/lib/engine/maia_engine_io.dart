@@ -20,10 +20,12 @@
 //
 // So: not blocked, and unlike Garbo not awkward. Just not done.
 
-class MaiaEngine {
-  MaiaEngine({this.onFetching});
+import 'maia_progress.dart';
 
-  final void Function()? onFetching;
+class MaiaEngine {
+  MaiaEngine({this.onProgress});
+
+  final void Function(MaiaProgress?)? onProgress;
 
   static bool get supported => false;
 

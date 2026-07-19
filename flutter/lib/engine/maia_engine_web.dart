@@ -24,6 +24,7 @@ import 'dart:js_interop';
 import 'package:flutter/foundation.dart';
 
 import 'js_worker.dart';
+import 'maia_progress.dart';
 
 class MaiaEngine {
   static const _scriptUrl = 'maia/maia-worker.js';
@@ -33,16 +34,16 @@ class MaiaEngine {
   /// falling back rather than by refusing to offer the persona.
   static bool get supported => true;
 
-  /// Called when a move is waiting on a model download rather than on
-  /// inference — the difference between "thinking" and "downloading 3.5MB".
-  final void Function()? onFetching;
+  /// Called as a move waits on something other than inference: the weights
+  /// arriving, then the runtime compiling. Null once it is genuinely thinking.
+  final void Function(MaiaProgress?)? onProgress;
 
   JsWorker? _worker;
   bool _disposed = false;
   int _nextId = 1;
   final Map<int, Completer<String?>> _pending = {};
 
-  MaiaEngine({this.onFetching}) {
+  MaiaEngine({this.onProgress}) {
     _spawn();
   }
 
@@ -55,11 +56,18 @@ class MaiaEngine {
       if (data is! Map) return;
       final id = (data['id'] as num?)?.toInt();
       if (id == null) return;
-      if (data['status'] == 'fetching') {
+      final status = data['status'];
+      if (status == 'fetching' || status == 'starting') {
         // Only for a request still wanted. The worker keeps working on a
         // cancelled request, so without this an abandoned download could
-        // re-raise the "downloading…" flag after a new game had cleared it.
-        if (_pending.containsKey(id)) onFetching?.call();
+        // re-raise the progress line after a new game had cleared it.
+        if (_pending.containsKey(id)) {
+          onProgress?.call(MaiaProgress(
+            status as String,
+            received: (data['received'] as num?)?.toInt() ?? 0,
+            total: (data['total'] as num?)?.toInt() ?? 0,
+          ));
+        }
         return;
       }
       final error = data['error'];
