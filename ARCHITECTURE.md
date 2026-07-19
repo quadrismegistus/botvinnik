@@ -65,6 +65,16 @@ Dart `null` and JS `undefined` are different on the wire (a `kOmit` sentinel
 exists to send genuine `undefined` and engage the brain's own defaults), and
 `Infinity` cannot cross JSON — mate is signalled as null.
 
+**The bridge is synchronous, and that is not a detail.** One eval in, one JSON
+string out — so a function returning a Promise crosses as `{}`. *Anything
+async is simply not expressible through it.* That single fact decides which
+bot families the Flutter app can offer: Horizon is a synchronous ~3ms call and
+so it just works, while Maia, Retro and Garbo are all asynchronous by nature
+(a neural net, a wasm worker, a postMessage protocol) and each needs its own
+mechanism on the Dart side before it can play. It is also why anything that
+would block for a noticeable time cannot use the bridge as-is: these calls run
+on the UI isolate.
+
 ## Where each persona gets its move
 
 This is the part the roster hides. Seven families, and *every one of them
@@ -231,12 +241,17 @@ web branch of every conditional import.
 
 ## Known gaps
 
-- **The roster gap.** The brain ships 35 personas; Flutter implements two
-  families, so it offers 20. Missing: 6 Maia, 3 Retro, 3 Dala, 2 Horizon,
-  1 Garbo. This is the reason the Svelte app still owns the web deploy.
-- **No family guard in Flutter.** The roster picker filters the UI to the two
-  implemented families, but the move-picking code has no guard of its own, so
-  a persona id restored from settings could reach it and throw.
+- **The roster gap.** The brain ships 35 personas; Flutter implements three
+  families (Square, Fish, Horizon), so it offers 22. Missing: 6 Maia, 3 Retro,
+  3 Dala, 1 Garbo. This is the reason the Svelte app still owns the web
+  deploy, and every one of the four is blocked on the same thing — they are
+  asynchronous, and the bridge is not.
+- **Only JavaScriptCore has ever run the brain.** `ios/` and `macos/` are the
+  only native targets that exist; QuickJS is the runtime on Android and is
+  untested. Bundling js-chess-engine put BigInt literals in `brain.js`, and
+  QuickJS gates BigInt behind `CONFIG_BIGNUM` — a build without it fails to
+  *parse* the bundle, so the app would not boot at all rather than lose one
+  bot family. Verify before adding an Android target.
 - **Calibration drift on native engines.** Labels were measured against
   lite-single WASM; mobile FFI and desktop sidecars are different engines. The
   desktop Square knots are known stale and documented as such in-source.
