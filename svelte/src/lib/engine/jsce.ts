@@ -9,22 +9,28 @@
 // no engine-vs-human pool gap (the retro finding: bernstein measured within
 // 2 points of its lichess rating), so the labels are trusted directly.
 //
-// The library is synchronous; levels 1-2 answer in ~10-100ms, so it runs
-// inline. Lazily imported to stay out of the boot bundle.
+// The library is synchronous; measured over 480 real positions, level 1 means
+// 1.4ms and level 2 means 2.6ms (p99 5.7ms, worst 8.1ms), so it runs inline.
+// The library itself is imported lazily to stay out of the boot bundle — this
+// module is not, so keep its own body small.
 
-import { Chess } from 'chess.js';
+// The {FROM: TO} → UCI half is shared with the brain's bundled copy. Both apps
+// had identical hand-copies of it and only one was tested, which is how the
+// promotion-ordering trap in it went unnoticed. $brain/horizonUci imports
+// chess.js and NOT js-chess-engine, so pulling it in here cannot drag the
+// engine library onto a path it was not already on.
+import { horizonUci } from '$brain/horizonUci';
 
 export async function jsceMove(fen: string, level: number): Promise<string | null> {
 	const { ai } = await import('js-chess-engine');
 	// yield once so the thinking indicator paints before the sync search blocks
 	await new Promise((r) => setTimeout(r, 0));
-	const result = ai(fen, { level });
-	const entry = Object.entries(result.move)[0] as [string, string] | undefined;
-	if (!entry) return null;
-	const from = entry[0].toLowerCase();
-	const to = entry[1].toLowerCase();
-	// js-chess-engine always promotes to queen; UCI wants it spelled out
-	const legal = new Chess(fen).moves({ verbose: true }).find((m) => m.from === from && m.to === to);
-	if (!legal) return null;
-	return `${from}${to}${legal.promotion ? 'q' : ''}`;
+	try {
+		const result = ai(fen, { level });
+		const entry = Object.entries(result.move)[0] as [string, string] | undefined;
+		if (!entry) return null;
+		return horizonUci(fen, entry[0], entry[1]);
+	} catch {
+		return null; // finished game, or a level the library rejects
+	}
 }

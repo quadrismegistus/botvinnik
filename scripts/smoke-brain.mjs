@@ -32,6 +32,14 @@ if (typeof move !== 'string') fail(`shapedBotMove returned ${move}`);
 if (typeof brain.shapedSearchDepth(600) !== 'number') fail('shapedSearchDepth');
 if (brain.avoidRepetition('d2d4', [START], lines) !== 'd2d4') fail('avoidRepetition');
 
+// horizon — the one export carrying a third-party library into the bundle,
+// so whether it survives bare-context evaluation is the whole question. NOT
+// deterministic: js-chess-engine picks among equal-scoring moves at random,
+// so assert a legal-looking UCI move, never a particular one.
+const horizon = brain.horizonMove(START, 1);
+if (typeof horizon !== 'string' || !/^[a-h][1-8][a-h][1-8][qrbn]?$/.test(horizon))
+	fail(`horizonMove returned ${horizon}`);
+
 // roster
 const personas = brain.availablePersonas(false);
 if (!Array.isArray(personas) || personas.length < 20) fail(`roster size ${personas?.length}`);
