@@ -50,8 +50,8 @@ class ReviewBody extends StatelessWidget {
                 );
 
             if (constraints.maxWidth < kWideBreakpoint) {
-              final size = stackedBoardSize(
-                  constraints.maxWidth, constraints.maxHeight, kReviewChrome);
+              final size = panedBoardSize(
+                  constraints.maxWidth, constraints.maxHeight, kReviewFixed);
               return Column(
                 children: [
                   Center(child: board(size)),
