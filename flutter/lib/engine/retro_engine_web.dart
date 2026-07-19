@@ -22,25 +22,7 @@ import 'dart:js_interop';
 
 import 'package:flutter/foundation.dart';
 
-@JS('Worker')
-extension type _Worker._(JSObject _) implements JSObject {
-  external factory _Worker(String scriptUrl);
-  external void postMessage(JSAny? message);
-  external set onmessage(JSFunction? handler);
-  external set onerror(JSFunction? handler);
-  external void terminate();
-}
-
-extension type _MessageEvent._(JSObject _) implements JSObject {
-  external JSAny? get data;
-}
-
-/// The worker's error event carries the actual failure — a 404 for the script,
-/// or a thrown exception. Without reading `message` every failure reports as
-/// the same useless string.
-extension type _ErrorEvent._(JSObject _) implements JSObject {
-  external String? get message;
-}
+import 'js_worker.dart';
 
 /// The boot message. retro-worker.js tells it from a UCI line by
 /// `typeof e.data === 'object'`, so this must cross as an object literal.
@@ -57,7 +39,7 @@ class RetroEngine {
   final String engine;
   final int ply;
 
-  final _Worker _worker;
+  final JsWorker _worker;
   /// Resolves true when the engine answered `uci`, false if it never will.
   ///
   /// A bool rather than an error: [preload] constructs the engine and awaits
@@ -68,8 +50,8 @@ class RetroEngine {
   Completer<String?>? _move;
   bool _alive = true;
 
-  RetroEngine(this.engine, this.ply) : _worker = _Worker(_scriptUrl) {
-    _worker.onmessage = ((_MessageEvent e) {
+  RetroEngine(this.engine, this.ply) : _worker = JsWorker(_scriptUrl) {
+    _worker.onmessage = ((WorkerMessage e) {
       final data = e.data?.dartify();
       if (data is! String) return; // '__ready__' aside, everything is UCI
       if (data == 'uciok') {
@@ -82,7 +64,7 @@ class RetroEngine {
       }
     }).toJS;
     _worker.onerror = ((JSAny? event) {
-      final detail = (event as _ErrorEvent?)?.message ?? 'unknown error';
+      final detail = (event as WorkerError?)?.message ?? 'unknown error';
       _die('retro worker failed ($_scriptUrl): $detail');
     }).toJS;
     _worker.postMessage(_InitMessage(engine: engine, ply: ply));

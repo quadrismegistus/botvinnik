@@ -14,37 +14,18 @@ import 'dart:js_interop';
 
 import 'package:flutter/foundation.dart';
 
+import 'js_worker.dart';
 import 'uci_protocol.dart';
-
-@JS('Worker')
-extension type _Worker._(JSObject _) implements JSObject {
-  external factory _Worker(String scriptUrl);
-  external void postMessage(JSAny? message);
-  external set onmessage(JSFunction? handler);
-  external set onerror(JSFunction? handler);
-  external void terminate();
-}
-
-extension type _MessageEvent._(JSObject _) implements JSObject {
-  external JSAny? get data;
-}
-
-/// The worker's error event carries the actual failure — a 404 for the engine
-/// script, or a thrown exception. Without reading `message` every failure
-/// reports as the same useless string.
-extension type _ErrorEvent._(JSObject _) implements JSObject {
-  external String? get message;
-}
 
 class WebEngine extends UciProtocol {
   static const _scriptUrl = 'wasm/stockfish.js';
 
-  final _Worker _worker;
+  final JsWorker _worker;
   bool _alive = true;
   final Completer<void> _ready = Completer<void>();
 
   WebEngine._(this._worker) {
-    _worker.onmessage = ((_MessageEvent e) {
+    _worker.onmessage = ((WorkerMessage e) {
       final data = e.data?.dartify();
       if (data is! String) {
         debugPrint('[engine] non-string message from worker: $data');
@@ -58,7 +39,7 @@ class WebEngine extends UciProtocol {
       handleLine(data);
     }).toJS;
     _worker.onerror = ((JSAny? event) {
-      final detail = (event as _ErrorEvent?)?.message ?? 'unknown error';
+      final detail = (event as WorkerError?)?.message ?? 'unknown error';
       _die('stockfish worker failed ($_scriptUrl): $detail');
     }).toJS;
   }
@@ -81,7 +62,7 @@ class WebEngine extends UciProtocol {
   /// default state of a fresh clone, since web/wasm/ is a build-time copy)
   /// produced an app that booted cleanly and then silently never moved.
   static Future<WebEngine> start() async {
-    final engine = WebEngine._(_Worker(_scriptUrl));
+    final engine = WebEngine._(JsWorker(_scriptUrl));
     engine.send('uci');
     engine.send('setoption name Threads value 1');
     engine.send('isready');

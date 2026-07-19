@@ -88,4 +88,6 @@ class Persona {
   int? get jsceLevel => raw['jsceLevel'] as int?;
   /// retro: `{engine, ply}` — which historical engine, and how deep it looks
   Map<String, dynamic>? get retro => raw['retro'] as Map<String, dynamic>?;
+  /// garbo: Garbochess-JS movetime in ms
+  int? get garboMs => raw['garboMs'] as int?;
 }

@@ -64,6 +64,7 @@ for (const required of [
   'wasm/stockfish.wasm',
   'retro/retro.wasm',
   'retro/retro-worker.js',
+  'garbo/garbochess.js',
 ]) {
   if (!all.includes(required)) {
     throw new Error(`gen-sw-manifest: ${required} is missing from the build`);
