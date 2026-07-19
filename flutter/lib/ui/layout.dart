@@ -13,8 +13,36 @@ const double kWideBreakpoint = 720;
 /// below the fold, which looks exactly like the feature not working.
 const double kGradeStrip = 66; // two lines plus margin — measured ~56
 
+/// Extra room held back so some of a scrollable pane stays on screen.
+///
+/// Worth its width on a desktop window, where the pane is the point of the
+/// layout. Not worth it on a phone — see [kPhoneWidth].
+const double kPaneReserve = 96;
+
 /// Grade strip, view bar, and the least panel worth leaving on screen.
-const double kNarrowChrome = kGradeStrip + 46 + 96;
+const double kNarrowChrome = kPhoneChrome + kPaneReserve;
+
+/// Below this width a viewport is a PHONE, not a small desktop window.
+///
+/// The distinction is real and the gap is comfortable: the macOS minimum
+/// window is 560 wide, and every phone in portrait is under 500. It matters
+/// because the two want opposite things from the same Column — see
+/// [kPhoneChrome].
+const double kPhoneWidth = 500;
+
+/// Play's fixed furniture: the grade strip and the view bar, and nothing else.
+///
+/// [kNarrowChrome] also reserves 96px so some panel stays on screen. On a
+/// desktop window that is worth having. On a phone it is worth **13% of the
+/// board**: measured on a 393x556 body, reserving it capped the board at 348
+/// instead of 393, and the missing width is visible as a margin down both
+/// sides of a screen that has room to spare.
+///
+/// It buys nothing there, either — `_panel()` is a SingleChildScrollView, so
+/// what the reserve protects is one glance at content that is one flick away.
+/// The strip and the view bar are different: they are fixed furniture and
+/// must never be pushed off, so they stay reserved.
+const double kPhoneChrome = kGradeStrip + 46;
 
 /// Never shrink the board past this; below it nothing is usable anyway and
 /// the desktop minimum window size keeps us clear of it.
@@ -23,10 +51,12 @@ const double kMinBoard = 200;
 /// Practice: the prompt strip (two lines) plus the hint/retry action row.
 const double kPracticeChrome = 56 + 48;
 
-/// Review: the verdict strip and the scrub bar, plus enough move list to be
-/// worth showing — the list is Expanded, so without a reserve the board would
-/// eat it entirely on a short window.
-const double kReviewChrome = kGradeStrip + 52 + 96;
+/// Review's fixed furniture: the verdict strip and the scrub bar.
+const double kReviewFixed = kGradeStrip + 52;
+
+/// Review, plus enough move list to be worth showing — the list is Expanded,
+/// so without a reserve the board would eat it entirely on a short window.
+const double kReviewChrome = kReviewFixed + kPaneReserve;
 
 /// The board's size when it sits at the top of a single column with [chrome]
 /// pixels of fixed furniture beneath it: the full width, unless that would
@@ -38,10 +68,30 @@ const double kReviewChrome = kGradeStrip + 52 + 96;
 double stackedBoardSize(double width, double height, double chrome) =>
     math.min(width, math.max(kMinBoard, height - chrome));
 
-/// The board's size in the phone layout: the full width unless that would
-/// push the rest of the column off the bottom.
+/// The board's size in the stacked Play layout: the full width unless that
+/// would push the rest of the column off the bottom.
+///
+/// A phone and a narrow desktop window reach this by different routes and
+/// want different answers. A phone is tall, so the full width fits with room
+/// left over and the board should simply take it. A desktop window can be
+/// narrow AND short at once — that is what [stackedBoardSize] exists for, and
+/// where holding back space for the panel is worth the width.
 double narrowBoardSize(double width, double height) =>
-    stackedBoardSize(width, height, kNarrowChrome);
+    panedBoardSize(width, height, kPhoneChrome);
+
+/// The board's size in a stacked layout with a SCROLLABLE pane beneath it.
+///
+/// [fixed] is furniture that must always fit. On anything wider than a phone
+/// a further [kPaneReserve] is held back so some of the pane stays visible;
+/// on a phone it is not, because there the reserve costs board width that the
+/// screen plainly has, to protect a glance at content one flick away.
+///
+/// Both Play and Review go through here. Each deciding it independently is
+/// the mistake this file already made once — that is what left Practice and
+/// Review overflowing by ~900px while Play was fine.
+double panedBoardSize(double width, double height, double fixed) =>
+    stackedBoardSize(
+        width, height, width < kPhoneWidth ? fixed : fixed + kPaneReserve);
 
 /// The board's size in the wide layout: its share of the width, capped so a
 /// window dragged short does not overflow.
