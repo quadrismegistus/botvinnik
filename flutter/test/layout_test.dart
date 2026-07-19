@@ -38,6 +38,44 @@ void main() {
     });
   });
 
+  group('stacked layouts other than Play', () {
+    // Practice and Review sized the board to the full width with no height
+    // cap, so on a desktop window a square board was as tall as the window
+    // was wide. Reported 2026-07-19: 945px and 871px of overflow, with the
+    // action row and the scrub bar pushed off the bottom.
+    test('the reported window no longer overflows', () {
+      const w = 2000.0, h = 1150.0; // the screenshots, near enough
+      expect(stackedBoardSize(w, h, kPracticeChrome) + kPracticeChrome,
+          lessThanOrEqualTo(h));
+      expect(stackedBoardSize(w, h, kReviewChrome) + kReviewChrome,
+          lessThanOrEqualTo(h));
+      // and the board is no longer wider than the window is tall
+      expect(stackedBoardSize(w, h, kPracticeChrome), lessThan(h));
+    });
+
+    test('every chrome reserve fits at every plausible size', () {
+      for (final chrome in [kNarrowChrome, kPracticeChrome, kReviewChrome]) {
+        for (var w = 320.0; w <= 2400; w += 71) {
+          for (var h = 600.0; h <= 1600; h += 53) {
+            final size = stackedBoardSize(w, h, chrome);
+            expect(size + chrome, lessThanOrEqualTo(h),
+                reason: 'chrome $chrome overflowed at ${w}x$h');
+            expect(size, lessThanOrEqualTo(w),
+                reason: 'chrome $chrome exceeded the width at ${w}x$h');
+          }
+        }
+      }
+    });
+
+    test('narrowBoardSize is just the Play chrome through the same helper', () {
+      for (var w = 320.0; w <= 800; w += 37) {
+        for (var h = 600.0; h <= 1200; h += 41) {
+          expect(narrowBoardSize(w, h), stackedBoardSize(w, h, kNarrowChrome));
+        }
+      }
+    });
+  });
+
   group('wide layout', () {
     test('follows the split', () {
       expect(wideBoardSize(1400, 1000, 0.5), 700);

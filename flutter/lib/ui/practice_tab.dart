@@ -11,6 +11,7 @@ import 'package:provider/provider.dart';
 import '../stores/practice_controller.dart';
 import '../stores/settings_store.dart';
 import 'board_theme.dart';
+import 'layout.dart';
 
 class PracticeTab extends StatefulWidget {
   const PracticeTab({super.key});
@@ -86,29 +87,60 @@ class _PracticeTabState extends State<PracticeTab> {
       _controller!.updatePosition(_gameData(pos, appliedUci));
     }
 
-    return Column(
-      children: [
-        LayoutBuilder(
-          builder: (context, constraints) => Chessboard(
-            controller: _controller!,
-            size: constraints.maxWidth,
-            orientation: (item['fen'] as String).split(' ')[1] == 'w'
-                ? Side.white
-                : Side.black,
-            onMove: (move, {viaDragAndDrop}) {
-              if (move is! NormalMove || !pos.isLegal(move)) return;
-              final (_, san) = pos.makeSan(move);
-              final after = pos.playUnchecked(move);
-              practice.checkAttempt(move.uci, san, after.fen);
-            },
-            shapes: _shapes(item, practice),
-            settings: boardSettingsFor(context.watch<SettingsStore>()),
-          ),
-        ),
-        _promptStrip(item, practice, sideToMove),
-        const Spacer(),
-        _actionRow(practice),
-      ],
+    final settings = context.watch<SettingsStore>();
+
+    // The board is square, so on a desktop window full width means full-width
+    // TALL — which overflowed the viewport by ~900px and pushed the action row
+    // off the bottom. Same treatment as PlayTab: cap it when stacked, and put
+    // it beside the furniture once there is room.
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        Widget board(double size) => Chessboard(
+              controller: _controller!,
+              size: size,
+              orientation: (item['fen'] as String).split(' ')[1] == 'w'
+                  ? Side.white
+                  : Side.black,
+              onMove: (move, {viaDragAndDrop}) {
+                if (move is! NormalMove || !pos.isLegal(move)) return;
+                final (_, san) = pos.makeSan(move);
+                final after = pos.playUnchecked(move);
+                practice.checkAttempt(move.uci, san, after.fen);
+              },
+              shapes: _shapes(item, practice),
+              settings: boardSettingsFor(settings),
+            );
+
+        if (constraints.maxWidth < kWideBreakpoint) {
+          final size = stackedBoardSize(
+              constraints.maxWidth, constraints.maxHeight, kPracticeChrome);
+          return Column(
+            children: [
+              Center(child: board(size)),
+              _promptStrip(item, practice, sideToMove),
+              const Spacer(),
+              _actionRow(practice),
+            ],
+          );
+        }
+        final size = wideBoardSize(
+            constraints.maxWidth, constraints.maxHeight, settings.split);
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            board(size),
+            Expanded(
+              child: Column(
+                children: [
+                  _promptStrip(item, practice, sideToMove),
+                  const Spacer(),
+                  _actionRow(practice),
+                ],
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 
