@@ -236,16 +236,35 @@ costs nothing either way — it is pure chess.js.
    because the web imports brain modules individually and never the entry
    barrel. That is how js-chess-engine got to Flutter for +104 eager bytes on
    the web.
-3. **A real service worker for Flutter web.** Verified on Flutter 3.44.6:
-   the emitted `flutter_service_worker.js` is 784 bytes whose entire body
-   calls `self.registration.unregister()` and reloads clients, and
-   `web/index.html` does not register it in the first place — so the web
-   build has no offline support at all, doubly so. Needs: a precache split
-   (shell + engine; the textures and
-   40 piece sets are runtime-cached), an atomic per-build cache version —
-   load-bearing, because a stale `brain.js` against a new app hard-fails the
-   BRAIN_VERSION assert rather than degrading — Flutter's own SW neutralised,
-   and a build step that emits the manifest.
+3. ~~**A real service worker for Flutter web.**~~ **SHIPPED 2026-07-19.**
+   `web/sw.js` + `tool/gen-sw-manifest.mjs`, built by `build-web.sh` (which CI
+   now calls). Verified offline in a real browser with every cross-origin
+   request aborted at the route level, so the browser's own HTTP cache could
+   not stand in: the app boots complete — board, engine arrows, control
+   tinting — with no network.
+
+   What the build measured, and what it decided: a boot is 28 requests /
+   16.8MB, so **20 files (11.5MB) precache** — shell, `main.dart.js`,
+   `brain.js`, `sqlite3.wasm` and Stockfish — while CanvasKit (the browser
+   picks one of several variants) and the 14.6MB of piece sets and boards
+   (a session uses one of each) **cache on first use**. The cache version is a
+   hash of the precached bytes, so a cache can never mix builds; that is not
+   fastidiousness, since a new `main.dart.js` beside a stale `brain.js` trips
+   the BRAIN_VERSION assert and refuses to boot rather than degrading.
+
+   **Two things worth knowing.** `--no-web-resources-cdn` is now *required*,
+   not a preference: without it CanvasKit comes from `www.gstatic.com`, which
+   the worker cannot cache — and the app still appears to work offline while
+   the browser's HTTP cache holds it, which is precisely how the first test
+   here produced a false pass. And full offline lands after one **reload**,
+   not one visit: CanvasKit is fetched before the worker takes control, so it
+   is cached on the second load.
+
+   **Still open:** Flutter fetches Roboto and Noto from `fonts.gstatic.com` at
+   runtime — the only cross-origin request left. The worker caches them
+   opaquely, so they survive, but bundling the fonts locally would remove a
+   third-party dependency the Svelte app never had, and make the *first*
+   offline load typographically correct too.
 4. **Notarization layout**, before any App Store attempt: the bundled engine
    is ad-hoc signed in `Contents/Resources` and will be rejected. Moving it
    to `Contents/MacOS` and signing it in the same build phase is the fix;
