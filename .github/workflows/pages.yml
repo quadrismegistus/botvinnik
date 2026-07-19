@@ -1,5 +1,15 @@
 name: Deploy to GitHub Pages
 
+# Deploys the FLUTTER web app to the botvinnik.app apex (2026-07-19).
+#
+# It took the deploy from the Svelte app once the roster reached parity — 32 of
+# 35 personas, which is the ceiling for any browser since Dala needs a native
+# lc0 sidecar. See svelte/FROZEN.md and ROADMAP.md.
+#
+# The Svelte app is still built and tested in CI (`web-e2e`); it just is not
+# what ships. To roll back, restore `npm run build` + `path: build` below —
+# nothing about this workflow is one-way.
+
 on:
   push:
     branches: [main]
@@ -19,16 +29,33 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
       - uses: actions/setup-node@v4
         with:
           node-version: 24
           cache: npm
       - run: npm ci
-      # served at the botvinnik.app apex — root-relative paths, no base prefix
-      - run: npm run build
+      # brain.js is a build product the staging script requires and refuses to
+      # guess at. It is committed, but rebuilding here means a deploy can never
+      # ship a bundle that disagrees with its TypeScript source.
+      - run: npm run build:brain
+      - run: flutter pub get
+        working-directory: flutter
+      # via build-web.sh, never `flutter build web`: the raw command ships
+      # sw.js with its manifest placeholder unreplaced, which registers nothing
+      # and looks exactly like working offline support. The script also stages
+      # the engine, retro, garbo and maia assets, and fails loudly if any are
+      # missing rather than degrading to a Stockfish stand-in in production.
+      #
+      # No --base-href: the apex serves from /, which is the default.
+      - name: Build the Flutter web app
+        working-directory: flutter
+        run: ./build-web.sh
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: build
+          path: flutter/build/web
 
   deploy:
     needs: build
