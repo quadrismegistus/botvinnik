@@ -21,11 +21,19 @@ one; `svelte/` and `flutter/` are consumers and neither depends on the other.
   Horizon personas — and note it is script-tagged *synchronously ahead of*
   `main.dart.js`, so it sits on the critical boot path.
 
-### Consolidating on Flutter — the gate, not the date (raised 2026-07-19)
+### Consolidating on Flutter — DECIDED 2026-07-19: Svelte is FROZEN
 
-The intent is for Flutter to own every target including web, and to stop
-splitting effort. Worth writing down what has to be true first, because
-retiring the Svelte app is the one step that cannot be walked back cheaply.
+**No new features in `svelte/`.** It keeps serving botvinnik.app, keeps its
+bug fixes, and keeps working when the shared brain changes — but effort goes
+to Flutter from here. It is **not** deleted, and the distinction is the point:
+the focus comes from this decision, not from moving code. A branch would
+archive nothing anyway, since the history stays in `main` regardless; a branch
+only matters if Svelte is then deleted from `main`, which is what waits on the
+gate below. When that day comes a **tag** is the better archive than a branch:
+immutable, and it does not invite drift.
+
+Retiring the Svelte app is the one step that cannot be walked back cheaply,
+so here is what has to be true first.
 
 **Three gaps, all measured, all open:**
 1. **Offline.** Flutter web registers no service worker at all (verified on
@@ -39,17 +47,12 @@ retiring the Svelte app is the one step that cannot be walked back cheaply.
    Dala. Removing it while porting exactly those is removing the thing being
    ported from.
 
-**So: freeze, don't delete.** Stop adding features to Svelte and let it keep
-serving botvinnik.app until Flutter web closes the three. The focus comes from
-the decision, not from moving code — and note a *branch* would not archive
-anything anyway, since the history stays in `main` regardless; a branch only
-matters if Svelte is then deleted from `main`, which is the part to defer.
-When that day comes, a **tag** is the better archive than a branch: immutable,
-and it does not invite drift.
+What keeping it actually costs while frozen, so the trade is honest: the
+`web-e2e` CI job, and the discipline of keeping both apps working whenever the
+shared brain changes. That second one has caught real bugs in both directions,
+so it is not purely a tax.
 
-What keeping it actually costs today, so the trade is honest: the `web-e2e` CI
-job, and the discipline of keeping both apps working whenever the shared brain
-changes. That second one has caught real bugs in both directions.
+**Gap 1 is next up** — see the service-worker item below.
 
 ### Flutter UI backlog (raised 2026-07-19)
 
