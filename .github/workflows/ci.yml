@@ -94,9 +94,10 @@ jobs:
         working-directory: flutter
       # Also the only thing that type-checks the web branch of every
       # conditional import. Via build-web.sh rather than `flutter build web`
-      # so the service worker's precache manifest is generated too — an
-      # unprocessed sw.js is a build artifact that looks fine and has no
-      # offline support, which is what this step exists to notice.
+      # so the service worker's manifest is generated and its own guards run
+      # (missing required file, unsubstituted bootstrap token). Note it cannot
+      # catch an UNPROCESSED sw.js — it is the step that processes it; what
+      # protects against that is every build path going through this script.
       - name: Web build, with the offline manifest
         working-directory: flutter
         run: ./build-web.sh

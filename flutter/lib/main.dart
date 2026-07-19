@@ -51,8 +51,15 @@ ThemeData _theme() => ThemeData(
         brightness: Brightness.dark,
       ),
       scaffoldBackgroundColor: const Color(0xFF161512),
-      // naming it explicitly is what makes the web build use the BUNDLED
-      // Roboto (see pubspec) instead of fetching it from fonts.gstatic.com
+      // NOT what stops the gstatic fetch — that is the `fonts:` block in
+      // pubspec, which puts a family named Roboto in the FontManifest;
+      // canvaskit/fonts.dart gates the download on that alone. Drop the
+      // pubspec entry and the download returns however this line reads.
+      //
+      // What this line does do: override Typography's per-platform families,
+      // so macOS and iOS use Roboto rather than the system face. Deliberate —
+      // one typeface across every target — but it is a real change on those
+      // two, not a web-only fix.
       fontFamily: 'Roboto',
     );
 

@@ -15,7 +15,9 @@ cd "$(dirname "$0")"
 # offline. It appears to work anyway while the browser's own HTTP cache still
 # holds the file, which is exactly how a false pass looks: the first offline
 # test here passed for that reason and proved nothing.
-flutter build web --release --no-web-resources-cdn "$@"
+# BUILD_MODE lets serve-web.sh ask for debug/profile. A bare "$@" could not:
+# appended after a hardcoded --release it just conflicts, and flutter exits 64.
+flutter build web --"${BUILD_MODE:-release}" --no-web-resources-cdn "$@"
 
 node tool/gen-sw-manifest.mjs build/web
 

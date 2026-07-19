@@ -170,7 +170,9 @@ void showKeyboardHelp(BuildContext context) {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   SizedBox(
-                    width: 62,
+                    // 'Shift Cmd Z' is ~67px at this size; the old ⇧⌘Z was 8.
+                    // Too narrow and the rows silently wrap to two lines.
+                    width: 84,
                     child: Text(keys,
                         style: const TextStyle(
                             fontSize: 12.5,
