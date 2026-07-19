@@ -45,11 +45,19 @@ cp -R ../static/garbo web/garbo
 # and is not: it still dynamically imports ort-wasm-simd-threaded.mjs at
 # runtime, which fails as "no available backend found" — a message that says
 # nothing about a missing file. Staging only the .wasm is the mistake to avoid.
+# esbuild is resolved by npm hoisting, not by a direct dependency — it arrives
+# transitively via tsx and vite. `npm run build:brain` already relies on this,
+# so it is a pre-existing arrangement rather than one this script introduced,
+# but it is load-bearing in one more place now. If vite's move to rolldown ever
+# drops esbuild, this fails as "could not determine executable to run", and the
+# fix is to add esbuild to devDependencies.
 ORT=../node_modules/onnxruntime-web/dist
-[ -f "$ORT/ort-wasm-simd-threaded.wasm" ] || {
-  echo "error: onnxruntime-web is missing — run 'npm ci' first" >&2
-  exit 1
-}
+for f in ort-wasm-simd-threaded.wasm ort-wasm-simd-threaded.mjs; do
+  [ -f "$ORT/$f" ] || {
+    echo "error: $ORT/$f is missing — run 'npm ci' first" >&2
+    exit 1
+  }
+done
 rm -rf web/maia
 mkdir -p web/maia
 npx --no-install esbuild web_src/maia-worker.ts \

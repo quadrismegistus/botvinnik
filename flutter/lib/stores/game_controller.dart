@@ -203,6 +203,11 @@ class GameController extends ChangeNotifier {
     lastMove = null;
     moves.clear();
     botThinking = false;
+    // A Maia download outlives the game that started it — the request is
+    // abandoned but its future is not, so nothing else clears this. Left set,
+    // statusLine claimed the NEXT persona was downloading a model it does not
+    // have, for up to 90s, suppressing the real status line the whole time.
+    maiaFetching = false;
     _saved = false;
     gameSeed = _newSeed();
     _analysis.clear();

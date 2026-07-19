@@ -44,7 +44,10 @@ ort.env.wasm.wasmPaths = './';
 // cross-origin-isolation headers to arrange
 ort.env.wasm.numThreads = 1;
 
-const LOAD_TIMEOUT_MS = 60_000;
+// 30s matches the Svelte client. It was 60s here, which doubled the cost of
+// the stalled-network case for no benefit: a 3.5MB fetch that has not landed
+// in 30 seconds is not about to.
+const LOAD_TIMEOUT_MS = 30_000;
 const RUN_TIMEOUT_MS = 15_000;
 
 function withTimeout<T>(p: Promise<T>, ms: number, what: string): Promise<T> {
@@ -115,12 +118,25 @@ interface Loaded {
 
 const loads = new Map<number, Promise<Loaded>>();
 
+/// Once loading has failed, stop trying for the rest of the session.
+///
+/// This mirrors the Svelte client's `broken` flag, and dropping it was a real
+/// regression rather than a simplification. Without it, a network that ACCEPTS
+/// and never answers — a captive portal, a stalled hotspot — costs a full
+/// LOAD_TIMEOUT_MS on every move, forever, because each move re-enters a
+/// deleted `loads` entry. Measured: two moves, two 60s waits, two attempts.
+/// Worse, each retry re-announces "downloading… once", which by then is a lie.
+///
+/// A retry that can never be cheap is not worth having. A reload resets it.
+let broken = false;
+
 /** Whether this band's weights are already on disk — decides the UI message. */
 async function isCached(band: number): Promise<boolean> {
 	return (await getCached(`maia-${band}`)) !== null;
 }
 
 function load(band: number): Promise<Loaded> {
+	if (broken) return Promise.reject(new Error('maia is unavailable in this session'));
 	let p = loads.get(band);
 	if (!p) {
 		p = (async () => {
@@ -146,9 +162,10 @@ function load(band: number): Promise<Loaded> {
 			return { session, inputName, policyName };
 		})();
 		loads.set(band, p);
-		// a failed load must not be remembered as a load — the next attempt
-		// deserves a clean try (a flaky network is the likely cause)
-		p.catch(() => loads.delete(band));
+		p.catch(() => {
+			loads.delete(band);
+			broken = true;
+		});
 	}
 	return p;
 }

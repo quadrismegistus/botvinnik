@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { encodeFenHistory, flipUci } from './encoding';
 import { decodePolicyOutput } from './decoding';
 import { POLICY_INDEX_MAP } from './policyIndex';
@@ -56,10 +56,57 @@ describe('decodePolicyOutput', () => {
 	});
 
 	it('maps black moves through the white-POV policy index', () => {
-		// black playing e7e5 looks up e2e4 in the (white-POV) index
+		// Every legal move here must score differently through the FLIPPED
+		// lookup and through the un-flipped one, or the test passes on a tie.
+		//
+		// The earlier version of this set only the flipped index and left the
+		// rest at zero, so deleting the flip in decodePolicyOutput scored both
+		// moves 0 and the sort returned the first — which happened to be the
+		// expected answer. It passed against a broken decoder. Verified: with
+		// `canonicalMove = uci`, this now returns c7c5 and fails.
 		const policy = new Float32Array(1858);
-		policy[POLICY_INDEX_MAP.get('e2e4')!] = 5; // = flipUci('e7e5')
+		policy[POLICY_INDEX_MAP.get('e2e4')!] = 5; // flipUci('e7e5') — the right answer
+		policy[POLICY_INDEX_MAP.get('c2c4')!] = 1; // flipUci('c7c5')
+		policy[POLICY_INDEX_MAP.get('c7c5')!] = 9; // what a BROKEN decoder would pick
+		policy[POLICY_INDEX_MAP.get('e7e5')!] = 0;
 		const { best } = decodePolicyOutput(policy, ['e7e5', 'c7c5'], true, 0);
 		expect(best.move).toBe('e7e5'); // returned in the original (un-flipped) orientation
+	});
+});
+
+describe('temperature — the sampled Maia personas', () => {
+	// Three of the six Maia personas set maiaTemp: 1 and are otherwise
+	// identical to the argmax three. Nothing exercised this branch, so
+	// hardcoding temperature to 0 anywhere in the stack — the Dart client, the
+	// worker, here — would have collapsed six personas into three silently.
+	//
+	// Math.random is stubbed so the sampling is deterministic rather than
+	// flaky; the point is that temperature CHANGES the choice, not which
+	// choice a particular draw makes.
+	const policy = new Float32Array(1858);
+	policy[POLICY_INDEX_MAP.get('e2e4')!] = 2;
+	policy[POLICY_INDEX_MAP.get('d2d4')!] = 0;
+	const legal = ['e2e4', 'd2d4'];
+
+	afterEach(() => vi.restoreAllMocks());
+
+	it('temperature 0 ignores the draw and plays the consensus move', () => {
+		vi.spyOn(Math, 'random').mockReturnValue(0.99);
+		expect(decodePolicyOutput(policy, legal, false, 0).best.move).toBe('e2e4');
+	});
+
+	it('temperature 1 samples, so an unlucky draw takes the second move', () => {
+		// probabilities are ~0.88 / ~0.12; a draw of 0.95 falls in the tail
+		vi.spyOn(Math, 'random').mockReturnValue(0.95);
+		expect(decodePolicyOutput(policy, legal, false, 1).best.move).toBe('d2d4');
+	});
+
+	it('a higher temperature flattens the distribution, not just the draw', () => {
+		// The same draw that keeps e2e4 at temperature 1 gives it away at 100,
+		// which is what pins `temp` as a DIVISOR of the logits rather than a
+		// bare on/off for sampling.
+		vi.spyOn(Math, 'random').mockReturnValue(0.6);
+		expect(decodePolicyOutput(policy, legal, false, 1).best.move).toBe('e2e4');
+		expect(decodePolicyOutput(policy, legal, false, 100).best.move).toBe('d2d4');
 	});
 });

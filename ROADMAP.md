@@ -343,8 +343,16 @@ costs nothing either way — it is pure chess.js.
 
      **Cost, measured:** ort runtime 12.9MB raw / **3.3MB gzipped**, plus
      ~3.5MB of weights per band. Both are cache-on-first-use, so a visitor who
-     never picks a Maia pays **nothing**, and one who does pays ~7MB once.
-     Second and later moves infer in ~7ms.
+     never picks a Maia pays **nothing**. Second and later moves infer in ~7ms.
+
+     "Pays once" is true of the *weights* and not of the runtime, which an
+     earlier draft of this entry got wrong. The weights live in IndexedDB and
+     survive deploys; the ort runtime lives in the service-worker cache, whose
+     name embeds a hash over **every** shipped file. So any release at all
+     rotates the cache, `activate` drops the old one, and the next Maia move
+     re-fetches 3.3MB. Fixing that means giving long-lived third-party assets
+     a cache that does not rotate with the app — worth doing if Maia turns out
+     to be popular, not worth doing on spec.
 
      **It is the app's only third-party request**, and it reaches two hosts:
      `huggingface.co` redirects to `us.aws.cdn.hf.co`. The weights are GPL-3.0

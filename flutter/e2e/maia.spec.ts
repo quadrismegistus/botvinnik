@@ -73,9 +73,18 @@ test('@network the worker returns the move a human would play', async ({ page })
 	// the session is reused across moves rather than reloaded per position
 	expect(out.secondMs).toBeLessThan(3000);
 
-	// it announced the download exactly once, before the first answer
-	const fetching = (out.events as { status?: string }[]).filter((e) => e?.status === 'fetching');
-	expect(fetching.length).toBeLessThanOrEqual(1);
+	// It announced the download exactly once, and before the first answer.
+	//
+	// `toBeLessThanOrEqual(1)` was the original, and it accepts ZERO — so
+	// deleting the announcement entirely left this green, and with it the
+	// whole status:'fetching' → onFetching → statusLine path that exists to
+	// stop the first Maia move looking like a hang. Each context starts with
+	// an empty IndexedDB, so exactly one is the right number, not at most one.
+	const events = out.events as { id?: number; status?: string; move?: string }[];
+	const fetchingAt = events.findIndex((e) => e?.status === 'fetching');
+	const firstAnswerAt = events.findIndex((e) => e?.move !== undefined);
+	expect(events.filter((e) => e?.status === 'fetching')).toHaveLength(1);
+	expect(fetchingAt).toBeLessThan(firstAnswerAt);
 });
 
 test('@network the app itself plays with it', async ({ page }) => {
@@ -98,18 +107,38 @@ test('@network the app itself plays with it', async ({ page }) => {
 });
 
 test('a non-Maia game makes no third-party request at all', async ({ page }) => {
-	// The property #35 bought and Maia is the only thing that can take away.
-	// Deliberately NOT tagged @network — it needs none, and it is the reason
-	// CI can still say something about this family.
+	// The property #35 bought, which Maia is the only thing that can take
+	// away. Deliberately NOT tagged @network, so this is the whole of what CI
+	// can say about this family.
+	//
+	// Which is exactly why it must assert something POSITIVE first. As
+	// originally written it was a bare absence check, and a review proved it
+	// passed against a completely dead app: replacing flutter_bootstrap.js
+	// with `throw` boots nothing, renders nothing, requests nothing — and
+	// "no third-party requests" is trivially true of an app that does not
+	// run. It would also have stayed green if every Maia persona silently
+	// vanished from the roster.
 	const foreign: string[] = [];
+	const local: string[] = [];
 	page.on('request', (r) => {
 		const host = new URL(r.url()).host;
-		if (!host.startsWith('localhost')) foreign.push(`${host} ${r.url().slice(0, 80)}`);
+		if (host.startsWith('localhost')) local.push(new URL(r.url()).pathname);
+		else foreign.push(`${host} ${r.url().slice(0, 80)}`);
 	});
 
 	await seedPersona(page, 'square-900');
 	await page.goto('/');
-	await page.waitForTimeout(20_000);
 
+	// the app booted far enough to start an engine and think about a move —
+	// a dead app never reaches this, which is the point
+	await expect
+		.poll(() => local.some((p) => p.endsWith('/wasm/stockfish.js')), { timeout: 60_000 })
+		.toBe(true);
+	await expect
+		.poll(() => local.some((p) => p.endsWith('/brain.js')), { timeout: 60_000 })
+		.toBe(true);
+
+	// and only THEN is the absence meaningful
+	await page.waitForTimeout(15_000);
 	expect(foreign).toEqual([]);
 });

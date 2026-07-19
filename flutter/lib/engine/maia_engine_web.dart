@@ -56,7 +56,10 @@ class MaiaEngine {
       final id = (data['id'] as num?)?.toInt();
       if (id == null) return;
       if (data['status'] == 'fetching') {
-        onFetching?.call();
+        // Only for a request still wanted. The worker keeps working on a
+        // cancelled request, so without this an abandoned download could
+        // re-raise the "downloading…" flag after a new game had cleared it.
+        if (_pending.containsKey(id)) onFetching?.call();
         return;
       }
       final error = data['error'];
@@ -110,6 +113,16 @@ class MaiaEngine {
     final worker = _worker;
     if (worker == null) return Future.value(null);
 
+    // One request in flight, which the worker's protocol comment claims and
+    // this did not honour until a review caught it. RetroEngine and
+    // GarboEngine both cancel the previous request before posting; without
+    // the same here, hitting New Game during a slow first download left the
+    // old request pinned for up to 90s and put a second `session.run()` on
+    // the same InferenceSession. Each impatient click added another.
+    //
+    // The ids are still worth having: they discard a LATE reply for a
+    // cancelled request, which cancelling alone would not.
+    _failAll();
     final id = _nextId++;
     final pending = Completer<String?>();
     _pending[id] = pending;
