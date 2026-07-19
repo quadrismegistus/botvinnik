@@ -42,9 +42,35 @@ so here is what has to be true first.
    with no network, and makes no third-party requests either (the fonts it
    used to fetch from Google are bundled). See the service-worker item below
    for what precaches and why. **Two gaps left.**
-2. **Payload.** Svelte deploys ~270KB gzipped of JS. Flutter web is 9.22MB
-   gzipped over 26 requests — **about 34×**. Acceptable for an app you install;
-   a different proposition for a link someone opens.
+2. **Payload — and it is not really about bytes.** Measured cold (cache
+   cleared, service worker blocked), time until the app is *usable*:
+
+   | | Flutter | Svelte |
+   |---|---|---|
+   | unthrottled | **1.1s** | 0.1s |
+   | fast 4G, 9 Mbps | **16.3s** | 0.5s |
+   | slow 4G, 3 Mbps | **46.0s** | 1.4s |
+
+   On a good connection 9MB is a non-issue — 1.1s. The gap opens on mobile
+   data, and the cause is **not** size alone: Flutter's boot is all-or-nothing.
+   `_start()` awaits `startEngine()` before `dismissSplash()`, so the splash
+   covers the screen until the *entire* 17.3MB is down and the engine, brain
+   and database are all up. Svelte paints a usable board after **0.4MB** and
+   streams the 7MB engine in behind it — which is why the same connection
+   costs it 0.5s and Flutter 16.3s.
+
+   (The two "ready" definitions differ, deliberately: Flutter's is a complete
+   boot because that is when it shows you anything; Svelte's is first usable
+   board. That asymmetry *is* the finding.)
+
+   So there are two levers, and the second is much cheaper than the first:
+   - **Make it progressive.** Lift the splash once the UI can draw, and let
+     the engine arrive behind it — the app already copes with having no lines
+     yet. Stockfish is 7MB of the 17.3MB critical path and you do not need it
+     to *look at* a board. This is a boot-ordering change, not a diet.
+   - **Shrink the floor.** CanvasKit is 5.5MB and is what a CanvasKit app
+     costs; getting under it means questioning the renderer, not trimming
+     assets.
 3. **Roster.** 22 of 35 personas. And note *what* the missing ones are: the
    Svelte app is the **reference implementation** for Maia, retro, Garbo and
    Dala. Removing it while porting exactly those is removing the thing being
