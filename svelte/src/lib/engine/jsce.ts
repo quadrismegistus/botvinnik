@@ -9,8 +9,10 @@
 // no engine-vs-human pool gap (the retro finding: bernstein measured within
 // 2 points of its lichess rating), so the labels are trusted directly.
 //
-// The library is synchronous; levels 1-2 answer in ~10-100ms, so it runs
-// inline. Lazily imported to stay out of the boot bundle.
+// The library is synchronous; measured over 480 real positions, level 1 means
+// 1.4ms and level 2 means 2.6ms (p99 5.7ms, worst 8.1ms), so it runs inline.
+// The library itself is imported lazily to stay out of the boot bundle — this
+// module is not, so keep its own body small.
 
 // The {FROM: TO} → UCI half is shared with the brain's bundled copy. Both apps
 // had identical hand-copies of it and only one was tested, which is how the

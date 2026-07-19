@@ -8711,10 +8711,12 @@ var brain = (() => {
 
   // brain/horizonUci.ts
   function horizonUci(fen, from, to) {
-    const a = from.toLowerCase();
-    const b = to.toLowerCase();
+    let a;
+    let b;
     let moves;
     try {
+      a = from.toLowerCase();
+      b = to.toLowerCase();
       moves = new Chess(fen).moves({ verbose: true });
     } catch {
       return null;

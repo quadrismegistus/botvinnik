@@ -24,7 +24,7 @@ repository as the rest of the source.
 | Component | License |
 |---|---|
 | chess.js | BSD-2-Clause |
-| js-chess-engine (Josef Jadrny) — the "Horizon" bot personas, bundled into `flutter/assets/brain.js` | MIT |
+| js-chess-engine (Josef Jadrny) — the "Horizon" bot personas; bundled into `flutter/assets/brain.js` and served to the web in a lazy chunk | MIT |
 | Svelte / SvelteKit | MIT |
 | onnxruntime-web | MIT |
 | flutter_js | MIT |

@@ -3,7 +3,7 @@ import { Chess } from 'chess.js';
 import { jsceMove } from './jsce';
 
 // The web's Horizon path. Its move→UCI half is shared with the brain's bundled
-// copy and tested thoroughly in brain/horizonUci.test cases; what is left here
+// copy and tested thoroughly in brain/horizon.test.ts; what is left here
 // is this file's own contract — the dynamic import resolves, and a position
 // the library refuses degrades to null instead of throwing into the bot loop.
 //

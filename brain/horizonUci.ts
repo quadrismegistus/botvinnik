@@ -19,13 +19,17 @@ import { Chess } from 'chess.js';
  * crosses the bridge as a StateError on the bot's turn and wedges the game.
  */
 export function horizonUci(fen: string, from: string, to: string): string | null {
-	const a = from.toLowerCase();
-	const b = to.toLowerCase();
+	let a: string;
+	let b: string;
 	let moves: { from: string; to: string; promotion?: string }[];
 	try {
+		// inside the try as well: `from`/`to` come from a third-party library
+		// through an `as` cast, so .toLowerCase() is not guaranteed to exist
+		a = from.toLowerCase();
+		b = to.toLowerCase();
 		moves = new Chess(fen).moves({ verbose: true });
 	} catch {
-		return null; // chess.js rejects the position; nothing legal to name
+		return null; // bad square, or chess.js rejects the position
 	}
 	const matches = moves.filter((m) => m.from === a && m.to === b);
 	if (matches.length === 0) return null;

@@ -23,7 +23,15 @@ function legalUcis(fen: string): Set<string> {
 /** Fails loudly if a FEN stops being the kind of position the test needs. */
 function assertPosition(
 	fen: string,
-	want: { check?: boolean; mate?: boolean; stalemate?: boolean; minMoves?: number }
+	want: {
+		check?: boolean;
+		mate?: boolean;
+		stalemate?: boolean;
+		minMoves?: number;
+		exactMoves?: number;
+		/** these UCIs must be legal here — pins castling/en-passant fixtures */
+		hasUcis?: string[];
+	}
 ) {
 	const c = new Chess(fen);
 	if (want.check !== undefined) expect(c.inCheck(), `${fen} inCheck`).toBe(want.check);
@@ -32,18 +40,26 @@ function assertPosition(
 		expect(c.isStalemate(), `${fen} isStalemate`).toBe(want.stalemate);
 	if (want.minMoves !== undefined)
 		expect(c.moves().length, `${fen} legal moves`).toBeGreaterThanOrEqual(want.minMoves);
+	if (want.exactMoves !== undefined)
+		expect(c.moves().length, `${fen} legal moves`).toBe(want.exactMoves);
+	for (const uci of want.hasUcis ?? []) {
+		expect(legalUcis(fen), `${fen} must allow ${uci}`).toContain(uci);
+	}
 }
 
 describe('horizonMove', () => {
+	// Each row states what makes its position interesting AS AN ASSERTION, not
+	// just in the test name — a name is a claim nothing checks, which is how a
+	// stalemate here once passed as "checkmate".
 	it.each([
-		['opening', 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1', 1],
-		['open middlegame', 'r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 0 1', 2],
-		['in check with three ways out', 'r1bq2r1/p1p1k2p/1p1ppppn/2b1P1N1/8/P2P1P2/1Bn3PP/R2QKBNR w KQ - 0 14', 1],
-		['castling available', 'r3k2r/pppq1ppp/2npbn2/2b1p3/2B1P3/2NPBN2/PPPQ1PPP/R3K2R w KQkq - 0 1', 2],
-		['en passant available', 'rnbqkbnr/ppp1p1pp/8/3pPp2/8/8/PPPP1PPP/RNBQKBNR w KQkq f6 0 3', 1],
-		['endgame', '8/5k2/8/8/3K4/8/4P3/8 w - - 0 1', 2]
-	])('plays a legal move: %s', (_name, fen, level) => {
-		assertPosition(fen, { minMoves: 1 });
+		['opening', 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1', 1, { minMoves: 20 }],
+		['open middlegame', 'r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 0 1', 2, { minMoves: 20 }],
+		['in check with three ways out', 'r1bq2r1/p1p1k2p/1p1ppppn/2b1P1N1/8/P2P1P2/1Bn3PP/R2QKBNR w KQ - 0 14', 1, { check: true, mate: false, exactMoves: 3 }],
+		['castling available', 'r3k2r/pppq1ppp/2npbn2/2b1p3/2B1P3/2NPBN2/PPPQ1PPP/R3K2R w KQkq - 0 1', 2, { hasUcis: ['e1g1', 'e1c1'] }],
+		['en passant available', 'rnbqkbnr/ppp1p1pp/8/3pPp2/8/8/PPPP1PPP/RNBQKBNR w KQkq f6 0 3', 1, { hasUcis: ['e5f6'] }],
+		['endgame', '8/5k2/8/8/3K4/8/4P3/8 w - - 0 1', 2, { minMoves: 1 }]
+	])('plays a legal move: %s', (_name, fen, level, nature) => {
+		assertPosition(fen, nature);
 		const legal = legalUcis(fen);
 		for (let i = 0; i < RUNS; i++) {
 			const uci = horizonMove(fen, level);
