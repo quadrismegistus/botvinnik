@@ -11,10 +11,10 @@ Frozen does not mean dead. Until Flutter web can replace it, this app:
 
 ## Why it is still here
 
-Flutter web cannot replace it yet, on three measured counts (see ROADMAP.md
-for the numbers): it registers no service worker at all, so there is no
-offline support against this app's working PWA; it is roughly **34×** the
-payload; and it plays 22 of the 35 personas.
+Flutter web cannot replace it yet, on two measured counts (see ROADMAP.md for
+the numbers): it is roughly **34×** the payload, and it plays 22 of the 35
+personas. *Offline was the third and closed on 2026-07-19* — Flutter web is
+now a real PWA that also makes no third-party requests.
 
 And a fourth reason that is easy to miss: **this app is the reference
 implementation** for the persona families Flutter still lacks — Maia

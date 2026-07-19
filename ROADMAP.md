@@ -13,8 +13,10 @@ one; `svelte/` and `flutter/` are consumers and neither depends on the other.
   Stockfish WASM the web app does, so its calibration is right by
   construction, where the Flutter desktop build spawns whatever binary it
   finds.
-- **Svelte still owns the web deploy.** botvinnik.app stays SvelteKit until
-  Flutter web closes two gaps: the persona roster and offline support.
+- **Svelte still owns the web deploy**, and is now **frozen** — see below.
+  botvinnik.app stays SvelteKit until Flutter web closes the remaining gaps:
+  the persona roster and the payload. (Offline was the third; closed
+  2026-07-19.)
 - Flutter web works and is measured (9.22MB gzipped, 26 requests as of
   2026-07-18) but is not a deploy candidate yet. Since that measurement,
   `brain.js` has grown ~24KB gzipped from bundling js-chess-engine for the
@@ -35,10 +37,11 @@ immutable, and it does not invite drift.
 Retiring the Svelte app is the one step that cannot be walked back cheaply,
 so here is what has to be true first.
 
-**Three gaps, all measured, all open:**
-1. **Offline.** Flutter web registers no service worker at all (verified on
-   3.44.6, above). The Svelte app is a working PWA with a deliberate precache.
-   This is a capability regression users would feel on day one.
+**Three gaps, all measured. One is now closed:**
+1. ~~**Offline.**~~ **CLOSED 2026-07-19** — Flutter web is a real PWA: boots
+   with no network, and makes no third-party requests either (the fonts it
+   used to fetch from Google are bundled). See the service-worker item below
+   for what precaches and why. **Two gaps left.**
 2. **Payload.** Svelte deploys ~270KB gzipped of JS. Flutter web is 9.22MB
    gzipped over 26 requests — **about 34×**. Acceptable for an app you install;
    a different proposition for a link someone opens.
@@ -52,7 +55,10 @@ What keeping it actually costs while frozen, so the trade is honest: the
 shared brain changes. That second one has caught real bugs in both directions,
 so it is not purely a tax.
 
-**Gap 1 is next up** — see the service-worker item below.
+**Next toward this**: the roster (M5 — retro is the next family), since it is
+the gap with the most work in it. The payload gap is the one to think about
+rather than grind at: 9.22MB is what a CanvasKit app costs, so closing it
+means questioning the renderer, not trimming assets.
 
 ### Flutter UI backlog (raised 2026-07-19)
 
