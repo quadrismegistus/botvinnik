@@ -101,3 +101,26 @@ jobs:
       - name: Web build, with the offline manifest
         working-directory: flutter
         run: ./build-web.sh
+      # The only tests that run the Flutter app in a browser. They matter most
+      # for retro, whose every failure path is a silent fallback to Stockfish:
+      # a broken retro persona still plays, as somebody else, so nothing short
+      # of watching the worker boot catches it.
+      #
+      # The config's webServer builds again rather than reusing the step above.
+      # Deliberate: it keeps `npx playwright test -c flutter/...` a one-liner
+      # locally, and a build failure reports as a build failure there rather
+      # than as a mysterious server timeout here.
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ hashFiles('package-lock.json') }}
+      - run: npx playwright install --with-deps chromium
+      - name: Flutter web e2e (the retro workers, in a real browser)
+        run: npx playwright test -c flutter/playwright.config.ts
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: flutter-playwright-traces
+          path: flutter/test-results/
+          retention-days: 7

@@ -75,10 +75,10 @@ so here is what has to be true first.
    (The drive-by concern this used to carry — a visitor who never installs
    still paying for a 12MB precache — dissolved with the shell-only change:
    they now cache only what they actually used.)
-3. **Roster.** 22 of 35 personas. And note *what* the missing ones are: the
-   Svelte app is the **reference implementation** for Maia, retro, Garbo and
-   Dala. Removing it while porting exactly those is removing the thing being
-   ported from.
+3. **Roster.** 25 of 35 personas on the web (retro landed in #36). And note
+   *what* the missing ones are: the Svelte app is the **reference
+   implementation** for Maia, Garbo and Dala. Removing it while porting
+   exactly those is removing the thing being ported from.
 
 What keeping it actually costs while frozen, so the trade is honest: the
 `web-e2e` CI job, and the discipline of keeping both apps working whenever the
@@ -86,7 +86,8 @@ shared brain changes. That second one has caught real bugs in both directions,
 so it is not purely a tax.
 
 **Next toward this**: the roster, which is now the only thing between Flutter
-web and the deploy — M5, with retro the next family.
+web and the deploy — M5. retro is done; Maia is the next family, and the
+largest remaining block at six personas.
 
 ### Flutter UI backlog (raised 2026-07-19)
 
@@ -240,9 +241,14 @@ costs nothing either way — it is pure chess.js.
    (threat/win rings, control rings vs wash; see ARCHITECTURE.md).
    **Still open from the original scope: a menu bar, and per-panel collapse.**
 2. **M5 — the rest of the roster.** The brain ships 35 personas across 7
-   families; Flutter plays 22 — `square`, `fish`, and `horizon` since #32.
-   Missing: 6 Maia, 3 retro, 3 Dala, 1 Garbo. This is the real parity gap and
-   the reason Svelte still owns the web.
+   families; Flutter plays **25 on the web** — `square`, `fish`, `horizon`
+   since #32, and `retro` since #36. Missing: 6 Maia, 3 Dala, 1 Garbo. This is
+   the real parity gap and the reason Svelte still owns the web.
+
+   (25 on the web, 22 on native: retro is wasm, so `RetroEngine.supported` is
+   false on macOS/iOS and the roster picker does not offer those three there.
+   That split is new, and it is the first time the two builds have shipped
+   different rosters — worth remembering when reading a persona count.)
 
    **The constraint that decides the order** (learned doing Horizon): the Dart
    bridge is synchronous — one eval in, one JSON string out — so a brain
@@ -251,18 +257,28 @@ costs nothing either way — it is pure chess.js.
    slow cannot use it as-is either. Horizon fit because js-chess-engine is
    synchronous and answers in ~2ms. The other four each need their own
    mechanism on the Dart side first:
-   - **retro — IN PROGRESS (Ryan's call, 2026-07-19).** Three personas for one
+   - **retro — SHIPPED on web (#36, 2026-07-19).** Three personas for one
      mechanism, and the best-anchored ratings on the roster (the morlock bots'
      real lichess numbers over 15k–48k human games).
 
-     **Web first, and it is mostly reuse.** The retro engines are complete UCI
-     engines in a Web Worker (`static/retro/retro-worker.js`), and Flutter web
-     already drives a Worker-based UCI engine — `WebEngine` over
-     `UciProtocol`, for Stockfish. So this is a second `UciProtocol`
-     implementation pointing at a different worker, not new protocol work. The
-     one piece that is not free: retro needs its OWN engine instance beside
-     the arbiter, never through it — a retro bot must not touch the analysis
-     engine, and vice versa.
+     It was mostly reuse, as expected — but **not** the "second `UciProtocol`
+     implementation" this roadmap predicted, and the reason is worth keeping.
+     `UciProtocol.search()` resolves from the `info … pv …` lines it collected,
+     so a `bestmove` with no parsed info line resolves to an **empty list**.
+     The retro engines are under no obligation to emit MultiPV info, and their
+     bestmove is the only thing worth reading — which is exactly what the
+     Svelte client does. So `RetroEngine` is a small dedicated client
+     (`flutter/lib/engine/retro_engine_web.dart`), not a `UciSearcher`, which
+     also makes it structurally impossible to hand to the arbiter by accident.
+     That was the one piece that was never free: a retro bot must not touch
+     the analysis engine, and vice versa.
+
+     Verified in a real browser rather than argued — `flutter/e2e/retro.spec.ts`,
+     the first browser tests the Flutter app has had. All three engines answer
+     UCI with a legal move, and the **app's own** worker is proven to boot and
+     search: the wasm fetch only happens if the Dart `{engine, ply}` boot
+     message crossed as a JS object, so that request is the assertion. Both
+     halves fail when `RetroEngine.supported` is flipped to false (checked).
 
      **Native is more tractable than this roadmap previously assumed**, and
      gomobile is not needed. Measured 2026-07-19 with Go 1.26.5 against the
@@ -287,9 +303,10 @@ costs nothing either way — it is pure chess.js.
      engines selected by name, as the wasm build already does via
      `retroConfig.engine`. Budget ~3.5MB of binary, once, for three personas.
 
-     Decision for now: **ship web-only**, which is where the roster gap
-     actually blocks the deploy, and treat native as a separately-scoped
-     follow-up rather than a blocker.
+     Decision: **shipped web-only**, which is where the roster gap actually
+     blocks the deploy. Native stays a separately-scoped follow-up — the
+     findings above are recorded in `retro_engine_io.dart` beside the stub, so
+     whoever picks it up finds them without going through this file.
    - **Garbo** — a Worker script with its own postMessage protocol, and
      flutter_js has no Worker. Needs an onmessage/postMessage shim *and* a
      background isolate, since its ~1s search would block the UI.

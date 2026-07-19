@@ -17,7 +17,8 @@
     "tauri:setup": "mkdir -p svelte/src-tauri/binaries && cp \"$(which stockfish)\" svelte/src-tauri/binaries/stockfish-aarch64-apple-darwin",
     "test:rust": "cargo test --manifest-path svelte/src-tauri/Cargo.toml",
     "test:e2e:tauri": "node scripts/e2e-tauri.mjs",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "test:e2e:flutter": "playwright test -c flutter/playwright.config.ts"
   },
   "devDependencies": {
     "@playwright/test": "^1.61.1",

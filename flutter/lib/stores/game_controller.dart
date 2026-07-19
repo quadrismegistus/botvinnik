@@ -20,6 +20,7 @@ import '../brain/grading_api.dart';
 import '../brain/types.dart';
 import '../db/app_db.dart';
 import '../engine/arbiter.dart';
+import '../engine/retro_engine.dart';
 import 'lines_tree_model.dart';
 import 'practice_controller.dart';
 import 'redo_stack.dart';
@@ -79,11 +80,16 @@ class GameController extends ChangeNotifier {
   final Set<Future<void>> _pendingGrades = {};
   int _gen = 0;
 
+  // at most one retro worker alive, matching the active persona
+  RetroEngine? _retro;
+  String? _retroKey;
+
   GameController(this._arbiter, this._bot, this._grading, this._settings,
       [this._db, this._practice, ChessApi? chessApi]) {
     _chess = chessApi;
     if (chessApi != null) linesTree = LinesTreeModel(chessApi);
     persona = _bot.personaById(_settings.personaId) ?? _bot.personas().first;
+    _syncRetro();
     _settings.addListener(_onSettings);
     _analysisFor(position.fen);
     _maybeBotTurn();
@@ -144,7 +150,30 @@ class GameController extends ChangeNotifier {
     }
     _lastSettingsSig = sig;
     persona = _bot.personaById(_settings.personaId) ?? persona;
+    _syncRetro();
     newGame();
+  }
+
+  /// Keep at most one retro worker alive, matching the active persona.
+  ///
+  /// Called when the persona changes as well as at move time, so the wasm is
+  /// compiling while the player is still setting up rather than during the
+  /// bot's first think — 4.4MB is a visible pause if you pay for it there.
+  /// Switching away disposes it: keeping a second engine's worker resident
+  /// costs the memory for nothing.
+  RetroEngine? _syncRetro() {
+    final spec = botEnabled ? persona?.retro : null;
+    final key = spec == null ? null : '${spec['engine']}:${spec['ply']}';
+    if (key != _retroKey) {
+      _retro?.dispose();
+      _retro = null;
+      _retroKey = key;
+      if (spec != null && RetroEngine.supported) {
+        _retro =
+            RetroEngine(spec['engine'] as String, (spec['ply'] as num).toInt());
+      }
+    }
+    return _retro;
   }
 
   // ---- game actions ----
@@ -461,6 +490,20 @@ class GameController extends ChangeNotifier {
         return _bot.avoidRepetition(uci, _fenHistory(), currentLines);
       }
       debugPrint('[bot] horizon had no move; falling back to the engine');
+    }
+    if (p.family == 'retro') {
+      // Its own worker, never the arbiter: a 1948 engine has no business in
+      // the queue that serialises the Stockfish every grade depends on, and
+      // its answer is not an analysis of anything. See retro_engine_web.dart.
+      //
+      // Unlike horizon this awaits, so the position can move on underneath
+      // it — which is fine, because _maybeBotTurn re-checks the generation
+      // and the move's legality before anything reaches the board.
+      final uci = await _syncRetro()?.move(fen);
+      if (uci != null) {
+        return _bot.avoidRepetition(uci, _fenHistory(), currentLines);
+      }
+      debugPrint('[bot] retro had no move; falling back to the engine');
     }
     // Fish, and the fallback for anything that could not answer for itself.
     // internalElo rather than numericElo: only fish carries numericElo, and a
@@ -901,6 +944,7 @@ class GameController extends ChangeNotifier {
   @override
   void dispose() {
     _settings.removeListener(_onSettings);
+    _retro?.dispose();
     super.dispose();
   }
 }
