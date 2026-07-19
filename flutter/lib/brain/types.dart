@@ -84,4 +84,6 @@ class Persona {
   String get blurb => raw['blurb'] as String;
   int? get shapedLabel => raw['shapedLabel'] as int?;
   int? get numericElo => raw['numericElo'] as int?;
+  /// horizon: js-chess-engine difficulty level (1 or 2)
+  int? get jsceLevel => raw['jsceLevel'] as int?;
 }

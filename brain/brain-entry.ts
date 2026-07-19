@@ -34,6 +34,10 @@ export {
 	botEloMax
 } from './engine/botRecipe';
 export { avoidRepetition } from './repetition';
+// The one bot family that needs no engine at all — it IS the engine, and a
+// tiny synchronous one, so it can live behind the bridge. Imported only here
+// so js-chess-engine stays out of the Svelte bundle (see horizon.ts).
+export { horizonMove } from './horizon';
 
 // ---- roster ----
 export { PERSONAS, availablePersonas, personaById, personaInternalElo, SCALE_OFFSET } from './bots';

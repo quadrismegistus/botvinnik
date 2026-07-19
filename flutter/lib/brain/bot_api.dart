@@ -59,6 +59,19 @@ class BotApi {
     ]) as String;
   }
 
+  /// The Horizon personas' move — js-chess-engine, bundled into brain.js and
+  /// run right here in the JS runtime, so this family needs no engine search
+  /// at all. Synchronous and ~10ms at levels 1-2. Null means it had nothing
+  /// legal (or threw), and the caller should fall back.
+  String? horizonMove(String fen, int level) =>
+      _bridge.call('horizonMove', args: [fen, level]) as String?;
+
+  /// The persona's strength on the internal WASM scale. Defined for EVERY
+  /// family (display elo + SCALE_OFFSET), unlike `numericElo`, which only the
+  /// fish family carries — so this is what a fallback search should use.
+  int internalElo(Persona p) =>
+      (_bridge.call('personaInternalElo', args: [p.raw]) as num).toInt();
+
   /// The roster available on this runtime (native=false: no lc0 sidecar).
   List<Persona> personas() {
     final list = _bridge.call('availablePersonas', args: [false]) as List;

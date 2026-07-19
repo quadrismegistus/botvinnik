@@ -429,8 +429,26 @@ class GameController extends ChangeNotifier {
           lines.first.uci;
       return _bot.avoidRepetition(pick, _fenHistory(), lines);
     }
-    // fish: the numeric recipe
-    final spec = _bot.botSpec(p.numericElo!);
+    if (p.family == 'horizon') {
+      // no engine search at all — js-chess-engine runs inside the JS runtime
+      // that is already loaded, and answers in ~10ms
+      final uci = _bot.horizonMove(fen, p.jsceLevel ?? 1);
+      if (uci != null) {
+        return _bot.avoidRepetition(uci, _fenHistory(), currentLines);
+      }
+      debugPrint('[bot] horizon had no move; falling back to the engine');
+    }
+    // Fish, and the fallback for anything that could not answer for itself.
+    // internalElo rather than numericElo: only fish carries numericElo, and a
+    // family without an implementation here should play at its own rating
+    // rather than crash on a null.
+    //
+    // A silent stand-in is not free — on the web it is surfaced, because
+    // grading a game against the rating you THINK you played corrupts the
+    // player-rating fit. Flutter does not fit a rating yet; when it does,
+    // this is the branch that has to tell it.
+    final internalElo = p.numericElo ?? _bot.internalElo(p);
+    final spec = _bot.botSpec(internalElo);
     switch (spec['kind'] as String) {
       case 'sampler':
         final lines = await _arbiter.search(
@@ -442,7 +460,7 @@ class GameController extends ChangeNotifier {
         if (lines == null || lines.isEmpty) return null;
         final pick = _bot.fishMove(
               lines: lines,
-              internalElo: p.numericElo!,
+              internalElo: internalElo,
               alpha: (spec['alpha'] as num?)?.toDouble(),
             ) ??
             lines.first.uci;
