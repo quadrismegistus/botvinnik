@@ -5,10 +5,11 @@
 // effect, live. See svelte/src/lib/engine/jsce.ts for the calibration notes.
 //
 // This module is reachable ONLY from brain-entry.ts, which is the esbuild
-// entry and nothing else. That is what keeps js-chess-engine off the Svelte
-// app's eager path: the web has its own lazily-imported copy in jsce.ts, so
-// the library reaches the browser only in a lazy chunk, and this file
-// contributes nothing to the web build at all.
+// entry and nothing else — so it contributes nothing to the web build, and
+// its static `js-chess-engine` import cannot reach the browser. The web gets
+// that library through its own `await import()` INSIDE jsce.ts (jsce.ts
+// itself is eagerly imported by +page.svelte; only the library is deferred),
+// which lands it in a lazy chunk fetched when a Horizon persona first plays.
 //
 // Synchronous on purpose. The Dart bridge marshals `JSON.stringify(brain.fn())`
 // in one eval, so a Promise would cross as `{}` — anything the bridge calls
