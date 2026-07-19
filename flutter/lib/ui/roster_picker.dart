@@ -14,10 +14,19 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../brain/types.dart';
+import '../engine/retro_engine.dart';
 import '../stores/game_controller.dart';
 import '../stores/settings_store.dart';
 
-const _playableFamilies = {'square', 'fish', 'horizon'};
+// retro is platform-conditional rather than simply present: the historical
+// engines ship as wasm, so they play on the web and nowhere else yet. Listing
+// them on macOS would be the exact substitution this filter exists to prevent.
+final _playableFamilies = {
+  'square',
+  'fish',
+  'horizon',
+  if (RetroEngine.supported) 'retro',
+};
 
 void showRosterPicker(BuildContext context) {
   final game = context.read<GameController>();
@@ -82,6 +91,8 @@ class _RosterSheet extends StatelessWidget {
       // a sun resting on the horizon — the same idea as the web avatar: this
       // engine cannot see past its own exchanges
       'horizon' => (Icons.wb_twilight, const Color(0xFFc4783f)),
+      // a valve, for the machines that had them
+      'retro' => (Icons.memory, const Color(0xFF9a7bb0)),
       _ => (Icons.circle, Colors.white38),
     };
     return CircleAvatar(

@@ -55,7 +55,16 @@ if (!precache.includes('index.html') || !precache.includes('flutter_bootstrap.js
   // silently costs installability as well as offline
   throw new Error('gen-sw-manifest: shell is missing index.html or the bootstrap');
 }
-for (const required of ['main.dart.js', 'brain.js', 'wasm/stockfish.wasm']) {
+// A missing staged asset is silent at runtime — the retro personas would just
+// fall back to Stockfish after a 30s boot timeout, once, in someone else's
+// browser. Fail the build instead.
+for (const required of [
+  'main.dart.js',
+  'brain.js',
+  'wasm/stockfish.wasm',
+  'retro/retro.wasm',
+  'retro/retro-worker.js',
+]) {
   if (!all.includes(required)) {
     throw new Error(`gen-sw-manifest: ${required} is missing from the build`);
   }

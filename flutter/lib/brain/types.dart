@@ -86,4 +86,6 @@ class Persona {
   int? get numericElo => raw['numericElo'] as int?;
   /// horizon: js-chess-engine difficulty level (1 or 2)
   int? get jsceLevel => raw['jsceLevel'] as int?;
+  /// retro: `{engine, ply}` — which historical engine, and how deep it looks
+  Map<String, dynamic>? get retro => raw['retro'] as Map<String, dynamic>?;
 }

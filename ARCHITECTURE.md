@@ -103,7 +103,7 @@ flowchart LR
 
     ONNX -.->|"~3.5MB per band, fetched at runtime<br/>cached in IndexedDB"| HF[("HuggingFace")]
     ONNX -.->|"onnxruntime-web 1.27"| CDN[("jsDelivr")]
-    GOW -.-> RW[("static/retro/retro.wasm<br/>4.4MB, in the repo")]
+    GOW -.-> RW[("static/retro/retro.wasm<br/>4.4MB, in the repo<br/>both apps serve this copy")]
     GARBO -.-> GB[("static/garbo/garbochess.js<br/>82KB, vendored")]
     LC0 -.->|"59MB–330MB, fetched to disk"| GH[("GitHub Releases")]
 ```
@@ -241,11 +241,23 @@ web branch of every conditional import.
 
 ## Known gaps
 
-- **The roster gap.** The brain ships 35 personas; Flutter implements three
-  families (Square, Fish, Horizon), so it offers 22. Missing: 6 Maia, 3 Retro,
-  3 Dala, 1 Garbo. This is the reason the Svelte app still owns the web
-  deploy, and every one of the four is blocked on the same thing — they are
-  asynchronous, and the bridge is not.
+- **The roster gap.** The brain ships 35 personas; Flutter implements four
+  families — Square, Fish, Horizon, and Retro on the web — so it offers **25
+  on the web and 22 on native**. Missing: 6 Maia, 3 Dala, 1 Garbo. This is the
+  reason the Svelte app still owns the web deploy, and all three are blocked
+  on the same thing — they are asynchronous, and the bridge is not.
+
+  Retro is the exception that shows the shape of the answer: it does not use
+  the bridge at all. The engines are a UCI Worker, so `RetroEngine` talks to
+  them directly in Dart and the synchronous bridge never enters into it. The
+  same escape is available to Garbo (also a Worker) and, in a different form,
+  to Maia (`onnxruntime`) — the bridge is only a constraint on work that has
+  to go *through the brain*.
+
+  The web/native split is real and new: retro ships as wasm, so
+  `RetroEngine.supported` is false on macOS/iOS and the roster picker does not
+  offer those three there. Native retro is scoped and measured (see
+  `flutter/lib/engine/retro_engine_io.dart`), not blocked.
 - **Only JavaScriptCore has ever run the brain.** `ios/` and `macos/` are the
   only native targets that exist; QuickJS is the runtime on Android and is
   untested. Bundling js-chess-engine put BigInt literals in `brain.js`, and

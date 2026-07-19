@@ -75,10 +75,10 @@ so here is what has to be true first.
    (The drive-by concern this used to carry — a visitor who never installs
    still paying for a 12MB precache — dissolved with the shell-only change:
    they now cache only what they actually used.)
-3. **Roster.** 22 of 35 personas. And note *what* the missing ones are: the
-   Svelte app is the **reference implementation** for Maia, retro, Garbo and
-   Dala. Removing it while porting exactly those is removing the thing being
-   ported from.
+3. **Roster.** 25 of 35 personas on the web (retro landed in #36). And note
+   *what* the missing ones are: the Svelte app is the **reference
+   implementation** for Maia, Garbo and Dala. Removing it while porting
+   exactly those is removing the thing being ported from.
 
 What keeping it actually costs while frozen, so the trade is honest: the
 `web-e2e` CI job, and the discipline of keeping both apps working whenever the
@@ -86,7 +86,8 @@ shared brain changes. That second one has caught real bugs in both directions,
 so it is not purely a tax.
 
 **Next toward this**: the roster, which is now the only thing between Flutter
-web and the deploy — M5, with retro the next family.
+web and the deploy — M5. retro is done; Maia is the next family, and the
+largest remaining block at six personas.
 
 ### Flutter UI backlog (raised 2026-07-19)
 
@@ -240,9 +241,14 @@ costs nothing either way — it is pure chess.js.
    (threat/win rings, control rings vs wash; see ARCHITECTURE.md).
    **Still open from the original scope: a menu bar, and per-panel collapse.**
 2. **M5 — the rest of the roster.** The brain ships 35 personas across 7
-   families; Flutter plays 22 — `square`, `fish`, and `horizon` since #32.
-   Missing: 6 Maia, 3 retro, 3 Dala, 1 Garbo. This is the real parity gap and
-   the reason Svelte still owns the web.
+   families; Flutter plays **25 on the web** — `square`, `fish`, `horizon`
+   since #32, and `retro` since #36. Missing: 6 Maia, 3 Dala, 1 Garbo. This is
+   the real parity gap and the reason Svelte still owns the web.
+
+   (25 on the web, 22 on native: retro is wasm, so `RetroEngine.supported` is
+   false on macOS/iOS and the roster picker does not offer those three there.
+   That split is new, and it is the first time the two builds have shipped
+   different rosters — worth remembering when reading a persona count.)
 
    **The constraint that decides the order** (learned doing Horizon): the Dart
    bridge is synchronous — one eval in, one JSON string out — so a brain
@@ -251,19 +257,73 @@ costs nothing either way — it is pure chess.js.
    slow cannot use it as-is either. Horizon fit because js-chess-engine is
    synchronous and answers in ~2ms. The other four each need their own
    mechanism on the Dart side first:
-   - **retro — NEXT (Ryan's call, 2026-07-19).** Three personas for one
+   - **retro — SHIPPED on web (#36, 2026-07-19).** Three personas for one
      mechanism, and the best-anchored ratings on the roster (the morlock bots'
-     real lichess numbers over 15k–48k human games). A Go module compiled to
-     wasm that already speaks minimal UCI, so the shape of the work is a wasm
-     runtime plus a UCI pump rather than a new protocol invented from scratch.
-     The open question is what runs the wasm on native Flutter — the web build
-     has `WebAssembly` for free, so it may land on Flutter web first.
-   - **Garbo** — a Worker script with its own postMessage protocol, and
-     flutter_js has no Worker. Needs an onmessage/postMessage shim *and* a
-     background isolate, since its ~1s search would block the UI.
+     real lichess numbers over 15k–48k human games).
+
+     It was mostly reuse, as expected — but **not** the "second `UciProtocol`
+     implementation" this roadmap predicted, and the reason is worth keeping.
+     `UciProtocol.search()` resolves from the `info … pv …` lines it collected,
+     so a `bestmove` with no parsed info line resolves to an **empty list**.
+     The retro engines are under no obligation to emit MultiPV info, and their
+     bestmove is the only thing worth reading — which is exactly what the
+     Svelte client does. So `RetroEngine` is a small dedicated client
+     (`flutter/lib/engine/retro_engine_web.dart`), not a `UciSearcher`, which
+     also makes it structurally impossible to hand to the arbiter by accident.
+     That was the one piece that was never free: a retro bot must not touch
+     the analysis engine, and vice versa.
+
+     Verified in a real browser rather than argued — `flutter/e2e/retro.spec.ts`,
+     the first browser tests the Flutter app has had. All three engines answer
+     UCI with a legal move, and the **app's own** worker is proven to boot and
+     search: the wasm fetch only happens if the Dart `{engine, ply}` boot
+     message crossed as a JS object, so that request is the assertion. Both
+     halves fail when `RetroEngine.supported` is flipped to false (checked).
+
+     **Native is more tractable than this roadmap previously assumed**, and
+     gomobile is not needed. Measured 2026-07-19 with Go 1.26.5 against the
+     vendored source at `scripts/engines/morlock-src`:
+
+     - The shipped `retro.wasm` is **GOOS=js**: `main.go` imports `syscall/js`
+       and talks to `wasm_exec.js`. So it cannot run in a plain wasm runtime —
+       that route needs a `GOOS=wasip1` rebuild, not the existing artifact.
+     - **macOS: nearly free.** `go build ./cmd/turochamp` produces a 3.7MB
+       native binary that speaks UCI on stdin/stdout — verified `readyok` then
+       `bestmove e2e3`. That is exactly what `ProcessEngine` already drives for
+       Stockfish, so desktop retro is a binary to ship plus a spawn path.
+     - **iOS: proven to compile.** `CGO_ENABLED=1 GOOS=ios GOARCH=arm64 go
+       build -buildmode=c-archive`, with CC pointed at Xcode's iphoneos clang,
+       produces a valid 3.5MB `ar` archive exporting a C symbol — callable
+       from `dart:ffi`. No gomobile, no extra toolchain beyond Xcode.
+
+     What iOS still needs, none of it unknown: a wrapper turning the stdin
+     UCI loop into `retro_send(line)` plus an output callback (the existing
+     `main.go` already has that shape for JS — swap `syscall/js` for `//export`),
+     an Xcode link phase for the archive, and one archive covering all three
+     engines selected by name, as the wasm build already does via
+     `retroConfig.engine`. Budget ~3.5MB of binary, once, for three personas.
+
+     Decision: **shipped web-only**, which is where the roster gap actually
+     blocks the deploy. Native stays a separately-scoped follow-up — the
+     findings above are recorded in `retro_engine_io.dart` beside the stub, so
+     whoever picks it up finds them without going through this file.
+   - **Garbo** — the difficulty here is **native-only**, and doing retro made
+     that obvious. Garbo is a Worker script with its own postMessage protocol.
+     On native that is genuinely awkward: flutter_js has no Worker, so it needs
+     an onmessage/postMessage shim *and* a background isolate, since its ~1s
+     search would block the UI. **On web it is the retro pattern exactly** —
+     a Worker is a Worker, Dart talks to it directly, and the synchronous
+     bridge never enters into it. One persona, and the cheapest one left.
    - **Maia** — the `onnxruntime` pub package. Import it lazily from day one;
      see the payload note below for what the eager version cost the web.
    - **Dala** — stays desktop-only; needs the native lc0 sidecar.
+
+   **So parity for the web deploy is 32, not 35.** Dala is desktop-only in the
+   *Svelte* app too — `svelte/src/lib/engine/dala.ts` imports
+   `@tauri-apps/api`, so it cannot run in a browser there either. The web gap
+   between the two apps is therefore **Maia (6) + Garbo (1) = 7 personas**,
+   not 10, and one of those seven is now cheap. Worth knowing before treating
+   the roster as a bigger wall than it is.
 
    Useful trick from #32: a dependency imported **only** from
    `brain/brain-entry.ts` reaches `brain.js` but never the Svelte bundle,
@@ -344,21 +404,48 @@ costs nothing either way — it is pure chess.js.
 Everything needed to submit, separated into the one item that is a *decision*
 and the rest, which are chores. Nothing here is legal advice.
 
-**The decision: GPLv3 on the App Store.** This is not a checkbox and should be
-settled before effort goes into the chores. The project is GPLv3 because
-Stockfish, dartchess and chessground are, and on iOS all three are compiled
-into the binary. Apple's standard licence terms impose per-device usage
-restrictions, and GPLv3 forbids adding restrictions to what it grants — the
-conflict that got VLC pulled from the store in 2011.
+**The decision: GPLv3 on the App Store.** Researched properly on 2026-07-19;
+it is a smaller and better-precedented decision than this section used to
+claim. Nothing here is legal advice.
 
-It is demonstrably survivable: **Lichess ships its own app under AGPL-3.0**,
-and dartchess and chessground are *theirs*, so they have already reconciled
-that for the components we borrow. The mechanism is that App Store Connect
-lets you supply a **custom EULA** replacing Apple's standard one. The residual
-risk is Stockfish, where we are not the copyright holder and the upstream team
-has enforced the GPL before (ChessBase). Worth deciding deliberately: ship
-with a custom EULA and the source offer honoured, or don't ship the engine
-compiled in.
+The project is GPL-3.0-or-later because Stockfish, dartchess and chessground
+are, and on iOS all three are compiled into the binary. Apple's Usage Rules
+impose per-device install limits and require accepting its ToS; GPLv3 forbids
+adding restrictions to what it grants. That is a real conflict — it got GNU Go
+pulled in 2010 on an FSF complaint, and VLC pulled in 2011 after a single
+contributor objected. (VLC later relicensed its core to LGPL to return.)
+
+Three corrections to what was written here before:
+
+- **A custom EULA does not cure it.** App Store Connect does let you supply
+  one, but Apple's *minimum required terms* still impose restrictions, so the
+  "further restrictions" problem survives. No source found says otherwise.
+  Treat a custom EULA as hygiene, not as the mechanism.
+- **The mechanism is that only a copyright holder can enforce.** There is no
+  compliance step that makes this clean; there is only the question of whether
+  a Stockfish copyright holder would object. Both precedents above were
+  copyright-holder complaints, not Apple-initiated removals.
+- **Lichess's *app* is GPL-3.0-or-later, not AGPL** (AGPL is lila, the
+  server). That matters, because the app is the precedent: `lichess-org/mobile`
+  is Flutter, depends on `multistockfish` from pub.dev, ships on the iOS App
+  Store, and its COPYING.md grants no exception and no custom EULA. Same
+  stack as ours, same licence, shipping since 2015.
+
+Stockfish upstream does police non-compliance (discussion #4855 lists
+offending iOS apps), but the complaint there is about apps **not publishing
+source** — not about App Store distribution as such. Lichess publishes source
+and has been left alone.
+
+**Recommended posture:** take the Lichess one. Stay GPL-3.0-or-later, publish
+the source, link to it from inside the app, ship both licence texts. Residual
+exposure is a takedown risk, not a damages risk, and it is identical whether
+or not retro ever ships natively.
+
+Two things that are already right and should not drift:
+- **Maia and Dala weights are GPL-3.0 and are fetched at runtime, never
+  redistributed.** Keep it that way — shipping weights in the bundle is a
+  materially worse position than linking Stockfish.
+- **retro is MIT** (morlock), so it adds nothing to any of this.
 
 **Required by the platform:**
 - **`PrivacyInfo.xcprivacy`** — mandatory. Must declare the required-reason
