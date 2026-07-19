@@ -99,8 +99,13 @@ class _BootGateState extends State<BootGate> {
   Future<_Booted> _start() async {
     initDatabaseFactory(); // web: sqlite3 WASM; native: no-op
     final bridge = await JsBridge.load();
-    final engine = await startEngine();
-    final arbiter = SearchArbiter(engine);
+    // Started, NOT awaited. On the web the engine is a 7MB WASM download plus
+    // a UCI handshake, and awaiting it here put all of that in front of the
+    // first frame: 17.3MB before anything was drawn, measured at 16s on fast
+    // 4G and 46s on slow. The board does not need the engine to appear — the
+    // arbiter queues searches until it answers — so the splash now lifts on
+    // brain + settings + db, and the engine arrives behind it.
+    final arbiter = SearchArbiter(startEngine());
     final settings = await SettingsStore.load();
     final db = await AppDb.open();
     final classTable = ClassTable(GradingApi(bridge).classTable());

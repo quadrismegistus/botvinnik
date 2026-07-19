@@ -14,9 +14,9 @@ one; `svelte/` and `flutter/` are consumers and neither depends on the other.
   construction, where the Flutter desktop build spawns whatever binary it
   finds.
 - **Svelte still owns the web deploy**, and is now **frozen** — see below.
-  botvinnik.app stays SvelteKit until Flutter web closes the remaining gaps:
-  the persona roster and the payload. (Offline was the third; closed
-  2026-07-19.)
+  botvinnik.app stays SvelteKit until Flutter web closes the one remaining
+  gap: the persona roster. (Offline closed 2026-07-19; payload accepted the
+  same day.)
 - Flutter web works and is measured (9.22MB gzipped, 26 requests as of
   2026-07-18) but is not a deploy candidate yet. Since that measurement,
   `brain.js` has grown ~24KB gzipped from bundling js-chess-engine for the
@@ -37,40 +37,52 @@ immutable, and it does not invite drift.
 Retiring the Svelte app is the one step that cannot be walked back cheaply,
 so here is what has to be true first.
 
-**Three gaps, all measured. One is now closed:**
+**Three gaps, all measured. Only the roster is still open:**
 1. ~~**Offline.**~~ **CLOSED 2026-07-19** — Flutter web is a real PWA: boots
    with no network, and makes no third-party requests either (the fonts it
    used to fetch from Google are bundled). See the service-worker item below
-   for what precaches and why. **Two gaps left.**
-2. **Payload — and it is not really about bytes.** Measured cold (cache
-   cleared, service worker blocked), time until the app is *usable*:
+   for what precaches and why.
+2. ~~**Payload.**~~ **ACCEPTED 2026-07-19** — not a blocker. It is a full
+   chess app behind a splash screen, and it is a PWA you install rather than a
+   page you skim.
 
-   | | Flutter | Svelte |
-   |---|---|---|
-   | unthrottled | **1.1s** | 0.1s |
-   | fast 4G, 9 Mbps | **16.3s** | 0.5s |
-   | slow 4G, 3 Mbps | **46.0s** | 1.4s |
+   Measured cold anyway (cache cleared, service worker blocked), time until
+   the app is *usable*, before and after the boot fix below:
 
-   On a good connection 9MB is a non-issue — 1.1s. The gap opens on mobile
-   data, and the cause is **not** size alone: Flutter's boot is all-or-nothing.
-   `_start()` awaits `startEngine()` before `dismissSplash()`, so the splash
-   covers the screen until the *entire* 17.3MB is down and the engine, brain
-   and database are all up. Svelte paints a usable board after **0.4MB** and
-   streams the 7MB engine in behind it — which is why the same connection
-   costs it 0.5s and Flutter 16.3s.
+   | | Flutter before | Flutter after | Svelte |
+   |---|---|---|---|
+   | unthrottled | 1.1s | **0.9s** | 0.1s |
+   | fast 4G, 9 Mbps | 16.3s | **10.5s** | 0.5s |
+   | slow 4G, 3 Mbps | 46.0s | **30.0s** | 1.4s |
 
-   (The two "ready" definitions differ, deliberately: Flutter's is a complete
+   The useful finding was that the gap was never about size alone: `_start()`
+   awaited `startEngine()` before `dismissSplash()`, so the splash covered the
+   screen until the *entire* 17.3MB was down — including 7MB of Stockfish you
+   do not need in order to look at a board. **Fixed**: `SearchArbiter` now
+   takes a `Future<UciSearcher>` and queues work until it arrives, so boot
+   waits on brain + settings + db only. About 35% off, on both mobile
+   profiles.
+
+   (The two "ready" definitions differ deliberately: Flutter's is a complete
    boot because that is when it shows you anything; Svelte's is first usable
-   board. That asymmetry *is* the finding.)
+   board.)
 
-   So there are two levers, and the second is much cheaper than the first:
-   - **Make it progressive.** Lift the splash once the UI can draw, and let
-     the engine arrive behind it — the app already copes with having no lines
-     yet. Stockfish is 7MB of the 17.3MB critical path and you do not need it
-     to *look at* a board. This is a boot-ordering change, not a diet.
-   - **Shrink the floor.** CanvasKit is 5.5MB and is what a CanvasKit app
-     costs; getting under it means questioning the renderer, not trimming
-     assets.
+   What is left is Flutter's own floor — CanvasKit 5.5MB plus the Dart bundle
+   2.9MB — and getting under that means questioning the renderer, not trimming
+   assets. Not worth doing for its own sake. Revisit only if the web build
+   ever needs to win a first click from a stranger.
+
+   **One tension this leaves, worth deciding rather than drifting into.** The
+   service worker registers for *every* visitor, not only those who install,
+   and its precache is 12.0MB — including the 6.96MB of Stockfish that the
+   boot fix just took off the critical path. So someone who opens the link
+   once and leaves still pulls 12MB in the background. Accepting the payload
+   *for an installed app* is sound; doing it for a drive-by is a different
+   bargain. If that matters, gate the heavy half of the precache on the
+   `appinstalled` event or a `display-mode: standalone` check, and precache
+   only the shell otherwise. (For reference: a warm install is ~17.9MB —
+   12.0 precached, CanvasKit 5.5 and one piece set on first use. The other 39
+   piece sets, ~14MB, are never fetched unless you switch sets.)
 3. **Roster.** 22 of 35 personas. And note *what* the missing ones are: the
    Svelte app is the **reference implementation** for Maia, retro, Garbo and
    Dala. Removing it while porting exactly those is removing the thing being
@@ -81,10 +93,8 @@ What keeping it actually costs while frozen, so the trade is honest: the
 shared brain changes. That second one has caught real bugs in both directions,
 so it is not purely a tax.
 
-**Next toward this**: the roster (M5 — retro is the next family), since it is
-the gap with the most work in it. The payload gap is the one to think about
-rather than grind at: 9.22MB is what a CanvasKit app costs, so closing it
-means questioning the renderer, not trimming assets.
+**Next toward this**: the roster, which is now the only thing between Flutter
+web and the deploy — M5, with retro the next family.
 
 ### Flutter UI backlog (raised 2026-07-19)
 

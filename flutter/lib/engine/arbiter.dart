@@ -89,7 +89,18 @@ class _Request {
 }
 
 class SearchArbiter {
-  final UciSearcher _engine;
+  /// The engine, once it exists. Taken as a FUTURE so boot does not wait on
+  /// it: on the web that is a 7MB WASM download plus a UCI handshake, and it
+  /// used to sit on the critical path in front of the first frame — 17.3MB
+  /// before anything was drawn, which is 16s on fast 4G. Now the board appears
+  /// and searches queue here until the engine answers.
+  ///
+  /// [_ready] is the awaitable; [_engine] is the resolved value, null until
+  /// then. Every synchronous `stop()` site uses the nullable one, which is
+  /// safe: nothing can be running before the first search, and the first
+  /// search cannot start before this resolves.
+  final Future<UciSearcher> _ready;
+  UciSearcher? _engine;
   final Queue<_Request> _queue = Queue();
   _Request? _running;
   Timer? _budgetTimer;
@@ -101,7 +112,14 @@ class SearchArbiter {
   static const int _kMinUsefulDepth = 12;
   int? _stopAtDepth;
 
-  SearchArbiter(this._engine);
+  SearchArbiter(this._ready) {
+    // cache the resolved engine for the synchronous stop() paths. The error
+    // arm is swallowed HERE only — a boot failure still surfaces where it can
+    // be handled, at the `await _ready` in _run.
+    _ready.then((e) {
+      _engine = e;
+    }, onError: (Object _) {});
+  }
 
   /// The board moved on: analyses of positions other than [exceptFen] are
   /// history. Queued ones resolve null; a running one is stopped as soon as
@@ -130,7 +148,7 @@ class SearchArbiter {
       // threat probe has nothing to salvage, so it just stops
       if (running.priority != SearchPriority.analysis ||
           _runningStreamDepth >= _kMinUsefulDepth) {
-        _engine.stop();
+        _engine?.stop();
       } else {
         _stopAtDepth = _kMinUsefulDepth; // stop once it gets there
       }
@@ -146,7 +164,7 @@ class SearchArbiter {
       r.completer.complete(null);
     }
     _queue.clear();
-    if (_running != null) _engine.stop();
+    if (_running != null) _engine?.stop();
   }
 
   /// Enqueue a search. Resolves null if the request goes stale before or
@@ -209,12 +227,48 @@ class SearchArbiter {
         !_preempting &&
         req.priority.index < running.priority.index) {
       _preempting = true;
-      _engine.stop();
+      _engine?.stop();
+    }
+  }
+
+  bool _waitingForEngine = false;
+  Object? _engineError;
+
+  void _failAll(Object e) {
+    final pending = _queue.toList();
+    _queue.clear();
+    for (final r in pending) {
+      if (!r.completer.isCompleted) r.completer.completeError(e);
     }
   }
 
   void _pump() {
     if (_running != null || _queue.isEmpty) return;
+    // Requests may arrive before the engine finishes loading — boot no longer
+    // waits for it. Hold them in the queue rather than marking one running:
+    // that keeps "running implies a search is in flight", which every stop()
+    // and preemption path depends on. Without it a higher-priority arrival
+    // during the load window silently lost its preemption.
+    if (_engine == null) {
+      if (_engineError != null) return _failAll(_engineError!);
+      if (!_waitingForEngine) {
+        _waitingForEngine = true;
+        _ready.then((_) {
+          _waitingForEngine = false;
+          _pump();
+        }, onError: (Object e) {
+          // Boot used to await the engine, so a failure showed the boot-error
+          // screen. Now it does not — and swallowing this left every search
+          // queued forever, which looks like a hung app rather than a broken
+          // engine. Fail them instead: callers log it, and the board stays
+          // usable for browsing.
+          _waitingForEngine = false;
+          _engineError = e;
+          _failAll(e);
+        });
+      }
+      return;
+    }
     final req = _queue.removeFirst();
     if (req.generation != _generation) {
       if (!req.completer.isCompleted) req.completer.complete(null);
@@ -229,7 +283,8 @@ class SearchArbiter {
     // movetime with a depth target = budget cap enforced Dart-side;
     // movetime with depth 0 = the engine's own movetime go
     if (req.movetimeMs != null && req.depth > 0) {
-      _budgetTimer = Timer(Duration(milliseconds: req.movetimeMs!), _engine.stop);
+      _budgetTimer =
+          Timer(Duration(milliseconds: req.movetimeMs!), () => _engine?.stop());
     }
     _runningStreamDepth = 0;
     _stopAtDepth = null;
@@ -237,14 +292,14 @@ class SearchArbiter {
       _runningStreamDepth = lines.isEmpty ? 0 : lines.first.depth;
       if (_stopAtDepth != null && _runningStreamDepth >= _stopAtDepth!) {
         _stopAtDepth = null;
-        _engine.stop();
+        _engine?.stop();
       }
       if (req.generation == _generation) req.onUpdate?.call(lines);
     }
 
     List<EngineMove> lines;
     try {
-      lines = await _engine.search(
+      lines = await _engine!.search(
         req.fen,
         go: req.goCommand,
         multiPv: req.multiPv,
@@ -285,6 +340,6 @@ class SearchArbiter {
   void dispose() {
     _budgetTimer?.cancel();
     bumpGeneration();
-    _engine.dispose();
+    _engine?.dispose();
   }
 }
