@@ -1,6 +1,11 @@
 // Review one stored game: static board with the played move highlighted and
 // the best move as a green arrow, verdict strip, tappable move list,
 // prev/next scrubbing in the bottom bar.
+//
+// A BODY, not a screen: it renders inside the Review tab rather than as a
+// pushed route. A route would cover the shell — which is what made the bottom
+// tabs vanish the moment you opened a game, stranding you in a mode you could
+// only leave with the app bar's back arrow.
 
 import 'package:chessground/chessground.dart';
 import 'package:dartchess/dartchess.dart';
@@ -11,49 +16,70 @@ import '../stores/review_controller.dart';
 import '../stores/settings_store.dart';
 import 'board_theme.dart';
 import 'grade_strip.dart';
+import 'layout.dart';
 
-class ReviewScreen extends StatelessWidget {
-  const ReviewScreen({super.key});
+class ReviewBody extends StatelessWidget {
+  const ReviewBody({super.key});
 
   @override
   Widget build(BuildContext context) {
     final review = context.watch<ReviewController>();
     final table = context.read<ClassTable>();
     final game = review.current;
-    if (game == null) {
-      return const Scaffold(body: SizedBox());
-    }
+    if (game == null) return const SizedBox();
     final youAreWhite = (game['botColor'] as String?) == 'b';
     final m = review.currentMove;
 
-    return Scaffold(
-      appBar: AppBar(
-        title: Text('${game['result']} · ${game['botPersona'] ?? 'game'}',
-            style: const TextStyle(fontSize: 15)),
-      ),
-      body: SafeArea(
+    return SafeArea(
         bottom: false,
-        child: Column(
-          children: [
-            LayoutBuilder(
-              builder: (context, constraints) => StaticChessboard(
-                settings: staticBoardSettingsFor(context.watch<SettingsStore>()),
-                size: constraints.maxWidth,
-                orientation: youAreWhite ? Side.white : Side.black,
-                fen: review.fen,
-                lastMove: m == null
-                    ? null
-                    : NormalMove.fromUci(m['uci'] as String),
-                shapes: _shapes(m),
-              ),
-            ),
-            _verdictStrip(m, table),
-            Expanded(child: _moveList(review, table)),
-            _scrubBar(review, context),
-          ],
-        ),
-      ),
-    );
+        // Square board, so full width on a desktop window meant a board taller
+        // than the viewport: it overflowed by ~870px and buried the move list
+        // and scrub bar. Capped when stacked, beside the list when wide.
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final settings = context.watch<SettingsStore>();
+            Widget board(double size) => StaticChessboard(
+                  settings: staticBoardSettingsFor(settings),
+                  size: size,
+                  orientation: youAreWhite ? Side.white : Side.black,
+                  fen: review.fen,
+                  lastMove: m == null
+                      ? null
+                      : NormalMove.fromUci(m['uci'] as String),
+                  shapes: _shapes(m),
+                );
+
+            if (constraints.maxWidth < kWideBreakpoint) {
+              final size = stackedBoardSize(
+                  constraints.maxWidth, constraints.maxHeight, kReviewChrome);
+              return Column(
+                children: [
+                  Center(child: board(size)),
+                  _verdictStrip(m, table),
+                  Expanded(child: _moveList(review, table)),
+                  _scrubBar(review, context),
+                ],
+              );
+            }
+            final size = wideBoardSize(
+                constraints.maxWidth, constraints.maxHeight, settings.split);
+            return Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                board(size),
+                Expanded(
+                  child: Column(
+                    children: [
+                      _verdictStrip(m, table),
+                      Expanded(child: _moveList(review, table)),
+                      _scrubBar(review, context),
+                    ],
+                  ),
+                ),
+              ],
+            );
+          },
+        ));
   }
 
   Set<Shape> _shapes(Map<String, dynamic>? m) {

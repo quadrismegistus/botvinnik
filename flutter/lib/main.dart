@@ -276,7 +276,23 @@ class _AppShellState extends State<AppShell> {
           ),
         );
       case 2:
-        return AppBar(title: const Text('Games', style: TextStyle(fontSize: 16)));
+        // the review renders inside this tab rather than as a pushed route,
+        // so there is no route to pop — the way back to the list is here
+        final review = context.watch<ReviewController>();
+        final game = review.current;
+        if (game == null) {
+          return AppBar(
+              title: const Text('Games', style: TextStyle(fontSize: 16)));
+        }
+        return AppBar(
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back),
+            tooltip: 'Back to games',
+            onPressed: review.close,
+          ),
+          title: Text('${game['result']} · ${game['botPersona'] ?? 'game'}',
+              style: const TextStyle(fontSize: 15)),
+        );
       case 3:
         return AppBar(
             title: const Text('Settings', style: TextStyle(fontSize: 16)));

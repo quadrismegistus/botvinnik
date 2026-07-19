@@ -52,6 +52,7 @@ brain/      the shared truth: bot move selection, grading, explanations,
             to flutter/assets/brain.js (npm run build:brain) and runs the
             same code in an embedded JS engine.
 svelte/     the SvelteKit web app (botvinnik.app) and its Tauri desktop shell
+            — FROZEN as of 2026-07-19, see svelte/FROZEN.md
 flutter/    the Flutter app — iOS, Android, macOS, and an experimental web build
 static/     web assets both apps serve: the Stockfish WASM engine, the baked
             opening book, icons

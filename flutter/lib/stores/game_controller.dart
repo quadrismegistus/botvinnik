@@ -25,6 +25,15 @@ import 'practice_controller.dart';
 import 'redo_stack.dart';
 import 'settings_store.dart';
 
+/// How long archiving a finished game waits for in-flight grading.
+///
+/// Must stay comfortably ABOVE [kAnalysisMovetimeMs]: a grade pipeline awaits
+/// the analysis of the position after its move, so the slowest grade cannot
+/// land sooner than the slowest analysis. Set below it, and finishing a game
+/// during a deep search would archive it without its closing labels — silently,
+/// since the wait times out rather than failing.
+const int kSaveGradeWaitSeconds = 16;
+
 class MoveRecord {
   final int ply; // 1-based, like the web
   final String san;
@@ -320,7 +329,8 @@ class GameController extends ChangeNotifier {
     // terminal move's backfill may never come: a mate position has no lines)
     if (_pendingGrades.isNotEmpty) {
       await Future.wait(_pendingGrades.toList())
-          .timeout(const Duration(seconds: 12), onTimeout: () => []);
+          .timeout(const Duration(seconds: kSaveGradeWaitSeconds),
+              onTimeout: () => []);
     }
 
     final stored = played.map(_storedMoveOf).toList();

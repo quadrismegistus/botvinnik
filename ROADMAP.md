@@ -21,17 +21,50 @@ one; `svelte/` and `flutter/` are consumers and neither depends on the other.
   Horizon personas — and note it is script-tagged *synchronously ahead of*
   `main.dart.js`, so it sits on the critical boot path.
 
+### Consolidating on Flutter — DECIDED 2026-07-19: Svelte is FROZEN
+
+**No new features in `svelte/`.** It keeps serving botvinnik.app, keeps its
+bug fixes, and keeps working when the shared brain changes — but effort goes
+to Flutter from here. It is **not** deleted, and the distinction is the point:
+the focus comes from this decision, not from moving code. A branch would
+archive nothing anyway, since the history stays in `main` regardless; a branch
+only matters if Svelte is then deleted from `main`, which is what waits on the
+gate below. When that day comes a **tag** is the better archive than a branch:
+immutable, and it does not invite drift.
+
+Retiring the Svelte app is the one step that cannot be walked back cheaply,
+so here is what has to be true first.
+
+**Three gaps, all measured, all open:**
+1. **Offline.** Flutter web registers no service worker at all (verified on
+   3.44.6, above). The Svelte app is a working PWA with a deliberate precache.
+   This is a capability regression users would feel on day one.
+2. **Payload.** Svelte deploys ~270KB gzipped of JS. Flutter web is 9.22MB
+   gzipped over 26 requests — **about 34×**. Acceptable for an app you install;
+   a different proposition for a link someone opens.
+3. **Roster.** 22 of 35 personas. And note *what* the missing ones are: the
+   Svelte app is the **reference implementation** for Maia, retro, Garbo and
+   Dala. Removing it while porting exactly those is removing the thing being
+   ported from.
+
+What keeping it actually costs while frozen, so the trade is honest: the
+`web-e2e` CI job, and the discipline of keeping both apps working whenever the
+shared brain changes. That second one has caught real bugs in both directions,
+so it is not purely a tax.
+
+**Gap 1 is next up** — see the service-worker item below.
+
 ### Flutter UI backlog (raised 2026-07-19)
 
-- **Practice and Review overflow on a wide window — BUG, do first.** Not a
-  missing port: both tabs exist and work. They just never got #29's
-  wide-window layout. `practice_tab.dart:91` and `review_screen.dart:38` both
-  size the board to `constraints.maxWidth` with no height cap, so on a desktop
-  window a square board is as tall as the window is wide — measured overflow
-  945px (Practice) and 871px (Review), with the action bar pushed off-screen.
-  `PlayTab` already solves this with `narrowBoardSize`/`wideBoardSize` in
-  `ui/layout.dart`; the fix is to route these two through the same helpers,
-  and ideally to stop having three call sites that each decide board size.
+- ~~**Practice and Review overflow on a wide window.**~~ **FIXED (#33).** Not
+  a missing port — both tabs existed and worked; they had never been given
+  #29's wide-window layout, and sized the board to `constraints.maxWidth` with
+  no height cap, so a square board was as tall as the window was wide (945px
+  and 871px of overflow, action row and scrub bar off-screen). The root cause
+  was three widgets each deciding board size independently, so the arithmetic
+  now lives in one place: `stackedBoardSize(width, height, chrome)`, with
+  `narrowBoardSize` as Play's chrome through it. Both screens also gained the
+  board-beside-the-furniture wide branch.
 - **New-game flow.** Opponent selection belongs in the New Game sheet, not
   behind the app-bar title — choosing who you play is part of starting a game,
   not a persistent global setting. While there: allow **both** sides to be
@@ -41,13 +74,67 @@ one; `svelte/` and `flutter/` are consumers and neither depends on the other.
   "Chart" come above "Lines" — analysis first, then the line list, then the
   move list. Affects the `_tabs` order in `main.dart` and the persisted panel
   indices in settings, so it needs a migration or index-independent keys.
-- **Blind-mode keyboard shortcut.** Nothing toggles it from the keyboard
-  today. `b` is free — `ui/keyboard.dart` binds only `f` (flip), space
-  (preview), the arrows, and ⌘Z/⇧⌘Z — and reads better than `h`, which
-  suggests "hint" or "help". Add it to `bindingsFor` in the same commit, so
-  the help sheet cannot drift from the bindings. Note it is the one binding
-  that would *change* what you can see, so it should probably not repeat on
-  key-hold (the existing `_repeatable` set already handles that).
+- **Keyboard shortcuts in Practice and Review, and blind mode in Play.**
+  These are one job, because they force the same structural change. The
+  keyboard layer is currently tab-**gated**: `KeyboardControls` wraps the shell
+  and returns `ignored` unless `_tab.value == 0` (main.dart), which is what
+  stops ⌘Z reaching a hidden board. What is wanted is tab-**aware** — a
+  per-tab action map rather than one map switched off.
+
+  Wanted bindings:
+  - **Play:** `h` toggles blind mode — "hide". Both keys are free; `h` was
+    chosen over `b` precisely because it leaves `b` to mean "show best" and
+    nothing else, in any tab. The residual tension is that Practice has a
+    Hint action, so if that ever wants a key it cannot have `h`.
+  - **Review:** ← / → step between moves, and it should be possible to review
+    with the keyboard alone. `ReviewController` already has `prev`, `next`,
+    `goto`, `canPrev`, `canNext` — this is wiring, not new logic.
+  - **Practice:** `r` retries, `n` next puzzle, `b` shows best, `?` hints.
+    The arrows stay unbound here — `r` already covers retry, and Practice has
+    no move history to step through. `PracticeController` already has `retry`,
+    `nextPuzzle`, `reveal`, `hint`.
+
+    `?` over `q` or `s`: it is the near-universal help convention, it escalates
+    the way the feature does (press again for more), and it is the only one of
+    the three that is not arbitrary — `q` conventionally means quit, and `s`
+    for "show" would collide semantically with `b` for "show best", which is
+    exactly the memorability problem dropping the left-arrow binding removed.
+    Implementable as-is: `boardActionFor` excludes only Alt on the
+    non-modifier path, so a bare `?` (Shift+`/`) arrives normally — match
+    `LogicalKeyboardKey.question`, and consider accepting `slash` too, since
+    `?` sits elsewhere on non-US layouts.
+
+    Note hint and reveal **converge**: `hint()` escalates a tier per press and
+    sets `revealBest` at tier 3, so `?` three times lands where `b` does. That
+    is good progressive disclosure, not a bug — but wire them knowing it, so
+    the two do not fight over `revealBest`.
+
+  **No key means two things.** Worth keeping it that way: ← / → mean "step
+  through the moves of a game" everywhere they are bound, and are simply
+  absent where there is no game to step through. Tab scoping would have made
+  a collision *safe*, but not memorable.
+
+  The per-tab sets still differ (Play has `f`, space, `h`, ⌘Z; Practice has
+  `r`, `n`, `b`), so `KeyboardControls.bindingsFor` — the single list the help
+  sheet renders, so that the sheet cannot drift from the bindings — has to
+  grow a tab dimension. **Show all of them, grouped under per-tab headings,
+  rather than only the active tab's**: one dialog with no context threaded
+  into it, and you learn Practice's keys while sitting in Play, which is where
+  you would want to have learned them. The load-bearing part is unchanged —
+  the same structure must drive both the dialog and the dispatch, or the
+  drift guarantee it exists for is gone. If the dialog covers every tab, its
+  app-bar button probably should not stay Play-only either. Also decide
+  whether
+  `n`/`r`/`b` should repeat on key-hold; the existing `_repeatable` set says
+  browse keys yes, state-changing keys no, and all three of these change
+  state.
+- **Review should open at the start, not the end.** `review_controller.dart`
+  `open()` sets `cursor = moves.length` ("land on the final position"), so a
+  game opens at the last move and must be scrubbed backwards. Reviewing runs
+  forwards. One line — but decide between `cursor = 0` (the start position,
+  verdict strip reads "Start position") and `cursor = 1` (after the first
+  move, so the first verdict is already showing). `0` is the truer
+  "beginning"; `1` avoids opening on a screen with nothing to say.
 - **Default board texture → Olive.** `kDefaultBoardTexture` is `'newspaper'`
   (`settings_store.dart:22`); `'olive'` already exists (`board_theme.dart:73`).
   One-word change, but it only applies to profiles with no stored preference —
@@ -65,18 +152,50 @@ the Lines pane, the Tree and the bot's repetition guard all read the same
 
 The only *extra* engine run is the threat probe, and it cannot be folded in:
 it searches the **null-move position** (side to move flipped), which is not a
-node in the current position's tree. It is deliberately cheap and outranks
-analysis in the arbiter (depth 14, MultiPV 1, 500ms).
+node in the current position's tree. The opponent replies that *do* appear in
+your PVs are replies to **your move** — which is precisely what a threat is
+not. There is nothing to merge. It is deliberately cheap and outranks analysis
+in the arbiter (depth 14, MultiPV 1, 500ms).
+
+**But it could refine as it deepens, and the plumbing already exists.**
+`_probeThreat` passes no `onUpdate`, so it is one-shot: one search, one answer.
+`SearchArbiter.search` already takes `onUpdate` — that is how the engine arrows
+stream. Passing one, and giving the probe a longer budget, would make threat
+arrows sharpen the way engine arrows do. Two cautions before doing it:
+- **One engine.** Threat and analysis are serialized whatever the priorities.
+  The probe outranks analysis *because* it is short; making it long and
+  high-priority would starve the thing it jumps ahead of.
+- **Deeper is not obviously better here.** The overlay was built around
+  *immediate* threats — that is what the three-fact ring rule enforces. A much
+  deeper probe surfaces remoter, more speculative threats, i.e. exactly what
+  those rules exist to filter out. Test whether the rings get better or just
+  noisier before committing to a bigger budget.
 
 So when the arrows feel weak against a full-strength engine, the cause is the
-**budget**, not a per-feature cap: depth 22 / **3000ms** / **MultiPV 5** on the
-single-threaded lite WASM build. MultiPV 5 is the expensive part — holding five
-PVs prunes far less than MultiPV 1, so the same milliseconds buy materially
-less depth, and the movetime cap often binds before depth 22. Levers, roughly
-in order of value: raise the movetime for the settled analysis; drop to MultiPV
-1 for the *arrow* while keeping 5 for the panels (two reads of one search, not
-two searches); or give desktop/native its own budget, since it is not on lite
-WASM. Control tinting costs nothing either way — it is pure chess.js.
+**budget**: depth 22 / MultiPV 5, on the single-threaded lite WASM build.
+MultiPV 5 is the expensive part — five principal variations prune far less than
+one, so the same milliseconds buy materially less depth.
+
+**Measured** in a real browser on the app's own engine, time to reach depth 22:
+start 3755ms, open middlegame 5954ms (7437ms to finish), complex midgame
+4180ms, pawn endgame 2010ms. The old 3000ms cap therefore truncated **three of
+four** positions around depth 19-21 — the arrows never reached the depth they
+advertised. Flutter's cap is now 10000ms, a backstop rather than the routine
+limit (`kAnalysisMovetimeMs`, with `kSaveGradeWaitSeconds` above it because a
+grade pipeline awaits its position's analysis).
+
+**Not changed on the web, deliberately.** Flutter ranks `threatProbe` and
+`botMove` above `analysis` and preempts, so a longer analysis yields the
+instant anything else needs the engine. The web is a single-slot supersede
+queue and runs `computeThreat` only after `await analyze(...)` returns, so the
+same change there would delay every threat arrow by the same amount. Fixing
+that means giving the web real priorities, not a bigger number.
+
+Still open: drop to MultiPV 1 for the *arrow* while keeping 5 for the panels
+(two reads of one search, not two searches); give native its own budget, since
+it is not on lite WASM and reaches depth far sooner; and decide whether mobile
+wants a smaller cap, since this is CPU spent while you think. Control tinting
+costs nothing either way — it is pure chess.js.
 
 ### In order
 
