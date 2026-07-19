@@ -23,15 +23,15 @@ one; `svelte/` and `flutter/` are consumers and neither depends on the other.
 
 ### Flutter UI backlog (raised 2026-07-19)
 
-- **Practice and Review overflow on a wide window — BUG, do first.** Not a
-  missing port: both tabs exist and work. They just never got #29's
-  wide-window layout. `practice_tab.dart:91` and `review_screen.dart:38` both
-  size the board to `constraints.maxWidth` with no height cap, so on a desktop
-  window a square board is as tall as the window is wide — measured overflow
-  945px (Practice) and 871px (Review), with the action bar pushed off-screen.
-  `PlayTab` already solves this with `narrowBoardSize`/`wideBoardSize` in
-  `ui/layout.dart`; the fix is to route these two through the same helpers,
-  and ideally to stop having three call sites that each decide board size.
+- ~~**Practice and Review overflow on a wide window.**~~ **FIXED (#33).** Not
+  a missing port — both tabs existed and worked; they had never been given
+  #29's wide-window layout, and sized the board to `constraints.maxWidth` with
+  no height cap, so a square board was as tall as the window was wide (945px
+  and 871px of overflow, action row and scrub bar off-screen). The root cause
+  was three widgets each deciding board size independently, so the arithmetic
+  now lives in one place: `stackedBoardSize(width, height, chrome)`, with
+  `narrowBoardSize` as Play's chrome through it. Both screens also gained the
+  board-beside-the-furniture wide branch.
 - **New-game flow.** Opponent selection belongs in the New Game sheet, not
   behind the app-bar title — choosing who you play is part of starting a game,
   not a persistent global setting. While there: allow **both** sides to be
