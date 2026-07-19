@@ -15,8 +15,17 @@
 //     which produces a valid 3.5MB archive callable from dart:ffi. No
 //     gomobile needed.
 //
-// What is missing is the plumbing, the ~11MB of binaries in the bundle, and
-// the GPLv3-on-the-App-Store decision — all of which want deciding together.
+// What is missing is the plumbing and the binaries in the bundle. Note that
+// `go build ./cmd/<engine>` is one binary PER engine (~3.7MB each, so ~11MB
+// for three) — the single-archive figure above is the iOS c-archive route,
+// where one archive covers all three selected by name.
+//
+// Licensing is NOT a blocker here, contrary to an earlier note in this file:
+// morlock is MIT (scripts/engines/morlock-src/LICENSE), so the retro binaries
+// carry no copyleft obligation at all. The GPLv3-on-the-App-Store question is
+// real, but it belongs to Stockfish and to this repo's own GPL-3.0-or-later
+// licence, and it is already live on every platform — retro neither creates
+// nor worsens it. See ROADMAP.md.
 
 class RetroEngine {
   RetroEngine(this.engine, this.ply);
