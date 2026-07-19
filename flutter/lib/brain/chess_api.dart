@@ -34,10 +34,21 @@ class ChessApi {
       _bridge.call('threatProbeFen', args: [fen]) as String?;
 
   /// The material judgment on the probe's top line. Returns
-  /// {fen, uci, san, gain} or null when the "threat" doesn't win material.
+  /// {fen, uci, san, gain, targets} or null when the "threat" doesn't win
+  /// material; targets are the current squares of the pieces the line wins
+  /// (the mated king for a mate) — attacked by the threat move and lost even
+  /// under best defense, possibly empty.
   /// A mate threat arrives with gain == null (Infinity doesn't survive JSON).
   Map<String, dynamic>? judgeThreat(String fen, Map<String, dynamic> bestLine) {
     final r = _bridge.call('judgeThreat', args: [fen, bestLine]);
+    return r == null ? null : (r as Map).cast<String, dynamic>();
+  }
+
+  /// The green mirror of judgeThreat: the same judgment on the side to
+  /// move's OWN top analysis line — what the mover wins by playing it.
+  /// Same shape as judgeThreat; costs no engine time.
+  Map<String, dynamic>? judgeTacticalWin(String fen, Map<String, dynamic> bestLine) {
+    final r = _bridge.call('judgeTacticalWin', args: [fen, bestLine]);
     return r == null ? null : (r as Map).cast<String, dynamic>();
   }
 

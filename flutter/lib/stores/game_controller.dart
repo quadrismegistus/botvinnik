@@ -22,6 +22,7 @@ import '../db/app_db.dart';
 import '../engine/arbiter.dart';
 import 'lines_tree_model.dart';
 import 'practice_controller.dart';
+import 'redo_stack.dart';
 import 'settings_store.dart';
 
 class MoveRecord {
@@ -137,6 +138,8 @@ class GameController extends ChangeNotifier {
   // ---- game actions ----
 
   void newGame() {
+    _browsePly = null;
+    _redoStack.clear();
     _gen++;
     _arbiter.bumpGeneration();
     position = Chess.initial;
@@ -147,6 +150,7 @@ class GameController extends ChangeNotifier {
     gameSeed = _newSeed();
     _analysis.clear();
     _partials.clear();
+    _controlCache.clear(); // per-fen maps would accrete for the process life
     _threat = null;
     _analysisFor(position.fen);
     _syncTree(); // playedSans is empty → the model wipes itself
@@ -155,24 +159,65 @@ class GameController extends ChangeNotifier {
     _maybeBotTurn();
   }
 
+  /// Moves taken off by undo, in game order, so redo can put them back
+  /// exactly as they were — including their grades, which cost engine time
+  /// to earn. Any new move discards them (see _apply).
+  final RedoStack _redoStack = RedoStack();
+
+  bool get canUndo =>
+      !botThinking &&
+      (botEnabled
+          ? moves.any((m) => m.color == playerColor)
+          : moves.isNotEmpty);
+  bool get canRedo => _redoStack.isNotEmpty && !botThinking;
+
   /// Undo the last player move (and the bot reply on top of it);
   /// on the analysis board, one ply at a time.
   void undo() {
+    _browsePly = null;
     if (moves.isEmpty || botThinking) return;
+    // in a bot game there must be a player move to take back: undoing the
+    // bot's lone opening move would leave the bot on turn with input dead
+    if (botEnabled && !moves.any((m) => m.color == playerColor)) return;
     _gen++;
     _arbiter.bumpGeneration();
+    final undone = <MoveRecord>[];
     if (botEnabled) {
       while (moves.isNotEmpty && moves.last.color != playerColor) {
-        moves.removeLast();
+        undone.add(moves.removeLast());
       }
-      if (moves.isNotEmpty) moves.removeLast();
+      if (moves.isNotEmpty) undone.add(moves.removeLast());
     } else {
-      moves.removeLast();
+      undone.add(moves.removeLast());
     }
+    // prepended: this batch is OLDER than anything a previous undo stored
+    _redoStack.pushUndone(undone);
     final fen = moves.isEmpty ? Chess.initial.fen : moves.last.fenAfter;
     position = Chess.fromSetup(Setup.parseFen(fen));
     lastMove =
         moves.isEmpty ? null : NormalMove.fromUci(moves.last.uci);
+    _saved = false; // a re-finished game is a new game to archive
+    _threat = null;
+    _analysisFor(position.fen);
+    _syncTree();
+    _probeThreat();
+    notifyListeners();
+    _maybeBotTurn(); // safety: never leave the bot on turn (no-op otherwise)
+  }
+
+  /// Put back what undo took off. Replays the stored moves rather than
+  /// re-deriving them, so the grades and explanations come back intact
+  /// instead of being recomputed — or lost.
+  void redo() {
+    _browsePly = null;
+    if (_redoStack.isEmpty || botThinking) return;
+    _gen++;
+    _arbiter.bumpGeneration();
+    // one undo's worth: the player move and the bot's reply that sat on it
+    moves.addAll(_redoStack.takeBatch(
+        botEnabled: botEnabled, playerColor: playerColor));
+    position = Chess.fromSetup(Setup.parseFen(moves.last.fenAfter));
+    lastMove = NormalMove.fromUci(moves.last.uci);
     _threat = null;
     _analysisFor(position.fen);
     _syncTree();
@@ -200,6 +245,9 @@ class GameController extends ChangeNotifier {
 
   void _apply(NormalMove move, String san) {
     stopPreview();
+    // a new move makes the undone future unreachable — without this, redo
+    // after a divergent move replayed a stale record onto the wrong position
+    _redoStack.clear();
     final fenBefore = position.fen;
     position = position.playUnchecked(move);
     lastMove = move;
@@ -257,28 +305,35 @@ class GameController extends ChangeNotifier {
     final db = _db;
     if (db == null || moves.isEmpty || _saved) return;
     _saved = true;
+    // Snapshot the finished game BEFORE the wait below. The wait can run for
+    // seconds, and an undo during it would otherwise archive a truncated game
+    // with a result that no longer matches. The records themselves are safe to
+    // hold: grading fills them in place (which is what we are waiting for) and
+    // undo only removes them from the list.
+    final played = List<MoveRecord>.of(moves);
+    final p = botEnabled ? persona : null;
+    final result = _result;
+    final botName = p == null ? 'Analysis' : '${p.name} (${p.elo})';
+    final youAreWhite = playerColor == 'w';
+
     // let in-flight grading land so the archive gets labels (bounded — the
     // terminal move's backfill may never come: a mate position has no lines)
     if (_pendingGrades.isNotEmpty) {
       await Future.wait(_pendingGrades.toList())
           .timeout(const Duration(seconds: 12), onTimeout: () => []);
     }
-    final p = botEnabled ? persona : null;
-    final result = _result;
-    final botName = p == null ? 'Analysis' : '${p.name} (${p.elo})';
-    final youAreWhite = playerColor == 'w';
 
-    final stored = moves.map(_storedMoveOf).toList();
+    final stored = played.map(_storedMoveOf).toList();
 
     final record = {
-      'id': 'g-${DateTime.now().millisecondsSinceEpoch}-${moves.length}',
+      'id': 'g-${DateTime.now().millisecondsSinceEpoch}-${played.length}',
       'endedAt': DateTime.now().toIso8601String(),
       'result': result,
-      'pgn': _pgn(result, botName, youAreWhite),
+      'pgn': _pgn(played, result, botName, youAreWhite),
       'botElo': p == null ? null : p.elo + 240, // internal scale (SCALE_OFFSET)
       if (p != null) 'botPersona': p.id,
       'botColor': p == null ? null : (playerColor == 'w' ? 'b' : 'w'),
-      'moveCount': moves.length,
+      'moveCount': played.length,
       'whiteAccuracy': _bridgeAccuracy(stored, 'w'),
       'blackAccuracy': _bridgeAccuracy(stored, 'b'),
       'labelCounts': {
@@ -294,7 +349,8 @@ class GameController extends ChangeNotifier {
   double? _bridgeAccuracy(List<Map<String, dynamic>> stored, String color) =>
       _grading.gameAccuracy(stored, color);
 
-  String _pgn(String result, String botName, bool youAreWhite) {
+  String _pgn(List<MoveRecord> played, String result, String botName,
+      bool youAreWhite) {
     final white = youAreWhite ? 'You' : botName;
     final black = youAreWhite ? botName : 'You';
     final date =
@@ -305,9 +361,9 @@ class GameController extends ChangeNotifier {
       ..writeln('[Date "$date"]')
       ..writeln('[Result "$result"]')
       ..writeln();
-    for (var i = 0; i < moves.length; i++) {
+    for (var i = 0; i < played.length; i++) {
       if (i.isEven) sb.write('${i ~/ 2 + 1}. ');
-      sb.write('${moves[i].san} ');
+      sb.write('${played[i].san} ');
     }
     sb.write(result);
     return sb.toString();
@@ -440,12 +496,65 @@ class GameController extends ChangeNotifier {
     return [for (final l in currentLines.take(_settings.arrowCount)) l.uci];
   }
 
-  /// The threat arrow's uci, when fresh and wanted.
-  String? get threatUci {
+  /// The live threat, when it is fresh and wanted — the move the opponent
+  /// would play with a free move, and what it nets them.
+  Map<String, dynamic>? get threat {
     if (!_settings.showThreats || blind) return null;
     final t = _threat;
-    return t != null && t['fen'] == position.fen ? t['uci'] as String? : null;
+    return t != null && t['fen'] == position.fen ? t : null;
   }
+
+  /// The threat arrow's uci.
+  String? get threatUci => threat?['uci'] as String?;
+
+  /// The threat in algebraic notation, e.g. 'Be6'.
+  String? get threatSan => threat?['san'] as String?;
+
+  /// What the threat nets them, in pawns. NULL MEANS MATE: the brain reports
+  /// Infinity there and JSON has no way to carry it across the bridge.
+  double? get threatGain => (threat?['gain'] as num?)?.toDouble();
+
+  /// Current squares of the pieces the threat wins (the mated king for a
+  /// mate): attacked by the threat move THIS INSTANT, and lost even under
+  /// best defense in the line. A forked queen that escapes is neither.
+  List<String> get threatTargets =>
+      ((threat?['targets'] as List?) ?? const []).cast<String>();
+
+  // the green mirror: memoised per (fen, top line) — the judge is a pure
+  // bridge call, cheap but not free, and this getter runs on every rebuild
+  Map<String, dynamic>? _winCache;
+  String? _winKey;
+
+  /// What the side to move's OWN top line wins — judged by the same rules as
+  /// the threat (attacked after ply 1, falls in the window, no even trades).
+  /// Costs no engine time: the line is the live analysis already streaming.
+  Map<String, dynamic>? get tacticalWin {
+    if (!_settings.showThreats || blind) return null;
+    // in a bot game, "your line" only exists on YOUR turn — during the bot's
+    // think the streamed lines are ITS tactics, and green rings for them
+    // would invert the overlay's meaning (your own king ringed "win")
+    if (botEnabled && !isPlayerTurn) return null;
+    final chess = _chess;
+    if (chess == null) return null;
+    final lines = currentLines;
+    if (lines.isEmpty) return null;
+    // mate is load-bearing: an unchanged pv can convert cp→mate as the
+    // search deepens, and the judgment flips with it
+    final key = '${position.fen}|${lines.first.mate}|${lines.first.pv.join(' ')}';
+    if (_winKey != key) {
+      _winKey = key;
+      _winCache = chess.judgeTacticalWin(position.fen, {
+        'pv': lines.first.pv,
+        'mate': lines.first.mate,
+      });
+    }
+    return _winCache;
+  }
+
+  /// Current squares of the pieces YOUR top line wins (the enemy king for a
+  /// mate) — drawn as green rings in the engine-arrow grammar.
+  List<String> get winTargets =>
+      ((tacticalWin?['targets'] as List?) ?? const []).cast<String>();
 
   /// Square-control tint for the current position, when wanted.
   Map<String, String>? get controlMap {
@@ -471,21 +580,84 @@ class GameController extends ChangeNotifier {
     }
     final gen = _gen;
     _probeInFlightFen = fen;
-    final lines = await _arbiter.search(
-      fen: probe,
-      ownerFen: fen, // stale when the BOARD moves on, not the probe position
-      depth: 14,
-      multiPv: 1,
-      movetimeMs: 500,
-      priority: SearchPriority.threatProbe,
-    );
-    if (_probeInFlightFen == fen) _probeInFlightFen = null;
+    List<EngineMove>? lines;
+    try {
+      lines = await _arbiter.search(
+        fen: probe,
+        ownerFen: fen, // stale when the BOARD moves on, not the probe position
+        depth: 14,
+        multiPv: 1,
+        movetimeMs: 500,
+        priority: SearchPriority.threatProbe,
+      );
+    } catch (_) {
+      lines = null; // an engine error must not wedge the in-flight flag
+    } finally {
+      if (_probeInFlightFen == fen) _probeInFlightFen = null;
+    }
     if (gen != _gen || lines == null || lines.isEmpty) return;
     _threat = chess.judgeThreat(fen, {
       'pv': lines.first.pv,
       'mate': lines.first.mate,
     });
     if (position.fen == fen) notifyListeners();
+  }
+
+  // ---- view-only navigation ----
+  //
+  // Browsing and flipping never touch the game: the moves list, the engine
+  // and the grading pipeline all carry on against the live position. Only
+  // what the board draws changes.
+
+  /// Plies into the game, or null when following the live position.
+  /// 0 is the starting position, k is the position after moves[k-1].
+  int? _browsePly;
+  bool _flipped = false;
+
+  bool get browsing => _browsePly != null;
+  bool get flipped => _flipped;
+
+  String? get browseFen {
+    final p = _browsePly;
+    if (p == null) return null;
+    return p == 0 ? Chess.initial.fen : moves[p - 1].fenAfter;
+  }
+
+  NormalMove? get browseLastMove {
+    final p = _browsePly;
+    if (p == null || p == 0) return null;
+    return NormalMove.fromUci(moves[p - 1].uci);
+  }
+
+  /// Where the cursor sits, for a move list to highlight.
+  int get browsePly => _browsePly ?? moves.length;
+
+  void toggleFlip() {
+    _flipped = !_flipped;
+    notifyListeners();
+  }
+
+  /// Steps the cursor; stepping past the last move returns to live.
+  void browseBy(int delta) {
+    if (moves.isEmpty) return;
+    final next = (browsePly + delta).clamp(0, moves.length);
+    _browsePly = next == moves.length ? null : next;
+    notifyListeners();
+  }
+
+  void browseTo(int ply) {
+    if (moves.isEmpty) return;
+    final next = ply.clamp(0, moves.length);
+    _browsePly = next == moves.length ? null : next;
+    notifyListeners();
+  }
+
+  /// Back to the live position — also the escape hatch from a preview.
+  void browseLive() {
+    if (previewing) stopPreview();
+    if (_browsePly == null) return;
+    _browsePly = null;
+    notifyListeners();
   }
 
   /// The game-long exploration map (null until wired with a ChessApi).
@@ -543,6 +715,7 @@ class GameController extends ChangeNotifier {
   /// Plays [ucis] out from [baseFen] on the board, one move per beat,
   /// then returns to the live position. Tap again to stop early.
   void startPreview(String baseFen, List<String> ucis) {
+    _browsePly = null; // the board prefers browseFen; an unseen preview is a dead key
     stopPreview();
     Position pos;
     try {

@@ -7,8 +7,6 @@
 // restarts — cold-start the app after touching engine code.
 
 import 'package:dartchess/dartchess.dart';
-import 'dart:math' as math;
-
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -31,6 +29,8 @@ import 'ui/book_pane.dart';
 import 'ui/games_list.dart';
 import 'ui/grade_strip.dart';
 import 'ui/insight_card.dart';
+import 'ui/keyboard.dart';
+import 'ui/layout.dart';
 import 'ui/lines_pane.dart';
 import 'ui/lines_tree_pane.dart';
 import 'ui/move_list.dart';
@@ -77,9 +77,21 @@ class _BootGateState extends State<BootGate> {
   // a hang anywhere in boot would otherwise show a spinner forever; the
   // FutureBuilder already renders errors
   late final Future<_Booted> _boot = _start().timeout(
-    const Duration(seconds: 45),
+    const Duration(seconds: 75), // engine readiness alone allows 45
     onTimeout: () => throw StateError('boot timed out'),
   );
+
+  /// Which tab is up. Owned here rather than in [AppShell] because the
+  /// keyboard layer sits above the shell (it must, to hold focus) and has to
+  /// know whether the board it drives is actually on screen. [AppShell] is the
+  /// only writer, and it setStates on every write, so no listener is needed.
+  final ValueNotifier<int> _tab = ValueNotifier(0);
+
+  @override
+  void dispose() {
+    _tab.dispose();
+    super.dispose();
+  }
 
   Future<_Booted> _start() async {
     initDatabaseFactory(); // web: sqlite3 WASM; native: no-op
@@ -151,7 +163,13 @@ class _BootGateState extends State<BootGate> {
           child: MaterialApp(
             title: 'botvinnik',
             theme: _theme(),
-            home: const AppShell(),
+            home: Builder(
+              builder: (context) => KeyboardControls(
+                game: context.read<GameController>(),
+                enabled: () => _tab.value == 0,
+                child: AppShell(tab: _tab),
+              ),
+            ),
           ),
         );
       },
@@ -160,14 +178,17 @@ class _BootGateState extends State<BootGate> {
 }
 
 class AppShell extends StatefulWidget {
-  const AppShell({super.key});
+  /// The selected tab, held above us so the keyboard layer can read it.
+  final ValueNotifier<int> tab;
+  const AppShell({super.key, required this.tab});
 
   @override
   State<AppShell> createState() => _AppShellState();
 }
 
 class _AppShellState extends State<AppShell> {
-  int _tab = 0;
+  int get _tab => widget.tab.value;
+  set _tab(int i) => widget.tab.value = i;
 
   /// Tabs are built on first visit and kept alive after that. IndexedStack
   /// would otherwise build all four at boot — which on web means Settings'
@@ -290,10 +311,14 @@ class _AppShellState extends State<AppShell> {
           ),
           actions: [
             IconButton(
-              onPressed:
-                  game.moves.isEmpty || game.botThinking ? null : game.undo,
+              onPressed: game.canUndo ? game.undo : null,
               icon: const Icon(Icons.undo),
               tooltip: 'Undo',
+            ),
+            IconButton(
+              onPressed: game.canRedo ? game.redo : null,
+              icon: const Icon(Icons.redo),
+              tooltip: 'Redo',
             ),
             IconButton(
               onPressed: () {
@@ -308,6 +333,13 @@ class _AppShellState extends State<AppShell> {
                   ? 'Blind mode on — no engine help'
                   : 'Blind mode off',
             ),
+            // only where there is plausibly a keyboard; on a phone it is noise
+            if (MediaQuery.sizeOf(context).width >= _PlayTabState._wideBreakpoint)
+              IconButton(
+                onPressed: () => showKeyboardHelp(context),
+                icon: const Icon(Icons.keyboard_outlined),
+                tooltip: 'Keyboard shortcuts',
+              ),
             IconButton(
               onPressed: () => showNewGameSheet(context),
               icon: const Icon(Icons.add_box_outlined),
@@ -330,15 +362,48 @@ class PlayTab extends StatefulWidget {
   State<PlayTab> createState() => _PlayTabState();
 }
 
+/// The drag handle between board and panels. Wide enough to grab, drawn
+/// narrow, and it shows a resize cursor so it looks like what it is.
+class _SplitHandle extends StatefulWidget {
+  final void Function(double dx) onDrag;
+  const _SplitHandle({required this.onDrag});
+
+  @override
+  State<_SplitHandle> createState() => _SplitHandleState();
+}
+
+class _SplitHandleState extends State<_SplitHandle> {
+  bool _hot = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      cursor: SystemMouseCursors.resizeLeftRight,
+      onEnter: (_) => setState(() => _hot = true),
+      onExit: (_) => setState(() => _hot = false),
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onHorizontalDragUpdate: (d) => widget.onDrag(d.delta.dx),
+        child: SizedBox(
+          width: 10,
+          child: Center(
+            child: Container(
+              width: 2,
+              color: _hot ? const Color(0xFF81B64C) : Colors.white12,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _PlayTabState extends State<PlayTab> {
   /// Phone: one panel at a time — there is no room to stack and the bar is
   /// the only way back.
   int _view = 0;
 
-  /// Wide windows: any combination, stacked in the order the bar shows them.
-  /// A wide window's whole advantage is seeing the tree AND the chart AND the
-  /// insight at once, which six mutually exclusive tabs throw away.
-  final Set<int> _stacked = {0};
+
 
   @override
   void initState() {
@@ -371,16 +436,22 @@ class _PlayTabState extends State<PlayTab> {
   /// Phone: board on top, panel scrolling beneath it. Desktop: the board
   /// can't just take the full width — it would push everything off the
   /// bottom — so it sits left, capped to the window height, panel alongside.
-  static const double _wideBreakpoint = 720;
+  static const double _wideBreakpoint = kWideBreakpoint;
 
   @override
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
         if (constraints.maxWidth < _wideBreakpoint) {
+          // The board is square and was taking the full width, which is right
+          // on a phone — where height is plentiful — and overflows a desktop
+          // window that is narrow AND short. Cap it by what is left after the
+          // strip, the view bar and enough panel to be worth showing.
+          final board =
+              narrowBoardSize(constraints.maxWidth, constraints.maxHeight);
           return Column(
             children: [
-              const BoardPane(),
+              Center(child: SizedBox(width: board, child: const BoardPane())),
               const GradeStrip(),
               _viewRow(),
               Expanded(child: _panel()),
@@ -390,10 +461,9 @@ class _PlayTabState extends State<PlayTab> {
         // leave room for the grade strip under the board. The floor applies
         // to the WIDTH share only — flooring the height too would overflow a
         // window dragged short.
-        final boardSize = math.min(
-          math.max(240.0, constraints.maxWidth * 0.58),
-          math.max(120.0, constraints.maxHeight - 56),
-        );
+        final settings = context.watch<SettingsStore>();
+        final boardSize = wideBoardSize(
+            constraints.maxWidth, constraints.maxHeight, settings.split);
         return Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -405,6 +475,10 @@ class _PlayTabState extends State<PlayTab> {
                   children: [BoardPane(), GradeStrip()],
                 ),
               ),
+            ),
+            _SplitHandle(
+              onDrag: (dx) => settings.split =
+                  settings.split + dx / constraints.maxWidth,
             ),
             Expanded(
               child: Column(
@@ -422,9 +496,11 @@ class _PlayTabState extends State<PlayTab> {
 
   /// The selected panels, in bar order. Headed once more than one is up,
   /// because otherwise a stack of unlabelled cards is a puzzle.
+  Set<int> _panels(BuildContext context) => context.watch<SettingsStore>().panels;
+
   Widget _stackedPanel() {
     final game = context.watch<GameController>();
-    final shown = _stacked.toList()..sort();
+    final shown = _panels(context).toList()..sort();
     return SingleChildScrollView(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -463,9 +539,7 @@ class _PlayTabState extends State<PlayTab> {
               color: Colors.white24,
               visualDensity: VisualDensity.compact,
               tooltip: 'Hide ${_tabs[i].$2}',
-              onPressed: () => setState(() {
-                if (_stacked.length > 1) _stacked.remove(i);
-              }),
+              onPressed: () => context.read<SettingsStore>().togglePanel(i),
             ),
           ],
         ),
@@ -520,20 +594,20 @@ class _PlayTabState extends State<PlayTab> {
           for (var i = 0; i < tabs.length; i++)
             Expanded(
               child: InkWell(
-                onTap: () => setState(() {
-                  if (!multi) {
-                    _view = i;
-                  } else if (!_stacked.remove(i) || _stacked.isEmpty) {
-                    _stacked.add(i);
+                onTap: () {
+                  if (multi) {
+                    context.read<SettingsStore>().togglePanel(i);
+                  } else {
+                    setState(() => _view = i);
                   }
-                }),
+                },
                 child: Padding(
                   padding: const EdgeInsets.symmetric(vertical: 5),
                   child: Column(
                     children: [
                       Icon(tabs[i].$1,
                           size: 16,
-                          color: (multi ? _stacked.contains(i) : _view == i)
+                          color: (multi ? _panels(context).contains(i) : _view == i)
                               ? const Color(0xFF81B64C)
                               : Colors.white38),
                       Text(tabs[i].$2,
@@ -542,7 +616,7 @@ class _PlayTabState extends State<PlayTab> {
                           softWrap: false,
                           style: TextStyle(
                               fontSize: 9.5,
-                              color: (multi ? _stacked.contains(i) : _view == i)
+                              color: (multi ? _panels(context).contains(i) : _view == i)
                                   ? const Color(0xFF81B64C)
                                   : Colors.white38)),
                     ],

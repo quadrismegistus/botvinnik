@@ -86,7 +86,10 @@ class WebEngine extends UciProtocol {
     engine.send('setoption name Threads value 1');
     engine.send('isready');
     await engine._ready.future.timeout(
-      const Duration(seconds: 20),
+      // generous: this is compiling ~7MB of WASM, and a slow machine or a
+      // cold cache can take a while. It only needs to be short enough that a
+      // MISSING engine is reported rather than hung on.
+      const Duration(seconds: 45),
       onTimeout: () => throw StateError(
           'stockfish worker did not start — is $_scriptUrl served? '
           '(flutter/serve-web.sh stages it)'),

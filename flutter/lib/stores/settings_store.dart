@@ -17,6 +17,15 @@ const Color kDefaultDarkSquare = Color(0xffb58863);
 const Color kDefaultLastMove = Color(0x809cc700);
 const String kDefaultPieceSet = 'cburnett';
 
+/// The board out of the box. Newspaper reads well against the app's dark
+/// shell and stays quiet under the overlays.
+const String kDefaultBoardTexture = 'newspaper';
+
+/// The two overlays that explain the position are on by default: they are the
+/// point of the app, and a first-time player will not know to go and find them.
+const bool kDefaultShowThreats = true;
+const bool kDefaultShowControl = true;
+
 /// Peak opacity of the overlays. Both arrow kinds sit at 70%: fully opaque
 /// arrows dominated the position, and matching them keeps the engine's
 /// suggestion and the opponent's threat weighted the same. The control tint
@@ -32,6 +41,15 @@ const double kDefaultThreatOpacity = 0.7;
 /// How many engine arrows to draw. Analysis already runs MultiPV-5, so all
 /// five lines exist regardless — this only decides how many are shown.
 const int kDefaultArrowCount = 5;
+
+/// Which panels are open on a wide window, by their index in the view bar.
+/// Insights alone to start.
+const Set<int> kDefaultPanels = {0};
+
+/// The board's share of a wide window's width.
+const double kDefaultSplit = 0.58;
+const double kMinSplit = 0.32;
+const double kMaxSplit = 0.75;
 
 /// One brush per rank in board_theme's fade; more arrows than brushes would
 /// index off the end.
@@ -56,6 +74,8 @@ class SettingsStore extends ChangeNotifier {
   double _arrowOpacity;
   int _arrowCount;
   double _threatOpacity;
+  Set<int> _panels;
+  double _split;
   double _controlOpacity;
 
   // Named on purpose: these are a dozen fields of only three distinct types,
@@ -81,6 +101,8 @@ class SettingsStore extends ChangeNotifier {
     required double arrowOpacity,
     required int arrowCount,
     required double threatOpacity,
+    required Set<int> panels,
+    required double split,
     required double controlOpacity,
   })  : _prefs = prefs,
         _personaId = personaId,
@@ -99,6 +121,8 @@ class SettingsStore extends ChangeNotifier {
         _arrowOpacity = arrowOpacity,
         _arrowCount = arrowCount,
         _threatOpacity = threatOpacity,
+        _panels = panels,
+        _split = split,
         _controlOpacity = controlOpacity;
 
   static Future<SettingsStore> load() async {
@@ -128,21 +152,26 @@ class SettingsStore extends ChangeNotifier {
       collectThreshold: threshold,
       showArrows: prefs.getString('botvinnik-arrows') != '0', // ON, like web
       blind: prefs.getString('botvinnik-blind') == '1',
-      showThreats: prefs.getString('botvinnik-threats') == '1',
-      showControl: prefs.getString('botvinnik-control') == '1',
+      // '0' means the user turned it off; absent means they never touched it
+      showThreats: prefs.getString('botvinnik-threats') != '0',
+      showControl: prefs.getString('botvinnik-control') != '0',
       lightSquare:
           _color(prefs, 'botvinnik-sq-light', kDefaultLightSquare, opaque: true),
       darkSquare:
           _color(prefs, 'botvinnik-sq-dark', kDefaultDarkSquare, opaque: true),
       lastMoveColor: _color(prefs, 'botvinnik-lastmove', kDefaultLastMove),
       pieceSet: prefs.getString('botvinnik-pieces') ?? kDefaultPieceSet,
-      boardTexture: prefs.getString('botvinnik-board-texture') ?? '',
+      boardTexture:
+          prefs.getString('botvinnik-board-texture') ?? kDefaultBoardTexture,
       arrowOpacity: prefs.getDouble('botvinnik-arrow-opacity') ??
           kDefaultArrowOpacity,
       arrowCount: (prefs.getInt('botvinnik-arrow-count') ?? kDefaultArrowCount)
           .clamp(1, kMaxArrowCount),
       threatOpacity: prefs.getDouble('botvinnik-threat-opacity') ??
           kDefaultThreatOpacity,
+      panels: _panelSet(prefs.getString('botvinnik-panels')),
+      split: (prefs.getDouble('botvinnik-split') ?? kDefaultSplit)
+          .clamp(kMinSplit, kMaxSplit),
       controlOpacity: prefs.getDouble('botvinnik-control-opacity') ??
           kDefaultControlOpacity,
     );
@@ -161,6 +190,41 @@ class SettingsStore extends ChangeNotifier {
     final v = int.tryParse(raw, radix: 16);
     if (v == null || v < 0 || v > 0xFFFFFFFF) return fallback;
     return Color(opaque ? v | 0xFF000000 : v);
+  }
+
+  /// Stored as '0,2,3'. A missing or unparseable value falls back to the
+  /// default rather than leaving the panel column empty.
+  static Set<int> _panelSet(String? raw) {
+    if (raw == null || raw.isEmpty) return {...kDefaultPanels};
+    final out = <int>{};
+    for (final part in raw.split(',')) {
+      final v = int.tryParse(part);
+      if (v != null && v >= 0 && v < 6) out.add(v);
+    }
+    return out.isEmpty ? {...kDefaultPanels} : out;
+  }
+
+  Set<int> get panels => _panels;
+
+  /// Toggles a panel. The last one cannot be closed — an empty column just
+  /// looks broken.
+  void togglePanel(int i) {
+    final next = {..._panels};
+    if (!next.remove(i)) next.add(i);
+    if (next.isEmpty) return;
+    _panels = next;
+    _prefs.setString('botvinnik-panels', (next.toList()..sort()).join(','));
+    notifyListeners();
+  }
+
+  double get split => _split;
+
+  set split(double v) {
+    final c = v.clamp(kMinSplit, kMaxSplit);
+    if (c == _split) return;
+    _split = c;
+    _prefs.setDouble('botvinnik-split', c);
+    notifyListeners();
   }
 
   double get threatOpacity => _threatOpacity;
@@ -257,7 +321,9 @@ class SettingsStore extends ChangeNotifier {
   void _clearTexture() {
     if (_boardTexture.isEmpty) return;
     _boardTexture = '';
-    _prefs.remove('botvinnik-board-texture');
+    // stored, not removed: an absent value means "never chose", which now
+    // means the default texture — picking a colour has to stick
+    _prefs.setString('botvinnik-board-texture', '');
   }
 
   /// Puts all three board colors back to the shipped theme in one repaint.
@@ -270,7 +336,8 @@ class SettingsStore extends ChangeNotifier {
     _prefs.remove('botvinnik-lastmove');
     _pieceSet = kDefaultPieceSet;
     _prefs.remove('botvinnik-pieces');
-    _clearTexture();
+    _boardTexture = kDefaultBoardTexture;
+    _prefs.remove('botvinnik-board-texture');
     notifyListeners();
   }
 

@@ -1,4 +1,4 @@
-import { Chess, type Square } from 'chess.js';
+import { Chess, type Color, type Square } from 'chess.js';
 import { getSan } from './chess';
 import { PIECE_VAL, quietMaterialOverLine } from './explain';
 import type { EngineResult } from './types';
@@ -17,6 +17,17 @@ export interface Threat {
 	uci: string;
 	san: string;
 	gain: number; // material the threatening side nets, in pawns (Infinity = mate)
+	// current squares of the pieces the line wins (the mated king for a mate).
+	// A pv is a fiction as a script but a proof as a bound: the defender's
+	// moves are best resistance, so it guarantees the VALUE, never the
+	// choreography. A piece is listed only on the facts that survive that:
+	// the threatening side attacks its square the instant the threat move has
+	// landed (a static board fact — discovered and pre-existing attacks
+	// count), best defense still loses it inside the settled line, and its
+	// death was not the fair settling of an exchange it initiated itself. A
+	// piece that dies unattacked walked into the engine's choreography; a
+	// forked queen that escapes is attacked, not lost.
+	targets: string[];
 }
 
 // pass the side to move: flip the active-colour field, void en passant.
@@ -32,6 +43,19 @@ function nullMoveFen(fen: string): string | null {
 // win at least a pawn to count — enough to exclude equal trades, small enough
 // to catch a clean pawn grab
 const MIN_GAIN = 1;
+
+// ...unless the gain names no victim. The settled window ends on a quiet ply,
+// but quiet is not settled: a gambit line is quiet and a pawn down ON PURPOSE,
+// and a weak engine's horizon turns that into "threat: Nc6 costs 1.0" with no
+// piece to point at. A victimless gain must be worth a real threat's while
+// (promotion pushes clear this easily); small ones are choreography noise.
+const VICTIMLESS_MIN_GAIN = 2;
+
+// Judge at most this many plies of a pv. The judges run on every streamed
+// analysis update, and each replays the line move by move — an uncapped
+// 24-ply pv cost ~2.4ms per call, ~50 calls per position. Eight moves a side
+// covers any tactic worth ringing; past that is choreography anyway.
+const MAX_JUDGE_PLIES = 16;
 
 type Analyze = (
 	fen: string,
@@ -79,9 +103,21 @@ export function judgeThreat(
 	const nullFen = threatProbeFen(fen);
 	if (!nullFen || !best || best.pv.length === 0) return null;
 
-	// mate for the threatening side (side to move in the flipped position)
-	if (best.mate !== null && best.mate > 0) {
-		return { fen, uci: best.pv[0], san: getSan(nullFen, best.pv[0]) ?? best.pv[0], gain: Infinity };
+	if (best.mate !== null) {
+		// mate for the threatening side (side to move in the flipped position);
+		// a NEGATIVE mate means even the free move loses to forced mate — their
+		// pv is best resistance, and any material it grabs along the way is a
+		// delaying tactic, not a threat
+		if (best.mate <= 0) return null;
+		// the mated side is the side to move in the real position
+		const king = kingSquare(fen, new Chess(fen).turn());
+		return {
+			fen,
+			uci: best.pv[0],
+			san: getSan(nullFen, best.pv[0]) ?? best.pv[0],
+			gain: Infinity,
+			targets: king ? [king] : []
+		};
 	}
 
 	// settle the exchange over the engine's line; net is from the mover's
@@ -91,11 +127,167 @@ export function judgeThreat(
 	// 1-ply pv made "Nxf4" a threat against a queen-defended bishop) — fall
 	// back to a static guess on the first capture instead: profitable only if
 	// the victim is undefended or outvalues the capturer.
-	const quiet = quietMaterialOverLine(nullFen, best.pv);
-	const net = quiet.plies > 0 ? quiet.net : staticFirstCaptureGain(nullFen, best.pv[0]);
+	const pv = best.pv.slice(0, MAX_JUDGE_PLIES);
+	const quiet = quietMaterialOverLine(nullFen, pv);
+	const first = quiet.plies > 0 ? null : staticFirstCapture(nullFen, pv[0]);
+	const net = quiet.plies > 0 ? quiet.net : (first?.gain ?? 0);
 	if (net < MIN_GAIN) return null;
 
-	return { fen, uci: best.pv[0], san: getSan(nullFen, best.pv[0]) ?? best.pv[0], gain: net };
+	const targets =
+		quiet.plies > 0
+			? victimSquares(nullFen, pv, quiet.plies)
+			: [first!.sq]; // the fallback only fires on a bare first capture
+	// a threat must either name a victim or be worth ≥ VICTIMLESS_MIN_GAIN
+	if (targets.length === 0 && net < VICTIMLESS_MIN_GAIN) return null;
+	return { fen, uci: pv[0], san: getSan(nullFen, pv[0]) ?? pv[0], gain: net, targets };
+}
+
+function kingSquare(fen: string, color: Color): string | null {
+	const c = new Chess(fen);
+	for (const row of c.board()) {
+		for (const cell of row) {
+			if (cell && cell.type === 'k' && cell.color === color) return cell.square;
+		}
+	}
+	return null;
+}
+
+/**
+ * The same judgment run on the side to move's OWN top line — what does the
+ * mover win by playing it? The green mirror of [judgeThreat]: same three
+ * facts behind each target (attacked the instant the first move lands, falls
+ * inside the settled window, not an even trade it initiated), same floors.
+ * The pv is the position's live analysis line, so this costs no extra search.
+ * Unlike the probe there is no turn flip and no in-check bail: an evasion
+ * that wins the checking piece is a perfectly good tactical win.
+ */
+export function judgeTacticalWin(
+	fen: string,
+	best: { pv: string[]; mate: number | null } | null | undefined
+): Threat | null {
+	let base: Chess;
+	try {
+		base = new Chess(fen);
+	} catch {
+		return null;
+	}
+	if (base.isGameOver() || !best || best.pv.length === 0) return null;
+
+	if (best.mate !== null) {
+		if (best.mate <= 0) return null;
+		const king = kingSquare(fen, base.turn() === 'w' ? 'b' : 'w'); // the OPPONENT king falls
+		return {
+			fen,
+			uci: best.pv[0],
+			san: getSan(fen, best.pv[0]) ?? best.pv[0],
+			gain: Infinity,
+			targets: king ? [king] : []
+		};
+	}
+
+	const pv = best.pv.slice(0, MAX_JUDGE_PLIES);
+	const quiet = quietMaterialOverLine(fen, pv);
+	const first = quiet.plies > 0 ? null : staticFirstCapture(fen, pv[0]);
+	const net = quiet.plies > 0 ? quiet.net : (first?.gain ?? 0);
+	if (net < MIN_GAIN) return null;
+	const targets = quiet.plies > 0 ? victimSquares(fen, pv, quiet.plies) : [first!.sq];
+	if (targets.length === 0 && net < VICTIMLESS_MIN_GAIN) return null;
+	return { fen, uci: pv[0], san: getSan(fen, pv[0]) ?? pv[0], gain: net, targets };
+}
+
+// Where, on the CURRENT board, do the pieces the line wins stand? Each capture
+// by the threatening side inside the settled window names a candidate — the
+// capture may land plies deep, after the victim has run (or a blocker stepped
+// in), so walk the defender's earlier moves backwards to the square the piece
+// stands on right now. Then the filter that keeps the claim honest: a victim
+// counts only if the threatening side attacks that square the instant the
+// threat move has landed (checked in the position after ply 1 — discovered
+// attacks count), or it IS ply 1's own capture. A piece the line trades off
+// three plies deep without ever standing attacked died of the engine's
+// choreography, not of the threat.
+function victimSquares(nullFen: string, ucis: string[], plies: number): string[] {
+	const c = new Chess(nullFen);
+	const mover = c.turn();
+	// every defender move: where it went, and what its arrival gained (capture
+	// value plus promotion surplus; null for a quiet, non-promoting move).
+	// Castling is TWO entries — the rook's leg too, or a captured castled rook
+	// would trace back to the wrong square.
+	const defenderMoves: { from: string; to: string; gained: number | null }[] = [];
+	const candidates: { sq: string; ply: number }[] = [];
+	for (let i = 0; i < plies; i++) {
+		let m;
+		try {
+			m = c.move({
+				from: ucis[i].slice(0, 2) as Square,
+				to: ucis[i].slice(2, 4) as Square,
+				promotion: ucis[i].length > 4 ? ucis[i][4] : undefined
+			});
+		} catch {
+			break;
+		}
+		// en passant: the pawn dies beside the landing square, not on it
+		const capSq: string | null = m.captured
+			? m.isEnPassant()
+				? m.to[0] + m.from[1]
+				: m.to
+			: null;
+		if (m.color === mover && capSq) {
+			// captured ≠ lost: when the victim's own ARRIVAL on this square was
+			// a capture worth at least the victim itself, the DEFENDER initiated
+			// an even-or-better exchange and this recapture merely settles it —
+			// however many zwischenzug plies delayed the settling. Ring only a
+			// piece that died for insufficient value (a trapped piece's
+			// desperado grab), never one that cashed itself in fairly.
+			let arrivalGain: number | null = null;
+			for (let j = defenderMoves.length - 1; j >= 0; j--) {
+				if (defenderMoves[j].to === capSq) {
+					arrivalGain = defenderMoves[j].gained;
+					break;
+				}
+			}
+			const fairTrade = arrivalGain !== null && arrivalGain >= PIECE_VAL[m.captured!];
+			if (!fairTrade) {
+				let sq = capSq;
+				for (let j = defenderMoves.length - 1; j >= 0; j--) {
+					if (defenderMoves[j].to === sq) sq = defenderMoves[j].from;
+				}
+				candidates.push({ sq, ply: i });
+			}
+		}
+		if (m.color !== mover) {
+			const gained = m.captured
+				? PIECE_VAL[m.captured] + (m.promotion ? PIECE_VAL[m.promotion] - 1 : 0)
+				: m.promotion
+					? PIECE_VAL[m.promotion] - 1
+					: null;
+			defenderMoves.push({ from: m.from, to: m.to, gained });
+			if (m.isKingsideCastle()) {
+				defenderMoves.push({ from: 'h' + m.from[1], to: 'f' + m.from[1], gained: null });
+			} else if (m.isQueensideCastle()) {
+				defenderMoves.push({ from: 'a' + m.from[1], to: 'd' + m.from[1], gained: null });
+			}
+		}
+	}
+	if (candidates.length === 0) return [];
+
+	// the board as it stands the instant the threat move lands
+	const afterThreat = new Chess(nullFen);
+	try {
+		afterThreat.move({
+			from: ucis[0].slice(0, 2) as Square,
+			to: ucis[0].slice(2, 4) as Square,
+			promotion: ucis[0].length > 4 ? ucis[0][4] : undefined
+		});
+	} catch {
+		return [];
+	}
+	const out: string[] = [];
+	for (const { sq, ply } of candidates) {
+		if (ply === 0 || afterThreat.attackers(sq as Square, mover).length > 0) {
+			if (!out.includes(sq)) out.push(sq);
+		}
+	}
+	return out;
 }
 
 export async function findThreat(
@@ -111,13 +303,23 @@ export async function findThreat(
 
 // what a lone capture nets when the line ends before the exchange settles:
 // the full victim if nobody defends it, else victim minus capturer (assume
-// the cheapest possible outcome — a recapture)
-function staticFirstCaptureGain(fen: string, uci: string): number {
+// the cheapest possible outcome — a recapture). Returns the victim's square
+// too, so the fallback target names the pawn's real square on en passant.
+function staticFirstCapture(fen: string, uci: string): { gain: number; sq: string } | null {
 	const c = new Chess(fen);
-	const victimSq = uci.slice(2, 4) as Square;
-	const victim = c.get(victimSq);
 	const capturer = c.get(uci.slice(0, 2) as Square);
-	if (!victim || !capturer || victim.color === capturer.color) return 0;
-	if (c.attackers(victimSq, victim.color).length === 0) return PIECE_VAL[victim.type];
-	return PIECE_VAL[victim.type] - PIECE_VAL[capturer.type];
+	let victimSq = uci.slice(2, 4);
+	let victim = c.get(victimSq as Square);
+	// a pawn moving diagonally to an empty square is capturing en passant —
+	// the victim stands beside the landing square, not on it
+	if (!victim && capturer?.type === 'p' && uci[0] !== uci[2]) {
+		victimSq = uci[2] + uci[1];
+		victim = c.get(victimSq as Square);
+	}
+	if (!victim || !capturer || victim.color === capturer.color) return null;
+	const gain =
+		c.attackers(victimSq as Square, victim.color).length === 0
+			? PIECE_VAL[victim.type]
+			: PIECE_VAL[victim.type] - PIECE_VAL[capturer.type];
+	return { gain, sq: victimSq };
 }

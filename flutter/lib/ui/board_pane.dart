@@ -1,7 +1,10 @@
 // The board: chessground wired to GameController. Full viewport width —
 // the agreed phone shell pins it at the top.
 
+import 'dart:math' as math;
+
 import 'package:chessground/chessground.dart';
+import 'package:flutter/foundation.dart' show setEquals;
 import 'package:dartchess/dartchess.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -22,6 +25,19 @@ class _BoardPaneState extends State<BoardPane> {
   String? _lastFen;
 
   GameData _gameData(GameController game) {
+    // browsing history: show the past position, input off until you come back
+    final browseFen = game.browseFen;
+    if (browseFen != null) {
+      final pos = Chess.fromSetup(Setup.parseFen(browseFen));
+      return GameData(
+        fen: browseFen,
+        lastMove: game.browseLastMove,
+        playerSide: PlayerSide.none,
+        validMoves: makeLegalMoves(pos),
+        sideToMove: pos.turn,
+        kingSquareInCheck: pos.isCheck ? pos.board.kingOf(pos.turn) : null,
+      );
+    }
     // preview: the board narrates a line; input off until it comes home
     final previewFen = game.previewFen;
     if (previewFen != null) {
@@ -60,20 +76,43 @@ class _BoardPaneState extends State<BoardPane> {
   Widget build(BuildContext context) {
     final game = context.watch<GameController>();
     final settings = context.watch<SettingsStore>();
-    final sig =
-        '${game.previewFen ?? game.position.fen}|${game.botEnabled}|${game.playerColor}';
+    final sig = '${game.browseFen ?? game.previewFen ?? game.position.fen}'
+        '|${game.botEnabled}|${game.playerColor}';
     _controller ??= ChessboardController(game: _gameData(game));
     if (_lastFen != sig) {
       _lastFen = sig;
       _controller!.updatePosition(_gameData(game));
     }
 
-    final orientation = game.playerColor == 'w' ? Side.white : Side.black;
-    final threatUci = game.previewing ? null : game.threatUci;
-    final control = game.previewing ? null : game.controlMap;
-    final engineArrows =
-        game.previewing ? const <String>[] : game.engineArrowUcis;
+    final white = (game.playerColor == 'w') != game.flipped;
+    final orientation = white ? Side.white : Side.black;
+    // the overlays describe the LIVE position, so they are meaningless while
+    // the board is showing a preview or a past move
+    final still = game.previewing || game.browsing;
+    final threatUci = still ? null : game.threatUci;
+    // ring the pieces the threat actually wins — minus the arrow's own
+    // destination square, which already carries the arrowhead
+    final threatTargets = still || threatUci == null
+        ? const <String>[]
+        : [
+            for (final t in game.threatTargets)
+              if (t != threatUci.substring(2, 4)) t
+          ];
+    final control = still ? null : game.controlMap;
+    final engineArrows = still ? const <String>[] : game.engineArrowUcis;
     final arrowColors = engineArrowColors(settings.arrowOpacity);
+    // the green mirror: pieces YOUR top line wins, in the engine-arrow
+    // grammar — minus the top arrow's own destination (a direct capture
+    // already carries the arrowhead). They can never collide with the red
+    // rings: threat victims are your pieces, win victims are theirs.
+    final winTargets = still
+        ? const <String>[]
+        : [
+            for (final t in game.winTargets)
+              if (engineArrows.isEmpty ||
+                  t != engineArrows.first.substring(2, 4))
+                t
+          ];
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -102,17 +141,47 @@ class _BoardPaneState extends State<BoardPane> {
                 orig: NormalMove.fromUci(threatUci).from,
                 dest: NormalMove.fromUci(threatUci).to,
               ),
+            // the pieces that threat wins, ringed — the arrow shows the MOVE,
+            // and on a quiet setup move (fork, mate threat, chase) the
+            // victims stand elsewhere
+            for (final t in threatTargets)
+              Circle(
+                color: threatArrowColor(settings.threatOpacity),
+                orig: Square.fromName(t),
+              ),
+            // the pieces your own top line wins, in the arrows' colour
+            for (final t in winTargets)
+              Circle(
+                color: arrowColors.first,
+                orig: Square.fromName(t),
+              ),
           },
           settings: boardSettingsFor(settings),
         );
-        if (control == null || control.isEmpty) return board;
+        if (control == null || control.isEmpty) {
+          return board;
+        }
         return Stack(children: [
           board,
+          if (control.isNotEmpty)
           IgnorePointer(
             child: CustomPaint(
               size: Size(size, size),
-              painter: _ControlPainter(control, orientation,
-                  game.playerColor == 'w' ? 'w' : 'b', settings.controlOpacity),
+              painter: _ControlPainter(
+                control,
+                orientation,
+                game.playerColor == 'w' ? 'w' : 'b',
+                settings.controlOpacity,
+                {for (final s in game.position.board.occupied.squares) s.name},
+                // one glyph per square: threat/win rings and any arrowhead
+                // (red or blue) outrank control's ring on the same piece
+                {
+                  ...threatTargets,
+                  ...winTargets,
+                  if (threatUci != null) threatUci.substring(2, 4),
+                  for (final u in engineArrows) u.substring(2, 4),
+                },
+              ),
             ),
           ),
         ]);
@@ -121,16 +190,21 @@ class _BoardPaneState extends State<BoardPane> {
   }
 }
 
-/// The square-control tint: green where your side owns the square, red where
-/// the opponent does. A flat wash of the whole square — the web draws a
-/// fading circle because the tint is a CSS background there, but on this
-/// canvas layer the square itself is the honest unit of "who controls it".
+/// The square-control overlay, two claims in two shapes. EMPTY squares get a
+/// flat wash — "this side owns this square", a statement about territory.
+/// OCCUPIED squares get a ring around the piece — "this piece is winnable /
+/// falling where it stands", a statement about the piece, and the urgent one.
+/// Rings share the visual grammar of the threat overlay's victim rings, which
+/// outrank them on the same square.
 class _ControlPainter extends CustomPainter {
   final Map<String, String> control;
   final Side orientation;
   final String us;
   final double peak;
-  _ControlPainter(this.control, this.orientation, this.us, this.peak);
+  final Set<String> occupied;
+  final Set<String> threatRinged;
+  _ControlPainter(this.control, this.orientation, this.us, this.peak,
+      this.occupied, this.threatRinged);
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -142,10 +216,25 @@ class _ControlPainter extends CustomPainter {
       final y = orientation == Side.white ? 7 - rank : rank;
       final ours = entry.value == us;
       final base = ours ? kControlOurs : kControlTheirs;
-      canvas.drawRect(
-        Rect.fromLTWH(x * sq, y * sq, sq, sq),
-        Paint()..color = base.withValues(alpha: peak),
-      );
+      if (occupied.contains(entry.key)) {
+        if (threatRinged.contains(entry.key)) continue;
+        // twice the wash's opacity: the piece-level claim should pop out of
+        // the ambient territory it sits in
+        final stroke = sq / 14;
+        canvas.drawCircle(
+          Offset(x * sq + sq / 2, y * sq + sq / 2),
+          sq / 2 - stroke * 0.75,
+          Paint()
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = stroke
+            ..color = base.withValues(alpha: math.min(1.0, peak * 2)),
+        );
+      } else {
+        canvas.drawRect(
+          Rect.fromLTWH(x * sq, y * sq, sq, sq),
+          Paint()..color = base.withValues(alpha: peak),
+        );
+      }
     }
   }
 
@@ -153,5 +242,8 @@ class _ControlPainter extends CustomPainter {
   bool shouldRepaint(_ControlPainter old) =>
       old.control != control ||
       old.orientation != orientation ||
-      old.peak != peak;
+      old.us != us ||
+      old.peak != peak ||
+      !setEquals(old.occupied, occupied) ||
+      !setEquals(old.threatRinged, threatRinged);
 }

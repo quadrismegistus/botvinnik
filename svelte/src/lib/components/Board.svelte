@@ -12,6 +12,8 @@
 		engineMoves?: EngineMove[];
 		botArrow?: string | null; // uci the bot is currently considering
 		threatArrow?: string | null; // what the opponent threatens (null-move probe), drawn as a warning
+		threatTargets?: string[]; // the pieces that threat wins, minus the arrow's own destination
+		winTargets?: string[]; // the pieces YOUR top line wins, drawn in the engine-arrow colour
 		refutationArrow?: string | null; // opponent's punishing reply, drawn red
 		hintSquare?: string | null; // practice tier-2 hint: circle the best move's origin square
 		control?: Map<string, 'w' | 'b'> | null; // per-square control tint (see engine/control.ts)
@@ -30,6 +32,8 @@
 		engineMoves = [],
 		botArrow = null,
 		threatArrow = null,
+		threatTargets = [],
+		winTargets = [],
 		refutationArrow = null,
 		hintSquare = null,
 		control = null,
@@ -51,6 +55,21 @@
 			dests.set(m.from as Key, existing);
 		}
 		return dests;
+	}
+
+	// which squares hold a piece — control renders as a RING there (a claim
+	// about the piece) and as a wash on empty squares (a claim about territory)
+	function occupiedSquares(f: string): Set<string> {
+		const out = new Set<string>();
+		const ranks = f.split(' ')[0].split('/');
+		for (let r = 0; r < 8; r++) {
+			let file = 0;
+			for (const ch of ranks[r]) {
+				if (ch >= '1' && ch <= '8') file += +ch;
+				else out.add('abcdefgh'[file++] + (8 - r));
+			}
+		}
+		return out;
 	}
 
 	function makeArrows(): [Key, Key][] {
@@ -121,6 +140,15 @@
 		if (!api) return;
 		resetKey; // dep: re-sync pieces when bumped
 		const turnColor: Color = turn === 'w' ? 'white' : 'black';
+		const occ = occupiedSquares(fen);
+		// one glyph per square: threat/win rings and any arrowhead (red or
+		// green) outrank control's ring on the same piece
+		const threatSquares = new Set([
+			...threatTargets,
+			...winTargets,
+			...(threatArrow ? [threatArrow.slice(2, 4)] : []),
+			...makeArrows().map(([, to]) => to)
+		]);
 		api.set({
 			fen,
 			turnColor,
@@ -130,10 +158,13 @@
 				lastMove: true,
 				// green = the side at the bottom of the board, red = the other side
 				custom: new Map<Key, string>(
-					[...(control ?? [])].map(([sq, side]) => [
-						sq as Key,
-						(side === 'w') === (orientation === 'white') ? 'ctrl-us' : 'ctrl-them'
-					])
+					[...(control ?? [])].flatMap(([sq, side]): [Key, string][] => {
+						const ours = (side === 'w') === (orientation === 'white');
+						if (!occ.has(sq)) return [[sq as Key, ours ? 'ctrl-us' : 'ctrl-them']];
+						// the threat overlay's rings outrank control's on the same piece
+						if (threatSquares.has(sq)) return [];
+						return [[sq as Key, ours ? 'ctrl-us-ring' : 'ctrl-them-ring']];
+					})
 				)
 			},
 			movable: {
@@ -165,6 +196,11 @@
 								}
 							]
 						: []),
+					// the pieces the threat wins, ringed — the arrow shows the MOVE, and
+					// on a quiet setup move (fork, mate threat, chase) the victims stand elsewhere
+					...threatTargets.map((t) => ({ orig: t as Key, brush: 'threat' })),
+					// the pieces your own top line wins, in the arrows' colour
+					...winTargets.map((t) => ({ orig: t as Key, brush: 'g0' })),
 					...(refutationArrow
 						? [
 								{
@@ -216,32 +252,51 @@
 		);
 		background: var(--ctrl-tint);
 	}
-	.board :global(cg-board square.move-dest.ctrl-us),
-	.board :global(cg-board square.move-dest.ctrl-them) {
+	/* occupied squares: a ring around the piece — the wash says "this square
+	   is owned", the ring says "this PIECE is winnable / falling" */
+	.board :global(cg-board square.ctrl-us-ring) {
+		--ctrl-tint: radial-gradient(
+			circle,
+			transparent 0%,
+			transparent 60%,
+			rgba(129, 182, 76, 0.55) 65%,
+			rgba(129, 182, 76, 0.55) 76%,
+			transparent 81%
+		);
+		background: var(--ctrl-tint);
+	}
+	.board :global(cg-board square.ctrl-them-ring) {
+		--ctrl-tint: radial-gradient(
+			circle,
+			transparent 0%,
+			transparent 60%,
+			rgba(202, 52, 49, 0.55) 65%,
+			rgba(202, 52, 49, 0.55) 76%,
+			transparent 81%
+		);
+		background: var(--ctrl-tint);
+	}
+	.board :global(cg-board square.move-dest[class*='ctrl-']) {
 		background:
 			radial-gradient(rgba(20, 85, 30, 0.5) 22%, #208530 0, rgba(0, 0, 0, 0.3) 0, rgba(0, 0, 0, 0) 0),
 			var(--ctrl-tint);
 	}
-	.board :global(cg-board square.oc.move-dest.ctrl-us),
-	.board :global(cg-board square.oc.move-dest.ctrl-them) {
+	.board :global(cg-board square.oc.move-dest[class*='ctrl-']) {
 		background:
 			radial-gradient(transparent 0%, transparent 80%, rgba(20, 85, 0, 0.3) 80%),
 			var(--ctrl-tint);
 	}
-	.board :global(cg-board square.move-dest.ctrl-us:hover),
-	.board :global(cg-board square.move-dest.ctrl-them:hover) {
+	.board :global(cg-board square.move-dest[class*='ctrl-']:hover) {
 		background:
 			linear-gradient(rgba(20, 85, 30, 0.3), rgba(20, 85, 30, 0.3)),
 			var(--ctrl-tint);
 	}
-	.board :global(cg-board square.selected.ctrl-us),
-	.board :global(cg-board square.selected.ctrl-them) {
+	.board :global(cg-board square.selected[class*='ctrl-']) {
 		background:
 			linear-gradient(rgba(20, 85, 30, 0.5), rgba(20, 85, 30, 0.5)),
 			var(--ctrl-tint);
 	}
-	.board :global(cg-board square.last-move.ctrl-us),
-	.board :global(cg-board square.last-move.ctrl-them) {
+	.board :global(cg-board square.last-move[class*='ctrl-']) {
 		background:
 			linear-gradient(rgba(155, 199, 0, 0.41), rgba(155, 199, 0, 0.41)),
 			var(--ctrl-tint);

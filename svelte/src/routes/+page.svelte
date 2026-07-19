@@ -63,7 +63,7 @@
 	import { jsceMove } from '$lib/engine/jsce';
 	import { garboMove, preloadGarbo } from '$lib/engine/garbo';
 	import { computeControl } from '$brain/engine/control';
-	import { findThreat, type Threat } from '$brain/engine/threats';
+	import { findThreat, judgeTacticalWin, type Threat } from '$brain/engine/threats';
 	import {
 		addItem,
 		dueCount,
@@ -1233,6 +1233,39 @@
 		if (!showThreats || blindMode || mode === 'practice') return null;
 		return threat && threat.fen === game.fen ? threat.uci : null;
 	});
+	// ring the pieces the threat actually wins — minus the arrow's own
+	// destination square, which already carries the arrowhead
+	const threatTargets = $derived.by(() => {
+		if (!threatArrow || !threat) return [];
+		return threat.targets.filter((t) => t !== threatArrow.slice(2, 4));
+	});
+	// the green mirror: pieces YOUR top line wins, judged by the same rules,
+	// from the analysis already streaming — no extra engine time. Never
+	// collides with the red rings (threat victims are yours, these are theirs).
+	// Memoised outside the reactive graph: the stream re-assigns engineMoves
+	// many times per position and the judge replays the pv each call.
+	let winMemo: { key: string; targets: string[] } | null = null;
+	const winTargets = $derived.by(() => {
+		if (!showThreats || blindMode || mode === 'practice') return [];
+		// in a bot game "your line" only exists on YOUR turn — during the
+		// bot's think the streamed lines are ITS tactics, and green rings for
+		// them would invert the overlay (your own king ringed as a "win")
+		if (botEnabled && mode === 'play' && !game.isGameOver && game.turn === botColor)
+			return [];
+		const top = engineMoves[0];
+		if (!top || top.pv.length === 0) return [];
+		const key = `${game.fen}|${top.mate}|${top.pv.join(' ')}`;
+		if (winMemo?.key !== key) {
+			const w = judgeTacticalWin(game.fen, { pv: top.pv, mate: top.mate });
+			winMemo = { key, targets: w ? w.targets : [] };
+		}
+		// the top move's own destination already carries its arrowhead — but only
+		// if the arrows are actually on. With arrows off and threats on, dropping
+		// it would leave the primary victim as the one piece with no glyph.
+		if (boardArrows.length === 0) return winMemo.targets;
+		const dest = top.pv[0].slice(2, 4);
+		return winMemo.targets.filter((t) => t !== dest);
+	});
 	// square-control tint — pure chess.js, recomputed per position
 	const controlMap = $derived.by(() => {
 		if (!showControl || blindMode || mode === 'practice') return null;
@@ -1378,8 +1411,20 @@
 		redoStack.pop();
 		for (const p of entry.plies) {
 			if (!makeMove(p.from, p.to, p.promotion)) {
-				redoStack = []; // desynced with the game — drop the stale future
+				// desynced with the game — drop the stale future. Some plies may
+				// already have landed, so this is a real new position: it needs the
+				// same repair as a normal move, or the overlays keep describing the
+				// one before it (a stale mate score would ring the wrong king).
+				redoStack = [];
+				const moves = getState().moves;
+				// keep the grades belonging to the plies that DID land, or the move
+				// list is short of the board (grades are sparse — one may still be
+				// in flight — so go by ply number, not by count)
+				moveHistory = [...moveHistory, ...entry.grades.filter((g) => g.ply <= moves.length)];
+				const applied = moves.at(-1);
+				lastMove = applied ? [applied.from, applied.to] : null;
 				refresh();
+				runAnalysis();
 				return;
 			}
 		}
@@ -1477,6 +1522,8 @@
 				engineMoves={boardArrows}
 				botArrow={botThinking ? botConsidering : null}
 				threatArrow={threatArrow}
+				threatTargets={threatTargets}
+				winTargets={winTargets}
 				control={controlMap}
 				refutationArrow={mode === 'practice' && attempt && !attempt.pass ? (attempt.refutationUci ?? null) : null}
 				hintSquare={mode === 'practice' && hintTier >= 2 && !attempt && practiceRef

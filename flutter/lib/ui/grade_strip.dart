@@ -25,6 +25,37 @@ class ClassTable {
 class GradeStrip extends StatelessWidget {
   const GradeStrip({super.key});
 
+  /// Says what the red arrow is actually threatening. The app already worked
+  /// this out to decide whether to draw the arrow at all — it just used to
+  /// throw the answer away, leaving a warning with no explanation.
+  Widget? _threatLine(GameController game) {
+    // the board hides its overlays while browsing/previewing — a strip line
+    // asserting a live threat under a historical position would contradict it
+    if (game.browsing || game.previewing) return null;
+    final san = game.threatSan;
+    if (san == null) return null;
+    final gain = game.threatGain;
+    // null gain means mate: the brain reports Infinity and JSON cannot carry it
+    final cost = gain == null
+        ? 'mates'
+        : 'costs ${gain.abs().toStringAsFixed(gain.abs() >= 10 ? 0 : 1)}';
+    return Row(
+      children: [
+        const Icon(Icons.warning_amber_rounded,
+            size: 13, color: Color(0xFFC62828)),
+        const SizedBox(width: 5),
+        Text('threat: $san',
+            style: const TextStyle(
+                color: Color(0xFFE0908E),
+                fontSize: 12,
+                fontWeight: FontWeight.w600)),
+        const SizedBox(width: 6),
+        Text(cost,
+            style: const TextStyle(color: Colors.white38, fontSize: 12)),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final game = context.watch<GameController>();
@@ -64,11 +95,17 @@ class GradeStrip extends StatelessWidget {
       );
     }
 
+    final threat = _threatLine(game);
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
       color: const Color(0xFF262421),
-      child: content,
+      child: threat == null
+          ? content
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [content, const SizedBox(height: 4), threat],
+            ),
     );
   }
 }
