@@ -398,6 +398,14 @@ class GameController extends ChangeNotifier {
       if (!position.isLegal(move)) return;
       final san = _sanOf(position, move);
       _apply(move, san);
+    } catch (e, st) {
+      // Every call site here is fire-and-forget and the app installs no
+      // zone guard, so without this an exception — a bridge StateError, a
+      // dead engine — becomes an unhandled async error and leaves the board
+      // silently dead: bot on turn, nothing thinking, input refused. Contained
+      // here it is at least logged, and undo still recovers (it hands the turn
+      // back, so this method returns early rather than retrying the failure).
+      debugPrint('[bot] move selection failed: $e\n$st');
     } finally {
       if (gen == _gen) {
         botThinking = false;
@@ -431,7 +439,10 @@ class GameController extends ChangeNotifier {
     }
     if (p.family == 'horizon') {
       // no engine search at all — js-chess-engine runs inside the JS runtime
-      // that is already loaded, and answers in ~10ms
+      // that is already loaded, and answers in ~2-5ms. avoidRepetition gets
+      // the app's own analysis lines (what repetition.ts documents wanting):
+      // this branch is synchronous throughout, so they describe THIS position,
+      // and an empty list degrades to returning the move unchanged.
       final uci = _bot.horizonMove(fen, p.jsceLevel ?? 1);
       if (uci != null) {
         return _bot.avoidRepetition(uci, _fenHistory(), currentLines);
@@ -443,10 +454,18 @@ class GameController extends ChangeNotifier {
     // family without an implementation here should play at its own rating
     // rather than crash on a null.
     //
-    // A silent stand-in is not free — on the web it is surfaced, because
+    // This IS the "different opponent wearing the persona's name" that
+    // roster_picker refuses to offer, and the two are complementary rather
+    // than contradictory: the picker gates unimplemented families so a player
+    // can never CHOOSE one, and this is the safety net for an id that arrives
+    // some other way — a stored personaId from an older build, or from the
+    // web, where the roster is larger. A stand-in beats the alternative here,
+    // which used to be `p.numericElo!` throwing and wedging the bot's turn.
+    //
+    // It is not free, though: on the web the substitution is surfaced, because
     // grading a game against the rating you THINK you played corrupts the
-    // player-rating fit. Flutter does not fit a rating yet; when it does,
-    // this is the branch that has to tell it.
+    // player-rating fit. Flutter does not fit a rating yet; when it does, this
+    // is the branch that has to tell it.
     final internalElo = p.numericElo ?? _bot.internalElo(p);
     final spec = _bot.botSpec(internalElo);
     switch (spec['kind'] as String) {

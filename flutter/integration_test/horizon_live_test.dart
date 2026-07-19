@@ -1,8 +1,11 @@
 // Horizon through the REAL bridge. js-chess-engine is bundled into brain.js
-// and executed by the host JS runtime (JavaScriptCore on Apple platforms,
-// QuickJS elsewhere) — a bare-context node check cannot prove that runtime
-// runs it, and a `String?` returning null is exactly the marshalling shape
-// that has bitten before.
+// and executed by the host JS runtime — a bare-context node check cannot prove
+// that runtime runs it, and a `String?` returning null is exactly the
+// marshalling shape that has bitten before.
+//
+// Verified on JavaScriptCore only (ios/ and macos/ are the only native targets
+// that exist). See js_bridge.dart for why QuickJS is a real open question here
+// rather than a formality.
 //
 //   cd flutter && flutter test integration_test/horizon_live_test.dart -d macos
 

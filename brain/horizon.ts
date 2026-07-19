@@ -5,40 +5,41 @@
 // effect, live. See svelte/src/lib/engine/jsce.ts for the calibration notes.
 //
 // This module is reachable ONLY from brain-entry.ts, which is the esbuild
-// entry and nothing else. That is deliberate: the Svelte app imports brain
-// modules individually and keeps its own lazily-imported copy in jsce.ts, so
-// a static import here cannot drag js-chess-engine into the web bundle.
+// entry and nothing else. That is what keeps js-chess-engine off the Svelte
+// app's eager path: the web has its own lazily-imported copy in jsce.ts, so
+// the library reaches the browser only in a lazy chunk, and this file
+// contributes nothing to the web build at all.
 //
 // Synchronous on purpose. The Dart bridge marshals `JSON.stringify(brain.fn())`
 // in one eval, so a Promise would cross as `{}` — anything the bridge calls
-// has to return a value, not a promise. Levels 1-2 answer in ~2-100ms, which
-// is why this one can be.
+// has to return a value, not a promise. Levels 1-2 answer in ~2-5ms, which is
+// why this one can be.
 
 import { ai } from 'js-chess-engine';
-import { Chess } from 'chess.js';
+import { horizonUci } from './horizonUci';
 
 /**
- * The move a Horizon persona plays, in UCI, or null if the position gave it
- * nothing legal. `level` is the persona's `jsceLevel` (1 or 2).
+ * The move a Horizon persona plays, in UCI, or null if it had nothing to
+ * offer. `level` is the persona's `jsceLevel` (1 or 2).
+ *
+ * Never throws: everything is inside the try, including the FEN parsing, so a
+ * malformed position degrades to a fallback instead of crossing the bridge as
+ * an error. That distinction matters — a throw here reaches Dart as a
+ * StateError on the bot's turn, which is much worse than no move.
  *
  * NOT deterministic: js-chess-engine picks among equal-scoring moves at
  * random, so the same position can yield different moves. Do not pin it with
  * a golden fixture — assert legality instead.
  */
 export function horizonMove(fen: string, level: number): string | null {
-	let move: Record<string, string>;
 	try {
-		move = ai(fen, { level }).move as Record<string, string>;
+		// throws on a finished game ("Game is already finished") and on a level
+		// outside 1-5 — both are fallback-worthy rather than fatal
+		const move = ai(fen, { level }).move as Record<string, string>;
+		const entry = Object.entries(move)[0] as [string, string] | undefined;
+		if (!entry) return null;
+		return horizonUci(fen, entry[0], entry[1]);
 	} catch {
-		return null; // the library throws on some positions; caller falls back
+		return null;
 	}
-	const entry = Object.entries(move)[0] as [string, string] | undefined;
-	if (!entry) return null;
-	const from = entry[0].toLowerCase();
-	const to = entry[1].toLowerCase();
-	// js-chess-engine always promotes to queen and never says so; UCI wants it
-	// spelled out, and chess.js is the arbiter of whether this is a promotion
-	const legal = new Chess(fen).moves({ verbose: true }).find((m) => m.from === from && m.to === to);
-	if (!legal) return null;
-	return `${from}${to}${legal.promotion ? 'q' : ''}`;
 }

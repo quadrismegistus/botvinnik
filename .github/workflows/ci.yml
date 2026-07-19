@@ -85,7 +85,10 @@ jobs:
         run: git diff --exit-code flutter/assets/brain.js
       - run: flutter pub get
         working-directory: flutter
-      - run: flutter analyze lib test
+      # integration_test/ is analyzed but never run: it drives a real app on a
+      # device and CI has none. Analyzing it still catches the cheap failure —
+      # a renamed method it calls, which would otherwise leave CI green.
+      - run: flutter analyze lib test integration_test
         working-directory: flutter
       - run: flutter test
         working-directory: flutter

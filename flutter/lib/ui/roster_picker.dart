@@ -1,11 +1,14 @@
-// Opponent picker: a modal sheet listing the roster, grouped by family and
-// sorted by elo. Selecting sets settings.personaId — GameController hears the
-// change and starts a new game.
+// Opponent picker: a modal sheet listing the roster as one flat list sorted by
+// elo, so families interleave by strength rather than being grouped. Selecting
+// sets settings.personaId — GameController hears the change and starts a new
+// game.
 //
 // The filter below is the honest edge of the port: a family appears here only
 // once _pickBotMove can actually play it. Everything else in the roster would
 // silently fall back to Stockfish, which is a different opponent wearing the
-// persona's name.
+// persona's name. GameController still HAS that fallback, for ids that arrive
+// without passing through this sheet — the point of the filter is that nobody
+// is ever offered one on purpose.
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';

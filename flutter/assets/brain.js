@@ -8708,20 +8708,32 @@ var brain = (() => {
 
   // brain/horizon.ts
   var import_js_chess_engine = __toESM(require_dist(), 1);
-  function horizonMove(fen, level) {
-    let move;
+
+  // brain/horizonUci.ts
+  function horizonUci(fen, from, to) {
+    const a = from.toLowerCase();
+    const b = to.toLowerCase();
+    let moves;
     try {
-      move = (0, import_js_chess_engine.ai)(fen, { level }).move;
+      moves = new Chess(fen).moves({ verbose: true });
     } catch {
       return null;
     }
-    const entry = Object.entries(move)[0];
-    if (!entry) return null;
-    const from = entry[0].toLowerCase();
-    const to = entry[1].toLowerCase();
-    const legal = new Chess(fen).moves({ verbose: true }).find((m) => m.from === from && m.to === to);
-    if (!legal) return null;
-    return `${from}${to}${legal.promotion ? "q" : ""}`;
+    const matches = moves.filter((m) => m.from === a && m.to === b);
+    if (matches.length === 0) return null;
+    return `${a}${b}${matches.some((m) => m.promotion) ? "q" : ""}`;
+  }
+
+  // brain/horizon.ts
+  function horizonMove(fen, level) {
+    try {
+      const move = (0, import_js_chess_engine.ai)(fen, { level }).move;
+      const entry = Object.entries(move)[0];
+      if (!entry) return null;
+      return horizonUci(fen, entry[0], entry[1]);
+    } catch {
+      return null;
+    }
   }
 
   // brain/bots.ts
