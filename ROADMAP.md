@@ -41,13 +41,38 @@ one; `svelte/` and `flutter/` are consumers and neither depends on the other.
   "Chart" come above "Lines" — analysis first, then the line list, then the
   move list. Affects the `_tabs` order in `main.dart` and the persisted panel
   indices in settings, so it needs a migration or index-independent keys.
-- **Blind-mode keyboard shortcut.** Nothing toggles it from the keyboard
-  today. `b` is free — `ui/keyboard.dart` binds only `f` (flip), space
-  (preview), the arrows, and ⌘Z/⇧⌘Z — and reads better than `h`, which
-  suggests "hint" or "help". Add it to `bindingsFor` in the same commit, so
-  the help sheet cannot drift from the bindings. Note it is the one binding
-  that would *change* what you can see, so it should probably not repeat on
-  key-hold (the existing `_repeatable` set already handles that).
+- **Keyboard shortcuts in Practice and Review, and blind mode in Play.**
+  These are one job, because they force the same structural change. The
+  keyboard layer is currently tab-**gated**: `KeyboardControls` wraps the shell
+  and returns `ignored` unless `_tab.value == 0` (main.dart), which is what
+  stops ⌘Z reaching a hidden board. What is wanted is tab-**aware** — a
+  per-tab action map rather than one map switched off.
+
+  Wanted bindings:
+  - **Play:** `b` toggles blind mode (currently unbound; `b` reads better than
+    `h`, which suggests hint/help).
+  - **Review:** ← / → step between moves, and it should be possible to review
+    with the keyboard alone. `ReviewController` already has `prev`, `next`,
+    `goto`, `canPrev`, `canNext` — this is wiring, not new logic.
+  - **Practice:** `r` *or* ← retries, `n` next puzzle, `b` shows best.
+    `PracticeController` already has `retry`, `nextPuzzle`, `reveal`, `hint`.
+
+  **Two collisions, deliberate but worth deciding explicitly.** `b` means
+  blind in Play and show-best in Practice; ← means step-back in Play and
+  Review but retry in Practice. Tab scoping makes that safe, but it means
+  `KeyboardControls.bindingsFor` — the single list the help sheet renders, so
+  that the sheet cannot drift from the bindings — has to become per-tab too,
+  or the sheet will confidently describe the wrong app. Also decide whether
+  `n`/`r`/`b` should repeat on key-hold; the existing `_repeatable` set says
+  browse keys yes, state-changing keys no, and all three of these change
+  state.
+- **Review should open at the start, not the end.** `review_controller.dart`
+  `open()` sets `cursor = moves.length` ("land on the final position"), so a
+  game opens at the last move and must be scrubbed backwards. Reviewing runs
+  forwards. One line — but decide between `cursor = 0` (the start position,
+  verdict strip reads "Start position") and `cursor = 1` (after the first
+  move, so the first verdict is already showing). `0` is the truer
+  "beginning"; `1` avoids opening on a screen with nothing to say.
 - **Default board texture → Olive.** `kDefaultBoardTexture` is `'newspaper'`
   (`settings_store.dart:22`); `'olive'` already exists (`board_theme.dart:73`).
   One-word change, but it only applies to profiles with no stored preference —
