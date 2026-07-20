@@ -232,7 +232,7 @@ class _AppShellState extends State<AppShell> {
     // bar was taking is height the board can actually grow into. The +96
     // clears the rail's own width, so the Play pane stays above its wide
     // breakpoint once the rail is in the row with it.
-    if (MediaQuery.sizeOf(context).width >= kWideBreakpoint + 96) {
+    if (_wideShell(context)) {
       return Scaffold(
         appBar: _appBar(context),
         body: Row(
@@ -333,6 +333,78 @@ class _AppShellState extends State<AppShell> {
         _ => throw RangeError.index(i, null, 'tab'),
       };
 
+  /// A window wide enough for the desktop shell: the side rail instead of a
+  /// bottom bar, and the menu bar in the app bar. The +96 clears the rail's own
+  /// width so the Play pane stays above its wide breakpoint.
+  bool _wideShell(BuildContext context) =>
+      MediaQuery.sizeOf(context).width >= kWideBreakpoint + 96;
+
+  /// The wide-window menu bar. Everything in it is reachable elsewhere, but on
+  /// a desktop-sized window a menu is where people look — and it is the only
+  /// home for the panel toggles that isn't the view bar itself. In-app rather
+  /// than a native PlatformMenuBar, because the wide layout runs on the web
+  /// too, where a native menu bar does not exist.
+  Widget _menuBar(BuildContext context) {
+    final settings = context.watch<SettingsStore>();
+    final game = context.watch<GameController>();
+    const label = TextStyle(fontSize: 13, color: Colors.white70);
+    return MenuBar(
+      style: const MenuStyle(
+        backgroundColor: WidgetStatePropertyAll(Colors.transparent),
+        elevation: WidgetStatePropertyAll(0),
+        padding: WidgetStatePropertyAll(EdgeInsets.zero),
+      ),
+      children: [
+        SubmenuButton(
+          menuChildren: [
+            MenuItemButton(
+              onPressed: () => showNewGameSheet(context),
+              child: const Text('New game…'),
+            ),
+            MenuItemButton(
+              onPressed: () async {
+                // land on the game it just imported
+                if (await showPgnImport(context) && mounted) _select(2);
+              },
+              child: const Text('Import PGN…'),
+            ),
+          ],
+          child: const Text('Game', style: label),
+        ),
+        SubmenuButton(
+          menuChildren: [
+            for (final i in _PlayTabState._paneOrder)
+              CheckboxMenuButton(
+                value: settings.panels.contains(i),
+                onChanged: (_) => settings.togglePanel(i),
+                child: Text(_PlayTabState._tabs[i].$2),
+              ),
+            const Divider(height: 1),
+            MenuItemButton(
+              onPressed: game.toggleFlip,
+              child: const Text('Flip board'),
+            ),
+            CheckboxMenuButton(
+              value: settings.blind,
+              onChanged: (_) => settings.blind = !settings.blind,
+              child: const Text('Blind mode'),
+            ),
+          ],
+          child: const Text('View', style: label),
+        ),
+        SubmenuButton(
+          menuChildren: [
+            MenuItemButton(
+              onPressed: () => showKeyboardHelp(context),
+              child: const Text('Keyboard shortcuts'),
+            ),
+          ],
+          child: const Text('Help', style: label),
+        ),
+      ],
+    );
+  }
+
   /// The keyboard-shortcuts button, only where a keyboard is plausible (a wide
   /// viewport). Shown on the tabs that have bindings — the sheet now documents
   /// all of them, so it is no longer Play-only.
@@ -404,13 +476,18 @@ class _AppShellState extends State<AppShell> {
           // Just the identity now — the opponent moved to the New Game sheet
           // (who you play is a game-start choice, not a title). Robot for the
           // app's bot motif; the name in lower case, as it's written.
-          title: const Row(
+          title: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(Icons.smart_toy_outlined, size: 20, color: Color(0xFF81B64C)),
-              SizedBox(width: 8),
-              Text('botvinnik',
+              const Icon(Icons.smart_toy_outlined,
+                  size: 20, color: Color(0xFF81B64C)),
+              const SizedBox(width: 8),
+              const Text('botvinnik',
                   style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+              if (_wideShell(context)) ...[
+                const SizedBox(width: 18),
+                _menuBar(context),
+              ],
             ],
           ),
           actions: [
@@ -437,8 +514,10 @@ class _AppShellState extends State<AppShell> {
                   ? 'Blind mode on — no engine help'
                   : 'Blind mode off',
             ),
-            // only where there is plausibly a keyboard; on a phone it is noise
-            if (MediaQuery.sizeOf(context).width >= _PlayTabState._wideBreakpoint)
+            // only where there is plausibly a keyboard, and only while the
+            // menu bar is not up — there it lives under Help instead
+            if (!_wideShell(context) &&
+                MediaQuery.sizeOf(context).width >= _PlayTabState._wideBreakpoint)
               IconButton(
                 onPressed: () => showKeyboardHelp(context),
                 icon: const Icon(Icons.keyboard_outlined),
