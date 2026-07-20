@@ -18,11 +18,16 @@
 // logits back), against an inference measured in tens of milliseconds.
 //
 // The failure shapes are the web's, for the web's reasons — see the long
-// comments in web_src/maia-worker.ts. Kept here: one request at a time, a
-// per-band load cache, and latching only on TIMEOUTS so a fast failure stays
-// retryable. Added here, because a file cache can be corrupt in a way
-// IndexedDB's cannot: a model that fails to open is deleted, and a download
-// lands through a `.part` rename so a truncated file is never a cache hit.
+// comments in web_src/maia-worker.ts. Kept here: one request at a time, and a
+// per-band load cache that a stalled network latches permanently.
+//
+// Where native diverges, it is because a file cache can be corrupt in a way
+// IndexedDB's cannot, and because an ORT session here is a native object with
+// its own isolate rather than a Worker somebody else owns. So: a download
+// lands through a `.part` rename, a model that will not open is deleted and
+// granted exactly one re-download, and a session whose run stalls is retired
+// rather than reused — but the BAND stays playable, because the alternative
+// is a persona that quietly becomes Stockfish after one slow frame.
 
 import 'dart:async';
 import 'dart:io';
@@ -90,15 +95,35 @@ class MaiaEngine {
   final Map<int, Future<_Net>> _nets = {};
 
   /// Bands this session has given up on. Not retried — a network that accepts
-  /// and never answers, or a session that cannot be trusted, would otherwise
-  /// cost its full failure on every move, forever.
+  /// and never answers, or weights that cannot be read, would otherwise cost
+  /// their full failure on every move, forever.
   ///
   /// The web worker latches only on TIMEOUTS, on the grounds that a fast
   /// failure is cheap to retry. Native latches wider, because here a retry is
   /// not cheap: the cache is a FILE, a model ORT cannot open is deleted, and
   /// the retry is therefore another 3.5MB download — every move, unbounded.
   /// A 404 is still not latched, since that is one cheap request.
+  ///
+  /// It deliberately does NOT latch on a slow inference. Latching there was a
+  /// worse bug than the one it fixed: one 15s overrun — a thermal-throttled
+  /// phone, a backgrounded app — and that Maia played as Stockfish under
+  /// Maia's name for the rest of the run, which is the substitution this whole
+  /// layer exists to prevent, and it never self-healed.
   final Set<int> _deadBands = {};
+
+  /// Sessions retired per band, and the point at which retiring stops being
+  /// worth it.
+  ///
+  /// A retired session is rebuilt from the cached FILE — no download, tens of
+  /// milliseconds — so a transient overrun costs almost nothing and heals. A
+  /// band that keeps doing it is genuinely broken and each retirement strands
+  /// a session, so it latches in the end.
+  final Map<int, int> _retirements = {};
+  static const int _kMaxRetirements = 3;
+
+  /// Times a band's weights would not open. One retry (a fresh download), then
+  /// the band is given up on — see [_net].
+  final Map<int, int> _unreadable = {};
 
   /// Requests are handled one at a time. ORT's isolate session takes the first
   /// result off a broadcast stream, so two overlapping runs can be handed each
@@ -110,19 +135,25 @@ class MaiaEngine {
   /// current generation or to nobody.
   int _gen = 0;
 
-  /// Requests that have asked and not yet been answered.
+  /// Bands with a request outstanding, and how many.
   ///
   /// Progress gates on this rather than on a generation, because a download is
   /// cached per BAND and outlives the request that started it: the generation
   /// it was born under is stale by the time the move that is actually waiting
   /// for it arrives, and gating on that generation blanked the bar for the
-  /// whole rest of the download.
-  int _waiting = 0;
+  /// whole rest of the download. Per band and not just a count, so an
+  /// abandoned download cannot narrate itself over a move waiting on a
+  /// different one.
+  final Map<int, int> _waiting = {};
 
-  /// True while an ORT run is dispatched and has not come back. `dispose` must
-  /// not release a session out from under one — `OrtSession.release` tears the
-  /// native session down without waiting for its isolate to stop.
-  bool _running = false;
+  /// ORT runs dispatched and not yet back. `dispose` must not release a
+  /// session out from under one — `OrtSession.release` tears the native
+  /// session down without waiting for its isolate to stop.
+  ///
+  /// A count, not a flag: a run abandoned at its timeout is still outstanding
+  /// while the next one runs, and with a flag its late completion cleared the
+  /// guard for a run that was very much still going.
+  int _running = 0;
 
   bool _disposed = false;
 
@@ -137,7 +168,7 @@ class MaiaEngine {
   }) {
     if (_disposed || fenHistory.isEmpty) return Future.value(null);
     final gen = ++_gen;
-    _waiting++;
+    _waiting.update(band, (n) => n + 1, ifAbsent: () => 1);
     final done = Completer<String?>();
     _chain = _chain.then((_) async {
       // whoever bumped the generation has moved on; do not start its work
@@ -158,7 +189,14 @@ class MaiaEngine {
       // plus building the session. Later calls answer in tens of ms.
       const Duration(seconds: 90),
       onTimeout: () => null,
-    ).whenComplete(() => _waiting--);
+    ).whenComplete(() {
+      final left = (_waiting[band] ?? 1) - 1;
+      if (left > 0) {
+        _waiting[band] = left;
+      } else {
+        _waiting.remove(band);
+      }
+    });
   }
 
   Future<String?> _move(
@@ -168,6 +206,7 @@ class MaiaEngine {
     int gen,
   ) async {
     final js = await _runtime();
+    if (_disposed) return null;
     final fen = fenHistory.last;
 
     // Before the download, not after: this is also the "no legal moves" check,
@@ -198,12 +237,12 @@ class MaiaEngine {
     // for it. ORT reads them from its own isolate, so releasing them on the
     // timeout path would be a use-after-free rather than a tidy-up — a crash
     // instead of the fallback every other failure here degrades to.
-    _running = true;
+    _running++;
     final finished = run.then<List<OrtValue?>?>((o) => o, onError: (Object e) {
       debugPrint('[maia] inference failed: $e');
       return null;
     }).whenComplete(() {
-      _running = false;
+      _running--;
       input.release();
       runOptions.release();
     });
@@ -213,19 +252,21 @@ class MaiaEngine {
       outputs = await finished.timeout(_kRunTimeout);
     } on TimeoutException {
       // The run is still out there. Abandoning the WAIT is not abandoning the
-      // run, and ORT's isolate session hands results out on a BROADCAST
-      // stream that this call is still subscribed to — so the next run on this
-      // session would be handed whichever result arrived first, and could
-      // answer a new position with the old one's policy. A wrong move is worse
-      // than no move, so the session is retired instead: the next request
-      // builds a fresh one, whose stream the abandoned run cannot reach.
+      // run, and ORT's isolate session hands results out on a BROADCAST stream
+      // that this call is still subscribed to — so the next run on the SAME
+      // session could be handed whichever result arrived first, and answer a
+      // new position with the old one's policy. A wrong move is worse than no
+      // move, so the session is retired: the next request builds a fresh one,
+      // and the broadcast stream is per session, so the abandoned run cannot
+      // reach it.
       _retire(band, 'inference exceeded ${_kRunTimeout.inSeconds}s');
       return null;
     }
-    // Same reasoning for a run that FAILED rather than stalled: the isolate is
-    // spawned with errorsAreFatal, so a throw inside it kills the isolate while
-    // the session keeps pointing at its dead port, and every later run on this
-    // session would hang forever.
+    // Same reasoning for a run that FAILED rather than stalled — and in
+    // practice the isolate is spawned with errorsAreFatal, so a throw inside
+    // it kills the isolate and the run future never completes at all. Either
+    // way the session keeps pointing at a dead port and every later run on it
+    // would hang, so either way it is retired.
     if (outputs == null) {
       _retire(band, 'inference failed');
       return null;
@@ -248,14 +289,25 @@ class MaiaEngine {
 
   /// Drop a session that can no longer be trusted, without releasing it.
   ///
-  /// Deliberately a leak: a run may still be inside it, and `release()` tears
-  /// the native session down without waiting for its isolate to stop. One
-  /// stranded session per pathological inference is a far better trade than a
-  /// use-after-free, and the band is latched so it cannot happen repeatedly.
+  /// The leak is deliberate: a run may still be inside it, and `release()`
+  /// tears the native session down without waiting for its isolate to stop. A
+  /// stranded session is a far better trade than a use-after-free.
+  ///
+  /// The band stays PLAYABLE. Rebuilding reads the cached file — no download,
+  /// tens of milliseconds — so a phone that throttled through one inference
+  /// gets its Maia back on the next move. Only a band that keeps doing it is
+  /// given up on, because by then each retirement is stranding a session and
+  /// the evidence is no longer of a hiccup.
   void _retire(int band, String why) {
-    debugPrint('[maia] retiring maia-$band: $why');
+    final count = (_retirements[band] ?? 0) + 1;
+    _retirements[band] = count;
     _nets.remove(band);
-    _deadBands.add(band);
+    if (count >= _kMaxRetirements) {
+      _deadBands.add(band);
+      debugPrint('[maia] maia-$band retired $count times, giving up: $why');
+    } else {
+      debugPrint('[maia] retiring maia-$band ($count/$_kMaxRetirements): $why');
+    }
   }
 
   /// The policy head arrives as a nested list shaped like the output tensor
@@ -330,9 +382,21 @@ class MaiaEngine {
     // `loading` itself and sees the error there
     loading.then((_) {}, onError: (Object e) {
       _nets.remove(band);
-      // A stalled network and a model that will not open both cost 3.5MB to
-      // retry. A 404 costs one request, so it stays retryable.
-      if (e is TimeoutException || e is _ModelUnreadable) _deadBands.add(band);
+      // A network that accepts and never answers costs a full 30s on every
+      // move; nothing about that improves by trying again.
+      if (e is TimeoutException) _deadBands.add(band);
+      // A model ORT will not open has already been deleted, so the retry is a
+      // fresh 3.5MB download. Worth exactly one — the file really can be
+      // corrupt — and no more, because unbounded means once per move forever.
+      // Counted rather than latched at the first failure so that a throw from
+      // something transient (memory pressure while ORT builds the graph) does
+      // not cost the persona for the rest of the run.
+      if (e is _ModelUnreadable) {
+        final n = (_unreadable[band] ?? 0) + 1;
+        _unreadable[band] = n;
+        if (n >= 2) _deadBands.add(band);
+      }
+      // A 404 stays retryable: that is one cheap request.
     });
     return loading;
   }
@@ -345,7 +409,7 @@ class MaiaEngine {
 
     // ORT builds and optimises the graph here. It reports nothing and there is
     // no total to divide by, so this phase gets a name rather than a bar.
-    _report(const MaiaProgress('starting'));
+    _report(band, const MaiaProgress('starting'));
     // and a frame to draw it in: _session below is synchronous FFI that holds
     // this isolate for the whole graph build, so without a yield the phase the
     // report announces is never actually painted.
@@ -354,8 +418,8 @@ class MaiaEngine {
       return _session(bytes);
     } catch (e) {
       // A cached model that will not open would fail identically forever, so
-      // it goes — but the band is latched too (see _net), because otherwise
-      // "delete and retry" is an unbounded re-download, once per move.
+      // it goes — but only one re-download is granted (see _net), because
+      // otherwise "delete and retry" is once per move, forever.
       try {
         await file.delete();
       } catch (_) {
@@ -413,17 +477,19 @@ class MaiaEngine {
       final builder = BytesBuilder(copy: false);
       var received = 0;
       var reported = 0;
-      _report(MaiaProgress('fetching', received: 0, total: total));
+      _report(band, MaiaProgress('fetching', received: 0, total: total));
       await for (final chunk in response.timeout(_kLoadTimeout)) {
         builder.add(chunk);
         received += chunk.length;
         if (received - reported >= step) {
           reported = received;
-          _report(MaiaProgress('fetching', received: received, total: total));
+          _report(band,
+              MaiaProgress('fetching', received: received, total: total));
         }
       }
-      _report(MaiaProgress('fetching',
-          received: received, total: total > 0 ? total : received));
+      _report(band,
+          MaiaProgress('fetching',
+              received: received, total: total > 0 ? total : received));
       final bytes = builder.takeBytes();
 
       // Land it through a rename: a partial write must never be readable as a
@@ -448,12 +514,13 @@ class MaiaEngine {
     }
   }
 
-  void _report(MaiaProgress progress) {
-    // Only while somebody is actually waiting. A cancelled request leaves its
-    // download running — the weights are cached per band, so finishing is the
-    // right thing — but without this it would re-raise the progress line on a
-    // game that is not downloading anything.
-    if (_disposed || _waiting == 0) return;
+  void _report(int band, MaiaProgress progress) {
+    // Only while somebody is actually waiting on THIS band. A cancelled
+    // request leaves its download running — the weights are cached per band,
+    // so finishing is the right thing — but without this it would narrate
+    // itself over a game that is not downloading anything, or worse, over one
+    // waiting on a different band, where the line names the wrong persona.
+    if (_disposed || !_waiting.containsKey(band)) return;
     onProgress?.call(progress);
   }
 
@@ -469,7 +536,7 @@ class MaiaEngine {
     // releasing here would be a use-after-free in native code. Stranding the
     // session at teardown costs nothing anyone will notice; crashing on the
     // way out costs a crash report.
-    if (!_running) {
+    if (_running == 0) {
       for (final net in _nets.values) {
         net.then((n) => n.session.release(), onError: (_) {});
       }

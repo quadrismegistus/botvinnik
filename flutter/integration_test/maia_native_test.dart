@@ -106,11 +106,16 @@ void main() {
     });
     final abandoned = fresh.move([start], band: 1500);
     await Future<void>.delayed(const Duration(milliseconds: 400));
+    // The count BEFORE the cancel is the whole point. Reports always arrive
+    // early — headers land in milliseconds — so `seen is not empty` passes on
+    // the generation-gated code this replaced. Only growth AFTER the cancel
+    // distinguishes them.
+    final before = seen.length;
     fresh.cancelPending();
 
     expect(await abandoned, isNull, reason: 'cancelled requests answer null');
-    expect(seen.any((p) => p.phase == 'fetching'), isTrue,
-        reason: 'the download reported while someone was waiting');
+    expect(seen.length, greaterThan(before),
+        reason: 'the download kept reporting for whoever is waiting next');
     expect(await fresh.move([start], band: 1500), 'e2e4',
         reason: 'the abandoned download still cached its weights');
     fresh.dispose();
