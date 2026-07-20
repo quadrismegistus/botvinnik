@@ -310,12 +310,27 @@ web branch of every conditional import.
   macOS bundle now carries `com.apple.security.network.client`. Everything
   else on native is offline by construction, and this stays a single host
   reached only when someone picks a Maia.
-- **Only JavaScriptCore has ever run the brain.** `ios/` and `macos/` are the
-  only native targets that exist; QuickJS is the runtime on Android and is
-  untested. Bundling js-chess-engine put BigInt literals in `brain.js`, and
-  QuickJS gates BigInt behind `CONFIG_BIGNUM` — a build without it fails to
-  *parse* the bundle, so the app would not boot at all rather than lose one
-  bot family. Verify before adding an Android target.
+- **Android needs JavaScriptCore, not QuickJS** (measured 2026-07-20, #46).
+  The worry was real and its attribution was wrong. `brain.js` holds ~145
+  BigInt literals and `maia-brain.js` ~13, but they do not come from
+  js-chess-engine — they come from **chess.js**, which uses 64-bit arithmetic
+  for Zobrist hashing. Nothing can be dropped to avoid it.
+
+  The QuickJS that `flutter_js` ships for Android
+  (`fastdev-jsruntimes-quickjs` 0.3.6) is built **without `CONFIG_BIGNUM`**:
+  its atom table has `Object`, `Proxy`, `Symbol`, `Promise` and every typed
+  array, and no `BigInt`, `bigint` or `asIntN` at all. Both bundles fail there
+  with `SyntaxError: invalid number literal` — a *parse* error, so the app
+  would not boot rather than lose a bot family. The same bundles evaluate
+  cleanly under the same QuickJS built *with* `CONFIG_BIGNUM`, which is the
+  A/B that pins it on the runtime rather than on us.
+
+  The route is `flutter_js`'s own `forceJavascriptCoreOnAndroid: true`, plus
+  the `fastdev-jsruntimes-jsc` AAR that the package leaves commented out in
+  its gradle. That build does carry `BigInt`. It costs ~9MB per ABI against
+  QuickJS's ~1MB, and buys something worth having: one JS engine on every
+  platform, so the brain cannot behave differently on Android than it does
+  everywhere else. Unverified until there is an Android target to run it on.
 - **Calibration drift on native engines.** Labels were measured against
   lite-single WASM; mobile FFI and desktop sidecars are different engines. The
   desktop Square knots are known stale and documented as such in-source.
