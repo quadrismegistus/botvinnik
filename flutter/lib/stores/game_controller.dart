@@ -141,6 +141,10 @@ class GameController extends ChangeNotifier {
   bool isHumanSide(String color) =>
       color == 'w' ? whitePersona == null : blackPersona == null;
   bool get gameOver => position.isGameOver;
+  /// Whose colour sits at the bottom of the board (follows orientation).
+  bool get whiteAtBottom => (playerColor == 'w') != flipped;
+  /// The position actually on screen: a browsed ply, a hover preview, or live.
+  String get displayFen => browseFen ?? previewFen ?? position.fen;
 
   String get statusLine {
     if (position.isCheckmate) {
@@ -510,7 +514,7 @@ class GameController extends ChangeNotifier {
       // handling ends it at mate/stalemate. Fires after this invocation's
       // finally has cleared botThinking, so the recursive call is not blocked.
       if (!gameOver && !isPlayerTurn) {
-        Future.delayed(const Duration(milliseconds: 650)).then((_) {
+        Future.delayed(Duration(milliseconds: _settings.botDelayMs)).then((_) {
           if (gen == _gen && !gameOver && !isPlayerTurn) _maybeBotTurn();
         });
       }

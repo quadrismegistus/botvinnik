@@ -35,6 +35,7 @@ import 'ui/lines_pane.dart';
 import 'ui/lines_tree_pane.dart';
 import 'ui/move_list.dart';
 import 'ui/new_game_sheet.dart';
+import 'ui/player_plate.dart';
 import 'ui/practice_tab.dart';
 import 'ui/settings_tab.dart';
 import 'ui/splash.dart';
@@ -471,6 +472,8 @@ class _PlayTabState extends State<PlayTab> {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
+        // watched: the plates flank the board by orientation, which flips
+        final game = context.watch<GameController>();
         if (constraints.maxWidth < _wideBreakpoint) {
           // The board is square and was taking the full width, which is right
           // on a phone — where height is plentiful — and overflows a desktop
@@ -478,9 +481,15 @@ class _PlayTabState extends State<PlayTab> {
           // strip, the view bar and enough panel to be worth showing.
           final board =
               narrowBoardSize(constraints.maxWidth, constraints.maxHeight);
+          final topSide = game.whiteAtBottom ? 'b' : 'w';
+          final botSide = game.whiteAtBottom ? 'w' : 'b';
           return Column(
             children: [
+              SizedBox(
+                  width: board, child: PlayerPlate(key: ValueKey(topSide), side: topSide)),
               Center(child: SizedBox(width: board, child: const BoardPane())),
+              SizedBox(
+                  width: board, child: PlayerPlate(key: ValueKey(botSide), side: botSide)),
               const GradeStrip(),
               _viewRow(),
               Expanded(child: _panel()),
@@ -498,10 +507,19 @@ class _PlayTabState extends State<PlayTab> {
           children: [
             SizedBox(
               width: boardSize,
-              child: const SingleChildScrollView(
+              child: SingleChildScrollView(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
-                  children: [BoardPane(), GradeStrip()],
+                  children: [
+                    PlayerPlate(
+                        key: ValueKey(game.whiteAtBottom ? 'b' : 'w'),
+                        side: game.whiteAtBottom ? 'b' : 'w'),
+                    const BoardPane(),
+                    PlayerPlate(
+                        key: ValueKey(game.whiteAtBottom ? 'w' : 'b'),
+                        side: game.whiteAtBottom ? 'w' : 'b'),
+                    const GradeStrip(),
+                  ],
                 ),
               ),
             ),
