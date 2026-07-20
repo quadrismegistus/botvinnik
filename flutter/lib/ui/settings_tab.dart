@@ -10,6 +10,7 @@ import 'package:provider/provider.dart';
 
 import '../stores/practice_controller.dart';
 import '../stores/settings_store.dart';
+import 'about_section.dart';
 import 'board_theme.dart';
 
 class SettingsTab extends StatelessWidget {
@@ -132,10 +133,13 @@ class SettingsTab extends StatelessWidget {
         ),
         const _SectionLabel('Board theme'),
         const _BoardColorSection(),
+        const _SectionLabel('About'),
+        const AboutSection(),
       ],
     );
   }
 }
+
 
 /// A 0–1 opacity control. Shows the value so a setting can be described and
 /// restored, not just dragged until it looks right.
