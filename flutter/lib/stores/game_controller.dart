@@ -494,11 +494,13 @@ class GameController extends ChangeNotifier {
         DateTime.now().difference(sprintStart).inMilliseconds < 1500) {
       await Future.delayed(const Duration(milliseconds: 50));
     }
-    if (gen != _gen) {
-      botThinking = false;
-      notifyListeners();
-      return;
-    }
+    // Generation changed under us (a new game). Whoever bumped it owns
+    // botThinking now — newGame sets it false and may immediately start the new
+    // game's own bot turn (setting it true again); undo/redo can't run while it
+    // is true — so clearing it here would clobber that fresh turn, re-enabling
+    // re-entry. Just bail. (The finally guards the same way: it only touches
+    // botThinking when gen == _gen.)
+    if (gen != _gen) return;
     try {
       final uci = await _pickBotMove(p);
       if (gen != _gen || uci == null) return;
@@ -1015,10 +1017,12 @@ class GameController extends ChangeNotifier {
     log('backfilled label=${record.grade?.label}');
 
     // auto-collect big mistakes as practice puzzles (web maybeCollect) — but
-    // only YOUR mistakes. Practice is for drilling your own blunders; a bot's
-    // (including either side of a bot-vs-bot game) is not yours to fix.
+    // only YOUR mistakes, and only in a real GAME. Practice drills your own
+    // blunders against a bot; a bot's move (either side of bot-vs-bot) is not
+    // yours to fix, and the analysis board (both sides human, botEnabled false)
+    // is exploration — its "mistakes" are deliberate, not puzzles to drill.
     final practice = _practice;
-    if (practice != null && isHumanSide(record.color)) {
+    if (practice != null && botEnabled && isHumanSide(record.color)) {
       final prevUci =
           record.ply >= 2 ? moves[record.ply - 2].uci : null;
       await practice.maybeCollect(_storedMoveOf(record),
