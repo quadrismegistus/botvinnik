@@ -12,7 +12,7 @@ The **synchronous brain bridge** is the constraint that shaped the port: one eva
 
 Grouped by GitHub-issue label. Nothing here blocks the deploy — the roster is closed.
 
-- **[native-port](https://github.com/quadrismegistus/botvinnik/labels/native-port)** — Garbo on macOS/iOS, retro on iOS (findings recorded beside each `*_engine_io.dart` stub), Dala's lc0 sidecar, and the QuickJS/Android BigInt check. Maia landed natively 2026-07-20 and retro on macOS the day before.
+- **[native-port](https://github.com/quadrismegistus/botvinnik/labels/native-port)** — Garbo on macOS/iOS (findings recorded beside `garbo_engine_io.dart`), Dala's lc0 sidecar, and the QuickJS/Android BigInt check. Maia and iOS retro both landed 2026-07-20, so Garbo is the last web-only family.
 - **[compliance](https://github.com/quadrismegistus/botvinnik/labels/compliance)** — the App Store submission chores, gated on one **[decision](https://github.com/quadrismegistus/botvinnik/labels/decision)**: the GPLv3-on-App-Store posture (recommended: the Lichess one).
 - **[roster](https://github.com/quadrismegistus/botvinnik/labels/roster)** — the bot-feel and anchoring work: a position-adaptive weak-bot sampler, sampled/Maia-3 personas, the SquareFish lichess accounts, and engine scouting.
 - **[ui](https://github.com/quadrismegistus/botvinnik/labels/ui)** — the Flutter UI backlog: new-game flow, keyboard shortcuts, panel order, PGN import.

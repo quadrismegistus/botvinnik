@@ -57,6 +57,9 @@ flutter/macos/Pods/
 flutter/macos/Runner/Resources/stockfish
 # retro engine binaries (MIT, built by stage-macos-engines.sh, never committed)
 flutter/macos/Runner/Resources/retro/
+# the same engines as a c-archive for iOS (built by stage-ios-engines.sh)
+flutter/ios/retro/lib/
+flutter/ios/retro/include/
 
 # flutter web spike: engine + brain copies, never committed
 flutter/web/wasm/

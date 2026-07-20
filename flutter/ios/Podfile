@@ -31,6 +31,16 @@ target 'Runner' do
   use_frameworks!
 
   flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
+
+  # The retro engines, as a Go c-archive (iOS cannot spawn the binaries macOS
+  # uses). BUILT, not committed — ../stage-ios-engines.sh — so this is
+  # conditional: without it the app simply does not offer retro, which is the
+  # same honest gate the macOS side applies to its binaries. `pod install`
+  # after the first staging.
+  if File.exist?(File.join(__dir__, 'retro', 'lib', 'device', 'libmorlock.a'))
+    pod 'retro', :path => 'retro'
+  end
+
   target 'RunnerTests' do
     inherit! :search_paths
   end

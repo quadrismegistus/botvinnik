@@ -10,6 +10,7 @@ PODS:
     - onnxruntime-objc/Core (= 1.15.1)
   - onnxruntime-objc/Core (1.15.1):
     - onnxruntime-c (= 1.15.1)
+  - retro (0.0.1)
   - stockfish (1.8.1):
     - Flutter
 
@@ -17,6 +18,7 @@ DEPENDENCIES:
   - Flutter (from `Flutter`)
   - flutter_js (from `.symlinks/plugins/flutter_js/ios`)
   - onnxruntime (from `.symlinks/plugins/onnxruntime/ios`)
+  - retro (from `retro`)
   - stockfish (from `.symlinks/plugins/stockfish/ios`)
 
 SPEC REPOS:
@@ -31,6 +33,8 @@ EXTERNAL SOURCES:
     :path: ".symlinks/plugins/flutter_js/ios"
   onnxruntime:
     :path: ".symlinks/plugins/onnxruntime/ios"
+  retro:
+    :path: retro
   stockfish:
     :path: ".symlinks/plugins/stockfish/ios"
 
@@ -40,8 +44,9 @@ SPEC CHECKSUMS:
   onnxruntime: 2ab1957eb029c71d47f7bb35cc4efc9f0d297828
   onnxruntime-c: ebdcfd8650bcbd10121c125262f99dea681b92a3
   onnxruntime-objc: ae7acec7a3d03eaf072d340afed7a35635c1c2a6
+  retro: 78796349abf910df3782d1c1bd3049b93c7b5e9a
   stockfish: b4eb49218804f8fa1ee5fef01e5e760c54df0436
 
-PODFILE CHECKSUM: a0e9cbdff221d0c3f1a078a8d446728bffe872d2
+PODFILE CHECKSUM: b5d239c2cf4b0f69f92009d6afa310a3ebf3aad6
 
 COCOAPODS: 1.17.0
