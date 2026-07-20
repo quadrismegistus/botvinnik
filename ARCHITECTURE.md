@@ -243,10 +243,10 @@ web branch of every conditional import.
 
 - **The roster gap is closed on the web** (2026-07-19). The brain ships 35
   personas; Flutter web offers **32**, which is parity — Dala needs a native
-  lc0 sidecar and is desktop-only in *both* apps. Native Flutter offers **31
-  on macOS and 31 on iOS**, which closed on 2026-07-20: retro as spawned
-  binaries on macOS and a Go c-archive on iOS, Maia over FFI on both. Only
-  Garbo is web-only now.
+  lc0 sidecar and is desktop-only in *both* apps. **Native Flutter now offers
+  the same 32**, closed over 2026-07-19/20: retro as spawned binaries on macOS
+  and a Go c-archive on iOS, Maia over FFI on both, and Garbo in a background
+  isolate. Nothing is web-only any more.
 
   The way it closed is the interesting part: **none of the last three families
   uses the brain bridge at all.** Retro, Garbo and Maia are Workers, so their
@@ -285,6 +285,17 @@ web branch of every conditional import.
   staging simply doesn't offer retro rather than offering it and falling
   back.
 
+  Garbo closed last and most cheaply, which was not the expectation: the
+  stub had it down as the hardest of the three. It is 2011 JavaScript written
+  as a Worker, and the two things it needs turn out to be seven lines of shim
+  (`self` to assign `onmessage` to, a `postMessage` that appends to an array)
+  and a background isolate — because its search is one long SYNCHRONOUS call,
+  so everything it emits is already buffered by the time the call returns.
+  There is no message loop to get right. `flutter_js`'s JavaScriptCore path is
+  pure `dart:ffi` with no root-isolate dependency, so it starts fine off the
+  main isolate; the engine source is read on the main isolate (rootBundle only
+  exists there) and passed across as a string.
+
   Maia closed the same way, without a Worker anywhere: `package:onnxruntime`
   is ORT's C API over `dart:ffi`, so there was no runtime to port, and its
   isolate session keeps the forward pass off the UI thread. What that buys is
@@ -292,10 +303,8 @@ web branch of every conditional import.
   asserts the native path returns the move the *web* returns, for three bands
   and four positions, against fixtures emitted from the node reference.
 
-  The remaining native gaps have their story in the matching
-  `*_engine_io.dart`: Garbo is the awkward one despite being plain JavaScript
-  (flutter_js has no Worker and its search would block the isolate), Dala the
-  one waiting on the lc0 sidecar.
+  What is left is Dala, which waits on the lc0 sidecar (#45), and Android,
+  which waits on someone checking QuickJS can parse the bundles at all (#46).
 
   Native Maia is also the first thing in the app to open a socket, so the
   macOS bundle now carries `com.apple.security.network.client`. Everything

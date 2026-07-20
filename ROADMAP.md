@@ -4,7 +4,7 @@
 
 ## Where the project is (2026-07-19)
 
-The **Flutter web app is live at botvinnik.app** and at roster parity: 32 of 35 personas, which is the ceiling for any browser (Dala needs a native lc0 sidecar and is desktop-only in both apps). It is a real offline PWA and makes no third-party request unless you pick a Maia. The **Svelte app is frozen** (`svelte/FROZEN.md`) — it no longer ships, still builds in CI, and remains the reference implementation for Dala.
+The **Flutter web app is live at botvinnik.app** and at roster parity: 32 of 35 personas, which is the ceiling for any browser (Dala needs a native lc0 sidecar and is desktop-only in both apps). Since 2026-07-20 **macOS and iOS offer the same 32**. It is a real offline PWA and makes no third-party request unless you pick a Maia. The **Svelte app is frozen** (`svelte/FROZEN.md`) — it no longer ships, still builds in CI, and remains the reference implementation for Dala.
 
 The **synchronous brain bridge** is the constraint that shaped the port: one eval in, one JSON string out, so a brain function returning a Promise crosses as `{}`. The last three families sidestepped it entirely by running in Web Workers their Dart clients drive directly (retro, Garbo, Maia) — the bridge only constrains work that must go *through the brain*. See `ARCHITECTURE.md`.
 
@@ -12,7 +12,7 @@ The **synchronous brain bridge** is the constraint that shaped the port: one eva
 
 Grouped by GitHub-issue label. Nothing here blocks the deploy — the roster is closed.
 
-- **[native-port](https://github.com/quadrismegistus/botvinnik/labels/native-port)** — Garbo on macOS/iOS (findings recorded beside `garbo_engine_io.dart`), Dala's lc0 sidecar, and the QuickJS/Android BigInt check. Maia and iOS retro both landed 2026-07-20, so Garbo is the last web-only family.
+- **[native-port](https://github.com/quadrismegistus/botvinnik/labels/native-port)** — Dala's lc0 sidecar (#45) and the QuickJS/Android BigInt check (#46). The roster gap CLOSED on 2026-07-20: Maia (#44), iOS retro (#80) and Garbo (#43) all landed, so macOS and iOS now offer the same 32 personas the web does.
 - **[compliance](https://github.com/quadrismegistus/botvinnik/labels/compliance)** — the App Store submission chores, gated on one **[decision](https://github.com/quadrismegistus/botvinnik/labels/decision)**: the GPLv3-on-App-Store posture (recommended: the Lichess one).
 - **[roster](https://github.com/quadrismegistus/botvinnik/labels/roster)** — the bot-feel and anchoring work: a position-adaptive weak-bot sampler, sampled/Maia-3 personas, the SquareFish lichess accounts, and engine scouting.
 - **[ui](https://github.com/quadrismegistus/botvinnik/labels/ui)** — the Flutter UI backlog: new-game flow, keyboard shortcuts, panel order, PGN import.

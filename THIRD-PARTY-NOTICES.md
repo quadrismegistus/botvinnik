@@ -27,7 +27,7 @@ repository as the rest of the source.
 | Roboto (Christian Robertson) — the app typeface, bundled into the Flutter build so the web app fetches no fonts from Google | Apache-2.0 |
 | js-chess-engine (Josef Jadrny) — the "Horizon" bot personas; bundled into `flutter/assets/brain.js` and served to the web in a lazy chunk | MIT |
 | morlock (Henning Rohde) — the "retro" bot engines (TUROCHAMP, BERNSTEIN, SARGON), re-implementations built three ways from one source: WebAssembly at `retro/retro.wasm`, native binaries inside the macOS bundle, and a static archive linked into the iOS app | MIT |
-| Garbochess-JS (Gary Linscott) — the "Garbo" bot persona; the 2011 engine verbatim, served at `garbo/garbochess.js` with its LICENSE alongside | BSD-3-Clause |
+| Garbochess-JS (Gary Linscott) — the "Garbo" bot persona; the 2011 engine verbatim, served at `garbo/garbochess.js` on the web and bundled as an asset on macOS/iOS, with its LICENSE alongside in both | BSD-3-Clause |
 | `wasm_exec.js` (The Go Authors) — the Go↔WASM runtime shim the retro engines load | BSD-3-Clause |
 | The Go runtime (The Go Authors) — statically linked into the retro engines on macOS and iOS, as any Go binary carries it | BSD-3-Clause |
 | Svelte / SvelteKit | MIT |
