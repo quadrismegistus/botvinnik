@@ -21,6 +21,7 @@ import 'engine/arbiter.dart';
 import 'engine/engine_factory.dart';
 import 'stores/book_store.dart';
 import 'stores/game_controller.dart';
+import 'stores/pgn_import.dart';
 import 'stores/practice_controller.dart';
 import 'stores/review_controller.dart';
 import 'stores/settings_store.dart';
@@ -35,6 +36,7 @@ import 'ui/lines_pane.dart';
 import 'ui/lines_tree_pane.dart';
 import 'ui/move_list.dart';
 import 'ui/new_game_sheet.dart';
+import 'ui/pgn_import_dialog.dart';
 import 'ui/player_plate.dart';
 import 'ui/practice_tab.dart';
 import 'ui/settings_tab.dart';
@@ -368,7 +370,16 @@ class _AppShellState extends State<AppShell> {
         final game = review.current;
         if (game == null) {
           return AppBar(
-              title: const Text('Games', style: TextStyle(fontSize: 16)));
+            title: const Text('Games', style: TextStyle(fontSize: 16)),
+            actions: [
+              IconButton(
+                onPressed: () => showPgnImport(context),
+                icon: const Icon(Icons.file_download_outlined),
+                tooltip: 'Import PGN',
+              ),
+              ..._keyboardHelp(context),
+            ],
+          );
         }
         return AppBar(
           leading: IconButton(
@@ -376,8 +387,11 @@ class _AppShellState extends State<AppShell> {
             tooltip: 'Back to games',
             onPressed: review.close,
           ),
-          title: Text('${game['result']} · ${game['botPersona'] ?? 'game'}',
-              style: const TextStyle(fontSize: 15)),
+          title: Text(
+              '${game['result']} · '
+              '${game[kImportedKey] == true ? importedTitle(game) : game['botPersona'] ?? 'game'}',
+              style: const TextStyle(fontSize: 15),
+              overflow: TextOverflow.ellipsis),
           actions: _keyboardHelp(context),
         );
       case 3:
@@ -624,6 +638,10 @@ class _PlayTabState extends State<PlayTab> {
   /// because otherwise a stack of unlabelled cards is a puzzle.
   Set<int> _panels(BuildContext context) => context.watch<SettingsStore>().panels;
 
+  /// Panels folded to just their header — open, but drawing no body.
+  Set<int> _collapsed(BuildContext context) =>
+      context.watch<SettingsStore>().collapsed;
+
   Widget _stackedPanel() {
     final game = context.watch<GameController>();
     // shown in the view-bar order, not numeric id order
@@ -641,18 +659,30 @@ class _PlayTabState extends State<PlayTab> {
                       color: Color(0xFF81B64C), fontWeight: FontWeight.w600)),
             ),
           for (final i in shown) ...[
-            if (shown.length > 1) _panelHeader(i),
-            _paneAt(i),
+            // headed once more than one is up; a collapsed panel is ALWAYS
+            // headed, or folding the only one would leave a blank column
+            if (shown.length > 1 || _collapsed(context).contains(i))
+              _panelHeader(i),
+            if (!_collapsed(context).contains(i)) _paneAt(i),
           ],
         ],
       ),
     );
   }
 
-  Widget _panelHeader(int i) => Padding(
+  Widget _panelHeader(int i) {
+    final folded = _collapsed(context).contains(i);
+    // the whole header is the hit target for folding — a 14px chevron alone is
+    // a mean thing to ask anyone to hit
+    return InkWell(
+      onTap: () => context.read<SettingsStore>().toggleCollapsed(i),
+      child: Padding(
         padding: const EdgeInsets.fromLTRB(14, 10, 6, 2),
         child: Row(
           children: [
+            Icon(folded ? Icons.chevron_right : Icons.expand_more,
+                size: 14, color: Colors.white38),
+            const SizedBox(width: 4),
             Icon(_tabs[i].$1, size: 13, color: Colors.white38),
             const SizedBox(width: 6),
             Text(_tabs[i].$2.toUpperCase(),
@@ -671,7 +701,9 @@ class _PlayTabState extends State<PlayTab> {
             ),
           ],
         ),
-      );
+      ),
+    );
+  }
 
   Widget _paneAt(int i) => switch (i) {
         0 => const InsightCard(),

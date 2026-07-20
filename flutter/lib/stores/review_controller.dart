@@ -4,6 +4,7 @@
 import 'package:flutter/foundation.dart';
 
 import '../db/app_db.dart';
+import 'pgn_import.dart';
 
 class ReviewController extends ChangeNotifier {
   final AppDb _db;
@@ -25,6 +26,19 @@ class ReviewController extends ChangeNotifier {
     await _db.deleteGame(id);
     games.removeWhere((g) => g['id'] == id);
     notifyListeners();
+  }
+
+  /// Archive a pasted PGN and open it. False when the text carries no legal
+  /// moves, which is the caller's cue to say so rather than fail silently.
+  /// The import has no grades — it was never analysed — and Review reads all
+  /// of those as nullable, so it steps through like any other stored game.
+  Future<bool> importPgn(String pgn) async {
+    final game = gameFromPgn(pgn, now: DateTime.now());
+    if (game == null) return false;
+    await _db.saveGame(game);
+    await loadGames();
+    open(game);
+    return true;
   }
 
   void open(Map<String, dynamic> game) {

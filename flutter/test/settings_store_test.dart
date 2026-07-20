@@ -18,6 +18,46 @@ Future<SettingsStore> load([Map<String, Object> initial = const {}]) {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  group('collapsed panels', () {
+    // Collapsing folds a panel to its header. It stays OPEN — distinct from
+    // closing it, which drops it out of `panels` entirely.
+    test('nothing is collapsed by default', () async {
+      expect((await load()).collapsed, isEmpty);
+    });
+
+    test('round-trips through a reload', () async {
+      final s = await load();
+      s.toggleCollapsed(2);
+      s.toggleCollapsed(4);
+      expect(s.collapsed, {2, 4});
+      expect((await load({'flutter.botvinnik-collapsed': '2,4'})).collapsed,
+          {2, 4});
+    });
+
+    test('toggling again unfolds it', () async {
+      final s = await load({'flutter.botvinnik-collapsed': '1'});
+      s.toggleCollapsed(1);
+      expect(s.collapsed, isEmpty);
+    });
+
+    test('collapsing every panel is allowed — unlike closing them', () async {
+      final s = await load();
+      for (var i = 0; i < 6; i++) {
+        s.toggleCollapsed(i);
+      }
+      expect(s.collapsed, {0, 1, 2, 3, 4, 5});
+      expect(s.panels, {0}, reason: 'folding is not closing');
+    });
+
+    test('a corrupt value collapses nothing', () async {
+      for (final raw in ['', 'nonsense', '9,42', ',,,']) {
+        expect((await load({'flutter.botvinnik-collapsed': raw})).collapsed,
+            isEmpty,
+            reason: 'raw: $raw');
+      }
+    });
+  });
+
   group('panels', () {
     test('defaults to Insights alone', () async {
       expect((await load()).panels, {0});

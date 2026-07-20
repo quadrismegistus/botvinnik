@@ -5,6 +5,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../stores/pgn_import.dart';
 import '../stores/review_controller.dart';
 import 'review_screen.dart';
 
@@ -66,15 +67,25 @@ class _GamesListBodyState extends State<GamesListBody> {
     final blunders = (counts?['blunder'] as num?)?.toInt() ?? 0;
     final mistakes = (counts?['mistake'] as num?)?.toInt() ?? 0;
 
+    // An import has no "you" in it, so Won/Lost and "vs <bot>" are both
+    // meaningless — show the raw result and whoever the PGN said was playing.
+    final imported = g[kImportedKey] == true;
+
     return ListTile(
       dense: true,
       title: Row(children: [
-        Text(verdict,
-            style: TextStyle(color: color, fontWeight: FontWeight.w700)),
+        Text(imported ? result : verdict,
+            style: TextStyle(
+                color: imported ? Colors.white54 : color,
+                fontWeight: FontWeight.w700)),
         const SizedBox(width: 8),
-        Text('vs $personaId', style: const TextStyle(fontSize: 13)),
-        const Spacer(),
-        if (youAcc != null)
+        Expanded(
+          child: Text(imported ? importedTitle(g) : 'vs $personaId',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 13)),
+        ),
+        if (youAcc != null && !imported)
           Text('${(youAcc as num).toStringAsFixed(0)}%',
               style: const TextStyle(color: Colors.white54, fontSize: 13)),
       ]),

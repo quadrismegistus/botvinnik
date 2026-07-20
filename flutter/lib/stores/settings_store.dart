@@ -80,6 +80,7 @@ class SettingsStore extends ChangeNotifier {
   int _arrowCount;
   double _threatOpacity;
   Set<int> _panels;
+  Set<int> _collapsed;
   double _split;
   double _controlOpacity;
 
@@ -108,6 +109,7 @@ class SettingsStore extends ChangeNotifier {
     required int arrowCount,
     required double threatOpacity,
     required Set<int> panels,
+    required Set<int> collapsed,
     required double split,
     required double controlOpacity,
   })  : _prefs = prefs,
@@ -129,6 +131,7 @@ class SettingsStore extends ChangeNotifier {
         _arrowCount = arrowCount,
         _threatOpacity = threatOpacity,
         _panels = panels,
+        _collapsed = collapsed,
         _split = split,
         _controlOpacity = controlOpacity;
 
@@ -197,6 +200,7 @@ class SettingsStore extends ChangeNotifier {
       threatOpacity: prefs.getDouble('botvinnik-threat-opacity') ??
           kDefaultThreatOpacity,
       panels: _panelSet(prefs.getString('botvinnik-panels')),
+      collapsed: _indexSet(prefs.getString('botvinnik-collapsed')),
       split: (prefs.getDouble('botvinnik-split') ?? kDefaultSplit)
           .clamp(kMinSplit, kMaxSplit),
       controlOpacity: prefs.getDouble('botvinnik-control-opacity') ??
@@ -221,13 +225,18 @@ class SettingsStore extends ChangeNotifier {
 
   /// Stored as '0,2,3'. A missing or unparseable value falls back to the
   /// default rather than leaving the panel column empty.
-  static Set<int> _panelSet(String? raw) {
-    if (raw == null || raw.isEmpty) return {...kDefaultPanels};
+  /// Panel indices off a persisted comma list — empty when there are none.
+  static Set<int> _indexSet(String? raw) {
     final out = <int>{};
-    for (final part in raw.split(',')) {
+    for (final part in (raw ?? '').split(',')) {
       final v = int.tryParse(part);
       if (v != null && v >= 0 && v < 6) out.add(v);
     }
+    return out;
+  }
+
+  static Set<int> _panelSet(String? raw) {
+    final out = _indexSet(raw);
     return out.isEmpty ? {...kDefaultPanels} : out;
   }
 
@@ -241,6 +250,19 @@ class SettingsStore extends ChangeNotifier {
     if (next.isEmpty) return;
     _panels = next;
     _prefs.setString('botvinnik-panels', (next.toList()..sort()).join(','));
+    notifyListeners();
+  }
+
+  /// Panels folded to just their header. They stay open and stay in [panels] —
+  /// they simply draw no body. With six stacked in one column, this is what
+  /// lets you keep several up without scrolling past the one you want.
+  Set<int> get collapsed => _collapsed;
+
+  void toggleCollapsed(int i) {
+    final next = {..._collapsed};
+    if (!next.remove(i)) next.add(i);
+    _collapsed = next;
+    _prefs.setString('botvinnik-collapsed', (next.toList()..sort()).join(','));
     notifyListeners();
   }
 
