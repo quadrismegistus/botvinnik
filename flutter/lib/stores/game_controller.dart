@@ -233,12 +233,28 @@ class GameController extends ChangeNotifier {
 
   // ---- game actions ----
 
-  void newGame() {
+  /// Whether [fen] is a full, legal position we can start from — used to
+  /// validate a pasted FEN before handing it to [newGame].
+  static bool isPlayableFen(String fen) {
+    try {
+      Chess.fromSetup(Setup.parseFen(fen.trim()));
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Start a fresh game. [fromFen] drops onto an arbitrary position instead of
+  /// the standard start (an analysis board when both sides are the human) —
+  /// the caller must have validated it with [isPlayableFen].
+  void newGame({String? fromFen}) {
     _browsePly = null;
     _redoStack.clear();
     _gen++;
     _arbiter.bumpGeneration();
-    position = Chess.initial;
+    position = fromFen == null
+        ? Chess.initial
+        : Chess.fromSetup(Setup.parseFen(fromFen.trim()));
     lastMove = null;
     moves.clear();
     botThinking = false;
