@@ -131,6 +131,27 @@ class SettingsTab extends StatelessWidget {
             style: const TextStyle(fontSize: 11.5, color: Colors.white38),
           ),
         ),
+        const _SectionLabel('Bot vs bot'),
+        ListTile(
+          dense: true,
+          title: const Text('Move delay'),
+          subtitle: Text(
+            '${(settings.botDelayMs / 1000).toStringAsFixed(1)}s between moves '
+            'when both sides are bots',
+            style: const TextStyle(fontSize: 11.5, color: Colors.white38),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+          child: Slider(
+            value: settings.botDelayMs.toDouble().clamp(0, 3000),
+            min: 0,
+            max: 3000,
+            divisions: 30,
+            label: '${(settings.botDelayMs / 1000).toStringAsFixed(1)}s',
+            onChanged: (v) => settings.botDelayMs = v.round(),
+          ),
+        ),
         const _SectionLabel('Board theme'),
         const _BoardColorSection(),
         const _SectionLabel('About'),

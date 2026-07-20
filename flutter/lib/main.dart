@@ -35,6 +35,7 @@ import 'ui/lines_pane.dart';
 import 'ui/lines_tree_pane.dart';
 import 'ui/move_list.dart';
 import 'ui/new_game_sheet.dart';
+import 'ui/player_plate.dart';
 import 'ui/practice_tab.dart';
 import 'ui/settings_tab.dart';
 import 'ui/splash.dart';
@@ -213,57 +214,107 @@ class _AppShellState extends State<AppShell> {
   @override
   Widget build(BuildContext context) {
     final practice = context.watch<PracticeController>();
+    final body = IndexedStack(
+      index: _tab,
+      children: [
+        for (var i = 0; i < kTabCount; i++)
+          if (_visited.contains(i)) _tabAt(i) else const SizedBox.shrink(),
+      ],
+    );
+
+    // On a wide window the tabs move to a side rail and the bottom bar goes
+    // away — the board is height-bound in the split view, so the ~64px the
+    // bar was taking is height the board can actually grow into. The +96
+    // clears the rail's own width, so the Play pane stays above its wide
+    // breakpoint once the rail is in the row with it.
+    if (MediaQuery.sizeOf(context).width >= kWideBreakpoint + 96) {
+      return Scaffold(
+        appBar: _appBar(context),
+        body: Row(
+          children: [
+            NavigationRail(
+              selectedIndex: _tab,
+              onDestinationSelected: _select,
+              labelType: NavigationRailLabelType.all,
+              backgroundColor: const Color(0xFF1f1e1b),
+              indicatorColor: const Color(0xFF3a3733),
+              destinations: [
+                for (final d in _navItems(practice))
+                  NavigationRailDestination(
+                    icon: d.icon,
+                    selectedIcon: d.selectedIcon,
+                    label: Text(d.label),
+                  ),
+              ],
+            ),
+            const VerticalDivider(width: 1, thickness: 1),
+            Expanded(child: body),
+          ],
+        ),
+      );
+    }
+
     return Scaffold(
       appBar: _appBar(context),
-      body: IndexedStack(
-        index: _tab,
-        children: [
-          for (var i = 0; i < kTabCount; i++)
-            if (_visited.contains(i)) _tabAt(i) else const SizedBox.shrink(),
-        ],
-      ),
+      body: body,
       bottomNavigationBar: NavigationBar(
         selectedIndex: _tab,
         height: 64,
         backgroundColor: const Color(0xFF1f1e1b),
         indicatorColor: const Color(0xFF3a3733),
-        onDestinationSelected: (i) {
-          setState(() {
-            _tab = i;
-            _visited.add(i);
-          });
-          if (i == 1 && practice.current == null) practice.startSession();
-          if (i == 2) context.read<ReviewController>().loadGames();
-        },
+        onDestinationSelected: _select,
         destinations: [
-          const NavigationDestination(
-            icon: Icon(Icons.sports_esports_outlined),
-            selectedIcon: Icon(Icons.sports_esports),
-            label: 'Play',
-          ),
-          NavigationDestination(
-            icon: Badge(
-              isLabelVisible: practice.due > 0,
-              label: Text('${practice.due}'),
-              child: const Icon(Icons.fitness_center_outlined),
+          for (final d in _navItems(practice))
+            NavigationDestination(
+              icon: d.icon,
+              selectedIcon: d.selectedIcon,
+              label: d.label,
             ),
-            selectedIcon: const Icon(Icons.fitness_center),
-            label: 'Practice',
-          ),
-          const NavigationDestination(
-            icon: Icon(Icons.history_outlined),
-            selectedIcon: Icon(Icons.history),
-            label: 'Review',
-          ),
-          const NavigationDestination(
-            icon: Icon(Icons.settings_outlined),
-            selectedIcon: Icon(Icons.settings),
-            label: 'Settings',
-          ),
         ],
       ),
     );
   }
+
+  void _select(int i) {
+    final practice = context.read<PracticeController>();
+    setState(() {
+      _tab = i;
+      _visited.add(i);
+    });
+    if (i == 1 && practice.current == null) practice.startSession();
+    if (i == 2) context.read<ReviewController>().loadGames();
+  }
+
+  /// The four tabs, defined once so the bottom bar and the side rail can't
+  /// drift. Only Practice carries a badge — its due count.
+  List<({Widget icon, Widget selectedIcon, String label})> _navItems(
+          PracticeController practice) =>
+      [
+        (
+          icon: const Icon(Icons.sports_esports_outlined),
+          selectedIcon: const Icon(Icons.sports_esports),
+          label: 'Play',
+        ),
+        (
+          icon: Badge(
+            isLabelVisible: practice.due > 0,
+            label: Text('${practice.due}'),
+            child: const Icon(Icons.fitness_center_outlined),
+          ),
+          selectedIcon: const Icon(Icons.fitness_center),
+          label: 'Practice',
+        ),
+        (
+          icon: const Icon(Icons.history_outlined),
+          selectedIcon: const Icon(Icons.history),
+          label: 'Review',
+        ),
+        (
+          icon: const Icon(Icons.settings_outlined),
+          selectedIcon: const Icon(Icons.settings),
+          label: 'Settings',
+        ),
+      ];
 
   /// Keep in step with [destinations] below; the loop that builds the stack
   /// reads this rather than a literal.
@@ -471,6 +522,8 @@ class _PlayTabState extends State<PlayTab> {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
+        // watched: the plates flank the board by orientation, which flips
+        final game = context.watch<GameController>();
         if (constraints.maxWidth < _wideBreakpoint) {
           // The board is square and was taking the full width, which is right
           // on a phone — where height is plentiful — and overflows a desktop
@@ -478,17 +531,29 @@ class _PlayTabState extends State<PlayTab> {
           // strip, the view bar and enough panel to be worth showing.
           final board =
               narrowBoardSize(constraints.maxWidth, constraints.maxHeight);
+          final topSide = game.whiteAtBottom ? 'b' : 'w';
+          final botSide = game.whiteAtBottom ? 'w' : 'b';
+          // fixed to kPlayerPlate so their height matches what narrowBoardSize
+          // reserved — otherwise the column overflows and the page scrolls
           return Column(
             children: [
+              SizedBox(
+                  width: board,
+                  height: kPlayerPlate,
+                  child: PlayerPlate(key: ValueKey(topSide), side: topSide)),
               Center(child: SizedBox(width: board, child: const BoardPane())),
-              const GradeStrip(),
+              SizedBox(
+                  width: board,
+                  height: kPlayerPlate,
+                  child: PlayerPlate(
+                      key: ValueKey(botSide), side: botSide, below: true)),
               _viewRow(),
               Expanded(child: _panel()),
             ],
           );
         }
-        // leave room for the grade strip under the board. The floor applies
-        // to the WIDTH share only — flooring the height too would overflow a
+        // The board takes the width, capped by height. The floor applies to
+        // the WIDTH share only — flooring the height too would overflow a
         // window dragged short.
         final settings = context.watch<SettingsStore>();
         final boardSize = wideBoardSize(
@@ -498,10 +563,23 @@ class _PlayTabState extends State<PlayTab> {
           children: [
             SizedBox(
               width: boardSize,
-              child: const SingleChildScrollView(
+              child: SingleChildScrollView(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
-                  children: [BoardPane(), GradeStrip()],
+                  children: [
+                    SizedBox(
+                        height: kPlayerPlate,
+                        child: PlayerPlate(
+                            key: ValueKey(game.whiteAtBottom ? 'b' : 'w'),
+                            side: game.whiteAtBottom ? 'b' : 'w')),
+                    const BoardPane(),
+                    SizedBox(
+                        height: kPlayerPlate,
+                        child: PlayerPlate(
+                            key: ValueKey(game.whiteAtBottom ? 'w' : 'b'),
+                            side: game.whiteAtBottom ? 'w' : 'b',
+                            below: true)),
+                  ],
                 ),
               ),
             ),

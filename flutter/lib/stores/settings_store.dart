@@ -66,6 +66,7 @@ class SettingsStore extends ChangeNotifier {
   String? _whitePersonaId;
   String? _blackPersonaId;
   int _collectThreshold; // practice serves puzzles with drop ≥ this
+  int _botDelayMs; // pause between moves when a bot plays both sides
   bool _showArrows; // top-3 engine arrows on the board
   bool _blind; // no forward-looking engine help while playing
   bool _showThreats; // opponent-threat arrow (null-move probe)
@@ -93,6 +94,7 @@ class SettingsStore extends ChangeNotifier {
     required String? whitePersonaId,
     required String? blackPersonaId,
     required int collectThreshold,
+    required int botDelayMs,
     required bool showArrows,
     required bool blind,
     required bool showThreats,
@@ -113,6 +115,7 @@ class SettingsStore extends ChangeNotifier {
         _whitePersonaId = whitePersonaId,
         _blackPersonaId = blackPersonaId,
         _collectThreshold = collectThreshold,
+        _botDelayMs = botDelayMs,
         _showArrows = showArrows,
         _blind = blind,
         _showThreats = showThreats,
@@ -173,6 +176,7 @@ class SettingsStore extends ChangeNotifier {
       whitePersonaId: whitePersonaId,
       blackPersonaId: blackPersonaId,
       collectThreshold: threshold,
+      botDelayMs: (int.tryParse(prefs.getString('botvinnik-bot-delay') ?? '') ?? 650).clamp(0, 3000),
       showArrows: prefs.getString('botvinnik-arrows') != '0', // ON, like web
       blind: prefs.getString('botvinnik-blind') == '1',
       // '0' means the user turned it off; absent means they never touched it
@@ -376,6 +380,7 @@ class SettingsStore extends ChangeNotifier {
           ? 'b'
           : 'w';
   int get collectThreshold => _collectThreshold;
+  int get botDelayMs => _botDelayMs;
   bool get showArrows => _showArrows;
   bool get blind => _blind;
 
@@ -425,6 +430,14 @@ class SettingsStore extends ChangeNotifier {
     if (pct == _collectThreshold) return;
     _collectThreshold = pct;
     _prefs.setString('botvinnik-collect-threshold', '$pct');
+    notifyListeners();
+  }
+
+  set botDelayMs(int ms) {
+    final v = ms.clamp(0, 3000);
+    if (v == _botDelayMs) return;
+    _botDelayMs = v;
+    _prefs.setString('botvinnik-bot-delay', '$v');
     notifyListeners();
   }
 

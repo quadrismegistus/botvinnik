@@ -30,19 +30,23 @@ const double kNarrowChrome = kPhoneChrome + kPaneReserve;
 /// [kPhoneChrome].
 const double kPhoneWidth = 500;
 
-/// Play's fixed furniture: the grade strip and the view bar, and nothing else.
+/// Play's only fixed furniture now: the view bar (the panel tabs). The grade
+/// strip that used to sit under the board is gone — its move verdict already
+/// lived in the Insights card, so it moved there (with the threat and the
+/// engine-loading bar) and the board took back its ~66px of height.
 ///
 /// [kNarrowChrome] also reserves 96px so some panel stays on screen. On a
-/// desktop window that is worth having. On a phone it is worth **13% of the
-/// board**: measured on a 393x556 body, reserving it capped the board at 348
-/// instead of 393, and the missing width is visible as a margin down both
-/// sides of a screen that has room to spare.
-///
-/// It buys nothing there, either — `_panel()` is a SingleChildScrollView, so
-/// what the reserve protects is one glance at content that is one flick away.
-/// The strip and the view bar are different: they are fixed furniture and
-/// must never be pushed off, so they stay reserved.
-const double kPhoneChrome = kGradeStrip + 46;
+/// desktop window that is worth having; on a phone it is not — `_panel()` is a
+/// SingleChildScrollView, so the reserve would only protect a glance at
+/// content one flick away, at the cost of board width the screen plainly has.
+const double kPhoneChrome = 46;
+
+/// One player plate (name + captured material) above the board and one below.
+/// Fixed furniture in the Play layout, so their height must be reserved or the
+/// board pushes them — and everything under them — off the bottom. Kept close
+/// to the content it holds (a name row / a 16px capture tray) so the plate sits
+/// flush against the board rather than floating a gap above it.
+const double kPlayerPlate = 24;
 
 /// Never shrink the board past this; below it nothing is usable anyway and
 /// the desktop minimum window size keeps us clear of it.
@@ -77,7 +81,7 @@ double stackedBoardSize(double width, double height, double chrome) =>
 /// narrow AND short at once — that is what [stackedBoardSize] exists for, and
 /// where holding back space for the panel is worth the width.
 double narrowBoardSize(double width, double height) =>
-    panedBoardSize(width, height, kPhoneChrome);
+    panedBoardSize(width, height - 2 * kPlayerPlate, kPhoneChrome);
 
 /// The board's size in a stacked layout with a SCROLLABLE pane beneath it.
 ///
@@ -97,5 +101,5 @@ double panedBoardSize(double width, double height, double fixed) =>
 /// window dragged short does not overflow.
 double wideBoardSize(double width, double height, double split) => math.min(
       math.max(240.0, width * split),
-      math.max(120.0, height - kGradeStrip),
+      math.max(120.0, height - 2 * kPlayerPlate),
     );

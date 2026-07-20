@@ -94,7 +94,7 @@ class GameController extends ChangeNotifier {
   /// Non-null while a Maia move is waiting on its weights or on the runtime
   /// rather than on inference, with enough detail to show a real bar.
   ///
-  /// Surfaced by [GradeStrip], NOT by [statusLine]. statusLine looks like the
+  /// Surfaced by the Insights card, NOT by [statusLine]. statusLine looks like the
   /// right home and is not: both of its call sites sit behind
   /// `if (game.gameOver)`, so nothing it returns is ever visible during a
   /// game. The download line lived there and was never once shown — which is
@@ -141,6 +141,10 @@ class GameController extends ChangeNotifier {
   bool isHumanSide(String color) =>
       color == 'w' ? whitePersona == null : blackPersona == null;
   bool get gameOver => position.isGameOver;
+  /// Whose colour sits at the bottom of the board (follows orientation).
+  bool get whiteAtBottom => (playerColor == 'w') != flipped;
+  /// The position actually on screen: a browsed ply, a hover preview, or live.
+  String get displayFen => browseFen ?? previewFen ?? position.fen;
 
   String get statusLine {
     if (position.isCheckmate) {
@@ -510,7 +514,7 @@ class GameController extends ChangeNotifier {
       // handling ends it at mate/stalemate. Fires after this invocation's
       // finally has cleared botThinking, so the recursive call is not blocked.
       if (!gameOver && !isPlayerTurn) {
-        Future.delayed(const Duration(milliseconds: 650)).then((_) {
+        Future.delayed(Duration(milliseconds: _settings.botDelayMs)).then((_) {
           if (gen == _gen && !gameOver && !isPlayerTurn) _maybeBotTurn();
         });
       }

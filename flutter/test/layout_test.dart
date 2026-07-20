@@ -37,29 +37,44 @@ void main() {
       }
     });
 
-    test('a real phone gets the FULL width, with the panel below it', () {
+    test('a phone spends its width on the board, not a hidden pane reserve', () {
       // The case that prompted this: reported on botvinnik.app 2026-07-19 as
       // "the board is small even at best case", with a visible margin down
       // both sides. Measured off that screenshot — a 393pt-wide viewport whose
       // body is ~556pt after the app bar and the bottom nav — the old reserve
-      // gave 348 and left 45pt of width unused.
+      // gave 348 and left 45pt of width unused. With the grade strip moved into
+      // the Insights card, the only furniture left under the board is the two
+      // plates and the view bar, which this short body has the height for — so
+      // the board gets the full 393, and never the 348 it was.
       expect(narrowBoardSize(393, 556), 393);
-      // and every phone in portrait, not just that one
+      // on a genuinely short body the board is height-bound, and there the
+      // phone rule (no 96px pane reserve) is strictly bigger than the desktop
+      // rule — which is the whole reason a phone gets its own chrome
+      expect(narrowBoardSize(393, 470),
+          greaterThan(stackedBoardSize(393, 470, kNarrowChrome)));
+      // and every phone in portrait, not just that one: the board beats the
+      // pane-reserve alternative it replaced (or ties it, when both hit the
+      // width cap), and board + plates + furniture still fit with no scroll.
       for (final (w, h) in [(320.0, 480.0), (375.0, 540.0), (390.0, 556.0),
                             (393.0, 556.0), (430.0, 640.0)]) {
-        expect(narrowBoardSize(w, h), w, reason: 'not full width at ${w}x$h');
-        // the fixed furniture still fits underneath
-        expect(narrowBoardSize(w, h) + kPhoneChrome, lessThanOrEqualTo(h),
-            reason: 'furniture pushed off at ${w}x$h');
+        expect(narrowBoardSize(w, h),
+            greaterThanOrEqualTo(stackedBoardSize(w, h, kNarrowChrome)),
+            reason: 'the pane reserve crept back in at ${w}x$h');
+        expect(narrowBoardSize(w, h) + 2 * kPlayerPlate + kPhoneChrome,
+            lessThanOrEqualTo(h),
+            reason: 'the column overflowed at ${w}x$h');
       }
     });
 
     test('a narrow DESKTOP window is unaffected — it still holds panel space',
         () {
       // The macOS minimum is 560 wide, comfortably above kPhoneWidth, so the
-      // window that motivated the original cap keeps the old behaviour.
-      expect(narrowBoardSize(560, 620), stackedBoardSize(560, 620, kNarrowChrome));
-      expect(narrowBoardSize(560, 620) + kNarrowChrome, lessThanOrEqualTo(620));
+      // window that motivated the original cap keeps the old behaviour: the
+      // pane reserve, plus the same plate reserve every Play layout now holds.
+      expect(narrowBoardSize(560, 620),
+          stackedBoardSize(560, 620 - 2 * kPlayerPlate, kNarrowChrome));
+      expect(narrowBoardSize(560, 620) + 2 * kPlayerPlate + kNarrowChrome,
+          lessThanOrEqualTo(620));
     });
 
     test('never shrinks past the floor, absurd as the window may be', () {
@@ -111,12 +126,13 @@ void main() {
       }
     });
 
-    test('narrowBoardSize is the same helper, with the chrome its width earns',
-        () {
+    test('narrowBoardSize is the same helper, with the chrome its width earns '
+        'and the two plates reserved', () {
       for (var w = 320.0; w <= 800; w += 37) {
         for (var h = 600.0; h <= 1200; h += 41) {
           final chrome = w < kPhoneWidth ? kPhoneChrome : kNarrowChrome;
-          expect(narrowBoardSize(w, h), stackedBoardSize(w, h, chrome),
+          expect(narrowBoardSize(w, h),
+              stackedBoardSize(w, h - 2 * kPlayerPlate, chrome),
               reason: 'wrong chrome picked at ${w}x$h');
         }
       }
@@ -143,15 +159,17 @@ void main() {
     test('is capped by height, so a short window does not overflow', () {
       // the floor applies to the WIDTH share only — flooring the height too
       // is the bug this guards
-      expect(wideBoardSize(1400, 300, 0.58), lessThanOrEqualTo(300 - kGradeStrip));
+      expect(wideBoardSize(1400, 300, 0.58),
+          lessThanOrEqualTo(300 - 2 * kPlayerPlate));
     });
 
-    test('leaves room for a two-line grade strip', () {
-      // a one-line reserve put the threat explanation below the fold, which
-      // reads as the feature simply not working
+    test('leaves room for the plates above and below it', () {
+      // the board shares the column with a plate top and bottom; without the
+      // reserve it would eat them on a short window
       for (var h = 700.0; h <= 1400; h += 53) {
-        expect(wideBoardSize(1600, h, 0.58) + kGradeStrip, lessThanOrEqualTo(h),
-            reason: 'no room for the strip at height $h');
+        expect(wideBoardSize(1600, h, 0.58) + 2 * kPlayerPlate,
+            lessThanOrEqualTo(h),
+            reason: 'no room for the plates at height $h');
       }
     });
 
