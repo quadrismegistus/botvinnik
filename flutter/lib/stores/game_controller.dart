@@ -754,6 +754,16 @@ class GameController extends ChangeNotifier {
   List<String> get threatTargets =>
       ((threat?['targets'] as List?) ?? const []).cast<String>();
 
+  /// The threat's line as UCIs — the window the gain was judged over, not the
+  /// engine's raw pv, so replaying it never shows a capture the gain did not
+  /// credit. Played from [threatProbeFen].
+  List<String> get threatLine =>
+      ((threat?['line'] as List?) ?? const []).cast<String>();
+
+  /// The null-move position the threat line starts from (it is the opponent's
+  /// move there). The base for a preview of [threatLine].
+  String? get threatProbeFen => threat?['probeFen'] as String?;
+
   // the green mirror: memoised per (fen, top line) — the judge is a pure
   // bridge call, cheap but not free, and this getter runs on every rebuild
   Map<String, dynamic>? _winCache;
@@ -830,10 +840,14 @@ class GameController extends ChangeNotifier {
       if (_probeInFlightFen == fen) _probeInFlightFen = null;
     }
     if (gen != _gen || lines == null || lines.isEmpty) return;
-    _threat = chess.judgeThreat(fen, {
+    final judged = chess.judgeThreat(fen, {
       'pv': lines.first.pv,
       'mate': lines.first.mate,
     });
+    // keep the probe position with the verdict: the judged line is played FROM
+    // the null-move position (it is the opponent's move there), so that — not
+    // the live fen — is what a preview of the threat has to start from.
+    _threat = judged == null ? null : {...judged, 'probeFen': probe};
     if (position.fen == fen) notifyListeners();
   }
 
@@ -941,6 +955,12 @@ class GameController extends ChangeNotifier {
   Timer? _previewTimer;
 
   bool get previewing => _previewTimer != null;
+
+  /// Which preview is running — the Insights move line or the threat line.
+  /// Both share [previewing] and starting either stops the other, so a button
+  /// needs this to know whether IT is the one playing.
+  String? _previewTag;
+  String? get previewTag => previewing ? _previewTag : null;
   String? get previewFen =>
       previewing ? _previewFens[_previewIndex] : null;
   NormalMove? get previewLastMove =>
@@ -948,7 +968,7 @@ class GameController extends ChangeNotifier {
 
   /// Plays [ucis] out from [baseFen] on the board, one move per beat,
   /// then returns to the live position. Tap again to stop early.
-  void startPreview(String baseFen, List<String> ucis) {
+  void startPreview(String baseFen, List<String> ucis, {String? tag}) {
     _browsePly = null; // the board prefers browseFen; an unseen preview is a dead key
     stopPreview();
     Position pos;
@@ -970,6 +990,7 @@ class GameController extends ChangeNotifier {
     _previewFens = fens;
     _previewMoves = lastMoves;
     _previewIndex = 0;
+    _previewTag = tag; // only once we have actually committed to starting
     _previewTimer = Timer.periodic(const Duration(milliseconds: 850), (t) {
       if (_previewIndex >= _previewFens.length - 1) {
         // linger on the final position for a beat, then come home
