@@ -1,0 +1,22 @@
+{
+	// The Flutter app's own TypeScript — the Maia web worker and the native
+	// Maia bundle. Neither is reachable from the Svelte app, so `npm run check`
+	// (whose include list is SvelteKit's) never saw them: they were compiled by
+	// esbuild, which does not typecheck, and nothing else looked. That is the
+	// same gap that once let a broken brain edit into a bundle.
+	//
+	// Checked by `npm run check:flutter-ts`, which is what CI runs.
+	"compilerOptions": {
+		"noEmit": true,
+		"target": "ES2022",
+		"module": "ESNext",
+		"moduleResolution": "bundler",
+		"lib": ["ES2022", "DOM", "DOM.Iterable", "WebWorker"],
+		"strict": true,
+		"skipLibCheck": true,
+		"esModuleInterop": true,
+		"forceConsistentCasingInFileNames": true,
+		"resolveJsonModule": true
+	},
+	"include": ["web_src/**/*.ts", "native_src/**/*.ts"]
+}

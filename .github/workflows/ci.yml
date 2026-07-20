@@ -81,8 +81,17 @@ jobs:
       - run: npm ci
       - name: Rebuild the brain (runs the smoke test and replays the fixtures)
         run: npm run build:brain
-      - name: The committed bundle must match its TypeScript source
-        run: git diff --exit-code flutter/assets/brain.js
+      # Maia's pure halves, bundled separately because brain.js is eager on the
+      # web and the policy index is 1858 strings only a Maia ever reads
+      - name: Rebuild Maia's native bundle
+        run: npm run build:maia-brain
+      # esbuild bundles both Maia entries without typechecking either, and
+      # neither is reachable from the Svelte app, so `npm run check` never saw
+      # them. This is the only thing that does.
+      - name: Typecheck the Flutter app's own TypeScript
+        run: npm run check:flutter-ts
+      - name: The committed bundles must match their TypeScript sources
+        run: git diff --exit-code flutter/assets/brain.js flutter/assets/maia-brain.js
       # the bundled licence texts must match the repo-root originals, or the
       # app ships a stale licence — a real GPL-compliance defect, not a nit
       - name: Bundled licence texts must match root

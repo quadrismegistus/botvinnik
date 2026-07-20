@@ -7,6 +7,8 @@
     "dev": "vite dev",
     "build": "vite build",
     "build:brain": "esbuild brain/brain-entry.ts --bundle --format=iife --global-name=brain --platform=browser --outfile=flutter/assets/brain.js && node scripts/smoke-brain.mjs && node scripts/replay-fixtures.mjs",
+    "build:maia-brain": "esbuild flutter/native_src/maia-brain.ts --bundle --format=iife --global-name=maiaBrain --platform=browser --target=es2022 --outfile=flutter/assets/maia-brain.js",
+    "check:flutter-ts": "tsc -p flutter/tsconfig.json",
     "fixtures": "tsx scripts/emit-golden-fixtures.mts",
     "preview": "vite preview",
     "test": "vitest run",

@@ -101,7 +101,7 @@ flowchart LR
     GA --> GARBO["Garbochess-JS 2011<br/>in a Worker"]
     DA --> LC0["lc0 at go nodes 1,<br/>sample its policy priors"]
 
-    ONNX -.->|"~3.5MB per band, fetched at runtime<br/>cached in IndexedDB"| HF[("HuggingFace")]
+    ONNX -.->|"~3.5MB per band, fetched at runtime<br/>cached in IndexedDB (web)<br/>or Application Support (macOS/iOS)"| HF[("HuggingFace")]
     ONNX -.->|"onnxruntime-web 1.27"| CDN[("jsDelivr")]
     GOW -.-> RW[("static/retro/retro.wasm<br/>4.4MB, in the repo<br/>both apps serve this copy")]
     GARBO -.-> GB[("static/garbo/garbochess.js<br/>82KB, vendored")]
@@ -206,7 +206,7 @@ Nothing leaves the device. There is no server, no account, no API key.
 | Analysis cache | IndexedDB, 20k positions | none yet — in-memory only |
 | Practice items | `localStorage`, one JSON array | sqflite `kv` table |
 | Settings | `localStorage` | `shared_preferences` |
-| Maia weights | IndexedDB | n/a |
+| Maia weights | IndexedDB | IndexedDB on web; a file under Application Support on macOS/iOS |
 
 The two use the same record shapes and the same `botvinnik-*` setting keys on
 purpose, so an export from one imports into the other as close to
@@ -243,9 +243,10 @@ web branch of every conditional import.
 
 - **The roster gap is closed on the web** (2026-07-19). The brain ships 35
   personas; Flutter web offers **32**, which is parity — Dala needs a native
-  lc0 sidecar and is desktop-only in *both* apps. Native Flutter offers **25
-  on macOS** (retro landed there 2026-07-20 as spawned binaries) and **22 on
-  iOS**, which has no child processes yet.
+  lc0 sidecar and is desktop-only in *both* apps. Native Flutter offers **31
+  on macOS** (retro landed there 2026-07-20 as spawned binaries, Maia the same
+  day over FFI) and **28 on iOS**, which has no child processes yet. Only
+  Garbo is now web-only.
 
   The way it closed is the interesting part: **none of the last three families
   uses the brain bridge at all.** Retro, Garbo and Maia are Workers, so their
@@ -257,7 +258,12 @@ web branch of every conditional import.
   Maia does still share code with the brain, but by a different route: its
   encoding and decoding are pure functions over a FEN history, so they live in
   `brain/maia/` and are imported by both apps' workers rather than called
-  across the bridge.
+  across the bridge. Native Maia takes that route one step further — the same
+  two functions are bundled to `assets/maia-brain.js` and run in an embedded
+  JS runtime of their own, so a move is encode-in-JS, infer-in-Dart,
+  decode-in-JS. A *second* bundle rather than two more exports on `brain.js`,
+  because brain.js is a `<script>` tag on the web and lc0's policy index is
+  1858 strings only a Maia ever reads.
 
   The web/native split is real, and now finer than a single number. Retro no
   longer needs its Web Worker on macOS: the morlock engines build to native
@@ -269,11 +275,22 @@ web branch of every conditional import.
   rather than offering it and falling back. iOS has no child processes, so
   there retro still waits on the c-archive/FFI route.
 
-  The remaining native gaps each have their story in the matching
-  `*_engine_io.dart`: Maia is the most tractable (the `onnxruntime` pub
-  package needs no runtime port), Garbo the awkward one despite being plain
-  JavaScript (flutter_js has no Worker and its search would block the
-  isolate), Dala the one waiting on the lc0 sidecar.
+  Maia closed the same way, without a Worker anywhere: `package:onnxruntime`
+  is ORT's C API over `dart:ffi`, so there was no runtime to port, and its
+  isolate session keeps the forward pass off the UI thread. What that buys is
+  checkable rather than assumed — `integration_test/maia_native_test.dart`
+  asserts the native path returns the move the *web* returns, for three bands
+  and four positions, against fixtures emitted from the node reference.
+
+  The remaining native gaps have their story in the matching
+  `*_engine_io.dart`: Garbo is the awkward one despite being plain JavaScript
+  (flutter_js has no Worker and its search would block the isolate), Dala the
+  one waiting on the lc0 sidecar.
+
+  Native Maia is also the first thing in the app to open a socket, so the
+  macOS bundle now carries `com.apple.security.network.client`. Everything
+  else on native is offline by construction, and this stays a single host
+  reached only when someone picks a Maia.
 - **Only JavaScriptCore has ever run the brain.** `ios/` and `macos/` are the
   only native targets that exist; QuickJS is the runtime on Android and is
   untested. Bundling js-chess-engine put BigInt literals in `brain.js`, and
