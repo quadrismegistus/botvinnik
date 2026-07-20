@@ -2,25 +2,44 @@ PODS:
   - Flutter (1.0.0)
   - flutter_js (0.1.0):
     - Flutter
+  - onnxruntime (0.0.1):
+    - Flutter
+    - onnxruntime-objc (= 1.15.1)
+  - onnxruntime-c (1.15.1)
+  - onnxruntime-objc (1.15.1):
+    - onnxruntime-objc/Core (= 1.15.1)
+  - onnxruntime-objc/Core (1.15.1):
+    - onnxruntime-c (= 1.15.1)
   - stockfish (1.8.1):
     - Flutter
 
 DEPENDENCIES:
   - Flutter (from `Flutter`)
   - flutter_js (from `.symlinks/plugins/flutter_js/ios`)
+  - onnxruntime (from `.symlinks/plugins/onnxruntime/ios`)
   - stockfish (from `.symlinks/plugins/stockfish/ios`)
+
+SPEC REPOS:
+  trunk:
+    - onnxruntime-c
+    - onnxruntime-objc
 
 EXTERNAL SOURCES:
   Flutter:
     :path: Flutter
   flutter_js:
     :path: ".symlinks/plugins/flutter_js/ios"
+  onnxruntime:
+    :path: ".symlinks/plugins/onnxruntime/ios"
   stockfish:
     :path: ".symlinks/plugins/stockfish/ios"
 
 SPEC CHECKSUMS:
   Flutter: cabc95a1d2626b1b06e7179b784ebcf0c0cde467
   flutter_js: 867813c1830e1d9b2c5d547cdb6f61801e2f2145
+  onnxruntime: 2ab1957eb029c71d47f7bb35cc4efc9f0d297828
+  onnxruntime-c: ebdcfd8650bcbd10121c125262f99dea681b92a3
+  onnxruntime-objc: ae7acec7a3d03eaf072d340afed7a35635c1c2a6
   stockfish: b4eb49218804f8fa1ee5fef01e5e760c54df0436
 
 PODFILE CHECKSUM: a0e9cbdff221d0c3f1a078a8d446728bffe872d2

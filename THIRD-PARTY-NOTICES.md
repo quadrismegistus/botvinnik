@@ -31,6 +31,7 @@ repository as the rest of the source.
 | `wasm_exec.js` (The Go Authors) — the Go↔WASM runtime shim the retro engines load | BSD-3-Clause |
 | Svelte / SvelteKit | MIT |
 | onnxruntime-web — the ONNX runtime for the Maia bots, on the web | MIT |
+| ONNX Runtime (Microsoft), via the `onnxruntime` Flutter plugin — the same runtime for the Maia bots on macOS/iOS, linked as a native library | MIT |
 | flutter_js | MIT |
 | flutter_colorpicker | MIT |
 | sqflite | BSD-2-Clause |

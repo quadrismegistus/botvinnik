@@ -19,9 +19,12 @@ import '../engine/maia_engine.dart';
 import '../engine/retro_engine.dart';
 import '../stores/game_controller.dart';
 
-// retro and garbo are platform-conditional rather than simply present: both
-// are Web Workers, so they play on the web and nowhere else yet. Listing them
-// on macOS would be the exact substitution this filter exists to prevent.
+// Three families are platform-conditional rather than simply present, and
+// each answers for itself: retro spawns a bundled binary and so plays on the
+// web and macOS, Maia runs ORT over FFI and so plays on the web, macOS and
+// iOS, Garbo is still a Web Worker and so plays only on the web. Listing one
+// where it cannot play would be the exact substitution this filter exists to
+// prevent.
 final _playableFamilies = {
   'square',
   'fish',
