@@ -1,0 +1,54 @@
+{
+	"version": 1,
+	"cases": [
+		{
+			"name": "start",
+			"history": [
+				"rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+			],
+			"planes": "53297e78710f4255",
+			"pick": "e2e3"
+		},
+		{
+			"name": "after 1.e4, with history",
+			"history": [
+				"rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+				"rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1"
+			],
+			"planes": "cc34746c78bb4df5",
+			"pick": "e7e6"
+		},
+		{
+			"name": "black to move, midgame",
+			"history": [
+				"r2q1rk1/ppp2ppp/2np1n2/2b1p3/2B1P1b1/2NP1N2/PPP2PPP/R1BQ1RK1 b - - 6 8"
+			],
+			"planes": "f4315a2ad34b10b6",
+			"pick": "d8c8"
+		},
+		{
+			"name": "knight promotion wins",
+			"history": [
+				"k7/2P5/8/8/8/8/8/7K w - - 0 1"
+			],
+			"planes": "298b01e5663eb294",
+			"pick": "c7c8n"
+		},
+		{
+			"name": "knight promotion wins, black",
+			"history": [
+				"7k/8/8/8/8/8/2p5/K7 b - - 0 1"
+			],
+			"planes": "faa0657f9197bf00",
+			"pick": "c2c1n"
+		},
+		{
+			"name": "both sides can castle both ways",
+			"history": [
+				"r3k2r/pppppppp/8/8/8/8/PPPPPPPP/R3K2R w KQkq - 0 1"
+			],
+			"planes": "7d396ec656d64c39",
+			"pick": "e1f1"
+		}
+	]
+}

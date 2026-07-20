@@ -79,15 +79,14 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
-      - name: Rebuild the brain (runs the smoke test and replays the fixtures)
+      # Builds BOTH bundles — brain.js and Maia's separate native one, which
+      # reads the same brain/maia/ sources — and runs each one's smoke test and
+      # fixture replay.
+      - name: Rebuild the brain (runs the smoke tests and replays the fixtures)
         run: npm run build:brain
-      # Maia's pure halves, bundled separately because brain.js is eager on the
-      # web and the policy index is 1858 strings only a Maia ever reads
-      - name: Rebuild Maia's native bundle
-        run: npm run build:maia-brain
-      # esbuild bundles both Maia entries without typechecking either, and
-      # neither is reachable from the Svelte app, so `npm run check` never saw
-      # them. This is the only thing that does.
+      # esbuild bundles the Flutter app's own TypeScript without typechecking
+      # it, and none of it is reachable from the Svelte app, so `npm run check`
+      # never saw it. This is the only thing that does.
       - name: Typecheck the Flutter app's own TypeScript
         run: npm run check:flutter-ts
       - name: The committed bundles must match their TypeScript sources

@@ -12,11 +12,18 @@
 		"module": "ESNext",
 		"moduleResolution": "bundler",
 		"lib": ["ES2022", "DOM", "DOM.Iterable", "WebWorker"],
+		// the e2e specs and the Playwright config run under node, not in a page
+		"types": ["node"],
 		"strict": true,
 		"skipLibCheck": true,
 		"esModuleInterop": true,
 		"forceConsistentCasingInFileNames": true,
 		"resolveJsonModule": true
 	},
-	"include": ["web_src/**/*.ts", "native_src/**/*.ts"]
+	"include": [
+		"web_src/**/*.ts",
+		"native_src/**/*.ts",
+		"e2e/**/*.ts",
+		"playwright.config.ts"
+	]
 }

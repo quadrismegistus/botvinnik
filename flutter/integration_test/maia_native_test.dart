@@ -18,10 +18,14 @@
 //
 // First run downloads ~10MB (three bands). Later runs are cached.
 
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
+import 'package:path_provider/path_provider.dart';
 
 import 'package:botvinnik_mobile/engine/maia_engine.dart';
+import 'package:botvinnik_mobile/engine/maia_progress.dart';
 
 /// (band, fenHistory, the move the web plays).
 const _parity = <(int, List<String>, String)>[
@@ -76,10 +80,39 @@ void main() {
     }
   });
 
-  test('a cancelled request resolves null rather than hanging', () async {
+  test('a request cancelled before it starts resolves null', () async {
     const start = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
     final abandoned = maia.move([start], band: 1100);
     maia.cancelPending();
     expect(await abandoned, isNull);
   });
+
+  // The one above never gets past the generation check, so it says nothing
+  // about work already running. This is the case that matters: a download in
+  // flight, cancelled — the move must resolve null, the weights must still
+  // land (they are cached per band, so finishing is right), and the progress
+  // line must keep reporting for whoever is waiting next rather than going
+  // blank because the generation that started it is stale.
+  test('a cancel mid-download still lands the weights, and keeps reporting',
+      () async {
+    const start = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+    final dir = await getApplicationSupportDirectory();
+    final cached = File('${dir.path}/maia/maia-1500.onnx');
+    if (await cached.exists()) await cached.delete();
+
+    final seen = <MaiaProgress>[];
+    final fresh = MaiaEngine(onProgress: (p) {
+      if (p != null) seen.add(p);
+    });
+    final abandoned = fresh.move([start], band: 1500);
+    await Future<void>.delayed(const Duration(milliseconds: 400));
+    fresh.cancelPending();
+
+    expect(await abandoned, isNull, reason: 'cancelled requests answer null');
+    expect(seen.any((p) => p.phase == 'fetching'), isTrue,
+        reason: 'the download reported while someone was waiting');
+    expect(await fresh.move([start], band: 1500), 'e2e4',
+        reason: 'the abandoned download still cached its weights');
+    fresh.dispose();
+  }, timeout: const Timeout(Duration(minutes: 2)));
 }

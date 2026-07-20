@@ -21,9 +21,9 @@ import '../stores/game_controller.dart';
 
 // Three families are platform-conditional rather than simply present, and
 // each answers for itself: retro spawns a bundled binary and so plays on the
-// web and macOS, Maia runs ORT over FFI and so plays everywhere but Android,
-// Garbo is still a Web Worker and so plays only on the web. Listing one where
-// it cannot play would be the exact substitution this filter exists to
+// web and macOS, Maia runs ORT over FFI and so plays on the web, macOS and
+// iOS, Garbo is still a Web Worker and so plays only on the web. Listing one
+// where it cannot play would be the exact substitution this filter exists to
 // prevent.
 final _playableFamilies = {
   'square',
