@@ -21,8 +21,10 @@
 //     resolve every retro move to an empty list.
 //
 // The shipped `retro.wasm` (GOOS=js) can't be reused here — hence real
-// binaries, staged into the app bundle by `stage-macos-engines.sh` and copied
-// into `Contents/Resources/retro/` by the "Bundle chess engine" build phase.
+// binaries, staged by `stage-macos-engines.sh` and copied into
+// `Contents/MacOS/retro/` by the "Bundle chess engine" build phase, which also
+// signs each one. Not `Contents/Resources`: executable code there fails
+// notarization, because the hardened runtime treats Resources as data.
 
 import 'dart:async';
 import 'dart:convert';
@@ -61,7 +63,11 @@ abstract class RetroEngine {
   static String? _resolveDir() {
     final exeDir = File(Platform.resolvedExecutable).parent;
     final candidates = <String>[
-      // macOS: Contents/MacOS/<app> → Contents/Resources/retro
+      // macOS: Contents/MacOS/<app> → Contents/MacOS/retro. Executables live
+      // here rather than in Resources, because code in Resources fails
+      // notarization — the hardened runtime treats Resources as data.
+      '${exeDir.path}/retro',
+      // Where the bundle used to put them. Kept so a stale build still runs.
       '${exeDir.parent.path}/Resources/retro',
       // dev only, and only for a NON-sandboxed run
       if (Platform.environment['BOTVINNIK_RETRO_DIR'] != null)
