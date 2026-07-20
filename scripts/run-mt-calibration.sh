@@ -18,8 +18,8 @@ cd "$(dirname "$0")/.."   # repo root
 if [ ! -f scripts/wasm-engine/stockfish.js ]; then
 	echo ">> setting up scripts/wasm-engine (node UCI wrapper of the web engine)"
 	mkdir -p scripts/wasm-engine
-	cp static/wasm/stockfish.js scripts/wasm-engine/stockfish.js
-	cp static/wasm/stockfish.wasm scripts/wasm-engine/stockfish.wasm
+	cp vendor/wasm/stockfish.js scripts/wasm-engine/stockfish.js
+	cp vendor/wasm/stockfish.wasm scripts/wasm-engine/stockfish.wasm
 	printf '{"type":"commonjs"}\n' >scripts/wasm-engine/package.json
 	cat >scripts/wasm-engine/run.sh <<'SH'
 #!/bin/sh

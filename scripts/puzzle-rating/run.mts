@@ -22,9 +22,9 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Chess } from 'chess.js';
-import { shapedBotMove, shapedLabelFor, shapedSearchDepth } from '../../src/lib/bot';
-import { SCALE_OFFSET } from '../../src/lib/bots';
-import type { EngineMove } from '../../src/lib/engine/stockfish';
+import { shapedBotMove, shapedLabelFor, shapedSearchDepth } from '../../brain/bot';
+import { SCALE_OFFSET } from '../../brain/bots';
+import type { EngineMove } from '../../brain/engine/types';
 
 const argv = process.argv.slice(2);
 function opt(name: string, dflt: string): string {

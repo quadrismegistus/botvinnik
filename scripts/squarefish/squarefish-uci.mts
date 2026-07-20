@@ -20,9 +20,9 @@ import { createInterface } from 'node:readline';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Chess } from 'chess.js';
-import { shapedBotMove, shapedSearchDepth } from '../../src/lib/bot';
-import { avoidRepetition } from '../../src/lib/repetition';
-import type { EngineMove } from '../../src/lib/engine/stockfish';
+import { shapedBotMove, shapedSearchDepth } from '../../brain/bot';
+import { avoidRepetition } from '../../brain/repetition';
+import type { EngineMove } from '../../brain/engine/types';
 
 const argv = process.argv.slice(2);
 function opt(name: string, dflt: number): number {

@@ -255,7 +255,7 @@ temperature 0 = argmax, >0 = sample; return the original (un-flipped) UCI.
 COOP/COEP cross-origin-isolation headers, matching our no-SAB lite-single
 setup). Providers `["wasm"]` (+ `"webgpu"` opportunistically). Copy
 `onnxruntime-web/dist/ort-wasm*` into a static dir; point `ort.env.wasm.wasmPaths`
-there. Serve `.onnx` from `static/`.
+there. Serve `.onnx` from `vendor/` (was `static/` before 2026-07-20).
 
 **Licensing:** GPL-3.0 weights → **don't bundle**; `fetch()` from an external URL
 (HuggingFace or our bucket) at runtime + IndexedDB cache. App code stays

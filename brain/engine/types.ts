@@ -28,3 +28,16 @@ export interface RetroSpec {
 	engine: RetroEngineName;
 	ply: number;
 }
+
+/// One engine's verdict on a position, as an importer needs it: the score from
+/// the side to move and the line it saw.
+///
+/// It lived in the Svelte app's engine pool until that app was retired
+/// (2026-07-20). Nothing in the brain produces it — the importers take it from
+/// whatever evaluator they are given, a browser worker or a native process —
+/// but both importers speak it, so it belongs here rather than in either.
+export interface UciEval {
+	cp?: number; // side-to-move perspective
+	mate?: number;
+	pv: string[];
+}
