@@ -44,6 +44,11 @@ const double kPhoneWidth = 500;
 /// must never be pushed off, so they stay reserved.
 const double kPhoneChrome = kGradeStrip + 46;
 
+/// One player plate (name + captured material) above the board and one below.
+/// Fixed furniture in the Play layout, so their height must be reserved or the
+/// board pushes them — and everything under them — off the bottom.
+const double kPlayerPlate = 28;
+
 /// Never shrink the board past this; below it nothing is usable anyway and
 /// the desktop minimum window size keeps us clear of it.
 const double kMinBoard = 200;
@@ -77,7 +82,7 @@ double stackedBoardSize(double width, double height, double chrome) =>
 /// narrow AND short at once — that is what [stackedBoardSize] exists for, and
 /// where holding back space for the panel is worth the width.
 double narrowBoardSize(double width, double height) =>
-    panedBoardSize(width, height, kPhoneChrome);
+    panedBoardSize(width, height - 2 * kPlayerPlate, kPhoneChrome);
 
 /// The board's size in a stacked layout with a SCROLLABLE pane beneath it.
 ///
@@ -97,5 +102,5 @@ double panedBoardSize(double width, double height, double fixed) =>
 /// window dragged short does not overflow.
 double wideBoardSize(double width, double height, double split) => math.min(
       math.max(240.0, width * split),
-      math.max(120.0, height - kGradeStrip),
+      math.max(120.0, height - kGradeStrip - 2 * kPlayerPlate),
     );

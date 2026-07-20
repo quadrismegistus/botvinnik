@@ -483,13 +483,19 @@ class _PlayTabState extends State<PlayTab> {
               narrowBoardSize(constraints.maxWidth, constraints.maxHeight);
           final topSide = game.whiteAtBottom ? 'b' : 'w';
           final botSide = game.whiteAtBottom ? 'w' : 'b';
+          // fixed to kPlayerPlate so their height matches what narrowBoardSize
+          // reserved — otherwise the column overflows and the page scrolls
           return Column(
             children: [
               SizedBox(
-                  width: board, child: PlayerPlate(key: ValueKey(topSide), side: topSide)),
+                  width: board,
+                  height: kPlayerPlate,
+                  child: PlayerPlate(key: ValueKey(topSide), side: topSide)),
               Center(child: SizedBox(width: board, child: const BoardPane())),
               SizedBox(
-                  width: board, child: PlayerPlate(key: ValueKey(botSide), side: botSide)),
+                  width: board,
+                  height: kPlayerPlate,
+                  child: PlayerPlate(key: ValueKey(botSide), side: botSide)),
               const GradeStrip(),
               _viewRow(),
               Expanded(child: _panel()),
@@ -511,13 +517,17 @@ class _PlayTabState extends State<PlayTab> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    PlayerPlate(
-                        key: ValueKey(game.whiteAtBottom ? 'b' : 'w'),
-                        side: game.whiteAtBottom ? 'b' : 'w'),
+                    SizedBox(
+                        height: kPlayerPlate,
+                        child: PlayerPlate(
+                            key: ValueKey(game.whiteAtBottom ? 'b' : 'w'),
+                            side: game.whiteAtBottom ? 'b' : 'w')),
                     const BoardPane(),
-                    PlayerPlate(
-                        key: ValueKey(game.whiteAtBottom ? 'w' : 'b'),
-                        side: game.whiteAtBottom ? 'w' : 'b'),
+                    SizedBox(
+                        height: kPlayerPlate,
+                        child: PlayerPlate(
+                            key: ValueKey(game.whiteAtBottom ? 'w' : 'b'),
+                            side: game.whiteAtBottom ? 'w' : 'b')),
                     const GradeStrip(),
                   ],
                 ),

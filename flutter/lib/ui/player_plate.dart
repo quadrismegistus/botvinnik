@@ -67,8 +67,14 @@ class PlayerPlate extends StatelessWidget {
     final advantage = mat.advantage;
     final opp = side == 'w' ? Side.black : Side.white;
     final assets = pieceSetFor(settings).assets;
+    final pieces = <Widget>[
+      for (final r in _order)
+        if (captured[r] != null)
+          for (var i = 0; i < captured[r]!; i++)
+            Image(image: assets[_kindOf(opp, r)]!, width: 16, height: 16),
+    ];
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
       child: Row(
         children: [
           Icon(persona == null ? Icons.person_outline : Icons.smart_toy_outlined,
@@ -82,16 +88,23 @@ class PlayerPlate extends StatelessWidget {
             Text('${persona.elo}',
                 style: const TextStyle(fontSize: 11, color: Colors.white30)),
           ],
-          const SizedBox(width: 8),
-          // captured pieces, opponent's colour, small
-          for (final r in _order)
-            if (captured[r] != null)
-              for (var i = 0; i < captured[r]!; i++)
-                Image(
-                  image: assets[_kindOf(opp, r)]!,
-                  width: 15,
-                  height: 15,
+          if (pieces.isNotEmpty) ...[
+            const SizedBox(width: 8),
+            // A light tray behind the captured pieces. Without it the dark
+            // (black) pieces vanish against the app's dark background — they
+            // are drawn as images, so a mid-light backing is what gives both
+            // colours their contrast, black by fill and white by outline.
+            Flexible(
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 1),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF9c988c),
+                  borderRadius: BorderRadius.circular(4),
                 ),
+                child: Row(mainAxisSize: MainAxisSize.min, children: pieces),
+              ),
+            ),
+          ],
           const Spacer(),
           if (advantage > 0)
             Text('+$advantage',
