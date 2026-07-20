@@ -9,7 +9,7 @@
 	}
 	let { fen, color }: Props = $props();
 
-	const VALUE: Record<string, number> = { p: 1, n: 3, b: 3, r: 3, q: 9 };
+	const VALUE: Record<string, number> = { p: 1, n: 3, b: 3, r: 5, q: 9 };
 	// bishops are worth 3 for the advantage sum too; keep it simple (no bishop pair)
 	VALUE.b = 3;
 	const START: Record<string, number> = { p: 8, n: 2, b: 2, r: 2, q: 1 };
