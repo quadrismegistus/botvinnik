@@ -36,7 +36,6 @@ import 'ui/lines_tree_pane.dart';
 import 'ui/move_list.dart';
 import 'ui/new_game_sheet.dart';
 import 'ui/practice_tab.dart';
-import 'ui/roster_picker.dart';
 import 'ui/settings_tab.dart';
 import 'ui/splash.dart';
 import 'ui/win_chart.dart';
@@ -319,7 +318,10 @@ class _AppShellState extends State<AppShell> {
         return AppBar(
           titleSpacing: 8,
           title: InkWell(
-            onTap: () => showRosterPicker(context),
+            // opponent selection belongs to starting a game, not a persistent
+            // global setting — so the title opens the New Game sheet (which
+            // has the opponent picker), not the roster picker directly.
+            onTap: () => showNewGameSheet(context),
             borderRadius: BorderRadius.circular(6),
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),

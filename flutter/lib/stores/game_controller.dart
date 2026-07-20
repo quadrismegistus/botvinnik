@@ -117,9 +117,14 @@ class GameController extends ChangeNotifier {
 
   String get playerColor => _settings.playerColor;
   bool get botEnabled => _settings.botEnabled;
+  /// The bot plays BOTH sides — a bot-vs-bot game the player just watches.
+  bool get botBothSides => botEnabled && _settings.botBothSides;
   List<Persona> get rosterPersonas => _bot.personas();
-  bool get isPlayerTurn =>
-      !botEnabled || (position.turn == Side.white ? 'w' : 'b') == playerColor;
+  bool get isPlayerTurn => !botEnabled
+      ? true // analysis board — you move both sides
+      : botBothSides
+          ? false // nobody's turn is yours; the bot plays both
+          : (position.turn == Side.white ? 'w' : 'b') == playerColor;
   bool get gameOver => position.isGameOver;
 
   String get statusLine {
@@ -135,6 +140,12 @@ class GameController extends ChangeNotifier {
     // a dead engine used to show the boot-error screen; boot no longer waits
     // for it, so without this the symptom is a board whose bot never moves
     if (_arbiter.engineError != null) return 'Engine unavailable — no analysis';
+    if (botBothSides) {
+      final side = position.turn == Side.white ? 'White' : 'Black';
+      return botThinking
+          ? '${persona?.name ?? "Bot"} is thinking… ($side)'
+          : '${persona?.name ?? "Bot"} vs itself — $side to move';
+    }
     if (botThinking) return '${persona?.name ?? "Bot"} is thinking…';
     return isPlayerTurn ? 'Your move' : '${persona?.name ?? "Bot"} to move';
   }
@@ -143,13 +154,17 @@ class GameController extends ChangeNotifier {
   /// or, on the analysis board, simply the latest move of either side.
   MoveGrade? get lastPlayerGrade {
     for (var i = moves.length - 1; i >= 0; i--) {
-      if (!botEnabled || moves[i].color == playerColor) return moves[i].grade;
+      // bot-vs-bot has no "player" side, so show whichever move is latest
+      if (!botEnabled || botBothSides || moves[i].color == playerColor) {
+        return moves[i].grade;
+      }
     }
     return null;
   }
 
   String _settingsSig() =>
-      '${_settings.personaId}|${_settings.playerColor}|${_settings.botEnabled}';
+      '${_settings.personaId}|${_settings.playerColor}|${_settings.botEnabled}'
+      '|${_settings.botBothSides}';
   late String _lastSettingsSig = _settingsSig();
 
   void _onSettings() {
@@ -469,6 +484,16 @@ class GameController extends ChangeNotifier {
       if (!position.isLegal(move)) return;
       final san = _sanOf(position, move);
       _apply(move, san);
+      // Bot-vs-bot: the opponent is also the bot, so continue on its own. The
+      // delay makes it watchable; the gen check stops it the instant a new
+      // game or an undo bumps the generation, and _apply's gameOver handling
+      // ends it at mate/stalemate. Fires after THIS invocation's finally has
+      // cleared botThinking, so the recursive call is not blocked by it.
+      if (botBothSides) {
+        Future.delayed(const Duration(milliseconds: 650)).then((_) {
+          if (gen == _gen && !gameOver) _maybeBotTurn();
+        });
+      }
     } catch (e, st) {
       // Every call site here is fire-and-forget and the app installs no
       // zone guard, so without this an exception — a bridge StateError, a

@@ -133,4 +133,37 @@ void main() {
         kMaxArrowCount);
     expect((await load({'flutter.botvinnik-arrow-count': 0})).arrowCount, 1);
   });
+
+  group('bot vs bot', () {
+    test('defaults off', () async {
+      expect((await load()).botBothSides, isFalse);
+    });
+
+    test('a stored bot blob with bothSides loads it', () async {
+      final s = await load({
+        'flutter.botvinnik-bot-v1':
+            '{"enabled":true,"bothSides":true,"personaId":"square-900","color":"b"}'
+      });
+      expect(s.botBothSides, isTrue);
+    });
+
+    test('an old blob without the field loads as off (backward compatible)',
+        () async {
+      final s = await load({
+        'flutter.botvinnik-bot-v1':
+            '{"enabled":true,"personaId":"square-900","color":"b"}'
+      });
+      expect(s.botBothSides, isFalse);
+    });
+
+    test('the setter runs and persists without disturbing the other fields',
+        () async {
+      final s = await load();
+      s.playerColor = 'b';
+      s.botBothSides = true;
+      expect(s.botBothSides, isTrue);
+      expect(s.playerColor, 'b'); // still there
+      expect(s.botEnabled, isTrue);
+    });
+  });
 }

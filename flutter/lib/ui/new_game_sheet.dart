@@ -28,9 +28,18 @@ class _NewGameSheet extends StatefulWidget {
 }
 
 class _NewGameSheetState extends State<_NewGameSheet> {
-  late String _mode = widget.settings.botEnabled
-      ? (widget.settings.playerColor == 'w' ? 'white' : 'black')
-      : 'analysis';
+  late String _mode = !widget.settings.botEnabled
+      ? 'analysis'
+      : widget.settings.botBothSides
+          ? 'botvbot'
+          : (widget.settings.playerColor == 'w' ? 'white' : 'black');
+
+  static const _captions = {
+    'white': 'You play White; the bot plays Black.',
+    'black': 'You play Black; the bot plays White.',
+    'botvbot': 'The bot plays both sides — sit back and watch.',
+    'analysis': 'No opponent — you move both sides, every move still graded.',
+  };
 
   @override
   Widget build(BuildContext context) {
@@ -57,29 +66,41 @@ class _NewGameSheetState extends State<_NewGameSheet> {
               onTap: () => showRosterPicker(context),
             ),
             const SizedBox(height: 6),
-            SegmentedButton<String>(
-              segments: const [
-                ButtonSegment(value: 'white', label: Text('You: White')),
-                ButtonSegment(value: 'black', label: Text('You: Black')),
-                ButtonSegment(value: 'analysis', label: Text('Analysis')),
+            // Four modes don't fit a segmented button on a phone, so chips
+            // that wrap. Bot vs Bot is the new one (#58).
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final m in const [
+                  ('white', 'Play White'),
+                  ('black', 'Play Black'),
+                  ('botvbot', 'Bot vs Bot'),
+                  ('analysis', 'Analysis'),
+                ])
+                  ChoiceChip(
+                    label: Text(m.$2),
+                    selected: _mode == m.$1,
+                    onSelected: (_) => setState(() => _mode = m.$1),
+                    labelStyle: TextStyle(
+                      fontSize: 13,
+                      color: _mode == m.$1
+                          ? const Color(0xFF81B64C)
+                          : Colors.white54,
+                    ),
+                    backgroundColor: const Color(0xFF1f1e1b),
+                    selectedColor: const Color(0xFF3a3733),
+                    showCheckmark: false,
+                  ),
               ],
-              selected: {_mode},
-              onSelectionChanged: (s) => setState(() => _mode = s.first),
-              style: SegmentedButton.styleFrom(
-                selectedBackgroundColor: const Color(0xFF3a3733),
-                selectedForegroundColor: const Color(0xFF81B64C),
-                foregroundColor: Colors.white54,
-                textStyle: const TextStyle(fontSize: 13),
+            ),
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Text(
+                _captions[_mode]!,
+                style: const TextStyle(color: Colors.white38, fontSize: 12),
               ),
             ),
-            if (_mode == 'analysis')
-              const Padding(
-                padding: EdgeInsets.only(top: 6),
-                child: Text(
-                  'No opponent — you move both sides, every move still graded.',
-                  style: TextStyle(color: Colors.white38, fontSize: 12),
-                ),
-              ),
             const SizedBox(height: 14),
             FilledButton(
               onPressed: () {
@@ -88,7 +109,8 @@ class _NewGameSheetState extends State<_NewGameSheet> {
                 // to the settings change with a newGame of its own; the
                 // explicit call covers the nothing-changed case
                 s.botEnabled = _mode != 'analysis';
-                if (_mode != 'analysis') {
+                s.botBothSides = _mode == 'botvbot';
+                if (_mode == 'white' || _mode == 'black') {
                   s.playerColor = _mode == 'white' ? 'w' : 'b';
                 }
                 widget.game.newGame();
