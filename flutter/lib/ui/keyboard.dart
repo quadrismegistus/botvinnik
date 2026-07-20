@@ -1,18 +1,23 @@
 // Keyboard control for the desktop and web builds.
 //
-// Everything here is view-only: browsing history and flipping the board never
-// touch the game, so a stray keypress can never cost you a move. The one key
-// that acts, space, starts a preview — which is also non-destructive and
-// stops on a second press.
+// One focus node sits above the whole shell (it has to, to reliably hold
+// focus), so the handler is tab-AWARE rather than tab-GATED: it dispatches to
+// the on-screen tab's action map — Play, Practice, or Review — and returns
+// ignored on Settings and for any key a tab does not claim, which lets those
+// keys fall through to scrolling. Nothing here can cost you a move you cannot
+// see: undo/redo only fire on the Play tab, where the board is.
 
 import 'package:flutter/foundation.dart' show defaultTargetPlatform, TargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../stores/game_controller.dart';
+import '../stores/practice_controller.dart';
+import '../stores/review_controller.dart';
+import '../stores/settings_store.dart';
 
-/// What a key press means. Kept separate from the widget so the mapping can
-/// be tested without standing up a GameController.
+/// What a key press means on the Play tab. Kept separate from the widget so the
+/// mapping can be tested without standing up a GameController.
 enum BoardKeyAction { back, forward, start, live, flip, preview, undo, redo }
 
 // holding an arrow scrubs; holding f or space must not strobe
@@ -23,7 +28,7 @@ const _repeatable = {
   BoardKeyAction.live,
 };
 
-/// The key, or null if this event is not ours. Repeats count only for the
+/// The Play key, or null if this event is not ours. Repeats count only for the
 /// browse keys, so holding an arrow scrubs but holding f doesn't spin the
 /// board and holding space doesn't toggle the preview thirty times a second.
 ///
@@ -66,52 +71,100 @@ BoardKeyAction? boardActionFor(KeyEvent event) {
   return action;
 }
 
-/// Wraps the app in a focus scope that turns key presses into navigation.
+/// Wraps the app in a focus scope that turns key presses into per-tab actions.
 ///
 /// Uses a plain [Focus] rather than [Shortcuts]/[Actions] because these are
 /// global, single-key bindings with no widget wanting to override them, and
 /// a bare key handler is far less machinery for that.
 class KeyboardControls extends StatelessWidget {
   final GameController game;
-  final Widget child;
+  final ReviewController review;
+  final PracticeController practice;
+  final SettingsStore settings;
 
-  /// Whether the keys mean anything right now. The focus node has to sit above
-  /// the whole shell to reliably hold focus, but the game it drives is only on
-  /// screen in one tab — without this, ⌘Z from Settings silently undoes a move
-  /// on a board you cannot see. Returning ignored also lets the arrow keys
-  /// scroll the other tabs, which is what they should do there.
-  final bool Function() enabled;
+  /// The tab on screen (0 Play, 1 Practice, 2 Review, 3 Settings). The focus
+  /// node is above the shell, so the handler needs to know which tab's map to
+  /// use — and to stay out of Settings and off any key a tab doesn't claim.
+  final int Function() currentTab;
+
+  final Widget child;
 
   const KeyboardControls({
     super.key,
     required this.game,
+    required this.review,
+    required this.practice,
+    required this.settings,
+    required this.currentTab,
     required this.child,
-    required this.enabled,
   });
 
-  /// What the keys do, for the help sheet — one list, so the sheet cannot
-  /// drift from the bindings.
-  /// [mac] switches the modifier glyphs; the bindings themselves are the same
-  /// apart from Ctrl-Y, which is a Windows convention.
-  static List<(String, String)> bindingsFor({required bool mac}) => [
-        // spelled out rather than ← → ↑ ↓ ⌘ ⇧: none of those glyphs exist in
-        // Roboto, so drawing them made Flutter web fetch Noto Sans Symbols
-        // from fonts.gstatic.com — a third-party request the offline build
-        // cannot serve, for a sheet most people open once. When this becomes
-        // the per-tab sheet the roadmap describes, use Material Icons
-        // (keyboard_command_key, arrow_back, …) rather than bringing the
-        // Unicode back.
-        ('Left / Right', 'step back and forward through the game'),
-        ('Up / Down', 'jump to the start, or back to the live position'),
-        ('space', 'play or stop a preview of the best line'),
-        ('f', 'flip the board'),
-        ('esc', 'stop previewing and return to the live position'),
-        (mac ? 'Cmd Z' : 'Ctrl+Z', 'undo'),
-        (mac ? 'Shift Cmd Z' : 'Ctrl+Shift+Z / Ctrl+Y', 'redo'),
+  static const _play = 0, _practice = 1, _review = 2;
+
+  /// What the keys do, grouped by tab, for the help sheet — one source, so the
+  /// sheet cannot drift from the bindings. Spelled out rather than ← → ↑ ↓ ⌘ ⇧:
+  /// none of those glyphs exist in Roboto, so drawing them made Flutter web
+  /// fetch Noto Sans Symbols from fonts.gstatic.com — a third-party request the
+  /// offline build cannot serve. [mac] switches the modifier words.
+  static List<(String, List<(String, String)>)> bindingsByTab(
+          {required bool mac}) =>
+      [
+        (
+          'Play',
+          [
+            ('Left / Right', 'step back and forward through the game'),
+            ('Up / Down', 'jump to the start, or back to the live position'),
+            ('space', 'play or stop a preview of the best line'),
+            ('f', 'flip the board'),
+            ('h', 'blind mode — hide the engine help'),
+            ('esc', 'stop previewing and return to the live position'),
+            (mac ? 'Cmd Z' : 'Ctrl+Z', 'undo'),
+            (mac ? 'Shift Cmd Z' : 'Ctrl+Shift+Z / Ctrl+Y', 'redo'),
+          ],
+        ),
+        (
+          'Practice',
+          [
+            ('? or /', 'hint — escalates: think → square → best'),
+            ('b', 'reveal the best move'),
+            ('r', 'retry the puzzle'),
+            ('n', 'next puzzle'),
+          ],
+        ),
+        (
+          'Review',
+          [
+            ('Left / Right', 'step back and forward through the moves'),
+            ('Up / Down', 'jump to the first or last move'),
+          ],
+        ),
       ];
 
   KeyEventResult _onKey(FocusNode node, KeyEvent event) {
-    if (!enabled()) return KeyEventResult.ignored;
+    switch (currentTab()) {
+      case _play:
+        return _playKey(event);
+      case _practice:
+        return _practiceKey(event);
+      case _review:
+        return _reviewKey(event);
+      default:
+        return KeyEventResult.ignored; // Settings: the page owns its keys
+    }
+  }
+
+  bool _noCommand(HardwareKeyboard k) =>
+      !k.isMetaPressed && !k.isControlPressed && !k.isAltPressed;
+
+  KeyEventResult _playKey(KeyEvent event) {
+    // h toggles blind mode ("hide"); a plain press, not a repeat, so holding
+    // it doesn't strobe. b is deliberately left free for a future "show best".
+    if (event is KeyDownEvent &&
+        _noCommand(HardwareKeyboard.instance) &&
+        event.logicalKey == LogicalKeyboardKey.keyH) {
+      settings.blind = !settings.blind;
+      return KeyEventResult.handled;
+    }
     final action = boardActionFor(event);
     if (action == null) return KeyEventResult.ignored;
     switch (action) {
@@ -135,6 +188,58 @@ class KeyboardControls extends StatelessWidget {
     return KeyEventResult.handled;
   }
 
+  KeyEventResult _reviewKey(KeyEvent event) {
+    if (event is! KeyDownEvent && event is! KeyRepeatEvent) {
+      return KeyEventResult.ignored;
+    }
+    if (!_noCommand(HardwareKeyboard.instance)) return KeyEventResult.ignored;
+    final key = event.logicalKey;
+    if (key == LogicalKeyboardKey.arrowLeft) {
+      if (review.canPrev) review.prev();
+      return KeyEventResult.handled;
+    }
+    if (key == LogicalKeyboardKey.arrowRight) {
+      if (review.canNext) review.next();
+      return KeyEventResult.handled;
+    }
+    if (key == LogicalKeyboardKey.arrowUp || key == LogicalKeyboardKey.home) {
+      review.goto(0);
+      return KeyEventResult.handled;
+    }
+    if (key == LogicalKeyboardKey.arrowDown || key == LogicalKeyboardKey.end) {
+      review.goto(review.moves.length);
+      return KeyEventResult.handled;
+    }
+    return KeyEventResult.ignored; // let other keys scroll the move table
+  }
+
+  KeyEventResult _practiceKey(KeyEvent event) {
+    // state-changing keys, so no repeat: holding r must not re-serve endlessly
+    if (event is! KeyDownEvent) return KeyEventResult.ignored;
+    if (!_noCommand(HardwareKeyboard.instance)) return KeyEventResult.ignored;
+    if (practice.current == null) return KeyEventResult.ignored;
+    final key = event.logicalKey;
+    if (key == LogicalKeyboardKey.keyR) {
+      practice.retry();
+      return KeyEventResult.handled;
+    }
+    if (key == LogicalKeyboardKey.keyN) {
+      practice.nextPuzzle();
+      return KeyEventResult.handled;
+    }
+    if (key == LogicalKeyboardKey.keyB) {
+      practice.reveal();
+      return KeyEventResult.handled;
+    }
+    // ? is Shift+/ on a US layout (same physical key → slash); the character
+    // check catches layouts where it is not
+    if (key == LogicalKeyboardKey.slash || event.character == '?') {
+      practice.hint();
+      return KeyEventResult.handled;
+    }
+    return KeyEventResult.ignored;
+  }
+
   void _togglePreview() {
     if (game.previewing) {
       game.stopPreview();
@@ -153,41 +258,54 @@ class KeyboardControls extends StatelessWidget {
 /// The bindings, shown from the app bar. Cheap to add and it stops the
 /// shortcuts being folklore.
 void showKeyboardHelp(BuildContext context) {
+  final mac = defaultTargetPlatform == TargetPlatform.macOS;
   showDialog<void>(
     context: context,
     builder: (context) => AlertDialog(
       backgroundColor: const Color(0xFF1f1e1b),
       title: const Text('Keyboard', style: TextStyle(fontSize: 15)),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          for (final (keys, what) in KeyboardControls.bindingsFor(
-              mac: defaultTargetPlatform == TargetPlatform.macOS))
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 4),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  SizedBox(
-                    // 'Shift Cmd Z' is ~67px at this size; the old ⇧⌘Z was 8.
-                    // Too narrow and the rows silently wrap to two lines.
-                    width: 84,
-                    child: Text(keys,
-                        style: const TextStyle(
-                            fontSize: 12.5,
-                            fontWeight: FontWeight.w600,
-                            color: Color(0xFF81B64C))),
-                  ),
-                  Expanded(
-                    child: Text(what,
-                        style: const TextStyle(
-                            fontSize: 12.5, color: Colors.white70)),
-                  ),
-                ],
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            for (final (tab, binds) in KeyboardControls.bindingsByTab(mac: mac)) ...[
+              Padding(
+                padding: const EdgeInsets.only(top: 12, bottom: 5),
+                child: Text(tab.toUpperCase(),
+                    style: const TextStyle(
+                        fontSize: 10,
+                        letterSpacing: 1.1,
+                        color: Colors.white38,
+                        fontWeight: FontWeight.w700)),
               ),
-            ),
-        ],
+              for (final (keys, what) in binds)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      SizedBox(
+                        // 'Shift Cmd Z' is ~67px at this size; the old ⇧⌘Z was
+                        // 8. Too narrow and the rows silently wrap to two lines.
+                        width: 84,
+                        child: Text(keys,
+                            style: const TextStyle(
+                                fontSize: 12.5,
+                                fontWeight: FontWeight.w600,
+                                color: Color(0xFF81B64C))),
+                      ),
+                      Expanded(
+                        child: Text(what,
+                            style: const TextStyle(
+                                fontSize: 12.5, color: Colors.white70)),
+                      ),
+                    ],
+                  ),
+                ),
+            ],
+          ],
+        ),
       ),
       actions: [
         TextButton(
