@@ -17,15 +17,32 @@ import 'package:botvinnik_mobile/brain/grading_api.dart';
 import 'package:botvinnik_mobile/brain/types.dart';
 import 'package:botvinnik_mobile/engine/arbiter.dart';
 import 'package:botvinnik_mobile/stores/game_controller.dart';
+import 'package:botvinnik_mobile/stores/practice_controller.dart';
 import 'package:botvinnik_mobile/stores/settings_store.dart';
+
+/// Canned analysis deep enough (depth >= 10) to carry the grading pipeline
+/// past its "no usable child" abort.
+const kFakeLines = [
+  EngineMove(pv: ['d2d4'], score: 0.3, mate: null, depth: 15, multipv: 1),
+];
 
 /// A SearchArbiter whose searches never resolve, so the grading/analysis tail
 /// downstream of a move never runs. Only the synchronous state ops are exercised.
+///
+/// Pass [analysisLines] to make `analysis()` COMPLETE instead, which drives the
+/// grading pipeline through to the practice-collect guard. `search()` never
+/// resolves either way — that keeps a bot turn parked at move-picking rather
+/// than running down the unstubbed shapedMove/botSpec path.
 class FakeArbiter implements SearchArbiter {
+  final List<EngineMove>? analysisLines;
+  FakeArbiter({this.analysisLines});
+
   @override
   Future<List<EngineMove>?> analysis(String fen,
           {void Function(List<EngineMove>)? onUpdate}) =>
-      Completer<List<EngineMove>?>().future;
+      analysisLines == null
+          ? Completer<List<EngineMove>?>().future
+          : Future<List<EngineMove>?>.value(analysisLines);
 
   @override
   Future<List<EngineMove>?> search({
@@ -51,16 +68,62 @@ class FakeArbiter implements SearchArbiter {
   dynamic noSuchMethod(Invocation invocation) => null;
 }
 
+/// A stand-in persona for tests that need a bot on the board. Only the fields
+/// the controller reads before it picks a move matter — it never gets that far
+/// in these tests, because the fake arbiter's search never resolves.
+const kTestBotId = 'testbot';
+const testBotPersona = Persona({
+  'id': kTestBotId,
+  'name': 'Test Bot',
+  'elo': 1500,
+  'family': 'square',
+  'blurb': '',
+});
+
 class FakeBot implements BotApi {
+  final Map<String, Persona> byId;
+  const FakeBot([this.byId = const {}]);
   @override
-  List<Persona> personas() => const [];
+  List<Persona> personas() => byId.values.toList(growable: false);
   @override
-  Persona? personaById(String id) => null;
+  Persona? personaById(String id) => byId[id];
   @override
   dynamic noSuchMethod(Invocation invocation) => null;
 }
 
 class FakeGrading implements GradingApi {
+  /// A blunder-shaped grade, so a move that reaches the collect guard is one
+  /// practice would want. Only the fields the pipeline and _storedMoveOf read
+  /// need to be here.
+  @override
+  MoveGrade gradeMove({
+    required int ply,
+    required String fenBefore,
+    required String san,
+    required String uci,
+    required String color,
+    required List<EngineMove> preLines,
+  }) =>
+      MoveGrade({
+        'ply': ply,
+        'fenBefore': fenBefore,
+        'san': san,
+        'uci': uci,
+        'color': color,
+        'depth': 15,
+        'isBest': false,
+        'label': 'blunder',
+        'bestSan': 'd4',
+        'bestUci': 'd2d4',
+        'bestEval': 0.0,
+        'bestPv': const ['d2d4'],
+        'backfilled': false,
+      });
+
+  @override
+  MoveGrade backfillGrade(MoveGrade grade, List<EngineMove> childLines) =>
+      MoveGrade({...grade.raw, 'backfilled': true});
+
   @override
   double winChance(double? evalPawns, int? mate) => 0;
   @override
@@ -69,14 +132,38 @@ class FakeGrading implements GradingApi {
   dynamic noSuchMethod(Invocation invocation) => null;
 }
 
+/// Records what the controller tried to collect as a practice puzzle.
+class FakePractice implements PracticeController {
+  final List<Map<String, dynamic>> collected = [];
+
+  @override
+  Future<void> maybeCollect(Map<String, dynamic> storedMove,
+      {String? setupUci, int minDepth = 8}) async {
+    collected.add(storedMove);
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => null;
+}
+
+/// Fresh settings with the players assigned. Both null (the default) is
+/// analysis mode. Exposed separately from [makeGame] for tests that must
+/// control exactly WHEN the controller is built — a controller starts a bot
+/// turn in its constructor, and a fake-clock test needs that inside the clock.
+Future<SettingsStore> loadSettings({String? white, String? black}) async {
+  SharedPreferences.setMockInitialValues({});
+  final settings = await SettingsStore.load();
+  settings.setPlayers(white: white, black: black);
+  return settings;
+}
+
 /// A GameController wired to the fakes, in analysis mode (both sides human) so
 /// [GameController.playerMove] works for either colour and no engine is needed.
 /// [fromFen] starts it on an arbitrary position.
 Future<GameController> makeGame({String? fromFen}) async {
-  SharedPreferences.setMockInitialValues({});
-  final settings = await SettingsStore.load();
-  settings.setPlayers(white: null, black: null); // analysis: both human
-  final game = GameController(FakeArbiter(), FakeBot(), FakeGrading(), settings);
+  final settings = await loadSettings(); // both null: analysis
+  final game =
+      GameController(FakeArbiter(), const FakeBot(), FakeGrading(), settings);
   if (fromFen != null) game.newGame(fromFen: fromFen);
   return game;
 }

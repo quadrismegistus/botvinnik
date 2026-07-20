@@ -110,4 +110,101 @@ void main() {
       expect(g.browsing, isFalse);
     });
   });
+
+  group('preview tagging', () {
+    // The Insights move line and the threat line share ONE preview slot.
+    // Without a tag each button reads the shared `previewing` flag and both
+    // show STOP while only one is actually running.
+    test('starting one preview replaces the other and the tag follows',
+        () async {
+      final g = await makeGame();
+      final start = g.position.fen;
+
+      g.startPreview(start, ['e2e4', 'e7e5'], tag: 'move');
+      expect(g.previewing, isTrue);
+      expect(g.previewTag, 'move');
+
+      // the threat line takes over the slot
+      g.startPreview(start, ['d2d4'], tag: 'threat');
+      expect(g.previewing, isTrue);
+      expect(g.previewTag, 'threat');
+
+      g.stopPreview();
+      expect(g.previewing, isFalse);
+      expect(g.previewTag, isNull); // nothing is playing, so nobody shows STOP
+    });
+
+    test('an illegal line never starts a preview, so no tag is left behind',
+        () async {
+      final g = await makeGame();
+      g.startPreview(g.position.fen, ['e2e5'], tag: 'threat'); // not a legal move
+      expect(g.previewing, isFalse);
+      expect(g.previewTag, isNull);
+    });
+  });
+
+  group('practice collection', () {
+    // Practice drills YOUR blunders from real games. The analysis board is
+    // exploration — both sides are you, its "mistakes" are deliberate, and
+    // collecting them poisoned the practice queue. The guard is botEnabled.
+    Future<FakePractice> playOneMove({String? white, String? black}) async {
+      final settings = await loadSettings(white: white, black: black);
+      final practice = FakePractice();
+      final game = GameController(
+          FakeArbiter(analysisLines: kFakeLines),
+          const FakeBot({kTestBotId: testBotPersona}),
+          FakeGrading(),
+          settings,
+          null,
+          practice);
+      game.playUci('e2e4');
+      // let the grading pipeline run to the collect guard
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      return practice;
+    }
+
+    test('a real game collects your blunder', () async {
+      // you are White, a bot is Black — so e2e4 is YOUR move in a real game
+      final practice = await playOneMove(black: kTestBotId);
+      expect(practice.collected, hasLength(1));
+      expect(practice.collected.single['san'], 'e4');
+    });
+
+    test('the analysis board collects nothing', () async {
+      // both sides you: botEnabled is false, so nothing is collected
+      final practice = await playOneMove();
+      expect(practice.collected, isEmpty);
+    });
+  });
+
+  group('bot turn generations', () {
+    // A bot turn waits up to 1.5s before replying (so the player's grade lands
+    // first), which is the window a new game can land in. The stale turn then
+    // wakes to a bumped generation and must bail WITHOUT clearing botThinking —
+    // by then the fresh turn owns that flag. Clearing it re-enabled re-entry
+    // (a second concurrent bot search) and desynced undo/redo. Issue #87.
+    testWidgets('a new game mid-turn does not clobber the fresh turn',
+        (tester) async {
+      // Bot plays White, so it is on move immediately and the controller
+      // starts a bot turn in its constructor.
+      final settings = await loadSettings(white: kTestBotId);
+      final game = GameController(FakeArbiter(),
+          const FakeBot({kTestBotId: testBotPersona}), FakeGrading(), settings);
+      expect(game.botThinking, isTrue, reason: 'the bot turn should have begun');
+
+      // a new game bumps the generation and starts a FRESH bot turn
+      game.newGame();
+      expect(game.botThinking, isTrue);
+
+      // now the STALE turn wakes from its wait and sees the new generation
+      await tester.pump(const Duration(milliseconds: 60));
+      expect(game.botThinking, isTrue,
+          reason: 'the stale bot turn clobbered the fresh one');
+
+      // wind the bot down so no timer outlives the test
+      settings.setPlayers(white: null, black: null);
+      game.newGame();
+      await tester.pump(const Duration(milliseconds: 120));
+    });
+  });
 }

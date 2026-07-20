@@ -1287,7 +1287,7 @@
      "id": "fix",
      "createdAt": "2026-01-01T00:00:00Z",
      "box": 2,
-     "dueAt": "2026-07-22T04:01:02.101Z",
+     "dueAt": "2026-07-23T14:35:24.063Z",
      "attempts": 3,
      "correct": 2,
      "lastResult": "pass"
@@ -1349,7 +1349,7 @@
      "id": "fix",
      "createdAt": "2026-01-01T00:00:00Z",
      "box": 0,
-     "dueAt": "2026-07-19T04:11:06.902Z",
+     "dueAt": "2026-07-20T14:45:28.864Z",
      "attempts": 3,
      "correct": 1,
      "lastResult": "fail"
@@ -1410,6 +1410,9 @@
     "uci": "f3e5",
     "san": "Nxe5",
     "gain": 1,
+    "line": [
+     "f3e5"
+    ],
     "targets": [
      "e5"
     ]

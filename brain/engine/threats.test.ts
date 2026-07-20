@@ -170,6 +170,35 @@ describe('findThreat', () => {
 		expect(t!.targets).toEqual(['f4']); // fallback path: the bare capture names its own victim
 	});
 
+	it('carries the judged window as a playable line', async () => {
+		// The line is the prefix of the pv the gain was actually counted over,
+		// so it is always replayable and never invents a move. Here the whole
+		// pv settles quietly, so the whole pv is judged; the case where the
+		// window is SHORTER than the pv is the fallback below.
+		const fen = '4k3/8/4p3/3N4/8/8/8/4K3 w - - 0 1';
+		const pv = ['e6d5', 'e1e2', 'e8e7', 'e2e3'];
+		const t = await findThreat(fen, fakeAnalyze(pv));
+		expect(t).not.toBeNull();
+		expect(t!.line).not.toHaveLength(0);
+		expect(t!.line[0]).toBe(t!.uci); // opens with the threat move
+		expect(pv.slice(0, t!.line.length)).toEqual(t!.line); // a prefix of the pv
+	});
+
+	it('carries only the first capture when the fallback judged only that', async () => {
+		// truncated pv, no quiet ply — the static fallback judges the one
+		// capture, so that is the whole honest line
+		const fen = '4k3/8/8/7n/5B2/8/8/4K3 w - - 0 1';
+		const t = await findThreat(fen, fakeAnalyze(['h5f4']));
+		expect(t!.line).toEqual(['h5f4']);
+	});
+
+	it('carries the whole mating line', async () => {
+		const fen = '4k3/8/4p3/3N4/8/8/8/4K3 w - - 0 1';
+		const t = await findThreat(fen, fakeAnalyze(['e6d5'], { mate: 2 }));
+		expect(t!.gain).toBe(Infinity);
+		expect(t!.line).toEqual(['e6d5']);
+	});
+
 	it('returns null on a finished game', async () => {
 		const fen = '4k3/8/8/8/8/8/8/4K3 w - - 0 1'; // bare kings → insufficient material → over
 		const analyze = fakeAnalyze([]);

@@ -71,17 +71,20 @@ class InsightCard extends StatelessWidget {
                 style: const TextStyle(color: Colors.white54, fontSize: 13)),
           if (canPreview) ...[
             const SizedBox(width: 6),
+            // tagged, because the threat chip has its own play button and both
+            // share `previewing` — untagged, each would show STOP while the
+            // other one was the line actually running
             InkWell(
-              onTap: () => game.previewing
+              onTap: () => game.previewTag == 'move'
                   ? game.stopPreview()
-                  : game.startPreview(previewBase, previewUcis),
+                  : game.startPreview(previewBase, previewUcis, tag: 'move'),
               borderRadius: BorderRadius.circular(14),
               child: Icon(
-                game.previewing
+                game.previewTag == 'move'
                     ? Icons.stop_circle_outlined
                     : Icons.play_circle_outline,
                 size: 22,
-                color: game.previewing
+                color: game.previewTag == 'move'
                     ? const Color(0xFF81B64C)
                     : Colors.white54,
               ),
@@ -128,7 +131,12 @@ class InsightCard extends StatelessWidget {
   /// it. Hidden while browsing or previewing, where the live overlays are off
   /// and a warning about the current position would contradict what is shown.
   Widget? _threat(GameController game) {
-    if (game.browsing || game.previewing) return null;
+    // Hidden while browsing, or while the OTHER preview runs: a live-threat
+    // claim under a historical position contradicts what the board is showing.
+    // Its OWN preview is the exception — that line IS the threat, and the chip
+    // carries the stop button, so hiding it there would strand the playback.
+    if (game.browsing) return null;
+    if (game.previewing && game.previewTag != 'threat') return null;
     final san = game.threatSan;
     if (san == null) return null;
     final gain = game.threatGain;
@@ -136,6 +144,8 @@ class InsightCard extends StatelessWidget {
     final cost = gain == null
         ? 'mate'
         : 'costs ${gain.abs().toStringAsFixed(gain.abs() >= 10 ? 0 : 1)}';
+    final line = game.threatLine;
+    final base = game.threatProbeFen;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
       decoration: BoxDecoration(
@@ -162,6 +172,25 @@ class InsightCard extends StatelessWidget {
           const SizedBox(width: 8),
           Text(cost,
               style: const TextStyle(color: Colors.white38, fontSize: 12)),
+          const Spacer(),
+          // play the line the threat is judged on, so "costs 1.0" becomes
+          // something you can watch rather than a claim you have to take
+          if (line.isNotEmpty && base != null)
+            InkWell(
+              onTap: () => game.previewTag == 'threat'
+                  ? game.stopPreview()
+                  : game.startPreview(base, line, tag: 'threat'),
+              borderRadius: BorderRadius.circular(14),
+              child: Icon(
+                game.previewTag == 'threat'
+                    ? Icons.stop_circle_outlined
+                    : Icons.play_circle_outline,
+                size: 20,
+                color: game.previewTag == 'threat'
+                    ? const Color(0xFF81B64C)
+                    : const Color(0xFFE0908E),
+              ),
+            ),
         ],
       ),
     );

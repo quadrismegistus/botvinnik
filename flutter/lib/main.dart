@@ -21,6 +21,7 @@ import 'engine/arbiter.dart';
 import 'engine/engine_factory.dart';
 import 'stores/book_store.dart';
 import 'stores/game_controller.dart';
+import 'stores/pgn_import.dart';
 import 'stores/practice_controller.dart';
 import 'stores/review_controller.dart';
 import 'stores/settings_store.dart';
@@ -35,6 +36,7 @@ import 'ui/lines_pane.dart';
 import 'ui/lines_tree_pane.dart';
 import 'ui/move_list.dart';
 import 'ui/new_game_sheet.dart';
+import 'ui/pgn_import_dialog.dart';
 import 'ui/player_plate.dart';
 import 'ui/practice_tab.dart';
 import 'ui/settings_tab.dart';
@@ -230,7 +232,7 @@ class _AppShellState extends State<AppShell> {
     // bar was taking is height the board can actually grow into. The +96
     // clears the rail's own width, so the Play pane stays above its wide
     // breakpoint once the rail is in the row with it.
-    if (MediaQuery.sizeOf(context).width >= kWideBreakpoint + 96) {
+    if (_wideShell(context)) {
       return Scaffold(
         appBar: _appBar(context),
         body: Row(
@@ -331,6 +333,78 @@ class _AppShellState extends State<AppShell> {
         _ => throw RangeError.index(i, null, 'tab'),
       };
 
+  /// A window wide enough for the desktop shell: the side rail instead of a
+  /// bottom bar, and the menu bar in the app bar. The +96 clears the rail's own
+  /// width so the Play pane stays above its wide breakpoint.
+  bool _wideShell(BuildContext context) =>
+      MediaQuery.sizeOf(context).width >= kWideBreakpoint + 96;
+
+  /// The wide-window menu bar. Everything in it is reachable elsewhere, but on
+  /// a desktop-sized window a menu is where people look — and it is the only
+  /// home for the panel toggles that isn't the view bar itself. In-app rather
+  /// than a native PlatformMenuBar, because the wide layout runs on the web
+  /// too, where a native menu bar does not exist.
+  Widget _menuBar(BuildContext context) {
+    final settings = context.watch<SettingsStore>();
+    final game = context.watch<GameController>();
+    const label = TextStyle(fontSize: 13, color: Colors.white70);
+    return MenuBar(
+      style: const MenuStyle(
+        backgroundColor: WidgetStatePropertyAll(Colors.transparent),
+        elevation: WidgetStatePropertyAll(0),
+        padding: WidgetStatePropertyAll(EdgeInsets.zero),
+      ),
+      children: [
+        SubmenuButton(
+          menuChildren: [
+            MenuItemButton(
+              onPressed: () => showNewGameSheet(context),
+              child: const Text('New game…'),
+            ),
+            MenuItemButton(
+              onPressed: () async {
+                // land on the game it just imported
+                if (await showPgnImport(context) && mounted) _select(2);
+              },
+              child: const Text('Import PGN…'),
+            ),
+          ],
+          child: const Text('Game', style: label),
+        ),
+        SubmenuButton(
+          menuChildren: [
+            for (final i in _PlayTabState._paneOrder)
+              CheckboxMenuButton(
+                value: settings.panels.contains(i),
+                onChanged: (_) => settings.togglePanel(i),
+                child: Text(_PlayTabState._tabs[i].$2),
+              ),
+            const Divider(height: 1),
+            MenuItemButton(
+              onPressed: game.toggleFlip,
+              child: const Text('Flip board'),
+            ),
+            CheckboxMenuButton(
+              value: settings.blind,
+              onChanged: (_) => settings.blind = !settings.blind,
+              child: const Text('Blind mode'),
+            ),
+          ],
+          child: const Text('View', style: label),
+        ),
+        SubmenuButton(
+          menuChildren: [
+            MenuItemButton(
+              onPressed: () => showKeyboardHelp(context),
+              child: const Text('Keyboard shortcuts'),
+            ),
+          ],
+          child: const Text('Help', style: label),
+        ),
+      ],
+    );
+  }
+
   /// The keyboard-shortcuts button, only where a keyboard is plausible (a wide
   /// viewport). Shown on the tabs that have bindings — the sheet now documents
   /// all of them, so it is no longer Play-only.
@@ -368,7 +442,16 @@ class _AppShellState extends State<AppShell> {
         final game = review.current;
         if (game == null) {
           return AppBar(
-              title: const Text('Games', style: TextStyle(fontSize: 16)));
+            title: const Text('Games', style: TextStyle(fontSize: 16)),
+            actions: [
+              IconButton(
+                onPressed: () => showPgnImport(context),
+                icon: const Icon(Icons.file_download_outlined),
+                tooltip: 'Import PGN',
+              ),
+              ..._keyboardHelp(context),
+            ],
+          );
         }
         return AppBar(
           leading: IconButton(
@@ -376,8 +459,11 @@ class _AppShellState extends State<AppShell> {
             tooltip: 'Back to games',
             onPressed: review.close,
           ),
-          title: Text('${game['result']} · ${game['botPersona'] ?? 'game'}',
-              style: const TextStyle(fontSize: 15)),
+          title: Text(
+              '${game['result']} · '
+              '${game[kImportedKey] == true ? importedTitle(game) : game['botPersona'] ?? 'game'}',
+              style: const TextStyle(fontSize: 15),
+              overflow: TextOverflow.ellipsis),
           actions: _keyboardHelp(context),
         );
       case 3:
@@ -390,13 +476,18 @@ class _AppShellState extends State<AppShell> {
           // Just the identity now — the opponent moved to the New Game sheet
           // (who you play is a game-start choice, not a title). Robot for the
           // app's bot motif; the name in lower case, as it's written.
-          title: const Row(
+          title: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(Icons.smart_toy_outlined, size: 20, color: Color(0xFF81B64C)),
-              SizedBox(width: 8),
-              Text('botvinnik',
+              const Icon(Icons.smart_toy_outlined,
+                  size: 20, color: Color(0xFF81B64C)),
+              const SizedBox(width: 8),
+              const Text('botvinnik',
                   style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+              if (_wideShell(context)) ...[
+                const SizedBox(width: 18),
+                _menuBar(context),
+              ],
             ],
           ),
           actions: [
@@ -423,8 +514,10 @@ class _AppShellState extends State<AppShell> {
                   ? 'Blind mode on — no engine help'
                   : 'Blind mode off',
             ),
-            // only where there is plausibly a keyboard; on a phone it is noise
-            if (MediaQuery.sizeOf(context).width >= _PlayTabState._wideBreakpoint)
+            // only where there is plausibly a keyboard, and only while the
+            // menu bar is not up — there it lives under Help instead
+            if (!_wideShell(context) &&
+                MediaQuery.sizeOf(context).width >= _PlayTabState._wideBreakpoint)
               IconButton(
                 onPressed: () => showKeyboardHelp(context),
                 icon: const Icon(Icons.keyboard_outlined),
@@ -624,6 +717,10 @@ class _PlayTabState extends State<PlayTab> {
   /// because otherwise a stack of unlabelled cards is a puzzle.
   Set<int> _panels(BuildContext context) => context.watch<SettingsStore>().panels;
 
+  /// Panels folded to just their header — open, but drawing no body.
+  Set<int> _collapsed(BuildContext context) =>
+      context.watch<SettingsStore>().collapsed;
+
   Widget _stackedPanel() {
     final game = context.watch<GameController>();
     // shown in the view-bar order, not numeric id order
@@ -641,18 +738,30 @@ class _PlayTabState extends State<PlayTab> {
                       color: Color(0xFF81B64C), fontWeight: FontWeight.w600)),
             ),
           for (final i in shown) ...[
-            if (shown.length > 1) _panelHeader(i),
-            _paneAt(i),
+            // headed once more than one is up; a collapsed panel is ALWAYS
+            // headed, or folding the only one would leave a blank column
+            if (shown.length > 1 || _collapsed(context).contains(i))
+              _panelHeader(i),
+            if (!_collapsed(context).contains(i)) _paneAt(i),
           ],
         ],
       ),
     );
   }
 
-  Widget _panelHeader(int i) => Padding(
+  Widget _panelHeader(int i) {
+    final folded = _collapsed(context).contains(i);
+    // the whole header is the hit target for folding — a 14px chevron alone is
+    // a mean thing to ask anyone to hit
+    return InkWell(
+      onTap: () => context.read<SettingsStore>().toggleCollapsed(i),
+      child: Padding(
         padding: const EdgeInsets.fromLTRB(14, 10, 6, 2),
         child: Row(
           children: [
+            Icon(folded ? Icons.chevron_right : Icons.expand_more,
+                size: 14, color: Colors.white38),
+            const SizedBox(width: 4),
             Icon(_tabs[i].$1, size: 13, color: Colors.white38),
             const SizedBox(width: 6),
             Text(_tabs[i].$2.toUpperCase(),
@@ -671,7 +780,9 @@ class _PlayTabState extends State<PlayTab> {
             ),
           ],
         ),
-      );
+      ),
+    );
+  }
 
   Widget _paneAt(int i) => switch (i) {
         0 => const InsightCard(),

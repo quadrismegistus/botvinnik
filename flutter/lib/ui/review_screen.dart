@@ -12,6 +12,7 @@ import 'package:dartchess/dartchess.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../stores/pgn_import.dart';
 import '../stores/review_controller.dart';
 import '../stores/settings_store.dart';
 import 'board_theme.dart';
@@ -27,7 +28,10 @@ class ReviewBody extends StatelessWidget {
     final table = context.read<ClassTable>();
     final game = review.current;
     if (game == null) return const SizedBox();
-    final youAreWhite = (game['botColor'] as String?) == 'b';
+    // An import has no "you" in it, so there is no side to take: show it from
+    // White's, which is how every published game is printed.
+    final youAreWhite =
+        game[kImportedKey] == true || (game['botColor'] as String?) == 'b';
     final m = review.currentMove;
 
     return SafeArea(
