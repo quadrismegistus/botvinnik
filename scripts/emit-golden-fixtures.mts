@@ -30,7 +30,7 @@ import { itemDataFromStoredMove, recordResult } from '../brain/practice';
 import { personaById } from '../brain/bots';
 import { threatProbeFen, judgeThreat } from '../brain/engine/threats';
 import { controlSquares } from '../brain/brain-entry';
-import type { EngineMove } from '../brain/engine/stockfish';
+import type { EngineMove } from '../brain/engine/types';
 
 const START = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
 
@@ -77,19 +77,29 @@ const preLines: EngineMove[] = [
 	{ pv: ['c2c4'], score: 0.2, mate: null, depth: 18, multipv: 4 },
 	{ pv: ['g2g4'], score: -0.9, mate: null, depth: 18, multipv: 5 }
 ];
+// gradeMove is typed `MoveGrade | null` — null when there is nothing to grade
+// against. These fixture positions always grade, but saying so out loud beats
+// emitting a golden fixture built on a null nobody noticed.
+function mustGrade(g: ReturnType<typeof gradeMove>, what: string) {
+	if (g === null) throw new Error(`fixture ${what}: gradeMove returned null`);
+	return g;
+}
+
 const gradeGood = gradeMove(1, START, 'e4', 'e2e4', 'w', preLines);
 record('gradeMove', [1, START, 'e4', 'e2e4', 'w', preLines], gradeGood);
 const childGood: EngineMove[] = [
 	{ pv: ['e7e5', 'g1f3', 'b8c6'], score: -0.3, mate: null, depth: 16, multipv: 1 }
 ];
-record('backfillGrade', [gradeGood, childGood], backfillGrade(gradeGood, childGood));
+const good = mustGrade(gradeGood, 'backfillGrade/good');
+record('backfillGrade', [good, childGood], backfillGrade(good, childGood));
 
 // the blunder: 1.g4?? — child (black to move) wins with a big swing
 const gradeBad = gradeMove(1, START, 'g4', 'g2g4', 'w', preLines);
 const childBad: EngineMove[] = [
 	{ pv: ['e7e5', 'f2f3', 'd8h4'], score: 2.8, mate: null, depth: 16, multipv: 1 }
 ];
-record('backfillGrade', [gradeBad, childBad], backfillGrade(gradeBad, childBad));
+const bad = mustGrade(gradeBad, 'backfillGrade/bad');
+record('backfillGrade', [bad, childBad], backfillGrade(bad, childBad));
 
 // ---- the shaped bot (seeded → deterministic) ----
 const botLines: EngineMove[] = [

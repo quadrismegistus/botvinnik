@@ -30,7 +30,6 @@ repository as the rest of the source.
 | Garbochess-JS (Gary Linscott) — the "Garbo" bot persona; the 2011 engine verbatim, served at `garbo/garbochess.js` on the web and bundled as an asset on macOS/iOS, with its LICENSE alongside in both | BSD-3-Clause |
 | `wasm_exec.js` (The Go Authors) — the Go↔WASM runtime shim the retro engines load | BSD-3-Clause |
 | The Go runtime (The Go Authors) — statically linked into the retro engines on macOS and iOS, as any Go binary carries it | BSD-3-Clause |
-| Svelte / SvelteKit | MIT |
 | onnxruntime-web — the ONNX runtime for the Maia bots, on the web | MIT |
 | ONNX Runtime (Microsoft), via the `onnxruntime` Flutter plugin — the same runtime for the Maia bots on macOS/iOS, linked as a native library | MIT |
 | flutter_js | MIT |

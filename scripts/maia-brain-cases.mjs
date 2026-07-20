@@ -58,9 +58,11 @@ export function syntheticPolicy() {
 	return p;
 }
 
+/** @param {string} fen */
 export const legalUcis = (fen) =>
 	new Chess(fen).moves({ verbose: true }).map((m) => m.from + m.to + (m.promotion ?? ''));
 
 /** Planes are 7168 floats; a digest is the reviewable form of that. */
+/** @param {ArrayLike<number>} planes */
 export const digest = (planes) =>
 	createHash('sha256').update(Array.from(planes).join(',')).digest('hex').slice(0, 16);

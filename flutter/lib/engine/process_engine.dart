@@ -70,10 +70,13 @@ class ProcessEngine extends UciProtocol {
   static String? resolveBinary() {
     final exeDir = File(Platform.resolvedExecutable).parent;
     final candidates = <String>[
-      // macOS: Contents/MacOS/<app> → Contents/Resources/stockfish
-      '${exeDir.parent.path}/Resources/stockfish',
-      // Linux/Windows: alongside the executable
+      // Beside the executable — Contents/MacOS on macOS, the app directory on
+      // Linux/Windows. First because that is where a NOTARIZABLE macOS bundle
+      // keeps it: executable code in Contents/Resources is a rejection, since
+      // the hardened runtime treats Resources as data.
       '${exeDir.path}/stockfish${Platform.isWindows ? '.exe' : ''}',
+      // Where the bundle used to put it. Kept so a stale build still runs.
+      '${exeDir.parent.path}/Resources/stockfish',
       if (Platform.environment['BOTVINNIK_STOCKFISH'] != null)
         Platform.environment['BOTVINNIK_STOCKFISH']!,
       '/opt/homebrew/bin/stockfish',

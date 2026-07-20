@@ -41,27 +41,36 @@ the calibrated engine** — bot strength is budgeted by movetime, so a different
 engine build silently plays at a different strength. Fine for development,
 wrong for any calibration run.
 
-## The Tauri shell is parked, not deleted
+## The Tauri shell is gone
 
-`svelte/src-tauri` wraps the SvelteKit app as a desktop binary. It works, and
-it has one genuine advantage the Flutter build does not: it runs the same
-Stockfish WASM the web app runs, so persona calibration is correct by
-construction, where the Flutter desktop build spawns whatever binary it finds.
+`svelte/src-tauri` wrapped the SvelteKit app as a desktop binary. It worked,
+and it had one genuine advantage the Flutter build does not: it ran the same
+Stockfish WASM the web app ran, so persona calibration was correct by
+construction, where the Flutter desktop build spawns a native binary instead.
 
 It lost anyway, because sharing one UI across phone, tablet and desktop is
 worth more than that, and maintaining two desktop shells for one person is
-not. Its CI (`release.yml`, `tauri-e2e.yml`) is now `workflow_dispatch` only —
-preserved and runnable on demand, but no longer built on every push or tag.
+not. It was parked on 2026-07-19 and removed with the rest of the Svelte app
+on 2026-07-20.
 
-To revive it: restore the `push` triggers on those two workflows and run
-`npm run tauri dev`. Nothing about it has been deleted.
+Everything is preserved at the `svelte-eol` tag, including `src-tauri/`, its
+Rust sidecar code and its two CI workflows:
+
+```sh
+git checkout svelte-eol
+```
+
+The calibration point it raised did not go away with it — see #104, which is
+the Flutter app running WASM-calibrated personas against a native engine.
 
 ## Known gaps in the Flutter desktop build
 
-- The bundled engine is ad-hoc signed and sits in `Contents/Resources`, which
-  will fail notarization. Moving it to `Contents/MacOS` and signing it in the
-  same build phase is the fix; `ProcessEngine.resolveBinary` already probes
-  that path.
+- The bundled engines sit in `Contents/MacOS` and are signed in the same build
+  phase as they are copied, which is the layout notarization requires —
+  executable code in `Contents/Resources` is treated as data and rejected.
+  Locally that signature is ad-hoc, through the identical code path; a real one
+  needs a Developer ID certificate, and therefore a paid Apple Developer
+  Program membership.
 - Windows and Linux targets are not scaffolded. The engine side is the easy
   part (`ProcessEngine` already looks for `stockfish.exe` next to the
   executable); `sqflite` is the real work, since it is Android/iOS/macOS only

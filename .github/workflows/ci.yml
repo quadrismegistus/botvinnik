@@ -2,10 +2,14 @@ name: CI
 
 on:
   push:
-    branches: [main, develop, tauri]
+    branches: [main, develop]
   pull_request:
 
 jobs:
+  # The brain and the offline harness. `npm run check` is a plain tsc since the
+  # Svelte app was retired — it used to be svelte-check, which covered brain/
+  # only through the Svelte files importing it and never covered scripts/ at
+  # all.
   checks:
     runs-on: ubuntu-latest
     steps:
@@ -17,33 +21,6 @@ jobs:
       - run: npm ci
       - run: npm run check
       - run: npm test
-      - run: npm run build
-        env:
-          BASE_PATH: /botvinnik
-
-  web-e2e:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: npm
-      - run: npm ci
-      - name: Cache Playwright browsers
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ hashFiles('package-lock.json') }}
-      - run: npx playwright install --with-deps chromium
-      - name: Playwright e2e (built bundle)
-        run: npx playwright test
-      - uses: actions/upload-artifact@v4
-        if: failure()
-        with:
-          name: playwright-traces
-          path: test-results/
-          retention-days: 7
 
   # The vendored dartchess fork. This matters even if you never touch web:
   # flutter/pubspec.yaml overrides the published package with this path, so
@@ -96,13 +73,13 @@ jobs:
       - name: Bundled licence texts must match root
         run: ./stage-legal.sh && git diff --exit-code assets/legal/
         working-directory: flutter
-      # Garbo is vendored once and bundled twice — served from static/ on the
-      # web, an asset on native. Two copies that drift are two different
-      # opponents wearing one persona's name.
+      # Garbo is vendored once and bundled twice — vendor/garbo is the copy
+      # the web build stages, flutter/assets/garbo the one native reads. Two
+      # copies that drift are two different opponents wearing one name.
       - name: The bundled Garbo must match the vendored original
         run: |
-          diff static/garbo/garbochess.js flutter/assets/garbo/garbochess.js
-          diff static/garbo/LICENSE flutter/assets/garbo/LICENSE
+          diff vendor/garbo/garbochess.js flutter/assets/garbo/garbochess.js
+          diff vendor/garbo/LICENSE flutter/assets/garbo/LICENSE
       - run: flutter pub get
         working-directory: flutter
       # integration_test/ is analyzed but never run: it drives a real app on a

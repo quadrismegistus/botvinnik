@@ -35,12 +35,14 @@ yours, not the repo's.
 
 ## Related, separate issues
 
-- **#67 — notarization layout**: the bundled engine is ad-hoc signed in
-  `Contents/Resources`; it should move to `Contents/MacOS` for a macOS App
-  Store / notarized build. Not required for iOS.
-- **#80 — retro on iOS**: retro is macOS-only. iOS ships a complete roster
-  without it (it is simply not offered there), so this does not block an iOS
-  submission — it is an enhancement.
+- **#67 — notarization layout**: DONE structurally (2026-07-20). The engines
+  are copied to `Contents/MacOS` and signed with the app's own identity in the
+  same build phase, so the layout is submittable. What remains is not code: a
+  paid Apple Developer Program membership, without which there is no Developer
+  ID certificate to sign with and nothing to submit to. Local builds sign
+  ad-hoc through the identical code path.
+- **#80 — retro on iOS**: DONE (2026-07-20). iOS runs the same engines from a
+  Go c-archive over `dart:ffi`, so the roster no longer differs by platform.
 
 ## A note on validation
 

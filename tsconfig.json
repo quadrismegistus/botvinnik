@@ -1,6 +1,20 @@
 {
-	"extends": "./.svelte-kit/tsconfig.json",
+	// Standalone since the Svelte app was retired (2026-07-20). This used to
+	// extend `.svelte-kit/tsconfig.json`, which is what supplied the include
+	// list, the lib set and the path aliases — so `npm run check` covered
+	// `brain/` only transitively, through the Svelte files that imported it,
+	// and covered `scripts/` not at all. Three type imports in scripts/ had
+	// been pointing at a module that does not exist.
+	//
+	// `flutter/` has its own tsconfig (the Maia bundles and the e2e specs);
+	// this one is the brain and the offline harness.
 	"compilerOptions": {
+		"noEmit": true,
+		"target": "ES2022",
+		"module": "ESNext",
+		"moduleResolution": "bundler",
+		"lib": ["ES2022", "DOM", "DOM.Iterable"],
+		"types": ["node"],
 		"rewriteRelativeImportExtensions": true,
 		"allowJs": true,
 		"checkJs": true,
@@ -8,13 +22,10 @@
 		"forceConsistentCasingInFileNames": true,
 		"resolveJsonModule": true,
 		"skipLibCheck": true,
-		"sourceMap": true,
-		"strict": true,
-		"moduleResolution": "bundler"
-	}
-	// Path aliases are handled by https://svelte.dev/docs/kit/configuration#alias
-	// except $lib which is handled by https://svelte.dev/docs/kit/configuration#files
-	//
-	// To make changes to top-level options such as include and exclude, we recommend extending
-	// the generated config; see https://svelte.dev/docs/kit/configuration#typescript
+		"strict": true
+	},
+	"include": ["brain/**/*.ts", "scripts/**/*.ts", "scripts/**/*.mts"],
+	// maia3-spike is a snapshot of maia3's own TypeScript, imported here to read
+	// rather than to build — it resolves against its own project layout.
+	"exclude": ["node_modules", "flutter", "vendor", "scripts/maia3-spike"]
 }

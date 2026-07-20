@@ -21,17 +21,21 @@ flowchart LR
         P["practice.ts · gameStore.ts<br/>Leitner schedule, accuracy"]
     end
 
-    BRAIN ==>|"imported as TypeScript<br/>via the $brain alias"| SVELTE["svelte/<br/>SvelteKit app<br/>+ Tauri desktop shell"]
     BRAIN ==>|"npm run build:brain<br/>esbuild → IIFE, global 'brain'"| BUNDLE["flutter/assets/brain.js<br/>committed to git;<br/>CI fails if it drifts"]
-    BUNDLE ==> FLUTTER["flutter/<br/>iOS, Android, macOS,<br/>experimental web"]
-
-    SVELTE --> WEB(["botvinnik.app<br/>GitHub Pages, on push to main"])
-    FLUTTER --> APPS(["not shipped yet"])
+    BUNDLE ==> FLUTTER["flutter/<br/>web, macOS, iOS<br/>(Android not scaffolded)"]
+    FLUTTER --> WEB(["botvinnik.app<br/>GitHub Pages, on push to main"])
 ```
 
-The two apps never import each other. The Svelte app compiles the brain's
-TypeScript directly; the Flutter app consumes a built bundle. Same source,
-two delivery mechanisms.
+The brain does not import the app, and that is the point: it is pure
+TypeScript with no DOM, no fetch and no storage, so it can be unit-tested in
+node, replayed as golden fixtures, and driven headless by the calibration gym
+in `scripts/` — none of which involve the app at all.
+
+It was shared by two apps until 2026-07-20; the SvelteKit app compiled it
+directly while Flutter consumed the bundle. That app is retired (tag
+`svelte-eol`), but the separation it forced is why the brain is still
+independently testable, and why the gym can measure a persona without
+rendering anything.
 
 ### How the brain crosses into Dart
 
@@ -103,8 +107,8 @@ flowchart LR
 
     ONNX -.->|"~3.5MB per band, fetched at runtime<br/>cached in IndexedDB (web)<br/>or Application Support (macOS/iOS)"| HF[("HuggingFace")]
     ONNX -.->|"onnxruntime-web 1.27"| CDN[("jsDelivr")]
-    GOW -.-> RW[("static/retro/retro.wasm<br/>4.4MB, in the repo<br/>both apps serve this copy")]
-    GARBO -.-> GB[("static/garbo/garbochess.js<br/>82KB, vendored")]
+    GOW -.-> RW[("vendor/retro/retro.wasm<br/>4.4MB, in the repo")]
+    GARBO -.-> GB[("vendor/garbo/garbochess.js<br/>82KB, vendored")]
     LC0 -.->|"59MB–330MB, fetched to disk"| GH[("GitHub Releases")]
 ```
 
@@ -131,11 +135,9 @@ The same UCI protocol, five different ways of speaking it:
 
 | Platform | Transport | Binary |
 |---|---|---|
-| Web (Svelte) | Web Worker | Stockfish 18 **lite-single**, `static/wasm/` |
-| Desktop (Tauri) | sidecar child process | native Stockfish, full NNUE, all cores |
-| iOS / Android | **FFI**, `package:stockfish` | Stockfish 16, full NNUE |
-| Flutter desktop | child process | whatever binary it finds on the system |
-| Flutter web | Web Worker | the same lite-single build, staged from `static/` |
+| Web | Web Worker | Stockfish 18 **lite-single**, `vendor/wasm/`, staged into the build |
+| iOS | **FFI**, `package:stockfish` | Stockfish 16, full NNUE |
+| macOS | child process | the binary bundled in `Contents/MacOS`, else one on the system |
 
 "lite-single" is load-bearing rather than incidental. Single-threaded means no
 `SharedArrayBuffer`, which means no COOP/COEP headers, which is what lets the
@@ -186,32 +188,33 @@ The threat probe must never interrupt a bot's search. The bot's search
 parameters *are* its rating; stopping it early makes it play above or below
 its label, which corrupts the calibration the whole roster depends on.
 
-The two apps enforce this with genuinely different machinery, and a change to
-one does not carry to the other:
+The arbiter enforces it with a four-level preempting priority queue
+(`botMove > practiceCheck > threatProbe > analysis`) plus a "sprint" wait — the
+bot pauses up to 1.5s for your move's analysis to reach depth 10 before
+preempting it, so your grade appears while the bot appears to think.
 
-- **Svelte** has a single-slot supersede queue and a hand-placed guard: the
-  threat probe returns early when a bot reply is pending.
-- **Flutter** has a four-level preempting priority queue
-  (`botMove > practiceCheck > threatProbe > analysis`) plus a "sprint" wait —
-  the bot pauses up to 1.5s for your move's analysis to reach depth 10 before
-  preempting it, so your grade appears while the bot appears to think.
+(The retired Svelte app did the same job with a single-slot supersede queue and
+a hand-placed guard. Two mechanisms for one invariant was exactly the cost of
+two apps.)
 
 ## Storage
 
 Nothing leaves the device. There is no server, no account, no API key.
 
-| | Web / Tauri | Flutter |
-|---|---|---|
-| Finished games | IndexedDB `botvinnik` | sqflite, JSON documents |
-| Analysis cache | IndexedDB, 20k positions | none yet — in-memory only |
-| Practice items | `localStorage`, one JSON array | sqflite `kv` table |
-| Settings | `localStorage` | `shared_preferences` |
-| Maia weights | IndexedDB | IndexedDB on web; a file under Application Support on macOS/iOS |
+| | Where |
+|---|---|
+| Finished games | sqflite, JSON documents |
+| Analysis cache | none yet — in-memory only |
+| Practice items | sqflite `kv` table |
+| Settings | `shared_preferences` |
+| Maia weights | IndexedDB on web; a file under Application Support on macOS/iOS |
 
-The two use the same record shapes and the same `botvinnik-*` setting keys on
-purpose, so an export from one imports into the other as close to
-pass-through as possible. On Flutter web, sqflite runs against sqlite3
-compiled to wasm, which itself persists into IndexedDB.
+The record shapes and the `botvinnik-*` setting keys are the ones the Svelte
+app used, deliberately: they were kept pass-through compatible while both
+apps existed, and there is no reason to churn them now that one does.
+
+On web, sqflite runs against sqlite3 compiled to wasm, which itself persists
+into IndexedDB.
 
 ## What keeps the two apps honest
 
@@ -310,12 +313,27 @@ web branch of every conditional import.
   macOS bundle now carries `com.apple.security.network.client`. Everything
   else on native is offline by construction, and this stays a single host
   reached only when someone picks a Maia.
-- **Only JavaScriptCore has ever run the brain.** `ios/` and `macos/` are the
-  only native targets that exist; QuickJS is the runtime on Android and is
-  untested. Bundling js-chess-engine put BigInt literals in `brain.js`, and
-  QuickJS gates BigInt behind `CONFIG_BIGNUM` — a build without it fails to
-  *parse* the bundle, so the app would not boot at all rather than lose one
-  bot family. Verify before adding an Android target.
+- **Android needs JavaScriptCore, not QuickJS** (measured 2026-07-20, #46).
+  The worry was real and its attribution was wrong. `brain.js` holds ~145
+  BigInt literals and `maia-brain.js` ~13, but they do not come from
+  js-chess-engine — they come from **chess.js**, which uses 64-bit arithmetic
+  for Zobrist hashing. Nothing can be dropped to avoid it.
+
+  The QuickJS that `flutter_js` ships for Android
+  (`fastdev-jsruntimes-quickjs` 0.3.6) is built **without `CONFIG_BIGNUM`**:
+  its atom table has `Object`, `Proxy`, `Symbol`, `Promise` and every typed
+  array, and no `BigInt`, `bigint` or `asIntN` at all. Both bundles fail there
+  with `SyntaxError: invalid number literal` — a *parse* error, so the app
+  would not boot rather than lose a bot family. The same bundles evaluate
+  cleanly under the same QuickJS built *with* `CONFIG_BIGNUM`, which is the
+  A/B that pins it on the runtime rather than on us.
+
+  The route is `flutter_js`'s own `forceJavascriptCoreOnAndroid: true`, plus
+  the `fastdev-jsruntimes-jsc` AAR that the package leaves commented out in
+  its gradle. That build does carry `BigInt`. It costs ~9MB per ABI against
+  QuickJS's ~1MB, and buys something worth having: one JS engine on every
+  platform, so the brain cannot behave differently on Android than it does
+  everywhere else. Unverified until there is an Android target to run it on.
 - **Calibration drift on native engines.** Labels were measured against
   lite-single WASM; mobile FFI and desktop sidecars are different engines. The
   desktop Square knots are known stale and documented as such in-source.
