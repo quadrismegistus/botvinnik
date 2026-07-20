@@ -244,9 +244,9 @@ web branch of every conditional import.
 - **The roster gap is closed on the web** (2026-07-19). The brain ships 35
   personas; Flutter web offers **32**, which is parity — Dala needs a native
   lc0 sidecar and is desktop-only in *both* apps. Native Flutter offers **31
-  on macOS** (retro landed there 2026-07-20 as spawned binaries, Maia the same
-  day over FFI) and **28 on iOS**, which has no child processes yet. Only
-  Garbo is now web-only.
+  on macOS and 31 on iOS**, which closed on 2026-07-20: retro as spawned
+  binaries on macOS and a Go c-archive on iOS, Maia over FFI on both. Only
+  Garbo is web-only now.
 
   The way it closed is the interesting part: **none of the last three families
   uses the brain bridge at all.** Retro, Garbo and Maia are Workers, so their
@@ -270,10 +270,20 @@ web branch of every conditional import.
   UCI binaries (`stage-macos-engines.sh`), get copied into the app bundle, and
   `retro_engine_io.dart` spawns them as child processes — its own, never the
   arbiter's, and reading only `bestmove`, the same two invariants the web
-  client holds. `RetroEngine.supported` gates on a binary actually being in
-  the bundle, so a build that skipped staging simply doesn't offer retro
-  rather than offering it and falling back. iOS has no child processes, so
-  there retro still waits on the c-archive/FFI route.
+  client holds.
+
+  iOS has no child processes at all, so it builds the *same* Go source with
+  `-buildmode=c-archive` and drives it over `dart:ffi`
+  (`scripts/retro-ffi/main.go`, `retro_engine_ffi.dart`). One archive covers
+  all three engines, selected by name, and `RetroEngine` is only the choice
+  between the two transports. Three transports, one `build()` switch shared
+  with the wasm entry — which is what lets the calibration mean the same thing
+  on all of them.
+
+  `RetroEngine.supported` gates on the engine actually being reachable — a
+  staged binary on macOS, a linked symbol on iOS — so a build that skipped
+  staging simply doesn't offer retro rather than offering it and falling
+  back.
 
   Maia closed the same way, without a Worker anywhere: `package:onnxruntime`
   is ORT's C API over `dart:ffi`, so there was no runtime to port, and its
