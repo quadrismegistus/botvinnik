@@ -369,7 +369,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "if [ -f \"$SRCROOT/Runner/Resources/stockfish\" ]; then\n  DEST=\"$BUILT_PRODUCTS_DIR/$FULL_PRODUCT_NAME/Contents/Resources\"\n  mkdir -p \"$DEST\"\n  rsync -t \"$SRCROOT/Runner/Resources/stockfish\" \"$DEST/stockfish\"\n  chmod +x \"$DEST/stockfish\"\nelse\n  echo \"warning: no engine at Runner/Resources/stockfish; app will fall back to a system-installed engine\"\nfi\n";
+			shellScript = "if [ -f \"$SRCROOT/Runner/Resources/stockfish\" ]; then\n  DEST=\"$BUILT_PRODUCTS_DIR/$FULL_PRODUCT_NAME/Contents/Resources\"\n  mkdir -p \"$DEST\"\n  rsync -t \"$SRCROOT/Runner/Resources/stockfish\" \"$DEST/stockfish\"\n  chmod +x \"$DEST/stockfish\"\nelse\n  echo \"warning: no engine at Runner/Resources/stockfish; app will fall back to a system-installed engine\"\nfi\n\n# retro engines (stage-macos-engines.sh); absent = retro bots simply not offered\nif [ -d \"$SRCROOT/Runner/Resources/retro\" ]; then\n  RDEST=\"$BUILT_PRODUCTS_DIR/$FULL_PRODUCT_NAME/Contents/Resources/retro\"\n  mkdir -p \"$RDEST\"\n  rsync -rt \"$SRCROOT/Runner/Resources/retro/\" \"$RDEST/\"\n  chmod +x \"$RDEST/\"* 2>/dev/null || true\nfi\n";
 		};
 		3399D490228B24CF009A79C7 /* ShellScript */ = {
 			isa = PBXShellScriptBuildPhase;
