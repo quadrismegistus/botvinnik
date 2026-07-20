@@ -10,6 +10,44 @@ The full pre-2026-07-19 roadmap — with the complete calibration saga and every
 design note as it was written — is preserved in git history (it was this file's
 predecessor, `ROADMAP.md` before the 2026-07-19 trim).
 
+## 2026-07-20 — the UI backlog, and a harness to hold it
+
+The Flutter UI backlog cleared, plus the first tests that reach the state
+machine those bugs kept turning up in.
+
+- **#93** — a wide-window **menu bar** (#63): Game (new game, import PGN),
+  View (the panel toggles in view-bar order, flip, blind mode), Help. In-app
+  rather than a native `PlatformMenuBar`, because the wide layout runs on the
+  web too, where that does not exist. The app bar drops its keyboard icon
+  while the menu is up rather than offer the same thing twice.
+- **#92** — **PGN import** (#48): paste a game, it is archived and opens in
+  Review. The parse is a pure function, which is why it is directly testable;
+  an import carries no grades and Review already read every one of those as
+  nullable. An import also has no *you* in it, so it shows the PGN's players
+  instead of Won/Lost and opens from White's side. Plus **per-panel collapse**
+  (#63) — folding a panel to its header, which is not the same as closing it.
+- **#91** — the **threat line** is playable (#86): the chip gets its own play
+  button that runs the line the threat was judged on. Deliberately the judged
+  window, not the engine's raw pv — `gain` is counted over the settled
+  exchange, so replaying further would show captures the number never
+  credited. `judgeTacticalWin` gained the same field for the green mirror.
+- **#90** — a pure-Dart **GameController test harness** (fake engine deps, no
+  browser, no device), and with it the botThinking clobber (#87) and the
+  practice-collect guard pinned as regressions. Each was verified RED against
+  its own pre-fix code first.
+- **#88** — **FEN input** (#85): start from a pasted position, which doubles as
+  the way to reproduce a reported board state instead of playing into it.
+  **Panel reorder** (#59), and **tab-aware keyboard shortcuts** (#60) — blind
+  mode in Play, `r`/`n`/`b`/`?` in Practice, arrows in Review, with the help
+  sheet grouped by tab from one source.
+- Fixes: practice no longer collects puzzles on the analysis board (that is
+  exploration, not blunders to drill); undo and browse-to-start return to the
+  FEN a game began from rather than the standard start; a new game during a
+  bot's turn no longer clobbers the fresh turn's state; the frozen Svelte
+  MaterialBar valued a rook at 3.
+- Process: `main ← develop ← PRs`, so work lands on `develop` and only a
+  release deploys.
+
 ## 2026-07-20 — App Store prep, native retro on macOS, and the board's second pass
 
 Everything after the deploy: getting the native app submittable, and a second
