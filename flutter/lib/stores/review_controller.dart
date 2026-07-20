@@ -29,7 +29,13 @@ class ReviewController extends ChangeNotifier {
 
   void open(Map<String, dynamic> game) {
     current = game;
-    cursor = (game['moves'] as List).length; // land on the final position
+    // Open at the START, not the end. Reviewing runs forwards — the whole UI
+    // is built around → stepping into the next move's verdict — but this used
+    // to land on the final position, so every review began by scrubbing all
+    // the way back. cursor = 0 is the true start (canPrev is false, the
+    // verdict strip reads "Start position"), which is how lichess and
+    // chess.com open a game too.
+    cursor = 0;
     notifyListeners();
   }
 
