@@ -134,36 +134,74 @@ void main() {
     expect((await load({'flutter.botvinnik-arrow-count': 0})).arrowCount, 1);
   });
 
-  group('bot vs bot', () {
-    test('defaults off', () async {
-      expect((await load()).botBothSides, isFalse);
-    });
-
-    test('a stored bot blob with bothSides loads it', () async {
-      final s = await load({
-        'flutter.botvinnik-bot-v1':
-            '{"enabled":true,"bothSides":true,"personaId":"square-900","color":"b"}'
-      });
-      expect(s.botBothSides, isTrue);
-    });
-
-    test('an old blob without the field loads as off (backward compatible)',
-        () async {
-      final s = await load({
-        'flutter.botvinnik-bot-v1':
-            '{"enabled":true,"personaId":"square-900","color":"b"}'
-      });
-      expect(s.botBothSides, isFalse);
-    });
-
-    test('the setter runs and persists without disturbing the other fields',
-        () async {
+  group('per-side players', () {
+    test('default: you play White, the bot plays Black', () async {
       final s = await load();
-      s.playerColor = 'b';
-      s.botBothSides = true;
-      expect(s.botBothSides, isTrue);
-      expect(s.playerColor, 'b'); // still there
+      expect(s.whitePersonaId, isNull); // you
+      expect(s.blackPersonaId, isNotNull); // a bot
       expect(s.botEnabled, isTrue);
+      expect(s.playerColor, 'w'); // your side, for orientation
+    });
+
+    test('a new per-side blob loads verbatim (two different bots)', () async {
+      final s = await load({
+        'flutter.botvinnik-bot-v1':
+            '{"white":"square-900","black":"square-600","personaId":"square-900"}'
+      });
+      expect(s.whitePersonaId, 'square-900');
+      expect(s.blackPersonaId, 'square-600');
+    });
+
+    test('setPlayers persists and derives botEnabled', () async {
+      final s = await load();
+      s.setPlayers(white: 'square-900', black: null); // bot White, you Black
+      expect(s.whitePersonaId, 'square-900');
+      expect(s.blackPersonaId, isNull);
+      expect(s.botEnabled, isTrue);
+      expect(s.playerColor, 'b'); // you're Black now
+    });
+
+    test('both null is analysis — no bot', () async {
+      final s = await load();
+      s.setPlayers(white: null, black: null);
+      expect(s.botEnabled, isFalse);
+    });
+
+    group('migrates the old {enabled,bothSides,color} blob', () {
+      test('you vs bot (bot plays Black)', () async {
+        final s = await load({
+          'flutter.botvinnik-bot-v1':
+              '{"enabled":true,"personaId":"square-900","color":"b"}'
+        });
+        expect(s.whitePersonaId, isNull);
+        expect(s.blackPersonaId, 'square-900');
+      });
+
+      test('bot plays White', () async {
+        final s = await load({
+          'flutter.botvinnik-bot-v1':
+              '{"enabled":true,"personaId":"square-900","color":"w"}'
+        });
+        expect(s.whitePersonaId, 'square-900');
+        expect(s.blackPersonaId, isNull);
+      });
+
+      test('old bot-vs-bot (bothSides) → same bot both sides', () async {
+        final s = await load({
+          'flutter.botvinnik-bot-v1':
+              '{"enabled":true,"bothSides":true,"personaId":"square-900","color":"b"}'
+        });
+        expect(s.whitePersonaId, 'square-900');
+        expect(s.blackPersonaId, 'square-900');
+      });
+
+      test('analysis (disabled) → both human', () async {
+        final s = await load({
+          'flutter.botvinnik-bot-v1':
+              '{"enabled":false,"personaId":"square-900","color":"b"}'
+        });
+        expect(s.botEnabled, isFalse);
+      });
     });
   });
 }

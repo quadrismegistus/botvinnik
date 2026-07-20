@@ -1,5 +1,10 @@
-// The new-game sheet (from the + button): pick the opponent, pick your
-// side — White, Black, or no bot at all (analysis board) — and start.
+// The new-game sheet. Assign each side to the human or any bot, then start —
+// this is where opponent selection lives, because who plays which side is a
+// game-start choice, not a persistent global setting.
+//
+//   You (W) vs bot (B)  → you play White
+//   bot (W) vs bot (B)  → bot-vs-bot, you watch (and they can be different bots)
+//   You (W) vs You (B)  → analysis, you move both sides
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -14,6 +19,7 @@ void showNewGameSheet(BuildContext context) {
   showModalBottomSheet<void>(
     context: context,
     backgroundColor: const Color(0xFF262421),
+    isScrollControlled: true,
     builder: (_) => _NewGameSheet(game: game, settings: settings),
   );
 }
@@ -28,22 +34,81 @@ class _NewGameSheet extends StatefulWidget {
 }
 
 class _NewGameSheetState extends State<_NewGameSheet> {
-  late String _mode = !widget.settings.botEnabled
-      ? 'analysis'
-      : widget.settings.botBothSides
-          ? 'botvbot'
-          : (widget.settings.playerColor == 'w' ? 'white' : 'black');
+  // null = the human plays this side; otherwise a bot persona id.
+  late String? _white = widget.settings.whitePersonaId;
+  late String? _black = widget.settings.blackPersonaId;
 
-  static const _captions = {
-    'white': 'You play White; the bot plays Black.',
-    'black': 'You play Black; the bot plays White.',
-    'botvbot': 'The bot plays both sides — sit back and watch.',
-    'analysis': 'No opponent — you move both sides, every move still graded.',
-  };
+  String _nameOf(String? id) {
+    if (id == null) return 'You';
+    for (final p in widget.game.rosterPersonas) {
+      if (p.id == id) return p.name;
+    }
+    return 'Bot';
+  }
+
+  String get _summary {
+    final w = _white == null, b = _black == null;
+    if (w && b) return 'Analysis — you move both sides, every move still graded.';
+    if (w) return 'You play White; ${_nameOf(_black)} plays Black.';
+    if (b) return 'You play Black; ${_nameOf(_white)} plays White.';
+    return '${_nameOf(_white)} (White) vs ${_nameOf(_black)} (Black) — you watch.';
+  }
+
+  Future<void> _pickBotFor(bool white) async {
+    final current = white ? _white : _black;
+    final id =
+        await pickBot(context, current: current ?? widget.settings.personaId);
+    if (id == null || !mounted) return; // dismissed
+    setState(() => white ? _white = id : _black = id);
+  }
+
+  Widget _chip(String text, bool selected, VoidCallback onTap,
+        ) =>
+      ChoiceChip(
+        label: Text(text,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+                fontSize: 13,
+                color: selected ? const Color(0xFF81B64C) : Colors.white54)),
+        selected: selected,
+        onSelected: (_) => onTap(),
+        backgroundColor: const Color(0xFF1f1e1b),
+        selectedColor: const Color(0xFF3a3733),
+        showCheckmark: false,
+      );
+
+  Widget _sideRow(String label, bool white) {
+    final id = white ? _white : _black;
+    final isYou = id == null;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        children: [
+          SizedBox(
+              width: 52,
+              child: Text(label,
+                  style: const TextStyle(fontSize: 14, color: Colors.white70))),
+          const SizedBox(width: 6),
+          _chip('You', isYou,
+              () => setState(() => white ? _white = null : _black = null)),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: _chip(
+                isYou ? 'Pick a bot…' : _nameOf(id),
+                !isYou,
+                () => _pickBotFor(white),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
-    final persona = widget.game.persona;
     return SafeArea(
       child: Padding(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
@@ -54,65 +119,15 @@ class _NewGameSheetState extends State<_NewGameSheet> {
             const Text('New game',
                 style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
             const SizedBox(height: 12),
-            ListTile(
-              dense: true,
-              contentPadding: EdgeInsets.zero,
-              leading:
-                  const Icon(Icons.smart_toy_outlined, color: Colors.white70),
-              title: Text(persona == null
-                  ? 'Choose opponent'
-                  : '${persona.name} · ${persona.elo}'),
-              trailing: const Icon(Icons.chevron_right, color: Colors.white38),
-              onTap: () => showRosterPicker(context),
-            ),
-            const SizedBox(height: 6),
-            // Four modes don't fit a segmented button on a phone, so chips
-            // that wrap. Bot vs Bot is the new one (#58).
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                for (final m in const [
-                  ('white', 'Play White'),
-                  ('black', 'Play Black'),
-                  ('botvbot', 'Bot vs Bot'),
-                  ('analysis', 'Analysis'),
-                ])
-                  ChoiceChip(
-                    label: Text(m.$2),
-                    selected: _mode == m.$1,
-                    onSelected: (_) => setState(() => _mode = m.$1),
-                    labelStyle: TextStyle(
-                      fontSize: 13,
-                      color: _mode == m.$1
-                          ? const Color(0xFF81B64C)
-                          : Colors.white54,
-                    ),
-                    backgroundColor: const Color(0xFF1f1e1b),
-                    selectedColor: const Color(0xFF3a3733),
-                    showCheckmark: false,
-                  ),
-              ],
-            ),
-            Padding(
-              padding: const EdgeInsets.only(top: 6),
-              child: Text(
-                _captions[_mode]!,
-                style: const TextStyle(color: Colors.white38, fontSize: 12),
-              ),
-            ),
+            _sideRow('White', true),
+            _sideRow('Black', false),
+            const SizedBox(height: 8),
+            Text(_summary,
+                style: const TextStyle(color: Colors.white38, fontSize: 12)),
             const SizedBox(height: 14),
             FilledButton(
               onPressed: () {
-                final s = widget.settings;
-                // set fields, then start explicitly — GameController reacts
-                // to the settings change with a newGame of its own; the
-                // explicit call covers the nothing-changed case
-                s.botEnabled = _mode != 'analysis';
-                s.botBothSides = _mode == 'botvbot';
-                if (_mode == 'white' || _mode == 'black') {
-                  s.playerColor = _mode == 'white' ? 'w' : 'b';
-                }
+                widget.settings.setPlayers(white: _white, black: _black);
                 widget.game.newGame();
                 Navigator.pop(context);
               },

@@ -71,7 +71,6 @@ class GameController extends ChangeNotifier {
   final List<MoveRecord> moves = [];
   bool botThinking = false;
   String gameSeed = _newSeed();
-  Persona? persona;
   bool _saved = false;
 
   // analysis cache: fen → future of its MultiPV-5 deep lines
@@ -106,7 +105,6 @@ class GameController extends ChangeNotifier {
       [this._db, this._practice, ChessApi? chessApi]) {
     _chess = chessApi;
     if (chessApi != null) linesTree = LinesTreeModel(chessApi);
-    persona = _bot.personaById(_settings.personaId) ?? _bot.personas().first;
     _syncRetro();
     _settings.addListener(_onSettings);
     _analysisFor(position.fen);
@@ -117,14 +115,31 @@ class GameController extends ChangeNotifier {
 
   String get playerColor => _settings.playerColor;
   bool get botEnabled => _settings.botEnabled;
-  /// The bot plays BOTH sides — a bot-vs-bot game the player just watches.
-  bool get botBothSides => botEnabled && _settings.botBothSides;
   List<Persona> get rosterPersonas => _bot.personas();
-  bool get isPlayerTurn => !botEnabled
-      ? true // analysis board — you move both sides
-      : botBothSides
-          ? false // nobody's turn is yours; the bot plays both
-          : (position.turn == Side.white ? 'w' : 'b') == playerColor;
+
+  // Each side is a bot (a persona) or the human (null). The source of truth is
+  // the settings; these resolve the ids to personas.
+  Persona? get whitePersona => _personaOf(_settings.whitePersonaId);
+  Persona? get blackPersona => _personaOf(_settings.blackPersonaId);
+  Persona? _personaOf(String? id) => id == null ? null : _bot.personaById(id);
+
+  /// The persona of the side to move, or null if the human is on the move.
+  Persona? get personaToMove =>
+      position.turn == Side.white ? whitePersona : blackPersona;
+
+  /// A representative persona for UI that wants one name (e.g. the Maia
+  /// download line): the mover, else whichever side has a bot.
+  Persona? get persona => personaToMove ?? whitePersona ?? blackPersona;
+
+  /// True when the side to move is the human. Analysis (both human) is always
+  /// the player's turn; bot-vs-bot never is.
+  bool get isPlayerTurn => personaToMove == null;
+
+  /// The bot plays both sides — nobody's move is the human's.
+  bool get botBothSides => whitePersona != null && blackPersona != null;
+  /// Whether the given side ('w'/'b') is played by the human.
+  bool isHumanSide(String color) =>
+      color == 'w' ? whitePersona == null : blackPersona == null;
   bool get gameOver => position.isGameOver;
 
   String get statusLine {
@@ -140,14 +155,16 @@ class GameController extends ChangeNotifier {
     // a dead engine used to show the boot-error screen; boot no longer waits
     // for it, so without this the symptom is a board whose bot never moves
     if (_arbiter.engineError != null) return 'Engine unavailable — no analysis';
+    final mover = personaToMove;
+    if (mover == null) return 'Your move';
+    final side = position.turn == Side.white ? 'White' : 'Black';
     if (botBothSides) {
-      final side = position.turn == Side.white ? 'White' : 'Black';
+      // two bots (or one twice): name the side so it is followable
       return botThinking
-          ? '${persona?.name ?? "Bot"} is thinking… ($side)'
-          : '${persona?.name ?? "Bot"} vs itself — $side to move';
+          ? '${mover.name} is thinking… ($side)'
+          : '${mover.name} to move ($side)';
     }
-    if (botThinking) return '${persona?.name ?? "Bot"} is thinking…';
-    return isPlayerTurn ? 'Your move' : '${persona?.name ?? "Bot"} to move';
+    return botThinking ? '${mover.name} is thinking…' : '${mover.name} to move';
   }
 
   /// The grade shown in the strip/insight card: the player's latest move —
@@ -163,8 +180,7 @@ class GameController extends ChangeNotifier {
   }
 
   String _settingsSig() =>
-      '${_settings.personaId}|${_settings.playerColor}|${_settings.botEnabled}'
-      '|${_settings.botBothSides}';
+      '${_settings.whitePersonaId}|${_settings.blackPersonaId}';
   late String _lastSettingsSig = _settingsSig();
 
   void _onSettings() {
@@ -182,7 +198,6 @@ class GameController extends ChangeNotifier {
       return;
     }
     _lastSettingsSig = sig;
-    persona = _bot.personaById(_settings.personaId) ?? persona;
     _syncRetro();
     newGame();
   }
@@ -195,7 +210,10 @@ class GameController extends ChangeNotifier {
   /// Switching away disposes it: keeping a second engine's worker resident
   /// costs the memory for nothing.
   RetroEngine? _syncRetro() {
-    final spec = botEnabled ? persona?.retro : null;
+    // match the side to move: in bot-vs-bot the retro engine alternates with
+    // the mover (a per-move worker rebuild if the two sides are different
+    // retros, which is rare and acceptable for a watch feature).
+    final spec = personaToMove?.retro;
     final key = spec == null ? null : '${spec['engine']}:${spec['ply']}';
     if (key != _retroKey) {
       _retro?.dispose();
@@ -457,7 +475,7 @@ class GameController extends ChangeNotifier {
 
   Future<void> _maybeBotTurn() async {
     if (!botEnabled || isPlayerTurn || gameOver || botThinking) return;
-    final p = persona;
+    final p = personaToMove;
     if (p == null) return;
     botThinking = true;
     notifyListeners();
@@ -484,14 +502,16 @@ class GameController extends ChangeNotifier {
       if (!position.isLegal(move)) return;
       final san = _sanOf(position, move);
       _apply(move, san);
-      // Bot-vs-bot: the opponent is also the bot, so continue on its own. The
-      // delay makes it watchable; the gen check stops it the instant a new
-      // game or an undo bumps the generation, and _apply's gameOver handling
-      // ends it at mate/stalemate. Fires after THIS invocation's finally has
-      // cleared botThinking, so the recursive call is not blocked by it.
-      if (botBothSides) {
+      // If the NEXT side to move is also a bot, keep going on our own — this
+      // is what makes bot-vs-bot play itself, and it is a no-op in a normal
+      // game (after the bot moves it is the human's turn, so isPlayerTurn is
+      // true). The delay makes it watchable; the gen check stops it the
+      // instant a new game or undo bumps the generation, and _apply's gameOver
+      // handling ends it at mate/stalemate. Fires after this invocation's
+      // finally has cleared botThinking, so the recursive call is not blocked.
+      if (!gameOver && !isPlayerTurn) {
         Future.delayed(const Duration(milliseconds: 650)).then((_) {
-          if (gen == _gen && !gameOver) _maybeBotTurn();
+          if (gen == _gen && !gameOver && !isPlayerTurn) _maybeBotTurn();
         });
       }
     } catch (e, st) {
@@ -990,9 +1010,11 @@ class GameController extends ChangeNotifier {
     notifyListeners();
     log('backfilled label=${record.grade?.label}');
 
-    // auto-collect big mistakes as practice puzzles (web maybeCollect)
+    // auto-collect big mistakes as practice puzzles (web maybeCollect) — but
+    // only YOUR mistakes. Practice is for drilling your own blunders; a bot's
+    // (including either side of a bot-vs-bot game) is not yours to fix.
     final practice = _practice;
-    if (practice != null) {
+    if (practice != null && isHumanSide(record.color)) {
       final prevUci =
           record.ply >= 2 ? moves[record.ply - 2].uci : null;
       await practice.maybeCollect(_storedMoveOf(record),

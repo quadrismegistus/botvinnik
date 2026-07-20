@@ -59,9 +59,12 @@ class SettingsStore extends ChangeNotifier {
   final SharedPreferences _prefs;
 
   String _personaId;
-  String _playerColor; // 'w' | 'b' — the side the HUMAN plays
-  bool _botEnabled; // false = analysis board (you move both sides)
-  bool _botBothSides; // true = bot plays BOTH sides (bot-vs-bot, you watch)
+  // Per-side assignment: null = the human plays that side, otherwise a bot's
+  // persona id. Both null = analysis; exactly one null = you vs a bot; neither
+  // null = bot-vs-bot (and the two may be DIFFERENT bots). _personaId above is
+  // only the picker's remembered default.
+  String? _whitePersonaId;
+  String? _blackPersonaId;
   int _collectThreshold; // practice serves puzzles with drop ≥ this
   bool _showArrows; // top-3 engine arrows on the board
   bool _blind; // no forward-looking engine help while playing
@@ -87,9 +90,8 @@ class SettingsStore extends ChangeNotifier {
   SettingsStore._({
     required SharedPreferences prefs,
     required String personaId,
-    required String playerColor,
-    required bool botEnabled,
-    required bool botBothSides,
+    required String? whitePersonaId,
+    required String? blackPersonaId,
     required int collectThreshold,
     required bool showArrows,
     required bool blind,
@@ -108,9 +110,8 @@ class SettingsStore extends ChangeNotifier {
     required double controlOpacity,
   })  : _prefs = prefs,
         _personaId = personaId,
-        _playerColor = playerColor,
-        _botEnabled = botEnabled,
-        _botBothSides = botBothSides,
+        _whitePersonaId = whitePersonaId,
+        _blackPersonaId = blackPersonaId,
         _collectThreshold = collectThreshold,
         _showArrows = showArrows,
         _blind = blind,
@@ -131,19 +132,36 @@ class SettingsStore extends ChangeNotifier {
   static Future<SettingsStore> load() async {
     final prefs = await SharedPreferences.getInstance();
     var personaId = 'square-900';
-    var playerColor = 'w';
-    var botEnabled = true;
-    var botBothSides = false;
+    // default: you play White, the bot plays Black
+    String? whitePersonaId;
+    String? blackPersonaId = personaId;
     final raw = prefs.getString('botvinnik-bot-v1');
     if (raw != null) {
       try {
         final json = jsonDecode(raw) as Map<String, dynamic>;
         personaId = (json['personaId'] as String?) ?? personaId;
-        botEnabled = (json['enabled'] as bool?) ?? true;
-        botBothSides = (json['bothSides'] as bool?) ?? false;
-        // web stores the BOT's color; the human plays the other side
-        final botColor = (json['color'] as String?) ?? 'b';
-        playerColor = botColor == 'w' ? 'b' : 'w';
+        if (json.containsKey('white') || json.containsKey('black')) {
+          whitePersonaId = json['white'] as String?;
+          blackPersonaId = json['black'] as String?;
+        } else {
+          // migrate the old {enabled, bothSides, color} shape
+          final enabled = (json['enabled'] as bool?) ?? true;
+          final bothSides = (json['bothSides'] as bool?) ?? false;
+          final botColor = (json['color'] as String?) ?? 'b';
+          if (!enabled) {
+            whitePersonaId = null;
+            blackPersonaId = null;
+          } else if (bothSides) {
+            whitePersonaId = personaId;
+            blackPersonaId = personaId;
+          } else if (botColor == 'w') {
+            whitePersonaId = personaId;
+            blackPersonaId = null;
+          } else {
+            whitePersonaId = null;
+            blackPersonaId = personaId;
+          }
+        }
       } catch (_) {/* corrupted settings: fall back to defaults */}
     }
     final threshold =
@@ -152,9 +170,8 @@ class SettingsStore extends ChangeNotifier {
     return SettingsStore._(
       prefs: prefs,
       personaId: personaId,
-      playerColor: playerColor,
-      botEnabled: botEnabled,
-      botBothSides: botBothSides,
+      whitePersonaId: whitePersonaId,
+      blackPersonaId: blackPersonaId,
       collectThreshold: threshold,
       showArrows: prefs.getString('botvinnik-arrows') != '0', // ON, like web
       blind: prefs.getString('botvinnik-blind') == '1',
@@ -347,10 +364,17 @@ class SettingsStore extends ChangeNotifier {
     notifyListeners();
   }
 
-  String get personaId => _personaId;
-  String get playerColor => _playerColor;
-  bool get botEnabled => _botEnabled;
-  bool get botBothSides => _botBothSides;
+  String get personaId => _personaId; // the picker's remembered default
+  String? get whitePersonaId => _whitePersonaId;
+  String? get blackPersonaId => _blackPersonaId;
+  // Derived compatibility views over the per-side model.
+  bool get botEnabled => _whitePersonaId != null || _blackPersonaId != null;
+  // The human's side, for board orientation; White by default (bvb/analysis).
+  String get playerColor => _whitePersonaId == null
+      ? 'w'
+      : _blackPersonaId == null
+          ? 'b'
+          : 'w';
   int get collectThreshold => _collectThreshold;
   bool get showArrows => _showArrows;
   bool get blind => _blind;
@@ -385,30 +409,14 @@ class SettingsStore extends ChangeNotifier {
     notifyListeners();
   }
 
-  set personaId(String id) {
-    if (id == _personaId) return;
-    _personaId = id;
-    _persistBot();
-    notifyListeners();
-  }
-
-  set playerColor(String color) {
-    if (color == _playerColor) return;
-    _playerColor = color;
-    _persistBot();
-    notifyListeners();
-  }
-
-  set botEnabled(bool on) {
-    if (on == _botEnabled) return;
-    _botEnabled = on;
-    _persistBot();
-    notifyListeners();
-  }
-
-  set botBothSides(bool on) {
-    if (on == _botBothSides) return;
-    _botBothSides = on;
+  /// Assign each side: null = the human, otherwise a bot persona id.
+  void setPlayers({required String? white, required String? black}) {
+    if (white == _whitePersonaId && black == _blackPersonaId) return;
+    _whitePersonaId = white;
+    _blackPersonaId = black;
+    // remember a chosen bot as the picker's default for next time
+    final bot = white ?? black;
+    if (bot != null) _personaId = bot;
     _persistBot();
     notifyListeners();
   }
@@ -424,10 +432,9 @@ class SettingsStore extends ChangeNotifier {
     _prefs.setString(
       'botvinnik-bot-v1',
       jsonEncode({
-        'enabled': _botEnabled,
-        'bothSides': _botBothSides,
+        'white': _whitePersonaId,
+        'black': _blackPersonaId,
         'personaId': _personaId,
-        'color': _playerColor == 'w' ? 'b' : 'w',
       }),
     );
   }
