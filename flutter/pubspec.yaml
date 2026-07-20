@@ -45,6 +45,9 @@ dependencies:
   sqflite_common_ffi_web: ^1.1.2
   url_launcher: ^6.3.2
   package_info_plus: ^10.2.1
+  path_provider: ^2.1.5
+  ffi: ^2.1.4
+  onnxruntime: ^1.4.1
 
 dev_dependencies:
   flutter_test:
@@ -78,11 +81,22 @@ flutter:
     # golden parity fixtures (regenerate deliberately: `npm run fixtures`;
     # the git diff of this file IS the behavior-change review)
     - assets/brain-fixtures.json
+    # Maia's encode/decode for the embedded JS runtime, from the same
+    # brain/maia/ sources the web worker uses (`npm run build:maia-brain`).
+    # Read only when someone picks a Maia, and never on the web — which loads
+    # brain.js by script tag and keeps Maia in its own lazy worker.
+    - assets/maia-brain.js
     # the offline opening book: names (lichess/chess-openings) + move stats
     # counted from a public lichess database dump — see scripts/
     # build-openings.mts and build-book-from-dump.mts
     - assets/openings.json
     - assets/book.json
+    # Garbochess-JS (2011, BSD-3) verbatim, for the isolate that runs it on
+    # macOS/iOS. A COPY of static/garbo/, which is the vendored original the
+    # web is served from — CI diffs the two, because two Garbos that drift are
+    # two different opponents wearing one name. Its LICENSE must travel with
+    # it, so the whole directory is bundled.
+    - assets/garbo/
     # GPL-3.0 obligation: the licence text and third-party notices travel with
     # the binary and are reachable in-app (Settings → About). Copies of the
     # repo-root files, kept in sync by flutter/stage-legal.sh with a CI drift

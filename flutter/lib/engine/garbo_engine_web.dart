@@ -41,6 +41,16 @@ class GarboEngine {
 
   JsWorker? _worker;
   Completer<String?>? _move;
+
+  /// A search has been posted and not yet answered.
+  ///
+  /// It matters because a running search cannot be cancelled — garbochess
+  /// honours its own g_timeout and is inside one synchronous call — so its
+  /// answer arrives AFTER the next request has been made, and this client
+  /// completes whatever is currently waiting. That is a move for the previous
+  /// position handed to the current one: often illegal and dropped upstream,
+  /// but not always, and "not always" is a move nobody chose being played.
+  bool _busy = false;
   bool _disposed = false;
 
   GarboEngine() {
@@ -57,6 +67,7 @@ class GarboEngine {
       // 'pv …' is the line it is currently considering, 'message …' is an
       // error from InitializeFromFen. Neither is an answer.
       if (data.startsWith('pv ') || data.startsWith('message ')) return;
+      _busy = false;
       _finish(_uci.hasMatch(data) ? data : null);
     }).toJS;
     worker.onerror = ((JSAny? event) {
@@ -73,6 +84,7 @@ class GarboEngine {
   void _kill() {
     final worker = _worker;
     _worker = null;
+    _busy = false;
     try {
       worker?.terminate();
     } catch (_) {
@@ -89,6 +101,13 @@ class GarboEngine {
   /// Garbochess's move for [fen], or null on any failure.
   Future<String?> move(String fen, {int movetimeMs = 1000}) {
     if (_disposed) return Future.value(null);
+    // A search still running would answer this request with the previous
+    // position's move. Scrapping the worker is the only way to be sure it
+    // cannot, and costs 82KB of already-cached JavaScript to re-parse — the
+    // same trade this client already makes for a crash. The native client gets
+    // there differently, by matching the reply to the request it belongs to;
+    // here there is nothing in the protocol to match on.
+    if (_busy) _kill();
     // a crash nulled the worker; the next position deserves a fresh one
     if (_worker == null) _spawn();
     final worker = _worker;
@@ -98,6 +117,7 @@ class GarboEngine {
     // a move for a position that is gone.
     _finish(null);
     final pending = _move = Completer<String?>();
+    _busy = true;
     worker.postMessage('position $fen'.toJS);
     worker.postMessage('search $movetimeMs'.toJS);
     return pending.future.timeout(

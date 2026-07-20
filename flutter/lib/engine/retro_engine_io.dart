@@ -1,8 +1,13 @@
 // Retro bots on native: the morlock re-implementations of TUROCHAMP (1948),
 // BERNSTEIN (1957) and SARGON (1978), built from the vendored Go source
-// (`scripts/engines/morlock-src`) into small UCI binaries and spawned as child
-// processes. macOS today; iOS is a separate, harder path (see the note at the
-// bottom).
+// (`scripts/engines/morlock-src`).
+//
+// Two transports, because the platforms differ in one decisive way and in
+// nothing else: macOS builds them into small UCI binaries and spawns them as
+// child processes; iOS has no child processes, so it builds the same source
+// into a static archive and drives it over dart:ffi (retro_engine_ffi.dart).
+// Same engines, same ply, same UCI dialogue — so the calibration means the
+// same thing on both, and `RetroEngine` below is only the choice between them.
 //
 // This is the native twin of `retro_engine_web.dart`, and it makes the same
 // two deliberate choices for the same reasons:
@@ -25,39 +30,29 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 
-class RetroEngine {
-  final String engine;
-  final int ply;
+import 'retro_engine_ffi.dart';
 
-  /// True only where a retro binary can actually be found and spawned. Gating
-  /// on real presence — not just `Platform.isMacOS` — keeps the roster picker
-  /// honest: if the binaries were never staged, retro is not offered rather
-  /// than offered-and-silently-falling-back-to-Stockfish (the substitution
-  /// the picker exists to prevent). iOS can't spawn processes at all, so it is
-  /// false there regardless.
-  static bool get supported => Platform.isMacOS && _resolveDir() != null;
+/// One retro engine, whichever way this platform can reach it.
+abstract class RetroEngine {
+  /// True only where a retro engine can actually be reached — a staged binary
+  /// on macOS, a linked archive on iOS. Gating on real presence, not on the
+  /// platform, keeps the roster picker honest: a build that skipped staging
+  /// does not offer retro rather than offering it and silently falling back to
+  /// Stockfish, which is the substitution the picker exists to prevent.
+  static bool get supported => Platform.isIOS
+      ? RetroFfiEngine.supported
+      : Platform.isMacOS && _resolveDir() != null;
 
-  Process? _proc;
-  /// Resolves true when the engine answered `uci`, false if it never will.
-  /// A bool, not an error: a failed boot must reach the caller as a null move
-  /// (→ Stockfish fallback), not an unhandled async error.
-  final Completer<bool> _booted = Completer<bool>();
-  Completer<String?>? _move;
-  bool _alive = true;
+  factory RetroEngine(String engine, int ply) => Platform.isIOS
+      ? RetroFfiEngine(engine, ply)
+      : _RetroProcess(engine, ply);
 
-  RetroEngine(this.engine, this.ply) {
-    final dir = _resolveDir();
-    if (dir == null) {
-      _die('no retro binary directory found');
-      return;
-    }
-    final path = '$dir/$engine';
-    if (!File(path).existsSync()) {
-      _die('no retro binary for "$engine" at $path');
-      return;
-    }
-    _start(path);
-  }
+  /// This engine's move for [fen], or null on any failure. Null is the whole
+  /// contract on both transports: the caller falls back to Stockfish at the
+  /// persona's rating rather than seeing an error.
+  Future<String?> move(String fen, {int movetimeMs});
+
+  void dispose();
 
   /// Where the retro binaries live: bundled in the app. Only the bundled case
   /// works under the macOS sandbox — Process.start on a path outside the
@@ -78,6 +73,33 @@ class RetroEngine {
       if (File('$c/turochamp').existsSync()) return c;
     }
     return null;
+  }
+}
+
+class _RetroProcess implements RetroEngine {
+  final String engine;
+  final int ply;
+
+  Process? _proc;
+  /// Resolves true when the engine answered `uci`, false if it never will.
+  /// A bool, not an error: a failed boot must reach the caller as a null move
+  /// (→ Stockfish fallback), not an unhandled async error.
+  final Completer<bool> _booted = Completer<bool>();
+  Completer<String?>? _move;
+  bool _alive = true;
+
+  _RetroProcess(this.engine, this.ply) {
+    final dir = RetroEngine._resolveDir();
+    if (dir == null) {
+      _die('no retro binary directory found');
+      return;
+    }
+    final path = '$dir/$engine';
+    if (!File(path).existsSync()) {
+      _die('no retro binary for "$engine" at $path');
+      return;
+    }
+    _start(path);
   }
 
   Future<void> _start(String path) async {
@@ -146,8 +168,9 @@ class RetroEngine {
     if (pending != null && !pending.isCompleted) pending.complete(uci);
   }
 
-  /// This engine's move for [fen], or null on any failure — a dead process, a
-  /// boot that never finished, a search that never answered.
+  /// A dead process, a boot that never finished, a search that never answered
+  /// — all null, per the contract on RetroEngine.move.
+  @override
   Future<String?> move(String fen, {int movetimeMs = 500}) async {
     if (!_alive) return null;
     final ok = await _booted.future.timeout(
@@ -174,6 +197,7 @@ class RetroEngine {
     );
   }
 
+  @override
   void dispose() {
     if (_alive) _send('quit');
     _die('disposed');

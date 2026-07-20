@@ -10,6 +10,54 @@ The full pre-2026-07-19 roadmap — with the complete calibration saga and every
 design note as it was written — is preserved in git history (it was this file's
 predecessor, `ROADMAP.md` before the 2026-07-19 trim).
 
+## 2026-07-20 — the native roster closes
+
+macOS and iOS now offer the same **32 personas** the web does. Every remaining
+engine crossed in a different way, and none of them the way its stub predicted.
+
+- **#96** — **Maia native** (#44): `package:onnxruntime` replaces ort-web (ORT's
+  C API over `dart:ffi`, its isolate session keeping the forward pass off the
+  UI thread), `HttpClient` and Application Support replace fetch and IndexedDB.
+  The chess did not move: `assets/maia-brain.js` runs the same `brain/maia/`
+  encode/decode in an embedded JavaScriptCore, so a move is encode-in-JS →
+  infer-in-Dart → decode-in-JS. A second bundle rather than two more exports on
+  `brain.js`, which is a script tag on the web and would have carried lc0's
+  1858-string policy index to every visitor. Verified against the move the WEB
+  plays, three bands across four positions. Brought two things with it: the
+  macOS bundle's first outbound socket (`com.apple.security.network.client`),
+  and the discovery that nothing type-checked the Flutter app's own TypeScript.
+- **#97** — **retro on iOS** (#80): iOS has no child processes, so the same
+  morlock source builds with `-buildmode=c-archive` and is driven over
+  `dart:ffi`. Three transports now share one `build()` switch, so the
+  calibration means the same thing on all of them. The boundary has two
+  subtleties that only show up at runtime: a `NativeCallable.listener` runs
+  *after* the call returns, so Go hands over a `malloc`'d line and Dart frees
+  it; and Go's `emit` takes the same lock as `retro_stop`, so teardown cannot
+  race a callback. And two the linker finds: `-force_load` (nothing references
+  symbols resolved at runtime, so they get stripped) and `[sdk=…]`-conditional
+  paths rather than an xcframework (both slices are arm64).
+- **#98** — **Garbo native** (#43): the last web-only family, and the cheapest,
+  because replacing a Worker does not mean writing a message loop —
+  garbochess's search is one long *synchronous* call, so everything it emits is
+  buffered by the time the call returns. Four lines of shim and a background
+  isolate, which is what keeps a ~1s search off the UI thread. `Isolate.kill`
+  turned out to reclaim the Dart heap and nothing else: the JavaScriptCore
+  context is native memory only the child can free, measured at ~167MB per
+  disposed engine, so teardown asks rather than kills.
+- **#99** — a **crash**: disposing a retro engine mid-search aborted the app.
+  Ending a session sent `quit`, and morlock handles that by returning from its
+  driver loop without clearing the active-search flag — so a search still
+  finishing sends its bestmove on a closed channel. In a Worker or a child
+  process that is an invisible engine death; in a `c-archive` it is SIGABRT in
+  the app's own process. Reachable by switching bots mid-think.
+- Fixes found by review along the way: nothing in CI ever *executed* the Maia
+  bundle (a source edit decoding the policy from the wrong side merged green —
+  there is a golden fixture and a smoke test now), an ORT run that outlived its
+  timeout could hand the next position the previous one's policy, and the
+  **web** Garbo client could answer with the previous position's move.
+
+Only Dala (#45) is desktop-only, in both apps, as it always was.
+
 ## 2026-07-20 — the UI backlog, and a harness to hold it
 
 The Flutter UI backlog cleared, plus the first tests that reach the state

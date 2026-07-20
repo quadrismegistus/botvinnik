@@ -6,8 +6,11 @@
   "scripts": {
     "dev": "vite dev",
     "build": "vite build",
-    "build:brain": "esbuild brain/brain-entry.ts --bundle --format=iife --global-name=brain --platform=browser --outfile=flutter/assets/brain.js && node scripts/smoke-brain.mjs && node scripts/replay-fixtures.mjs",
+    "build:brain": "esbuild brain/brain-entry.ts --bundle --format=iife --global-name=brain --platform=browser --outfile=flutter/assets/brain.js && node scripts/smoke-brain.mjs && node scripts/replay-fixtures.mjs && npm run build:maia-brain",
+    "build:maia-brain": "esbuild flutter/native_src/maia-brain.ts --bundle --format=iife --global-name=maiaBrain --platform=browser --target=es2022 --outfile=flutter/assets/maia-brain.js && node scripts/smoke-maia-brain.mjs",
+    "check:flutter-ts": "tsc -p flutter/tsconfig.json",
     "fixtures": "tsx scripts/emit-golden-fixtures.mts",
+    "fixtures:maia": "tsx scripts/emit-maia-brain-fixtures.mts",
     "preview": "vite preview",
     "test": "vitest run",
     "prepare": "svelte-kit sync || echo ''",
