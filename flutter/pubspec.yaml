@@ -43,6 +43,8 @@ dependencies:
   sqflite: ^2.4.3
   flutter_colorpicker: ^1.1.0
   sqflite_common_ffi_web: ^1.1.2
+  url_launcher: ^6.3.2
+  package_info_plus: ^10.2.1
 
 dev_dependencies:
   flutter_test:
@@ -81,6 +83,12 @@ flutter:
     # build-openings.mts and build-book-from-dump.mts
     - assets/openings.json
     - assets/book.json
+    # GPL-3.0 obligation: the licence text and third-party notices travel with
+    # the binary and are reachable in-app (Settings → About). Copies of the
+    # repo-root files, kept in sync by flutter/stage-legal.sh with a CI drift
+    # guard — never edit these directly.
+    - assets/legal/LICENSE
+    - assets/legal/THIRD-PARTY-NOTICES.md
 
   # Roboto, bundled rather than fetched. Flutter web otherwise downloads its
   # default font from fonts.gstatic.com at runtime — a third-party request on
