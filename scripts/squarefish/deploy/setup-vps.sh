@@ -19,7 +19,7 @@ cd "$HOME"
 cd botvinnik-web && git pull && npm ci
 # stage the WASM engine wrapper the same way the calibration scripts do
 mkdir -p scripts/wasm-engine
-cp static/wasm/stockfish.js static/wasm/stockfish.wasm scripts/wasm-engine/
+cp vendor/wasm/stockfish.js vendor/wasm/stockfish.wasm scripts/wasm-engine/
 printf '{"type":"commonjs"}\n' >scripts/wasm-engine/package.json
 printf '#!/bin/sh\nDIR=$(cd "$(dirname "$0")" && pwd)\nexec node "$DIR/stockfish.js"\n' >scripts/wasm-engine/run.sh
 chmod +x scripts/wasm-engine/run.sh
