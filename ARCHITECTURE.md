@@ -243,8 +243,9 @@ web branch of every conditional import.
 
 - **The roster gap is closed on the web** (2026-07-19). The brain ships 35
   personas; Flutter web offers **32**, which is parity — Dala needs a native
-  lc0 sidecar and is desktop-only in *both* apps. Native Flutter still offers
-  22.
+  lc0 sidecar and is desktop-only in *both* apps. Native Flutter offers **25
+  on macOS** (retro landed there 2026-07-20 as spawned binaries) and **22 on
+  iOS**, which has no child processes yet.
 
   The way it closed is the interesting part: **none of the last three families
   uses the brain bridge at all.** Retro, Garbo and Maia are Workers, so their
@@ -258,12 +259,21 @@ web branch of every conditional import.
   `brain/maia/` and are imported by both apps' workers rather than called
   across the bridge.
 
-  The web/native split is real: all three need a Web Worker, so `.supported`
-  is false on macOS/iOS and the roster picker does not offer those ten there.
-  Each `*_engine_io.dart` documents what its native path would cost — retro is
-  scoped and measured, Maia is the most tractable (the `onnxruntime` pub
-  package needs no runtime port), Garbo is the awkward one despite being plain
-  JavaScript.
+  The web/native split is real, and now finer than a single number. Retro no
+  longer needs its Web Worker on macOS: the morlock engines build to native
+  UCI binaries (`stage-macos-engines.sh`), get copied into the app bundle, and
+  `retro_engine_io.dart` spawns them as child processes — its own, never the
+  arbiter's, and reading only `bestmove`, the same two invariants the web
+  client holds. `RetroEngine.supported` gates on a binary actually being in
+  the bundle, so a build that skipped staging simply doesn't offer retro
+  rather than offering it and falling back. iOS has no child processes, so
+  there retro still waits on the c-archive/FFI route.
+
+  The remaining native gaps each have their story in the matching
+  `*_engine_io.dart`: Maia is the most tractable (the `onnxruntime` pub
+  package needs no runtime port), Garbo the awkward one despite being plain
+  JavaScript (flutter_js has no Worker and its search would block the
+  isolate), Dala the one waiting on the lc0 sidecar.
 - **Only JavaScriptCore has ever run the brain.** `ios/` and `macos/` are the
   only native targets that exist; QuickJS is the runtime on Android and is
   untested. Bundling js-chess-engine put BigInt literals in `brain.js`, and

@@ -55,6 +55,8 @@ flutter/macos/Pods/
 
 # bundled engine binary (113MB, GPL — staged locally, never committed)
 flutter/macos/Runner/Resources/stockfish
+# retro engine binaries (MIT, built by stage-macos-engines.sh, never committed)
+flutter/macos/Runner/Resources/retro/
 
 # flutter web spike: engine + brain copies, never committed
 flutter/web/wasm/
