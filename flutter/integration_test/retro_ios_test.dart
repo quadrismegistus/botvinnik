@@ -15,6 +15,8 @@
 //   (cd ios && pod install)                  # first staging only
 //   flutter test integration_test/retro_ios_test.dart -d <simulator-id>
 
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 
@@ -91,4 +93,46 @@ void main() {
     e.dispose();
     expect(await e.move(_start), isNull);
   });
+
+  test('disposing DURING a search does not take the app down', () async {
+    // This is the one that was crashing. Ending the session by closing the
+    // engine's input made morlock return through its "input stream broken"
+    // branch, which closes the output channel without clearing the
+    // active-search flag — so the search still finishing sent its bestmove on
+    // a closed channel and panicked. In a Worker or a child process that is an
+    // invisible engine death; in a c-archive it is SIGABRT in this process.
+    //
+    // Reachable by tapping a different bot while a retro bot is thinking. The
+    // test therefore does exactly that, repeatedly and at several offsets into
+    // the search, because the window is sub-millisecond at these plies.
+    for (final delay in [0, 1, 5, 20]) {
+      for (var i = 0; i < 3; i++) {
+        final e = RetroEngine('turochamp', 2);
+        unawaited(e.move(_start, movetimeMs: 2000));
+        await Future<void>.delayed(Duration(milliseconds: delay));
+        e.dispose();
+      }
+    }
+    // Still here, and still able to play — a crash would have taken the test
+    // process with it, and a wedged archive would answer null.
+    final after = RetroEngine('turochamp', 2);
+    try {
+      expect(_opening, contains(await after.move(_start, movetimeMs: 500)));
+    } finally {
+      after.dispose();
+    }
+  }, timeout: const Timeout(Duration(seconds: 90)));
+
+  test('an unknown engine name is refused, not silently substituted', () async {
+    // macOS answers null for a name it has no binary for. The archive holds
+    // all three engines, so the equivalent here is the name check in
+    // retro_start — without it, build()'s default clause plays TUROCHAMP under
+    // whatever persona asked.
+    final e = RetroEngine('nonesuch', 2);
+    try {
+      expect(await e.move(_start), isNull);
+    } finally {
+      e.dispose();
+    }
+  }, timeout: const Timeout(Duration(seconds: 30)));
 }

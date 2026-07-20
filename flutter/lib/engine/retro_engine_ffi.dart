@@ -94,7 +94,11 @@ class RetroFfiEngine implements RetroEngine {
       malloc.free(name);
     }
     if (_handle == 0) {
-      _die('retro_start returned 0');
+      // The archive rejects a name it has no engine for, which is what makes
+      // this reachable — and what keeps iOS honest with macOS, where a missing
+      // binary is a null move rather than a different engine under the same
+      // persona's name.
+      _die('retro_start rejected "$engine"');
       return;
     }
     _send('uci');
@@ -155,10 +159,18 @@ class RetroFfiEngine implements RetroEngine {
     _finish(null);
     if (_handle != 0) _RetroLib.instance?.stop(_handle);
     _handle = 0;
-    // Only after the session is stopped: closing the callable first would
-    // leave Go holding a function pointer into freed trampoline memory.
-    _callback?.close();
+    // Only after the session is stopped — closing the callable first would
+    // leave Go holding a function pointer into freed trampoline memory — and
+    // only after a turn of the event loop.
+    //
+    // A NativeCallable.listener is a RawReceivePort, and closing one DISCARDS
+    // whatever it has queued. Every queued line is a malloc'd string this end
+    // owns and frees in _onNativeLine, so closing in the same turn as stop()
+    // strands all of them. Go's lock guarantees no new line can start after
+    // stop() returns, so one turn is enough to drain the ones already posted.
+    final callback = _callback;
     _callback = null;
+    Future<void>.delayed(Duration.zero, () => callback?.close());
   }
 
   void _finish(String? uci) {
@@ -197,7 +209,12 @@ class RetroFfiEngine implements RetroEngine {
 
   @override
   void dispose() {
-    if (_alive) _send('quit');
+    // No 'quit', unlike the process transport. morlock handles it by returning
+    // out of its driver loop without clearing the active-search flag, so a
+    // search still finishing sends on a closed channel — a Go panic, which is
+    // an invisible engine death in a child process and SIGABRT in this one.
+    // The archive refuses the line as well; ending the session is retro_stop's
+    // job here and it does it in an order that cannot race.
     _die('disposed');
   }
 }

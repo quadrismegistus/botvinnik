@@ -18,7 +18,7 @@
 // C contract (retro_engine_ffi.dart is the only caller):
 //   retro_start(name, ply, cb) -> handle   // 0 on failure
 //   retro_send(handle, line)               // UCI in; first line MUST be "uci"
-//   retro_stop(handle)                     // closes the input, ends the driver
+//   retro_stop(handle)                     // ends the driver; see session.driver
 // `cb` is invoked with one UCI line at a time, from a goroutine — so on the
 // Dart side it has to be a NativeCallable.listener, not an isolateLocal.
 //
@@ -38,6 +38,7 @@ import "C"
 import (
 	"context"
 	"flag"
+	"strings"
 	"sync"
 	"time"
 	"unsafe"
@@ -93,6 +94,34 @@ func build(ctx context.Context, name string, ply uint) (*engine.Engine, []uci.Op
 type session struct {
 	in     chan string
 	cancel context.CancelFunc
+
+	// Set once the UCI handshake has produced one.
+	driver *uci.Driver
+
+	// Whether a search has been started and its bestmove not yet seen, and
+	// whether somebody is waiting to close as soon as it has been.
+	//
+	// This pair is the whole reason retro_stop is not a one-liner. Ending a
+	// session tears down uci.Driver.process, whose `defer close(d.out)` fires
+	// while the goroutine that reports a finished search may still be about to
+	// send on that channel — a send on a closed channel, which is a Go panic.
+	// Closing the DRIVER rather than the input channel narrows the window,
+	// because that path clears the active-search flag first, but it does not
+	// close it: the flag is read and the send made in the other goroutine, so
+	// the two can still interleave.
+	//
+	// The only way to be sure is not to close while a search can still finish.
+	// So a stop during a search asks the engine to stop, waits for the
+	// bestmove that always follows, and closes then — with a backstop for an
+	// engine that never answers.
+	//
+	// The other two transports have the same hazard and it is invisible there:
+	// a panic kills a child process or a Worker, and both already model
+	// "engine gone" as a null move. In a c-archive it is SIGABRT in the app's
+	// own process, with no recovery point in //export'ed Go.
+	searching bool
+	wantClose bool
+
 	closed bool
 }
 
@@ -109,8 +138,19 @@ func retro_start(name *C.char, ply C.int, cb C.retro_line_cb) C.int {
 	// it the first log call is fatal.
 	_ = flag.Set("logtostderr", "true")
 
+	// Reject an unknown engine rather than quietly playing TUROCHAMP, which is
+	// what build()'s default clause would do. macOS answers null for a name it
+	// has no binary for, and a persona that silently becomes a different engine
+	// is the substitution the roster gate exists to prevent.
+	which := C.GoString(name)
+	switch which {
+	case "turochamp", "bernstein", "sargon":
+	default:
+		return 0
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
-	e, opts := build(ctx, C.GoString(name), uint(ply))
+	e, opts := build(ctx, which, uint(ply))
 
 	in := make(chan string, 64)
 	s := &session{in: in, cancel: cancel}
@@ -134,8 +174,29 @@ func retro_start(name *C.char, ply C.int, cb C.retro_line_cb) C.int {
 			return
 		}
 		driver, out := uci.NewDriver(ctx, e, in, opts...)
+		mu.Lock()
+		if s.closed {
+			// stopped during the handshake; nobody will close this driver later
+			mu.Unlock()
+			driver.Close()
+			return
+		}
+		s.driver = driver
+		mu.Unlock()
 		go func() {
 			for line := range out {
+				// Bookkeeping BEFORE delivery, and under the lock: a bestmove
+				// means the engine is idle, which is the only moment a pending
+				// close is safe to perform.
+				mu.Lock()
+				if strings.HasPrefix(line, "bestmove") {
+					s.searching = false
+					if s.wantClose {
+						s.wantClose = false
+						driver.Close()
+					}
+				}
+				mu.Unlock()
 				emit(cb, id, line)
 			}
 		}()
@@ -160,8 +221,27 @@ func retro_send(handle C.int, line *C.char) {
 	// Never block the caller: a wedged engine must not take the UI thread down
 	// with it. The buffer is 64 lines; a UCI session that far behind is
 	// already broken.
+	text := C.GoString(line)
+	// "quit" is refused, and this is the one filter that matters.
+	//
+	// morlock handles it with a bare `return` out of Driver.process, whose
+	// `defer close(d.out)` then fires WITHOUT clearing the active-search flag —
+	// so a search still finishing sends its bestmove on a closed channel and
+	// panics. That is invisible in the other two transports (it kills a child
+	// process or a Worker, both of which already mean "engine gone") and is
+	// SIGABRT in the host app here. Verified: it is the crash, and it was
+	// reachable from the ordinary dispose path.
+	//
+	// Nothing is lost by refusing it. retro_stop owns teardown on this
+	// transport, and does it in the one order that cannot race.
+	if strings.TrimSpace(text) == "quit" {
+		return
+	}
+	if strings.HasPrefix(text, "go") {
+		s.searching = true
+	}
 	select {
-	case s.in <- C.GoString(line):
+	case s.in <- text:
 	default:
 	}
 }
@@ -177,7 +257,37 @@ func retro_stop(handle C.int) {
 	delete(sessions, int(handle))
 	s.closed = true
 	s.cancel()
-	close(s.in)
+
+	if s.driver == nil {
+		// No driver yet, so process() is not running and there is nothing to
+		// race: closing the input is what releases the goroutine waiting on
+		// the first line.
+		close(s.in)
+		return
+	}
+	if !s.searching {
+		s.driver.Close()
+		return
+	}
+	// Mid-search. Ask the engine to stop and let the out reader close once the
+	// bestmove has been and gone — see session.searching.
+	s.wantClose = true
+	select {
+	case s.in <- "stop":
+	default:
+	}
+	// An engine that never answers must not pin its driver for the life of the
+	// app. Generous, because the cost of being early is a crash and the cost
+	// of being late is one idle goroutine.
+	driver := s.driver
+	time.AfterFunc(15*time.Second, func() {
+		mu.Lock()
+		defer mu.Unlock()
+		if s.wantClose {
+			s.wantClose = false
+			driver.Close()
+		}
+	})
 }
 
 // emit hands the callee a malloc'd copy and does NOT free it.
