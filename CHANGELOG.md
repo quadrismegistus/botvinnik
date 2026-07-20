@@ -10,6 +10,37 @@ The full pre-2026-07-19 roadmap — with the complete calibration saga and every
 design note as it was written — is preserved in git history (it was this file's
 predecessor, `ROADMAP.md` before the 2026-07-19 trim).
 
+## 2026-07-20 — App Store prep, native retro on macOS, and the board's second pass
+
+Everything after the deploy: getting the native app submittable, and a second
+pass over the play surface.
+
+- **#84** — board player plates (name + captured material, above and below) and
+  a bot-vs-bot move-delay setting. The same pass reworked the play surface: the
+  plates reserve their height so the column never scrolls; a light tray so the
+  black captures read on the dark ground; a **NavigationRail** on wide windows,
+  handing the bottom bar's height to a board that is height-bound in the split
+  view; and the under-board **grade strip removed** — its verdict already lived
+  in the Insights card, so the threat (now a chip) and the Maia loading bar
+  moved there and the board reclaimed the ~66px. Follow-ups filed: #85 (FEN
+  input), #86 (full threat line).
+- **#83** — new-game flow: choose a player per side (you or any bot), which
+  yields bot-vs-bot for free; Practice only collects when it is your move;
+  opponent selection moved out of the app-bar title into the New Game sheet.
+- **#82** — App Store code-side prep: the encryption-exemption flag and the
+  `PrivacyInfo.xcprivacy` manifests wired into the macOS/iOS bundles, plus the
+  submission docs.
+- **#81** — in-app source link and licence text for GPL-3.0 compliance on the
+  App Store (the Lichess posture, decided in #76).
+- **#79** — native retro on macOS: the three morlock engines build to UCI
+  binaries, bundled in the app and spawned with `Process.start` (sandbox-safe
+  only from inside the bundle). iOS is the harder half, split to #80.
+- **#78** — Review opens at the start of a game, not the end (#61).
+- Housekeeping (late 2026-07-19): the 945-line `ROADMAP.md` migrated to GitHub
+  issues and trimmed to an index of design invariants, with this CHANGELOG
+  split out; third-party notices completed (retro/morlock MIT, Garbo BSD-3,
+  Go `wasm_exec.js` BSD-3, Maia/Dala weights GPL-3.0).
+
 ## 2026-07-19 — the roster closes and Flutter takes the deploy
 
 Flutter web reached **parity** (32 of 35 personas; Dala needs a native lc0
