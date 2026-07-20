@@ -38,6 +38,16 @@ class _NewGameSheetState extends State<_NewGameSheet> {
   late String? _white = widget.settings.whitePersonaId;
   late String? _black = widget.settings.blackPersonaId;
 
+  // optional: start from a pasted FEN instead of the standard position
+  final _fen = TextEditingController();
+  String? _fenError;
+
+  @override
+  void dispose() {
+    _fen.dispose();
+    super.dispose();
+  }
+
   String _nameOf(String? id) {
     if (id == null) return 'You';
     for (final p in widget.game.rosterPersonas) {
@@ -107,11 +117,34 @@ class _NewGameSheetState extends State<_NewGameSheet> {
     );
   }
 
+  Widget _fenField() => TextField(
+        controller: _fen,
+        style: const TextStyle(fontSize: 12.5, color: Colors.white70),
+        cursorColor: const Color(0xFF81B64C),
+        onChanged: (_) {
+          if (_fenError != null) setState(() => _fenError = null);
+        },
+        decoration: InputDecoration(
+          labelText: 'Start position (FEN) — optional',
+          labelStyle: const TextStyle(fontSize: 12.5, color: Colors.white38),
+          hintText: 'paste a FEN to play or analyse from it',
+          hintStyle: const TextStyle(fontSize: 11.5, color: Colors.white24),
+          errorText: _fenError,
+          isDense: true,
+          enabledBorder: const UnderlineInputBorder(
+              borderSide: BorderSide(color: Color(0xFF3a3733))),
+          focusedBorder: const UnderlineInputBorder(
+              borderSide: BorderSide(color: Color(0xFF81B64C))),
+        ),
+      );
+
   @override
   Widget build(BuildContext context) {
     return SafeArea(
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+        // lift above the soft keyboard when the FEN field has focus
+        padding: EdgeInsets.fromLTRB(
+            16, 12, 16, 16 + MediaQuery.of(context).viewInsets.bottom),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -124,11 +157,18 @@ class _NewGameSheetState extends State<_NewGameSheet> {
             const SizedBox(height: 8),
             Text(_summary,
                 style: const TextStyle(color: Colors.white38, fontSize: 12)),
+            const SizedBox(height: 10),
+            _fenField(),
             const SizedBox(height: 14),
             FilledButton(
               onPressed: () {
+                final fen = _fen.text.trim();
+                if (fen.isNotEmpty && !GameController.isPlayableFen(fen)) {
+                  setState(() => _fenError = 'Not a valid FEN');
+                  return;
+                }
                 widget.settings.setPlayers(white: _white, black: _black);
-                widget.game.newGame();
+                widget.game.newGame(fromFen: fen.isEmpty ? null : fen);
                 Navigator.pop(context);
               },
               style: FilledButton.styleFrom(
