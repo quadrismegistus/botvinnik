@@ -9,10 +9,14 @@ import 'package:provider/provider.dart';
 
 import '../stores/review_controller.dart';
 
-Future<void> showPgnImport(BuildContext context) => showDialog<void>(
+/// True when a game was actually imported — the caller's cue to show it (the
+/// menu switches to Review; the Games list is already there).
+Future<bool> showPgnImport(BuildContext context) async =>
+    await showDialog<bool>(
       context: context,
       builder: (_) => _PgnImportDialog(review: context.read<ReviewController>()),
-    );
+    ) ??
+    false;
 
 class _PgnImportDialog extends StatefulWidget {
   final ReviewController review;
@@ -46,7 +50,7 @@ class _PgnImportDialogState extends State<_PgnImportDialog> {
     final ok = await widget.review.importPgn(pgn);
     if (!mounted) return;
     if (ok) {
-      Navigator.pop(context); // the review opens on the imported game
+      Navigator.pop(context, true); // the review opens on the imported game
       return;
     }
     setState(() {
