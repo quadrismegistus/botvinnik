@@ -10,6 +10,53 @@ The full pre-2026-07-19 roadmap — with the complete calibration saga and every
 design note as it was written — is preserved in git history (it was this file's
 predecessor, `ROADMAP.md` before the 2026-07-19 trim).
 
+## 2026-07-21 — one app
+
+The SvelteKit app the project began as is gone, and the last two open
+questions before an App Store attempt got answered rather than deferred.
+
+- **#106** — **the Svelte app and the Tauri shell retired.** They shipped
+  botvinnik.app until 2026-07-19 and were frozen the same day; keeping them
+  cost a second implementation of every feature, fix and review for an app
+  with no users. Preserved whole at the annotated tag `svelte-eol`.
+  `static/{wasm,retro,garbo}` became `vendor/` — they are third-party engine
+  builds the *Flutter* web build stages, and were only ever called "static"
+  because SvelteKit named the directory. `lichessImport.ts` and
+  `chesscomCore.ts` were rescued into `brain/`, where the offline harness
+  still needs them.
+
+  The load-bearing part was the type-checker. `npm run check` was
+  `svelte-check`, whose include list came from `.svelte-kit/tsconfig.json` —
+  so it reached `brain/` only through the Svelte files importing it, and never
+  reached `scripts/` at all. Replacing it with a plain `tsc` surfaced 19
+  pre-existing errors, one of which was that the **live lichess bot's UCI
+  wrapper still imported a path deleted in the #26 restructure**. It could not
+  have run from a current checkout; only the VPS's older copy kept SquareFish
+  alive, and it would have broken on the next pull.
+
+- **#103** — **notarization layout** (#67, structurally): the bundled engines
+  move to `Contents/MacOS` and are signed with the app's identity in the same
+  build phase. Executable code in `Contents/Resources` is a rejection, because
+  the hardened runtime treats Resources as data. What remains is a Developer
+  ID certificate, which is a purchase rather than a change.
+
+- **#102** — **Android answered** (#46): it needs JavaScriptCore, not QuickJS.
+  The BigInt in `brain.js` is **chess.js's**, from its Zobrist hashing — not
+  js-chess-engine's as the issue assumed — so nothing can be dropped to avoid
+  it, and the QuickJS `flutter_js` ships for Android has no BigInt at all
+  (verified against its atom table, and by an A/B of the same QuickJS built
+  with and without `CONFIG_BIGNUM`). Both bundles fail to *parse* there.
+
+- **#105** — the architecture diagram still drew Svelte deploying the site.
+
+- Issue hygiene: five shipped issues were closed (#51, #59, #60, #74, #85),
+  four of them open only because a PR named them in its title without a
+  closing keyword in the body. #74 had been live on lichess four days before
+  it was filed. Thirteen more were corrected where their premises had gone
+  stale, and **#104** was filed for something no issue described: native
+  Squares map their labels through the WASM calibration table while playing a
+  different engine, because `setBotSubstrate` is never called from Flutter.
+
 ## 2026-07-20 — the native roster closes
 
 macOS and iOS now offer the same **32 personas** the web does. Every remaining
