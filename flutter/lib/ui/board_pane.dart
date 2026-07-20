@@ -57,9 +57,11 @@ class _BoardPaneState extends State<BoardPane> {
       lastMove: game.lastMove,
       playerSide: !game.botEnabled
           ? PlayerSide.both // analysis board: move either side
-          : game.playerColor == 'w'
-              ? PlayerSide.white
-              : PlayerSide.black,
+          : game.botBothSides
+              ? PlayerSide.none // bot-vs-bot: you watch, nothing to drag
+              : game.playerColor == 'w'
+                  ? PlayerSide.white
+                  : PlayerSide.black,
       validMoves: makeLegalMoves(pos),
       sideToMove: pos.turn,
       kingSquareInCheck: pos.isCheck ? pos.board.kingOf(pos.turn) : null,
@@ -77,7 +79,7 @@ class _BoardPaneState extends State<BoardPane> {
     final game = context.watch<GameController>();
     final settings = context.watch<SettingsStore>();
     final sig = '${game.browseFen ?? game.previewFen ?? game.position.fen}'
-        '|${game.botEnabled}|${game.playerColor}';
+        '|${game.botEnabled}|${game.playerColor}|${game.botBothSides}';
     _controller ??= ChessboardController(game: _gameData(game));
     if (_lastFen != sig) {
       _lastFen = sig;

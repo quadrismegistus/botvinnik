@@ -1,7 +1,7 @@
-// Opponent picker: a modal sheet listing the roster as one flat list sorted by
-// elo, so families interleave by strength rather than being grouped. Selecting
-// sets settings.personaId — GameController hears the change and starts a new
-// game.
+// Bot picker: a modal sheet listing the roster as one flat list sorted by elo,
+// so families interleave by strength rather than being grouped. `pickBot`
+// RETURNS the chosen id (Navigator result); the New Game sheet decides what to
+// do with it. It sets nothing itself.
 //
 // The filter below is the honest edge of the port: a family appears here only
 // once _pickBotMove can actually play it. Everything else in the roster would
@@ -18,7 +18,6 @@ import '../engine/garbo_engine.dart';
 import '../engine/maia_engine.dart';
 import '../engine/retro_engine.dart';
 import '../stores/game_controller.dart';
-import '../stores/settings_store.dart';
 
 // retro and garbo are platform-conditional rather than simply present: both
 // are Web Workers, so they play on the web and nowhere else yet. Listing them
@@ -32,21 +31,23 @@ final _playableFamilies = {
   if (MaiaEngine.supported) 'maia',
 };
 
-void showRosterPicker(BuildContext context) {
+/// Pick a bot. Returns the chosen persona id, or null if dismissed — it no
+/// longer mutates global state, because "who plays this side" is now a choice
+/// the New Game sheet assembles, not a persistent setting the picker commits.
+Future<String?> pickBot(BuildContext context, {String? current}) {
   final game = context.read<GameController>();
-  final settings = context.read<SettingsStore>();
-  showModalBottomSheet<void>(
+  return showModalBottomSheet<String>(
     context: context,
     backgroundColor: const Color(0xFF262421),
     isScrollControlled: true,
-    builder: (_) => _RosterSheet(game: game, settings: settings),
+    builder: (_) => _RosterSheet(game: game, current: current),
   );
 }
 
 class _RosterSheet extends StatelessWidget {
   final GameController game;
-  final SettingsStore settings;
-  const _RosterSheet({required this.game, required this.settings});
+  final String? current;
+  const _RosterSheet({required this.game, this.current});
 
   @override
   Widget build(BuildContext context) {
@@ -61,7 +62,7 @@ class _RosterSheet extends StatelessWidget {
         itemCount: personas.length,
         itemBuilder: (context, i) {
           final p = personas[i];
-          final selected = p.id == settings.personaId;
+          final selected = p.id == current;
           return ListTile(
             dense: true,
             selected: selected,
@@ -97,10 +98,7 @@ class _RosterSheet extends StatelessWidget {
                   ),
               ],
             ),
-            onTap: () {
-              settings.personaId = p.id;
-              Navigator.pop(context);
-            },
+            onTap: () => Navigator.pop(context, p.id),
           );
         },
       ),

@@ -36,7 +36,6 @@ import 'ui/lines_tree_pane.dart';
 import 'ui/move_list.dart';
 import 'ui/new_game_sheet.dart';
 import 'ui/practice_tab.dart';
-import 'ui/roster_picker.dart';
 import 'ui/settings_tab.dart';
 import 'ui/splash.dart';
 import 'ui/win_chart.dart';
@@ -317,31 +316,18 @@ class _AppShellState extends State<AppShell> {
       default:
         final game = context.watch<GameController>();
         return AppBar(
-          titleSpacing: 8,
-          title: InkWell(
-            onTap: () => showRosterPicker(context),
-            borderRadius: BorderRadius.circular(6),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                      game.botEnabled
-                          ? Icons.smart_toy_outlined
-                          : Icons.biotech_outlined,
-                      size: 18,
-                      color: Colors.white70),
-                  const SizedBox(width: 6),
-                  Text(
-                      game.botEnabled
-                          ? (game.persona?.name ?? 'Opponent')
-                          : 'Analysis',
-                      style: const TextStyle(fontSize: 15)),
-                  const Icon(Icons.arrow_drop_down, color: Colors.white54),
-                ],
-              ),
-            ),
+          titleSpacing: 12,
+          // Just the identity now — the opponent moved to the New Game sheet
+          // (who you play is a game-start choice, not a title). Robot for the
+          // app's bot motif; the name in lower case, as it's written.
+          title: const Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.smart_toy_outlined, size: 20, color: Color(0xFF81B64C)),
+              SizedBox(width: 8),
+              Text('botvinnik',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+            ],
           ),
           actions: [
             IconButton(
@@ -374,10 +360,19 @@ class _AppShellState extends State<AppShell> {
                 icon: const Icon(Icons.keyboard_outlined),
                 tooltip: 'Keyboard shortcuts',
               ),
-            IconButton(
-              onPressed: () => showNewGameSheet(context),
-              icon: const Icon(Icons.add_box_outlined),
-              tooltip: 'New game',
+            // The primary action, so a labelled button at the far right rather
+            // than one more anonymous icon.
+            Padding(
+              padding: const EdgeInsets.only(right: 6),
+              child: TextButton.icon(
+                onPressed: () => showNewGameSheet(context),
+                icon: const Icon(Icons.add, size: 18),
+                label: const Text('New game'),
+                style: TextButton.styleFrom(
+                  foregroundColor: const Color(0xFF81B64C),
+                  visualDensity: VisualDensity.compact,
+                ),
+              ),
             ),
           ],
         );
