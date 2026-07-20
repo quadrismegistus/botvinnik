@@ -58,10 +58,12 @@ To revive it: restore the `push` triggers on those two workflows and run
 
 ## Known gaps in the Flutter desktop build
 
-- The bundled engine is ad-hoc signed and sits in `Contents/Resources`, which
-  will fail notarization. Moving it to `Contents/MacOS` and signing it in the
-  same build phase is the fix; `ProcessEngine.resolveBinary` already probes
-  that path.
+- The bundled engines sit in `Contents/MacOS` and are signed in the same build
+  phase as they are copied, which is the layout notarization requires —
+  executable code in `Contents/Resources` is treated as data and rejected.
+  Locally that signature is ad-hoc, through the identical code path; a real one
+  needs a Developer ID certificate, and therefore a paid Apple Developer
+  Program membership.
 - Windows and Linux targets are not scaffolded. The engine side is the easy
   part (`ProcessEngine` already looks for `stockfish.exe` next to the
   executable); `sqflite` is the real work, since it is Android/iOS/macOS only

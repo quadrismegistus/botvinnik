@@ -4,9 +4,11 @@
 #   macos/Runner/Resources/retro/{turochamp,bernstein,sargon}
 #
 # The "Bundle chess engine" Xcode build phase copies that dir into
-# Contents/Resources/retro/ at build time, and retro_engine_io.dart spawns
-# from there. Gitignored (built, not committed) — like the Stockfish binary
-# beside it.
+# Contents/MacOS/retro/ at build time and signs each binary, and
+# retro_engine_io.dart spawns from there. Contents/MacOS rather than
+# Contents/Resources because executable code in Resources fails notarization.
+# This directory is only the staging source; it stays where it is.
+# Gitignored (built, not committed) — like the Stockfish binary beside it.
 #
 # Stockfish itself is staged separately (drop a binary at
 # Runner/Resources/stockfish, or the app falls back to a brew install).
