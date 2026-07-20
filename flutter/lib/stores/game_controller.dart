@@ -67,6 +67,11 @@ class GameController extends ChangeNotifier {
   ChessApi? _chess;
 
   Position position = Chess.initial;
+  /// The position the game began from — the standard start, or a FEN handed to
+  /// [newGame]. This is what ply 0 shows and what undoing the first move
+  /// returns to; without it both fall back to the standard start on a game that
+  /// started from a FEN.
+  String _startFen = Chess.initial.fen;
   Move? lastMove;
   final List<MoveRecord> moves = [];
   bool botThinking = false;
@@ -255,6 +260,7 @@ class GameController extends ChangeNotifier {
     position = fromFen == null
         ? Chess.initial
         : Chess.fromSetup(Setup.parseFen(fromFen.trim()));
+    _startFen = position.fen;
     lastMove = null;
     moves.clear();
     botThinking = false;
@@ -315,7 +321,7 @@ class GameController extends ChangeNotifier {
     }
     // prepended: this batch is OLDER than anything a previous undo stored
     _redoStack.pushUndone(undone);
-    final fen = moves.isEmpty ? Chess.initial.fen : moves.last.fenAfter;
+    final fen = moves.isEmpty ? _startFen : moves.last.fenAfter;
     position = Chess.fromSetup(Setup.parseFen(fen));
     lastMove =
         moves.isEmpty ? null : NormalMove.fromUci(moves.last.uci);
@@ -848,7 +854,7 @@ class GameController extends ChangeNotifier {
   String? get browseFen {
     final p = _browsePly;
     if (p == null) return null;
-    return p == 0 ? Chess.initial.fen : moves[p - 1].fenAfter;
+    return p == 0 ? _startFen : moves[p - 1].fenAfter;
   }
 
   NormalMove? get browseLastMove {
@@ -1073,7 +1079,7 @@ class GameController extends ChangeNotifier {
   }
 
   List<String> _fenHistory() =>
-      [Chess.initial.fen, ...moves.map((m) => m.fenAfter)];
+      [_startFen, ...moves.map((m) => m.fenAfter)];
 
   String _sanOf(Position pos, Move move) {
     final (_, san) = pos.makeSan(move);
