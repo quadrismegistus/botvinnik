@@ -545,15 +545,15 @@ class _PlayTabState extends State<PlayTab> {
               SizedBox(
                   width: board,
                   height: kPlayerPlate,
-                  child: PlayerPlate(key: ValueKey(botSide), side: botSide)),
-              const GradeStrip(),
+                  child: PlayerPlate(
+                      key: ValueKey(botSide), side: botSide, below: true)),
               _viewRow(),
               Expanded(child: _panel()),
             ],
           );
         }
-        // leave room for the grade strip under the board. The floor applies
-        // to the WIDTH share only — flooring the height too would overflow a
+        // The board takes the width, capped by height. The floor applies to
+        // the WIDTH share only — flooring the height too would overflow a
         // window dragged short.
         final settings = context.watch<SettingsStore>();
         final boardSize = wideBoardSize(
@@ -577,8 +577,8 @@ class _PlayTabState extends State<PlayTab> {
                         height: kPlayerPlate,
                         child: PlayerPlate(
                             key: ValueKey(game.whiteAtBottom ? 'w' : 'b'),
-                            side: game.whiteAtBottom ? 'w' : 'b')),
-                    const GradeStrip(),
+                            side: game.whiteAtBottom ? 'w' : 'b',
+                            below: true)),
                   ],
                 ),
               ),

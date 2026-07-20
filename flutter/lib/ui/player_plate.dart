@@ -30,7 +30,12 @@ class PlayerMaterial {
 class PlayerPlate extends StatelessWidget {
   /// Which side this plate is for.
   final String side; // 'w' | 'b'
-  const PlayerPlate({super.key, required this.side});
+  /// True when this plate sits BELOW the board. It then hugs the top of its
+  /// box so the name is flush against the board; the plate above the board
+  /// (the default) hugs the bottom. Either way the slack in the box falls on
+  /// the outer edge instead of showing as a gap between board and name.
+  final bool below;
+  const PlayerPlate({super.key, required this.side, this.below = false});
 
   static const _startCount = {
     Role.pawn: 8,
@@ -74,6 +79,7 @@ class PlayerPlate extends StatelessWidget {
             Image(image: assets[_kindOf(opp, r)]!, width: 16, height: 16),
     ];
     return Container(
+      alignment: below ? Alignment.topLeft : Alignment.bottomLeft,
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
       child: Row(
         children: [

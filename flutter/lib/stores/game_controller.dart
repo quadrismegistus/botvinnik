@@ -94,7 +94,7 @@ class GameController extends ChangeNotifier {
   /// Non-null while a Maia move is waiting on its weights or on the runtime
   /// rather than on inference, with enough detail to show a real bar.
   ///
-  /// Surfaced by [GradeStrip], NOT by [statusLine]. statusLine looks like the
+  /// Surfaced by the Insights card, NOT by [statusLine]. statusLine looks like the
   /// right home and is not: both of its call sites sit behind
   /// `if (game.gameOver)`, so nothing it returns is ever visible during a
   /// game. The download line lived there and was never once shown — which is

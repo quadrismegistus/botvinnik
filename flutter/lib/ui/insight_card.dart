@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../brain/types.dart';
+import '../engine/maia_progress.dart';
 import '../stores/game_controller.dart';
 import 'grade_strip.dart';
 
@@ -16,13 +17,31 @@ class InsightCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final game = context.watch<GameController>();
     final table = context.read<ClassTable>();
+
+    // Loading wins: a heavy engine (Maia/retro/Garbo) is still compiling, and
+    // until it does there is nothing to grade or play. This used to be the one
+    // always-visible slot under the board; that strip is gone (the board took
+    // its height), so the card is the slot now.
+    final loading = game.maiaProgress;
+    if (loading != null) {
+      return _CardShell(
+          child: _loadingLine(loading, game.persona?.name ?? 'Maia'));
+    }
+
     final grade = game.lastPlayerGrade;
+    final threat = _threat(game);
 
     if (grade == null) {
-      return const _CardShell(
-        child: Text(
-          'Play a move — its grade and what the engine thinks appear here.',
-          style: TextStyle(color: Colors.white38, fontSize: 13),
+      return _CardShell(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Play a move — its grade and what the engine thinks appear here.',
+              style: TextStyle(color: Colors.white38, fontSize: 13),
+            ),
+            if (threat != null) ...[const SizedBox(height: 10), threat],
+          ],
         ),
       );
     }
@@ -92,6 +111,10 @@ class InsightCard extends StatelessWidget {
       ));
     }
 
+    if (threat != null) {
+      children.add(Padding(padding: const EdgeInsets.only(top: 10), child: threat));
+    }
+
     return _CardShell(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -99,6 +122,77 @@ class InsightCard extends StatelessWidget {
       ),
     );
   }
+
+  /// What the board's red arrow is threatening, as a chip — the board already
+  /// worked this out to decide whether to draw the arrow, so this only names
+  /// it. Hidden while browsing or previewing, where the live overlays are off
+  /// and a warning about the current position would contradict what is shown.
+  Widget? _threat(GameController game) {
+    if (game.browsing || game.previewing) return null;
+    final san = game.threatSan;
+    if (san == null) return null;
+    final gain = game.threatGain;
+    // null gain is mate: the brain reports Infinity, which JSON cannot carry
+    final cost = gain == null
+        ? 'mate'
+        : 'costs ${gain.abs().toStringAsFixed(gain.abs() >= 10 ? 0 : 1)}';
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      decoration: BoxDecoration(
+        color: const Color(0x1FC62828),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.warning_amber_rounded,
+              size: 15, color: Color(0xFFE0908E)),
+          const SizedBox(width: 8),
+          Text.rich(
+            TextSpan(children: [
+              const TextSpan(text: 'Threat: '),
+              TextSpan(
+                  text: san,
+                  style: const TextStyle(fontWeight: FontWeight.w700)),
+            ]),
+            style: const TextStyle(
+                color: Color(0xFFE0908E),
+                fontSize: 13,
+                fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(width: 8),
+          Text(cost,
+              style: const TextStyle(color: Colors.white38, fontSize: 12)),
+        ],
+      ),
+    );
+  }
+
+  /// What a Maia is doing before it can play: a determinate bar while its
+  /// weights download, an indeterminate one while the WebAssembly compiles.
+  /// Compiling ~13MB is the longest single part of the wait and reports
+  /// nothing, so a bar that fills and stops would look more broken than none.
+  Widget _loadingLine(MaiaProgress p, String name) => Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(p.describe(name),
+              style: const TextStyle(color: Colors.white70, fontSize: 13)),
+          const SizedBox(height: 6),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(2),
+            child: LinearProgressIndicator(
+              value: p.fraction, // null → indeterminate, which is honest
+              minHeight: 3,
+              backgroundColor: const Color(0xFF3a3733),
+              valueColor:
+                  const AlwaysStoppedAnimation<Color>(Color(0xFFb06f8a)),
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(p.reassurance,
+              style: const TextStyle(color: Colors.white30, fontSize: 10.5)),
+        ],
+      );
 
   String? _prose(MoveGrade grade, Explanation? expl) {
     if (expl == null) return null;

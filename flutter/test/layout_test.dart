@@ -42,13 +42,16 @@ void main() {
       // "the board is small even at best case", with a visible margin down
       // both sides. Measured off that screenshot — a 393pt-wide viewport whose
       // body is ~556pt after the app bar and the bottom nav — the old reserve
-      // gave 348 and left 45pt of width unused. The phone rule spends that
-      // width on the board; only the two player plates, which are real fixed
-      // furniture, take their 2*kPlayerPlate of HEIGHT — so on that same short
-      // body the board is 388, not the full 393, and never the 348 it was.
-      expect(narrowBoardSize(393, 556), 388);
-      expect(narrowBoardSize(393, 556),
-          greaterThan(stackedBoardSize(393, 556, kNarrowChrome)));
+      // gave 348 and left 45pt of width unused. With the grade strip moved into
+      // the Insights card, the only furniture left under the board is the two
+      // plates and the view bar, which this short body has the height for — so
+      // the board gets the full 393, and never the 348 it was.
+      expect(narrowBoardSize(393, 556), 393);
+      // on a genuinely short body the board is height-bound, and there the
+      // phone rule (no 96px pane reserve) is strictly bigger than the desktop
+      // rule — which is the whole reason a phone gets its own chrome
+      expect(narrowBoardSize(393, 470),
+          greaterThan(stackedBoardSize(393, 470, kNarrowChrome)));
       // and every phone in portrait, not just that one: the board beats the
       // pane-reserve alternative it replaced (or ties it, when both hit the
       // width cap), and board + plates + furniture still fit with no scroll.
@@ -156,15 +159,17 @@ void main() {
     test('is capped by height, so a short window does not overflow', () {
       // the floor applies to the WIDTH share only — flooring the height too
       // is the bug this guards
-      expect(wideBoardSize(1400, 300, 0.58), lessThanOrEqualTo(300 - kGradeStrip));
+      expect(wideBoardSize(1400, 300, 0.58),
+          lessThanOrEqualTo(300 - 2 * kPlayerPlate));
     });
 
-    test('leaves room for a two-line grade strip', () {
-      // a one-line reserve put the threat explanation below the fold, which
-      // reads as the feature simply not working
+    test('leaves room for the plates above and below it', () {
+      // the board shares the column with a plate top and bottom; without the
+      // reserve it would eat them on a short window
       for (var h = 700.0; h <= 1400; h += 53) {
-        expect(wideBoardSize(1600, h, 0.58) + kGradeStrip, lessThanOrEqualTo(h),
-            reason: 'no room for the strip at height $h');
+        expect(wideBoardSize(1600, h, 0.58) + 2 * kPlayerPlate,
+            lessThanOrEqualTo(h),
+            reason: 'no room for the plates at height $h');
       }
     });
 
