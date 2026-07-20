@@ -23,10 +23,10 @@ flowchart LR
 
     BRAIN ==>|"imported as TypeScript<br/>via the $brain alias"| SVELTE["svelte/<br/>SvelteKit app<br/>+ Tauri desktop shell"]
     BRAIN ==>|"npm run build:brain<br/>esbuild → IIFE, global 'brain'"| BUNDLE["flutter/assets/brain.js<br/>committed to git;<br/>CI fails if it drifts"]
-    BUNDLE ==> FLUTTER["flutter/<br/>iOS, Android, macOS,<br/>experimental web"]
+    BUNDLE ==> FLUTTER["flutter/<br/>web, macOS, iOS<br/>(Android not scaffolded)"]
 
-    SVELTE --> WEB(["botvinnik.app<br/>GitHub Pages, on push to main"])
-    FLUTTER --> APPS(["not shipped yet"])
+    FLUTTER --> WEB(["botvinnik.app<br/>GitHub Pages, on push to main"])
+    SVELTE -.->|"frozen 2026-07-19<br/>builds in CI, ships nowhere"| GONE(["retired"])
 ```
 
 The two apps never import each other. The Svelte app compiles the brain's
