@@ -9,6 +9,8 @@
 //   cd flutter && flutter test integration_test/garbo_native_test.dart -d macos
 //   flutter test integration_test/garbo_native_test.dart -d <simulator-id>
 
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 
@@ -108,6 +110,31 @@ void main() {
     e.dispose();
     expect(await e.move(_start), isNull);
   });
+
+  test('a disposed engine gives its JavaScriptCore back', () async {
+    // Isolate.kill reclaims the Dart heap and nothing else: the JSC context
+    // group is native memory that only JavascriptRuntime.dispose() releases,
+    // and garbochess allocates a 4M-slot hash table inside it. Killing rather
+    // than asking measured ~167MB per disposed engine, monotone — which is
+    // jetsam territory on a phone after a few bot changes.
+    //
+    // RSS is a blunt instrument, deliberately: the signal here is ~800MB
+    // against a few tens, so the threshold does not have to be delicate to
+    // separate the two.
+    final before = ProcessInfo.currentRss;
+    for (var i = 0; i < 5; i++) {
+      final e = GarboEngine();
+      await e.move(_start, movetimeMs: 200);
+      e.dispose();
+      // the child takes its shutdown after the search returns, so give it a
+      // moment to actually run js.dispose() before measuring
+      await Future<void>.delayed(const Duration(milliseconds: 400));
+    }
+    final grew = (ProcessInfo.currentRss - before) / (1024 * 1024);
+    expect(grew, lessThan(250),
+        reason: 'five create/dispose cycles grew RSS by ${grew.round()}MB; '
+            'leaking the JSC context costs ~167MB each');
+  }, timeout: const Timeout(Duration(seconds: 120)));
 
   test('an illegal FEN answers null rather than throwing', () async {
     final e = GarboEngine();
