@@ -28,8 +28,8 @@ done
 if [ ! -f scripts/wasm-engine/stockfish.js ]; then
 	echo ">> setting up scripts/wasm-engine"
 	mkdir -p scripts/wasm-engine
-	cp static/wasm/stockfish.js scripts/wasm-engine/stockfish.js
-	cp static/wasm/stockfish.wasm scripts/wasm-engine/stockfish.wasm
+	cp vendor/wasm/stockfish.js scripts/wasm-engine/stockfish.js
+	cp vendor/wasm/stockfish.wasm scripts/wasm-engine/stockfish.wasm
 	printf '{"type":"commonjs"}\n' >scripts/wasm-engine/package.json
 	printf '#!/bin/sh\nDIR=$(cd "$(dirname "$0")" && pwd)\nexec node "$DIR/stockfish.js"\n' >scripts/wasm-engine/run.sh
 	chmod +x scripts/wasm-engine/run.sh

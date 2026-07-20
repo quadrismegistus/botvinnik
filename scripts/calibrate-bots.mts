@@ -43,7 +43,7 @@ import {
 	specToRecipe,
 	type Substrate
 } from '../brain/engine/botRecipe';
-import type { EngineMove } from '../brain/engine/stockfish';
+import type { EngineMove } from '../brain/engine/types';
 import { isMaiaId, maiaBandOf, maiaMoveNode, maiaTempOf, preloadMaiaBands } from './maia-node.mts';
 import { isMaia3Id, maia3EloOf, maiaMove3Node, preloadMaia3 } from './maia3-node.mts';
 

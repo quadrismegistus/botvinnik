@@ -4,7 +4,9 @@
 
 ## Where the project is (2026-07-19)
 
-The **Flutter web app is live at botvinnik.app** and at roster parity: 32 of 35 personas, which is the ceiling for any browser (Dala needs a native lc0 sidecar and is desktop-only in both apps). Since 2026-07-20 **macOS and iOS offer the same 32**. It is a real offline PWA and makes no third-party request unless you pick a Maia. The **Svelte app is frozen** (`svelte/FROZEN.md`) — it no longer ships, still builds in CI, and remains the reference implementation for Dala.
+The **Flutter web app is live at botvinnik.app** and at roster parity: 32 of 35 personas, which is the ceiling for any browser (Dala needs a native lc0 sidecar). Since 2026-07-20 **macOS and iOS offer the same 32**. It is a real offline PWA and makes no third-party request unless you pick a Maia.
+
+The **SvelteKit app the project began as was retired on 2026-07-20**, having shipped the site until 2026-07-19 and been frozen since. It is preserved whole at the `svelte-eol` tag; `brain/` is what outlived it. One app, one codebase, one review.
 
 The **synchronous brain bridge** is the constraint that shaped the port: one eval in, one JSON string out, so a brain function returning a Promise crosses as `{}`. The last three families sidestepped it entirely by running in Web Workers their Dart clients drive directly (retro, Garbo, Maia) — the bridge only constrains work that must go *through the brain*. See `ARCHITECTURE.md`.
 
@@ -84,11 +86,12 @@ Open an issue. Put the hard-won detail *in the issue* — measured numbers, file
   skips positions where the bot is about to reply). Threat arrows are also
   fen-tagged: display checks `threat.fen === game.fen` so a stale arrow
   can't survive a move while the next probe is still running.
-  **This is Svelte-only.** Flutter enforces the same ordering guarantee with
-  completely different machinery — a four-level preempting priority queue
-  (`botMove > practiceCheck > threatProbe > analysis`, `engine/arbiter.dart`)
-  plus a 1.5s "sprint" wait that lets your move's analysis reach depth 10
-  before the bot's search preempts it. A fix to one does not carry to the
-  other; see ARCHITECTURE.md.
+  **That description is the retired Svelte app's.** The invariant survives it:
+  Flutter enforces the same ordering with a four-level preempting priority
+  queue (`botMove > practiceCheck > threatProbe > analysis`,
+  `engine/arbiter.dart`) plus a 1.5s "sprint" wait that lets your move's
+  analysis reach depth 10 before the bot's search preempts it. Kept here
+  because the *reason* — never truncate a bot's calibrated search — outlives
+  both implementations.
 - localhost and the deployed site are separate origins with separate
   storage; Export/Import data is the bridge.
