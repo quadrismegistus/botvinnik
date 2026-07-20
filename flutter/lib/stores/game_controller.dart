@@ -67,6 +67,11 @@ class GameController extends ChangeNotifier {
   ChessApi? _chess;
 
   Position position = Chess.initial;
+  /// The position the game began from — the standard start, or a FEN handed to
+  /// [newGame]. This is what ply 0 shows and what undoing the first move
+  /// returns to; without it both fall back to the standard start on a game that
+  /// started from a FEN.
+  String _startFen = Chess.initial.fen;
   Move? lastMove;
   final List<MoveRecord> moves = [];
   bool botThinking = false;
@@ -233,12 +238,29 @@ class GameController extends ChangeNotifier {
 
   // ---- game actions ----
 
-  void newGame() {
+  /// Whether [fen] is a full, legal position we can start from — used to
+  /// validate a pasted FEN before handing it to [newGame].
+  static bool isPlayableFen(String fen) {
+    try {
+      Chess.fromSetup(Setup.parseFen(fen.trim()));
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Start a fresh game. [fromFen] drops onto an arbitrary position instead of
+  /// the standard start (an analysis board when both sides are the human) —
+  /// the caller must have validated it with [isPlayableFen].
+  void newGame({String? fromFen}) {
     _browsePly = null;
     _redoStack.clear();
     _gen++;
     _arbiter.bumpGeneration();
-    position = Chess.initial;
+    position = fromFen == null
+        ? Chess.initial
+        : Chess.fromSetup(Setup.parseFen(fromFen.trim()));
+    _startFen = position.fen;
     lastMove = null;
     moves.clear();
     botThinking = false;
@@ -299,7 +321,7 @@ class GameController extends ChangeNotifier {
     }
     // prepended: this batch is OLDER than anything a previous undo stored
     _redoStack.pushUndone(undone);
-    final fen = moves.isEmpty ? Chess.initial.fen : moves.last.fenAfter;
+    final fen = moves.isEmpty ? _startFen : moves.last.fenAfter;
     position = Chess.fromSetup(Setup.parseFen(fen));
     lastMove =
         moves.isEmpty ? null : NormalMove.fromUci(moves.last.uci);
@@ -494,11 +516,13 @@ class GameController extends ChangeNotifier {
         DateTime.now().difference(sprintStart).inMilliseconds < 1500) {
       await Future.delayed(const Duration(milliseconds: 50));
     }
-    if (gen != _gen) {
-      botThinking = false;
-      notifyListeners();
-      return;
-    }
+    // Generation changed under us (a new game). Whoever bumped it owns
+    // botThinking now — newGame sets it false and may immediately start the new
+    // game's own bot turn (setting it true again); undo/redo can't run while it
+    // is true — so clearing it here would clobber that fresh turn, re-enabling
+    // re-entry. Just bail. (The finally guards the same way: it only touches
+    // botThinking when gen == _gen.)
+    if (gen != _gen) return;
     try {
       final uci = await _pickBotMove(p);
       if (gen != _gen || uci == null) return;
@@ -830,7 +854,7 @@ class GameController extends ChangeNotifier {
   String? get browseFen {
     final p = _browsePly;
     if (p == null) return null;
-    return p == 0 ? Chess.initial.fen : moves[p - 1].fenAfter;
+    return p == 0 ? _startFen : moves[p - 1].fenAfter;
   }
 
   NormalMove? get browseLastMove {
@@ -1015,10 +1039,12 @@ class GameController extends ChangeNotifier {
     log('backfilled label=${record.grade?.label}');
 
     // auto-collect big mistakes as practice puzzles (web maybeCollect) — but
-    // only YOUR mistakes. Practice is for drilling your own blunders; a bot's
-    // (including either side of a bot-vs-bot game) is not yours to fix.
+    // only YOUR mistakes, and only in a real GAME. Practice drills your own
+    // blunders against a bot; a bot's move (either side of bot-vs-bot) is not
+    // yours to fix, and the analysis board (both sides human, botEnabled false)
+    // is exploration — its "mistakes" are deliberate, not puzzles to drill.
     final practice = _practice;
-    if (practice != null && isHumanSide(record.color)) {
+    if (practice != null && botEnabled && isHumanSide(record.color)) {
       final prevUci =
           record.ply >= 2 ? moves[record.ply - 2].uci : null;
       await practice.maybeCollect(_storedMoveOf(record),
@@ -1053,7 +1079,7 @@ class GameController extends ChangeNotifier {
   }
 
   List<String> _fenHistory() =>
-      [Chess.initial.fen, ...moves.map((m) => m.fenAfter)];
+      [_startFen, ...moves.map((m) => m.fenAfter)];
 
   String _sanOf(Position pos, Move move) {
     final (_, san) = pos.makeSan(move);

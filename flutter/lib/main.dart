@@ -181,7 +181,10 @@ class _BootGateState extends State<BootGate> {
             home: Builder(
               builder: (context) => KeyboardControls(
                 game: context.read<GameController>(),
-                enabled: () => _tab.value == 0,
+                review: context.read<ReviewController>(),
+                practice: context.read<PracticeController>(),
+                settings: context.read<SettingsStore>(),
+                currentTab: () => _tab.value,
                 child: AppShell(tab: _tab),
               ),
             ),
@@ -328,6 +331,20 @@ class _AppShellState extends State<AppShell> {
         _ => throw RangeError.index(i, null, 'tab'),
       };
 
+  /// The keyboard-shortcuts button, only where a keyboard is plausible (a wide
+  /// viewport). Shown on the tabs that have bindings — the sheet now documents
+  /// all of them, so it is no longer Play-only.
+  List<Widget> _keyboardHelp(BuildContext context) =>
+      MediaQuery.sizeOf(context).width >= _PlayTabState._wideBreakpoint
+          ? [
+              IconButton(
+                onPressed: () => showKeyboardHelp(context),
+                icon: const Icon(Icons.keyboard_outlined),
+                tooltip: 'Keyboard shortcuts',
+              )
+            ]
+          : const [];
+
   PreferredSizeWidget _appBar(BuildContext context) {
     switch (_tab) {
       case 1:
@@ -342,6 +359,7 @@ class _AppShellState extends State<AppShell> {
             '${practice.sessionStreak > 1 ? ' · streak ${practice.sessionStreak}' : ''}',
             style: const TextStyle(fontSize: 16),
           ),
+          actions: _keyboardHelp(context),
         );
       case 2:
         // the review renders inside this tab rather than as a pushed route,
@@ -360,6 +378,7 @@ class _AppShellState extends State<AppShell> {
           ),
           title: Text('${game['result']} · ${game['botPersona'] ?? 'game'}',
               style: const TextStyle(fontSize: 15)),
+          actions: _keyboardHelp(context),
         );
       case 3:
         return AppBar(
@@ -607,7 +626,9 @@ class _PlayTabState extends State<PlayTab> {
 
   Widget _stackedPanel() {
     final game = context.watch<GameController>();
-    final shown = _panels(context).toList()..sort();
+    // shown in the view-bar order, not numeric id order
+    final shown = _panels(context).toList()
+      ..sort((a, b) => _paneOrder.indexOf(a).compareTo(_paneOrder.indexOf(b)));
     return SingleChildScrollView(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -689,6 +710,13 @@ class _PlayTabState extends State<PlayTab> {
     (Icons.menu_book_outlined, 'Book'),
   ];
 
+  /// The order the panels are SHOWN in, by their stable id (the index into
+  /// [_tabs] / [_paneAt], which never changes — so persisted selections
+  /// (`botvinnik-panels`) stay valid without a migration). Analysis first —
+  /// Tree and Chart — then the line list directly above the move list:
+  /// Insights, Tree, Chart, Lines, Moves, Book.
+  static const List<int> _paneOrder = [0, 2, 3, 1, 4, 5];
+
   /// [multi] makes the bar inclusive: tapping toggles a panel rather than
   /// replacing the selection. The last one cannot be turned off — an empty
   /// right-hand column would just look broken.
@@ -698,7 +726,7 @@ class _PlayTabState extends State<PlayTab> {
       color: const Color(0xFF1f1e1b),
       child: Row(
         children: [
-          for (var i = 0; i < tabs.length; i++)
+          for (final i in _paneOrder)
             Expanded(
               child: InkWell(
                 onTap: () {

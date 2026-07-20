@@ -112,15 +112,28 @@ void main() {
 
   test('every binding in the help sheet has a description', () {
     for (final mac in [true, false]) {
-      final bindings = KeyboardControls.bindingsFor(mac: mac);
-      expect(bindings, isNotEmpty);
-      for (final (keys, what) in bindings) {
-        expect(keys.trim(), isNotEmpty);
-        expect(what.trim(), isNotEmpty);
+      final groups = KeyboardControls.bindingsByTab(mac: mac);
+      expect(groups, isNotEmpty);
+      for (final (tab, binds) in groups) {
+        expect(tab.trim(), isNotEmpty);
+        expect(binds, isNotEmpty, reason: '$tab has no bindings');
+        for (final (keys, what) in binds) {
+          expect(keys.trim(), isNotEmpty);
+          expect(what.trim(), isNotEmpty);
+        }
       }
     }
-    // the modifier glyphs differ by platform
-    expect(KeyboardControls.bindingsFor(mac: true).last.$1, contains('Cmd'));
-    expect(KeyboardControls.bindingsFor(mac: false).last.$1, contains('Ctrl'));
+    // all three tabs with keys are documented
+    final tabs =
+        KeyboardControls.bindingsByTab(mac: true).map((g) => g.$1).toList();
+    expect(tabs, containsAll(['Play', 'Practice', 'Review']));
+    // the modifier glyphs differ by platform — undo/redo live in the Play group
+    String playRedo(bool mac) => KeyboardControls.bindingsByTab(mac: mac)
+        .firstWhere((g) => g.$1 == 'Play')
+        .$2
+        .last
+        .$1;
+    expect(playRedo(true), contains('Cmd'));
+    expect(playRedo(false), contains('Ctrl'));
   });
 }
