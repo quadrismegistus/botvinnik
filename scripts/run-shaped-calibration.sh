@@ -56,19 +56,25 @@ LABEL="full honest grid (n=50, ~25 min)"
 ENGINE=scripts/wasm-engine/run.sh
 SUBSTRATE=wasm
 
-# Desktop knots: measure against the EXACT binary the Tauri app ships (the
-# big-net sidecar — much stronger than the web's lite-single at equal depth,
-# so the WASM knot table mislabels desktop Squares).
+# Native knots: measure against the EXACT binary the macOS app ships — the one
+# stage-macos-engines.sh stages and the build phase copies into
+# Contents/MacOS. Big-net Stockfish 18, much stronger than the web's
+# lite-single at equal depth, which is why the WASM knot table mislabels
+# native Squares (#104).
+#
+# This pointed at src-tauri/binaries/ until the Tauri shell was removed
+# (2026-07-20). NB iOS is a THIRD substrate — Stockfish 16 over FFI — which
+# this harness cannot drive; see #104.
 # flags combine: --native picks the substrate, --scan picks the model, and
 # each (out, state) pairing stays distinct so no baseline is ever overwritten
 for arg in "$@"; do
 case "$arg" in
 --native)
-	ENGINE=src-tauri/binaries/stockfish-aarch64-apple-darwin
-	[ -x "$ENGINE" ] || { echo "sidecar missing: $ENGINE"; exit 1; }
+	ENGINE=flutter/macos/Runner/Resources/stockfish
+	[ -x "$ENGINE" ] || { echo "engine missing: $ENGINE — run flutter/stage-macos-engines.sh"; exit 1; }
 	SUBSTRATE=native
 	OUT=data/bot-shaped-native-calib.json
-	LABEL="full honest grid vs Tauri sidecar (native substrate)"
+	LABEL="full honest grid vs the bundled macOS Stockfish (native substrate)"
 	;;
 --scan)
 	SCAN_ARG="--scan"
