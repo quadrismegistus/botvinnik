@@ -111,6 +111,38 @@ void main() {
     });
   });
 
+  group('preview tagging', () {
+    // The Insights move line and the threat line share ONE preview slot.
+    // Without a tag each button reads the shared `previewing` flag and both
+    // show STOP while only one is actually running.
+    test('starting one preview replaces the other and the tag follows',
+        () async {
+      final g = await makeGame();
+      final start = g.position.fen;
+
+      g.startPreview(start, ['e2e4', 'e7e5'], tag: 'move');
+      expect(g.previewing, isTrue);
+      expect(g.previewTag, 'move');
+
+      // the threat line takes over the slot
+      g.startPreview(start, ['d2d4'], tag: 'threat');
+      expect(g.previewing, isTrue);
+      expect(g.previewTag, 'threat');
+
+      g.stopPreview();
+      expect(g.previewing, isFalse);
+      expect(g.previewTag, isNull); // nothing is playing, so nobody shows STOP
+    });
+
+    test('an illegal line never starts a preview, so no tag is left behind',
+        () async {
+      final g = await makeGame();
+      g.startPreview(g.position.fen, ['e2e5'], tag: 'threat'); // not a legal move
+      expect(g.previewing, isFalse);
+      expect(g.previewTag, isNull);
+    });
+  });
+
   group('practice collection', () {
     // Practice drills YOUR blunders from real games. The analysis board is
     // exploration — both sides are you, its "mistakes" are deliberate, and

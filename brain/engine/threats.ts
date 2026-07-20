@@ -17,6 +17,11 @@ export interface Threat {
 	uci: string;
 	san: string;
 	gain: number; // material the threatening side nets, in pawns (Infinity = mate)
+	// the line the judgment is made over, as UCIs from the null-move position
+	// — NOT the engine's raw pv. It stops where the exchange settles, which is
+	// exactly the window `gain` counts; replaying further would show captures
+	// past the horizon that the gain never credited. Playable as a preview.
+	line: string[];
 	// current squares of the pieces the line wins (the mated king for a mate).
 	// A pv is a fiction as a script but a proof as a bound: the defender's
 	// moves are best resistance, so it guarantees the VALUE, never the
@@ -116,6 +121,8 @@ export function judgeThreat(
 			uci: best.pv[0],
 			san: getSan(nullFen, best.pv[0]) ?? best.pv[0],
 			gain: Infinity,
+			// the whole mating line is the point, so it is all judged
+			line: best.pv.slice(0, MAX_JUDGE_PLIES),
 			targets: king ? [king] : []
 		};
 	}
@@ -139,7 +146,10 @@ export function judgeThreat(
 			: [first!.sq]; // the fallback only fires on a bare first capture
 	// a threat must either name a victim or be worth ≥ VICTIMLESS_MIN_GAIN
 	if (targets.length === 0 && net < VICTIMLESS_MIN_GAIN) return null;
-	return { fen, uci: pv[0], san: getSan(nullFen, pv[0]) ?? pv[0], gain: net, targets };
+	// the settled window when there is one; otherwise only the first capture,
+	// which is all the static fallback actually judged
+	const line = quiet.plies > 0 ? pv.slice(0, quiet.plies) : [pv[0]];
+	return { fen, uci: pv[0], san: getSan(nullFen, pv[0]) ?? pv[0], gain: net, line, targets };
 }
 
 function kingSquare(fen: string, color: Color): string | null {
@@ -181,6 +191,7 @@ export function judgeTacticalWin(
 			uci: best.pv[0],
 			san: getSan(fen, best.pv[0]) ?? best.pv[0],
 			gain: Infinity,
+			line: best.pv.slice(0, MAX_JUDGE_PLIES),
 			targets: king ? [king] : []
 		};
 	}
@@ -192,7 +203,9 @@ export function judgeTacticalWin(
 	if (net < MIN_GAIN) return null;
 	const targets = quiet.plies > 0 ? victimSquares(fen, pv, quiet.plies) : [first!.sq];
 	if (targets.length === 0 && net < VICTIMLESS_MIN_GAIN) return null;
-	return { fen, uci: pv[0], san: getSan(fen, pv[0]) ?? pv[0], gain: net, targets };
+	// the same settled window as judgeThreat — the line the gain is counted over
+	const line = quiet.plies > 0 ? pv.slice(0, quiet.plies) : [pv[0]];
+	return { fen, uci: pv[0], san: getSan(fen, pv[0]) ?? pv[0], gain: net, line, targets };
 }
 
 // Where, on the CURRENT board, do the pieces the line wins stand? Each capture

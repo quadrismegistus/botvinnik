@@ -8930,6 +8930,8 @@ var brain = (() => {
         uci: best.pv[0],
         san: getSan(nullFen, best.pv[0]) ?? best.pv[0],
         gain: Infinity,
+        // the whole mating line is the point, so it is all judged
+        line: best.pv.slice(0, MAX_JUDGE_PLIES),
         targets: king ? [king] : []
       };
     }
@@ -8940,7 +8942,8 @@ var brain = (() => {
     if (net < MIN_GAIN) return null;
     const targets = quiet.plies > 0 ? victimSquares(nullFen, pv, quiet.plies) : [first.sq];
     if (targets.length === 0 && net < VICTIMLESS_MIN_GAIN) return null;
-    return { fen, uci: pv[0], san: getSan(nullFen, pv[0]) ?? pv[0], gain: net, targets };
+    const line = quiet.plies > 0 ? pv.slice(0, quiet.plies) : [pv[0]];
+    return { fen, uci: pv[0], san: getSan(nullFen, pv[0]) ?? pv[0], gain: net, line, targets };
   }
   function kingSquare(fen, color) {
     const c = new Chess(fen);
@@ -8967,6 +8970,7 @@ var brain = (() => {
         uci: best.pv[0],
         san: getSan(fen, best.pv[0]) ?? best.pv[0],
         gain: Infinity,
+        line: best.pv.slice(0, MAX_JUDGE_PLIES),
         targets: king ? [king] : []
       };
     }
@@ -8977,7 +8981,8 @@ var brain = (() => {
     if (net < MIN_GAIN) return null;
     const targets = quiet.plies > 0 ? victimSquares(fen, pv, quiet.plies) : [first.sq];
     if (targets.length === 0 && net < VICTIMLESS_MIN_GAIN) return null;
-    return { fen, uci: pv[0], san: getSan(fen, pv[0]) ?? pv[0], gain: net, targets };
+    const line = quiet.plies > 0 ? pv.slice(0, quiet.plies) : [pv[0]];
+    return { fen, uci: pv[0], san: getSan(fen, pv[0]) ?? pv[0], gain: net, line, targets };
   }
   function victimSquares(nullFen, ucis, plies) {
     const c = new Chess(nullFen);
