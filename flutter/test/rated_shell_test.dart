@@ -42,8 +42,8 @@ Future<(GameController, SettingsStore)> _game() async {
 }
 
 Future<void> _pump(WidgetTester tester, GameController g, SettingsStore s,
-    {double width = 900}) async {
-  tester.view.physicalSize = Size(width, 1000);
+    {double width = 900, double height = 1000}) async {
+  tester.view.physicalSize = Size(width, height);
   tester.view.devicePixelRatio = 1.0;
   addTearDown(tester.view.reset);
   await tester.pumpWidget(MultiProvider(
@@ -163,15 +163,17 @@ void main() {
   for (final (label, width, height) in [
     ('wide', 1000.0, 780.0),
     ('narrow', 380.0, 820.0),
+    // The sizes the tall-window pair dodged: a short window makes the board
+    // HEIGHT-constrained, which is where the strip-height miscalculation bit.
+    ('narrow short', 380.0, 430.0),
+    ('narrow squarish', 560.0, 600.0),
+    ('wide short', 800.0, 300.0),
+    ('at the breakpoint', 720.0, 620.0),
   ]) {
     testWidgets('the rated shell does not overflow ($label)', (tester) async {
-      tester.view.physicalSize = Size(width, height);
-      tester.view.devicePixelRatio = 1.0;
-      addTearDown(tester.view.reset);
-
       final (g, s) = await _game();
       g.newGame(fromFen: lopsided, rated: true, timeControl: TimeControl.parse('5+0'));
-      await _pump(tester, g, s, width: width);
+      await _pump(tester, g, s, width: width, height: height);
 
       expect(tester.takeException(), isNull,
           reason: 'the plate tray or the clock overflowed at \$label');

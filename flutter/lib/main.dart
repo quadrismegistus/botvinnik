@@ -877,8 +877,11 @@ class _PlayTabState extends State<PlayTab> {
       // The clock column takes fixed width; the board is what is left of both
       // dimensions, square.
       const clockCol = 132.0;
+      // No 160 floor here: forcing a bigger board than the window can hold is
+      // what overflowed a very short window. A tiny board on a tiny window is
+      // the honest outcome.
       final board = math.max(
-          160.0,
+          64.0,
           math.min(c.maxHeight - kPlayerPlate * 2, c.maxWidth - clockCol - 16));
       Widget plate(String s, {required bool below}) => SizedBox(
           width: board,
@@ -920,8 +923,15 @@ class _PlayTabState extends State<PlayTab> {
 
     // Narrow: the clock rides in the plate strip, so the plate flexes and the
     // clock takes a fixed slice on the outer edge.
+    //
+    // The strip is as tall as its TALLEST child, and that is the clock
+    // (kClockFace 39), not the plate (kPlayerPlate 24) — so the two strips
+    // reserve 2*kClockFace when a clock is present, plate height otherwise.
+    // Reserving the plate height regardless overflowed a short window by the
+    // difference.
+    final stripH = clock == null ? kPlayerPlate : kClockFace;
     final board = math.max(
-        160.0, math.min(c.maxWidth, c.maxHeight - (kPlayerPlate + 4) * 2));
+        64.0, math.min(c.maxWidth, c.maxHeight - (stripH + 4) * 2));
     Widget strip(String s, {required bool below}) => SizedBox(
         width: board,
         child: Row(
