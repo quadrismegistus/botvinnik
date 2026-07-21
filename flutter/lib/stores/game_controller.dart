@@ -260,6 +260,62 @@ class GameController extends ChangeNotifier {
     return null;
   }
 
+  /// The win chance the last graded move started from, the one it ended on,
+  /// and the drop between them — mover's perspective, 0..100.
+  ///
+  /// This is the number the label is computed from (insights.ts classifies on
+  /// win% drop: 20 is a blunder, 10 a mistake, 5 an inaccuracy) and the number
+  /// practice collects on. It shares [_wcDrop] with [_storedMoveOf] so the
+  /// figure the card prints and the figure `maybeCollect` decides on cannot be
+  /// two different computations that drift.
+  ///
+  /// `before` is the best move's eval at [MoveGrade.fenBefore], i.e. what the
+  /// position was worth to the mover before it chose; `after` is what the move
+  /// it played is worth. Both are the mover's own view, so in an ordinary bot
+  /// game they are the player's.
+  ///
+  /// Null until the grade is BACKFILLED, and that gate is load-bearing rather
+  /// than cosmetic: `gradeMove` leaves `evalPawns` null for a move outside the
+  /// pre-move MultiPV lines — which is most bad moves, the ones this number
+  /// exists for — and `winChance(null, null)` is 50. Ungated, the card would
+  /// print a confident delta against an eval the engine never produced, and it
+  /// would print it for exactly the moves whose delta matters. The label is
+  /// withheld until backfill for the same reason.
+  ({double before, double after, double drop})? get lastGradeWinChance {
+    final g = lastPlayerGrade;
+    if (g == null || !g.backfilled) return null;
+    // Memoised on the grade OBJECT, not on a copy of its numbers: grading
+    // replaces the record's grade wholesale (gradeMove, then backfillGrade)
+    // and never edits one in place, so identity is exact here. Worth doing —
+    // this getter is read from build() and the card rebuilds on every
+    // streamed analysis update, and each miss is four synchronous calls
+    // across the JS bridge.
+    if (!identical(g, _wcGrade)) {
+      _wcGrade = g;
+      _wcCache = (
+        before: _grading.winChance(g.bestEval, g.bestMate),
+        after: _grading.winChance(g.evalPawns, g.mate),
+        // NOT before - after: the drop is whatever the collector collects on,
+        // clamp included, and it is defined in exactly one place.
+        drop: _wcDrop(g),
+      );
+    }
+    return _wcCache;
+  }
+
+  MoveGrade? _wcGrade;
+  ({double before, double after, double drop})? _wcCache;
+
+  /// The win% a grade gave away: what the best move was worth minus what the
+  /// move played is worth, both mover-POV.
+  ///
+  /// Clamped at zero because the two numbers come from different searches —
+  /// the backfilled eval is the deeper one, and it can land slightly above the
+  /// pre-move best. A negative loss is not a thing this measures.
+  double _wcDrop(MoveGrade g) => (_grading.winChance(g.bestEval, g.bestMate) -
+          _grading.winChance(g.evalPawns, g.mate))
+      .clamp(0.0, 100.0);
+
   String _settingsSig() =>
       '${_settings.whitePersonaId}|${_settings.blackPersonaId}';
   late String _lastSettingsSig = _settingsSig();
@@ -356,6 +412,12 @@ class GameController extends ChangeNotifier {
     _analysis.clear();
     _partials.clear();
     _controlCache.clear(); // per-fen maps would accrete for the process life
+    // Not a correctness fix — the memo is keyed on the grade object and the
+    // new game's grades are new objects, so a stale entry can never be
+    // returned. This drops the reference so a finished game's last grade is
+    // not held alive by the controller.
+    _wcGrade = null;
+    _wcCache = null;
     _threat = null;
     _analysisFor(position.fen);
     _syncTree(); // playedSans is empty → the model wipes itself
@@ -1255,11 +1317,7 @@ class GameController extends ChangeNotifier {
 
   Map<String, dynamic> _storedMoveOf(MoveRecord m) {
     final g = m.grade;
-    final wcDrop = g == null
-        ? 0.0
-        : (_grading.winChance(g.bestEval, g.bestMate) -
-                _grading.winChance(g.evalPawns, g.mate))
-            .clamp(0.0, 100.0);
+    final wcDrop = g == null ? 0.0 : _wcDrop(g);
     return {
       'ply': m.ply,
       'san': m.san,
