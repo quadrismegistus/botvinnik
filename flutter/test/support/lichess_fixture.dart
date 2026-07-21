@@ -1,0 +1,27 @@
+// A REAL lichess response, pinned.
+//
+// Fetched by hand from
+// `/api/games/user/DrNykterstein?max=2&analysed=true&evals=true&pgnInJson=true&moves=true&sort=dateDesc`
+// on 2026-07-21 — HTTP 200, no token, `access-control-allow-origin: *`, which
+// is also the answer to the auth and CORS questions #134 raised.
+//
+// TRIMMED to the first 30 plies of each game (movetext, PGN and the
+// `analysis` array together, so the three stay consistent); every other field
+// is byte-for-byte what lichess sent, including the result headers of the full
+// games. Nothing here is hand-written: a fixture invented from the docs proves
+// only that the docs were read.
+//
+// What the two games are worth testing over, per DrNykterstein (who is White
+// in the second game and Black in the first):
+//
+//   kAdOQKeh  Black, two inaccuracies — drops 7.4 and 7.3
+//   xKWdG1d1  White, one inaccuracy and one mistake — drops 6.2 and 11.5
+//
+// So a collect threshold of 10 keeps exactly one candidate out of four, which
+// is what the threshold test asserts.
+
+/// The response body, verbatim ndjson — one game per line.
+const String kLichessNdjson = r'''
+{"id":"kAdOQKeh","rated":true,"variant":"standard","speed":"blitz","perf":"blitz","createdAt":1775677143033,"lastMoveAt":1775677513708,"status":"resign","source":"arena","players":{"white":{"user":{"name":"respects_55","id":"respects_55"},"rating":2644,"ratingDiff":-5,"provisional":true,"analysis":{"inaccuracy":3,"mistake":3,"blunder":2,"acpl":24}},"black":{"user":{"name":"DrNykterstein","title":"GM","flair":"people.santa-claus-light-skin-tone","patron":true,"patronColor":10,"id":"drnykterstein"},"rating":3145,"ratingDiff":8,"provisional":true,"analysis":{"inaccuracy":2,"mistake":3,"blunder":1,"acpl":18}}},"winner":"black","moves":"e4 Nf6 e5 Nd5 Nc3 Nxc3 dxc3 d6 Nf3 Nc6 Bb5 a6 Bxc6+ bxc6 O-O f6 exf6 exf6 Nd4 Qd7 Qh5+ g6 Qf3 Kf7 Nxc6 Bb7 Nd8+ Rxd8 Qxb7 Qb5","pgn":"[Event \"Take Take Take Arena\"]\n[Site \"https://lichess.org/kAdOQKeh\"]\n[Date \"2026.04.08\"]\n[Round \"-\"]\n[White \"respects_55\"]\n[Black \"DrNykterstein\"]\n[Result \"0-1\"]\n[BlackTitle \"GM\"]\n[WhiteElo \"2644\"]\n[BlackElo \"3145\"]\n[UTCTime \"19:39:03\"]\n[UTCDate \"2026.04.08\"]\n[TimeControl \"180+0\"]\n[Termination \"Normal\"]\n[GameId \"kAdOQKeh\"]\n[WhiteRatingDiff \"-5\"]\n[BlackRatingDiff \"+8\"]\n[Variant \"Standard\"]\n\n1. e4 Nf6 2. e5 Nd5 3. Nc3 Nxc3 4. dxc3 d6 5. Nf3 Nc6 6. Bb5 a6 7. Bxc6+ bxc6 8. O-O f6 9. exf6 exf6 10. Nd4 Qd7 11. Qh5+ g6 12. Qf3 Kf7 13. Nxc6 Bb7 14. Nd8+ Rxd8 15. Qxb7 Qb5 0-1","analysis":[{"eval":18},{"eval":68},{"eval":53},{"eval":51},{"eval":10},{"eval":15},{"eval":30},{"eval":15},{"eval":15},{"eval":22},{"eval":19},{"eval":28},{"eval":27},{"eval":27},{"eval":37},{"eval":119,"best":"e7e6","variation":"e6 Qe2 c5 Rd1 Qd7 Qe4 d5 Qg4 f5 exf6 gxf6 c4","judgment":{"name":"Inaccuracy","comment":"Inaccuracy. e6 was best."}},{"eval":97},{"eval":148},{"eval":146},{"eval":138},{"eval":148},{"eval":102},{"eval":105},{"eval":191,"best":"f8g7","variation":"Bg7 Re1+ Kf7 Nxc6 Bb7 Nd8+ Rhxd8 Qxb7 d5 c4 a5 h3","judgment":{"name":"Inaccuracy","comment":"Inaccuracy. Bg7 was best."}},{"eval":195},{"eval":201},{"eval":182},{"eval":193},{"eval":201},{"eval":205}]}
+{"id":"xKWdG1d1","rated":true,"variant":"standard","speed":"blitz","perf":"blitz","createdAt":1775676977600,"lastMoveAt":1775677126911,"status":"resign","source":"arena","players":{"white":{"user":{"name":"DrNykterstein","title":"GM","flair":"people.santa-claus-light-skin-tone","patron":true,"patronColor":10,"id":"drnykterstein"},"rating":3131,"ratingDiff":14,"provisional":true,"analysis":{"inaccuracy":4,"mistake":1,"blunder":1,"acpl":30}},"black":{"user":{"name":"Sharkfang","flair":"objects.musical-notes","patron":true,"patronColor":10,"id":"sharkfang"},"rating":2752,"ratingDiff":-2,"analysis":{"inaccuracy":7,"mistake":2,"blunder":2,"acpl":47}}},"winner":"white","moves":"d4 Nf6 c4 g6 Nc3 Bg7 e3 d6 e4 O-O Nf3 e5 d5 Nbd7 Bd3 Nc5 Bc2 a5 h3 Nh5 g3 Bd7 Be3 b6 Nd2 Qe8 Qe2 f5 a4 f4","pgn":"[Event \"Take Take Take Arena\"]\n[Site \"https://lichess.org/xKWdG1d1\"]\n[Date \"2026.04.08\"]\n[Round \"-\"]\n[White \"DrNykterstein\"]\n[Black \"Sharkfang\"]\n[Result \"1-0\"]\n[WhiteTitle \"GM\"]\n[WhiteElo \"3131\"]\n[BlackElo \"2752\"]\n[UTCTime \"19:36:17\"]\n[UTCDate \"2026.04.08\"]\n[TimeControl \"180+0\"]\n[Termination \"Normal\"]\n[GameId \"xKWdG1d1\"]\n[WhiteRatingDiff \"+14\"]\n[BlackRatingDiff \"-2\"]\n[WhiteBerserk \"true\"]\n[BlackBerserk \"true\"]\n[Variant \"Standard\"]\n\n1. d4 Nf6 2. c4 g6 3. Nc3 Bg7 4. e3 d6 5. e4 O-O 6. Nf3 e5 7. d5 Nbd7 8. Bd3 Nc5 9. Bc2 a5 10. h3 Nh5 11. g3 Bd7 12. Be3 b6 13. Nd2 Qe8 14. Qe2 f5 15. a4 f4 1-0","analysis":[{"eval":15},{"eval":15},{"eval":17},{"eval":28},{"eval":18},{"eval":46},{"eval":12},{"eval":36},{"eval":16},{"eval":27},{"eval":14},{"eval":17},{"eval":7},{"eval":35},{"eval":42},{"eval":41},{"eval":44},{"eval":39},{"eval":27},{"eval":33},{"eval":-34,"best":"c1e3","variation":"Be3 b6 g3 Bd7 a3 Qc8 Qe2 f5 O-O-O Nxe4 Nxe4 fxe4","judgment":{"name":"Inaccuracy","comment":"Inaccuracy. Be3 was best."}},{"eval":32,"best":"f7f5","variation":"f5 Bg5 Nf6 exf5 Bxf5 Be3 Nfd7 Ng5 e4 g4 Bxc3+ bxc3","judgment":{"name":"Inaccuracy","comment":"Inaccuracy. f5 was best."}},{"eval":27},{"eval":44},{"eval":18},{"eval":25},{"eval":31},{"eval":29},{"eval":-97,"best":"e4f5","variation":"exf5 Bxf5 Nde4 Nxe4 Nxe4 Rb8 O-O-O Bxe4 Bxe4 Nf6 Bc2 e4","judgment":{"name":"Mistake","comment":"Mistake. exf5 was best."}},{"eval":-60}]}
+''';
