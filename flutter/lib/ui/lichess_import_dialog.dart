@@ -13,7 +13,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import '../brain/chess_api.dart';
 import '../brain/lichess_import_api.dart';
 import '../stores/practice_controller.dart';
 import '../stores/review_controller.dart';
@@ -75,7 +74,7 @@ class _LichessImportDialogState extends State<_LichessImportDialog> {
       _stage = 'Asking lichess…';
     });
     final api = widget.api ??
-        LichessImportApi(context.read<ChessApi>().bridge);
+        context.read<LichessImportApi>();
     try {
       // The archive is the dedupe key, and the Review tab may never have been
       // opened in this session — so load it rather than trusting what is in

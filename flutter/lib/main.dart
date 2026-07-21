@@ -13,6 +13,7 @@ import 'package:provider/provider.dart';
 
 import 'brain/bot_api.dart';
 import 'brain/chess_api.dart';
+import 'brain/lichess_import_api.dart';
 import 'brain/explorer_api.dart';
 import 'brain/grading_api.dart';
 import 'brain/js_bridge.dart';
@@ -197,6 +198,7 @@ class _BootGateState extends State<BootGate> {
             ),
             ChangeNotifierProvider(create: (_) => BookStore()),
             Provider(create: (_) => ChessApi(booted.bridge)),
+            Provider(create: (_) => LichessImportApi(booted.bridge)),
             Provider(create: (_) => ExplorerApi(booted.bridge)),
           ],
           child: MaterialApp(
@@ -515,7 +517,10 @@ class _AppShellState extends State<AppShell> {
           title: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.smart_toy_outlined,
+              // The app's own mark, not a generic robot. player_plate keeps
+              // Icons.smart_toy_outlined for a bot OPPONENT — a different
+              // meaning, deliberately left alone.
+              const ImageIcon(AssetImage('assets/roboknight.png'),
                   size: 20, color: Color(0xFF81B64C)),
               const SizedBox(width: 8),
               const Text('botvinnik',

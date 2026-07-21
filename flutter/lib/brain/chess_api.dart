@@ -8,17 +8,6 @@ class ChessApi {
   final JsBridge _bridge;
   const ChessApi(this._bridge);
 
-  /// The JS host, for a caller that needs a brain export this facade does not
-  /// wrap. Exposed for the same reason ReviewController exposes `db`: it is
-  /// the only holder of that dependency already in the widget tree, and a
-  /// getter here is cheaper than a second provider carrying the same object.
-  ///
-  /// Today's one caller is the lichess import (#134), which is built when the
-  /// dialog opens rather than at boot — nothing else in the app needs it, and
-  /// on native a second JsBridge would mean a second JavaScriptCore runtime
-  /// re-evaluating the whole 320 KB bundle. If main.dart ever provides
-  /// LichessImportApi directly, this can go.
-  JsBridge get bridge => _bridge;
 
   String san(String fen, String uci) =>
       _bridge.call('getSan', args: [fen, uci]) as String;
