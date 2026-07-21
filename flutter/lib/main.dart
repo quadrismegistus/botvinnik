@@ -30,6 +30,7 @@ import 'engine/maia_weights.dart';
 import 'engine/engine_factory.dart';
 import 'stores/background_grader.dart';
 import 'stores/book_store.dart';
+import 'stores/bot_record_store.dart';
 import 'stores/game_controller.dart';
 import 'stores/pgn_import.dart';
 import 'stores/player_rating_store.dart';
@@ -214,6 +215,11 @@ class _BootGateState extends State<BootGate> {
               create: (_) =>
                   PlayerRatingStore(booted.db, RatingApi(booted.bridge)),
             ),
+            // Read by the roster picker (pickBot), refit from the archive each
+            // time the sheet opens. Nothing watches it in the tree, so
+            // provider_parity_test (which scans for *Api reads) cannot guard
+            // it — bot_record_test.dart does, over the source.
+            ChangeNotifierProvider(create: (_) => BotRecordStore(booted.db)),
             ChangeNotifierProvider(create: (_) => BookStore()),
             Provider(create: (_) => ChessApi(booted.bridge)),
             Provider(create: (_) => LichessImportApi(booted.bridge)),
