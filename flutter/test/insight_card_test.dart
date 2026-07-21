@@ -435,4 +435,36 @@ void main() {
     expect(find.textContaining('held'), findsOneWidget);
   });
 
+  testWidgets('the play button animates the BEST line, not the move played',
+      (tester) async {
+    // It used to play the explanation's evidence line, which explain.ts builds
+    // from playedPv — your own mistake and its refutation. The card said "Best
+    // was d4", drew d4 on the preview board, and then played e4. #164.
+    final game = await _withGrade(gradeRaw(
+      uci: 'e2e4',
+      bestUci: 'd2d4',
+      explanation: {
+        'evidence': {'fen': _kStartFen, 'ucis': ['e2e4', 'e7e5']},
+      },
+    ));
+    await _pump(tester, game);
+
+    await tester.tap(find.byIcon(Icons.play_circle_outline).first);
+    await tester.pump();
+
+    expect(game.previewing, isTrue);
+    expect(game.previewTag, 'move');
+
+    // What the BOARD shows after the first step — the only public observable,
+    // and the thing that was wrong. d4 gives a pawn on d4; e4 gives one on e4.
+    await tester.pump(const Duration(milliseconds: 900));
+    final shown = game.previewFen!;
+    expect(shown.split(' ').first, contains('3P4'),
+        reason: 'a pawn on d4 — the button beside "Best was d4" must show d4');
+    expect(shown, isNot(contains('4P3')), reason: 'not the move played');
+
+    game.stopPreview();
+    await tester.pump(const Duration(milliseconds: 200));
+  });
+
 }
