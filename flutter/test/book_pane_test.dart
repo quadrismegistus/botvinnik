@@ -41,6 +41,16 @@ const _kLines = [
   EngineMove(pv: ['g1f3'], score: 0.20, mate: null, depth: 18, multipv: 3),
 ];
 
+/// After 1.e4 — black to move, which is the only thing this fen is for.
+const _kAfterE4Fen =
+    'rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1';
+
+/// Black's replies, so the lines the controller keeps are legal at [_kAfterE4Fen].
+const _kBlackLines = [
+  EngineMove(pv: ['e7e5'], score: -0.35, mate: null, depth: 18, multipv: 1),
+  EngineMove(pv: ['c7c5'], score: -0.30, mate: null, depth: 18, multipv: 2),
+];
+
 /// book.json's node shape: counts, and the moves played from the position.
 const _kNode = {
   'white': 900000,
@@ -83,9 +93,15 @@ class _FakeExplorer implements ExplorerApi {
         'black': 33.4,
       };
 
+  /// What `unifyMoves` hands back. Injectable because the POV test needs a
+  /// mate and a losing-for-white score, and folding those into the default set
+  /// would change what the layout and eval tests are measuring.
+  final List<Map<String, dynamic>> rows;
+  _FakeExplorer({List<Map<String, dynamic>>? rows}) : rows = rows ?? defaultRows;
+
   /// A book row, a merged row, and an engine-only row — in the order the
   /// brain ranks them (by games, engine-only last).
-  static final rows = <Map<String, dynamic>>[
+  static final defaultRows = <Map<String, dynamic>>[
     {
       'uci': 'e2e4',
       'san': 'e4',
@@ -135,16 +151,23 @@ Future<void> _loadRoboto() async {
 }
 
 /// A pane at [width], with a controller whose analysis has already streamed in.
+/// [fromFen] starts the game somewhere other than the standard opening — the
+/// only way to reach a black-to-move position, since the pane derives the side
+/// to move from the fen alone.
 Future<(GameController, _FakeExplorer)> _pump(WidgetTester tester,
-    {required double width}) async {
+    {required double width,
+    String? fromFen,
+    List<EngineMove> lines = _kLines,
+    List<Map<String, dynamic>>? rows}) async {
   final settings = await loadSettings(); // both human: analysis mode
   final game = GameController(
-      FakeArbiter(analysisLines: _kLines, streamPartials: true),
+      FakeArbiter(analysisLines: lines, streamPartials: true),
       const FakeBot(),
       FakeGrading(),
       settings);
+  if (fromFen != null) game.newGame(fromFen: fromFen);
   await tester.pump(const Duration(seconds: 2));
-  final explorer = _FakeExplorer();
+  final explorer = _FakeExplorer(rows: rows);
 
   await tester.pumpWidget(MultiProvider(
     providers: [
@@ -211,6 +234,56 @@ void main() {
     // does not have; the engine-only row is the mirror image
     expect(find.text('d4'), findsOneWidget);
     expect(find.text('—'), findsNWidgets(2)); // d4's eval, Qa1xd4#'s games
+  });
+
+  // Half of all positions, and until this test nothing reached them: every
+  // other fixture here is white to move, so `fen.split(' ')[1] == 'b'` was
+  // never once true and deleting both flips left the suite green.
+  //
+  // The numbers are the engine's, i.e. MOVER-POV, which at a black-to-move
+  // position means "good for Black". White-POV renders them negative. The same
+  // two expressions live independently in lines_pane.dart's own _evalChip, and
+  // the two panels stack in the wide layout — a move showing +1.0 in one and
+  // -1.0 in the other is exactly what the flip exists to prevent.
+  testWidgets('at a black-to-move position the eval and the mate are white-POV',
+      (tester) async {
+    tester.view.physicalSize = const Size(375, 800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    final (game, _) = await _pump(tester,
+        width: 375,
+        fromFen: _kAfterE4Fen,
+        lines: _kBlackLines,
+        rows: [
+          {
+            'uci': 'e7e5',
+            'san': 'e5',
+            // mover-POV +1.0: a pawn to the good FOR BLACK
+            'engine': {'score': 1.0, 'mate': null, 'confidence': 70.0},
+            'lichess': _FakeExplorer._stats(800000, 55.0),
+          },
+          {
+            'uci': 'c7c5',
+            'san': 'c5',
+            // mover-POV mate in 3: BLACK gives mate
+            'engine': {'score': null, 'mate': 3, 'confidence': 30.0},
+          },
+        ]);
+
+    // Without this the two expectations below would also pass on a pane that
+    // never got an engine line and drew two em dashes.
+    expect(game.position.fen.split(' ')[1], 'b',
+        reason: 'the position is white to move — the flip is not exercised');
+    expect(game.visibleLines, isNotEmpty);
+
+    expect(find.text('-1.0'), findsOneWidget,
+        reason: 'a move winning a pawn for Black must read negative to White');
+    expect(find.text('#-3'), findsOneWidget,
+        reason: 'Black mating in 3 must read as White being mated in 3');
+    // and the unflipped readings are nowhere on screen
+    expect(find.text('+1.0'), findsNothing);
+    expect(find.text('#3'), findsNothing);
   });
 
   testWidgets('the pane does not overflow at 375pt', (tester) async {

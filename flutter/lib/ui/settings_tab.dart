@@ -8,19 +8,39 @@ import 'package:flutter/material.dart';
 import 'package:flutter_colorpicker/flutter_colorpicker.dart';
 import 'package:provider/provider.dart';
 
+import '../stores/backup.dart';
+import '../stores/files.dart';
 import '../stores/practice_controller.dart';
+import '../stores/review_controller.dart';
 import '../stores/settings_store.dart';
 import 'about_section.dart';
 import 'board_theme.dart';
 
 class SettingsTab extends StatelessWidget {
-  const SettingsTab({super.key});
+  /// The file layer, injected so tests can drive a real backup through a
+  /// recorder instead of a platform channel. See [TextFileSaver].
+  final TextFileSaver saveFile;
+  final TextFileReader readFile;
+
+  const SettingsTab({
+    super.key,
+    this.saveFile = saveTextFile,
+    this.readFile = readTextFile,
+  });
 
   @override
   Widget build(BuildContext context) {
     final settings = context.watch<SettingsStore>();
     final practice = context.watch<PracticeController>();
     final belowThreshold = practice.items.length - practice.servable.length;
+    // The Review tab loads the archive on first visit, so a count read before
+    // that has ever happened would say "0 games" about a full archive. Left
+    // unnumbered until it is known — the backup itself reads the database, not
+    // this list, so the number is a label rather than the thing exported.
+    final review = context.watch<ReviewController>();
+    final games = review.loaded
+        ? '${review.games.length} game${review.games.length == 1 ? '' : 's'}'
+        : 'every game played';
 
     return ListView(
       padding: const EdgeInsets.symmetric(vertical: 8),
@@ -152,12 +172,106 @@ class SettingsTab extends StatelessWidget {
             onChanged: (v) => settings.botDelayMs = v.round(),
           ),
         ),
+        const _SectionLabel('Your data'),
+        // A Builder so the iPad share sheet anchors to the row that was
+        // tapped — the tab's own context is above the scroll view. Restore
+        // needs none: an open panel has no popover to place.
+        Builder(
+          builder: (rowContext) => ListTile(
+            dense: true,
+            leading: const Icon(Icons.file_download_outlined, size: 20),
+            title: const Text('Back up everything'),
+            subtitle: Text(
+              'Practice positions and the game archive, as one JSON file. '
+              '${practice.items.length} puzzles · $games.',
+              style: const TextStyle(fontSize: 11.5, color: Colors.white38),
+            ),
+            onTap: () => _export(rowContext),
+          ),
+        ),
+        ListTile(
+          dense: true,
+          leading: const Icon(Icons.file_upload_outlined, size: 20),
+          title: const Text('Restore from a backup'),
+          // The merge rule stated where the decision is taken, because it is
+          // the question anyone about to tap this has: does it wipe what is
+          // already here? It does not — import only ever adds.
+          subtitle: const Text(
+            'Adds what is missing. Nothing here is deleted, and a puzzle you '
+            'have practised more wins over the copy in the file.',
+            style: TextStyle(fontSize: 11.5, color: Colors.white38),
+          ),
+          onTap: () => _import(context),
+        ),
         const _SectionLabel('Board theme'),
         const _BoardColorSection(),
         const _SectionLabel('About'),
         const AboutSection(),
       ],
     );
+  }
+
+  // ---- backup (#138) ----
+
+  /// The whole store as one file.
+  ///
+  /// Built from the DATABASE rather than from the two controllers, so what is
+  /// exported is what is persisted: a puzzle collected seconds ago and a
+  /// controller list that has not been reloaded since cannot disagree, and
+  /// there is no ordering requirement on which tabs the user has visited.
+  Future<void> _export(BuildContext context) async {
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    final service = BackupService(context.read<ReviewController>().db);
+    final origin = tapOrigin(context);
+    try {
+      final now = DateTime.now();
+      final saved = await saveFile(
+        filename: backupFilename(now),
+        text: await service.exportJson(at: now),
+        mimeType: 'application/json',
+        origin: origin,
+      );
+      if (saved) {
+        messenger?.showSnackBar(
+            SnackBar(content: Text('Saved ${backupFilename(now)}')));
+      }
+    } catch (e) {
+      messenger?.showSnackBar(SnackBar(content: Text('Could not back up: $e')));
+    }
+  }
+
+  /// Merge a backup file back in, then make both controllers re-read.
+  ///
+  /// The reload is not cosmetic: the import writes underneath them, so without
+  /// it the Practice tab keeps serving the pre-import queue and the archive
+  /// keeps showing the pre-import list until the app is restarted — which
+  /// looks exactly like an import that did nothing.
+  Future<void> _import(BuildContext context) async {
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    final review = context.read<ReviewController>();
+    final practice = context.read<PracticeController>();
+    try {
+      final text = await readFile(
+        extension: 'json',
+        mimeType: 'application/json',
+        uti: 'public.json',
+      );
+      if (text == null) return; // cancelled
+      final counts = await BackupService(review.db).importJson(text);
+      await practice.load();
+      await review.loadGames();
+      messenger?.showSnackBar(SnackBar(
+        content: Text(counts.practice == 0 && counts.games == 0
+            ? 'Nothing new — everything in that file was already here.'
+            : 'Restored ${counts.games} game${counts.games == 1 ? '' : 's'} '
+                'and ${counts.practice} puzzle'
+                '${counts.practice == 1 ? '' : 's'}.'),
+      ));
+    } on BackupFormatException catch (e) {
+      messenger?.showSnackBar(SnackBar(content: Text(e.message)));
+    } catch (e) {
+      messenger?.showSnackBar(SnackBar(content: Text('Could not restore: $e')));
+    }
   }
 }
 

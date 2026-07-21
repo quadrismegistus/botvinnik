@@ -17,6 +17,7 @@ import 'brain/explorer_api.dart';
 import 'brain/grading_api.dart';
 import 'brain/js_bridge.dart';
 import 'brain/practice_api.dart';
+import 'brain/rating_api.dart';
 import 'db/app_db.dart';
 import 'db/db_init.dart';
 import 'engine/arbiter.dart';
@@ -24,6 +25,7 @@ import 'engine/engine_factory.dart';
 import 'stores/book_store.dart';
 import 'stores/game_controller.dart';
 import 'stores/pgn_import.dart';
+import 'stores/player_rating_store.dart';
 import 'stores/practice_controller.dart';
 import 'stores/review_controller.dart';
 import 'stores/settings_store.dart';
@@ -40,6 +42,7 @@ import 'ui/move_list.dart';
 import 'ui/new_game_sheet.dart';
 import 'ui/pgn_import_dialog.dart';
 import 'ui/player_plate.dart';
+import 'ui/player_rating_card.dart';
 import 'ui/practice_tab.dart';
 import 'ui/settings_tab.dart';
 import 'ui/splash.dart';
@@ -184,6 +187,13 @@ class _BootGateState extends State<BootGate> {
             ),
             ChangeNotifierProvider(
               create: (_) => ReviewController(booted.db),
+            ),
+            // Not refreshed at boot: the fit reads the whole archive over the
+            // bridge, and the only screen that shows it (the game-over recap)
+            // asks for it when it mounts. Boot pays nothing.
+            ChangeNotifierProvider(
+              create: (_) =>
+                  PlayerRatingStore(booted.db, RatingApi(booted.bridge)),
             ),
             ChangeNotifierProvider(create: (_) => BookStore()),
             Provider(create: (_) => ChessApi(booted.bridge)),
@@ -764,13 +774,7 @@ class _PlayTabState extends State<PlayTab> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (game.gameOver)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(14, 8, 14, 0),
-              child: Text(game.statusLine,
-                  style: const TextStyle(
-                      color: Color(0xFF81B64C), fontWeight: FontWeight.w600)),
-            ),
+          if (game.gameOver) _gameOverRecap(game),
           for (final i in shown) ...[
             // headed once more than one is up; a collapsed panel is ALWAYS
             // headed, or folding the only one would leave a blank column
@@ -833,18 +837,33 @@ class _PlayTabState extends State<PlayTab> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (game.gameOver)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(14, 8, 14, 0),
-              child: Text(game.statusLine,
-                  style: const TextStyle(
-                      color: Color(0xFF81B64C), fontWeight: FontWeight.w600)),
-            ),
+          if (game.gameOver) _gameOverRecap(game),
           _paneAt(_view),
         ],
       ),
     );
   }
+
+  /// What the app says when a game ends: the result, and then what that result
+  /// did to the player's rating — the one moment the number can have moved,
+  /// and the only place it is shown.
+  ///
+  /// Written once and used by both layouts (the phone's single panel and the
+  /// desktop stack), which until now held their own copies of the result line.
+  /// Two copies is two chances for one of them to be left a line behind.
+  Widget _gameOverRecap(GameController game) => Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 8, 14, 0),
+            child: Text(game.statusLine,
+                style: const TextStyle(
+                    color: Color(0xFF81B64C), fontWeight: FontWeight.w600)),
+          ),
+          const PlayerRatingCard(afterGame: true),
+        ],
+      );
 
   static const List<(IconData, String)> _tabs = [
     (Icons.lightbulb_outline, 'Insights'),
