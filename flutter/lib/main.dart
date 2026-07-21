@@ -16,6 +16,7 @@ import 'package:provider/provider.dart';
 
 import 'brain/bot_api.dart';
 import 'brain/chess_api.dart';
+import 'brain/chesscom_import_api.dart';
 import 'brain/lichess_import_api.dart';
 import 'brain/explorer_api.dart';
 import 'brain/grading_api.dart';
@@ -223,6 +224,7 @@ class _BootGateState extends State<BootGate> {
             ChangeNotifierProvider(create: (_) => BookStore()),
             Provider(create: (_) => ChessApi(booted.bridge)),
             Provider(create: (_) => LichessImportApi(booted.bridge)),
+            Provider(create: (_) => ChesscomImportApi(booted.bridge)),
             Provider(create: (_) => ExplorerApi(booted.bridge)),
             // Grades ungraded archived games in the background and seeds
             // practice from the blunders (#170), below analysis so it never
