@@ -152,7 +152,22 @@ class GameController extends ChangeNotifier {
   // the settings; these resolve the ids to personas.
   Persona? get whitePersona => _personaOf(_settings.whitePersonaId);
   Persona? get blackPersona => _personaOf(_settings.blackPersonaId);
-  Persona? _personaOf(String? id) => id == null ? null : _bot.personaById(id);
+  Persona? _personaOf(String? id) => personaFor(id);
+
+  /// Resolve a persona id — including one renamed since it was stored.
+  ///
+  /// Anything that turns a PERSISTED id into something a player sees must come
+  /// through here rather than scanning [rosterPersonas]: archived games and
+  /// saved opponents still carry pre-rename ids, and a raw scan misses them
+  /// silently (the New Game sheet showed the literal "Bot", the picker
+  /// highlighted nothing).
+  ///
+  /// Memoised because it crosses the JS bridge — the archive would otherwise
+  /// make one call per row per rebuild.
+  final Map<String, Persona?> _personaCache = {};
+  Persona? personaFor(String? id) => id == null
+      ? null
+      : _personaCache.putIfAbsent(id, () => _bot.personaById(id));
 
   /// The persona of the side to move, or null if the human is on the move.
   Persona? get personaToMove =>
@@ -695,9 +710,8 @@ class GameController extends ChangeNotifier {
     }
     // Stockfish, and the fallback for anything that could not answer for
     // itself. internalElo rather than numericElo: only stockfish carries
-    // numericElo, and a
-    // family without an implementation here should play at its own rating
-    // rather than crash on a null.
+    // numericElo, and a family without an implementation here should play at
+    // its own rating rather than crash on a null.
     //
     // This IS the "different opponent wearing the persona's name" that
     // roster_picker refuses to offer, and the two are complementary rather

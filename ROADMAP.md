@@ -18,7 +18,7 @@ Grouped by GitHub-issue label. Nothing here blocks the deploy — the roster is 
 - **[compliance](https://github.com/quadrismegistus/botvinnik/labels/compliance)** — the App Store submission chores, gated on one **[decision](https://github.com/quadrismegistus/botvinnik/labels/decision)**: the GPLv3-on-App-Store posture (recommended: the Lichess one).
 - **[roster](https://github.com/quadrismegistus/botvinnik/labels/roster)** — the bot-feel and anchoring work: a position-adaptive weak-bot sampler, sampled/Maia-3 personas, the SquareFish lichess accounts, and engine scouting.
 - **[ui](https://github.com/quadrismegistus/botvinnik/labels/ui)** — the Flutter UI backlog: new-game flow, keyboard shortcuts, panel order, PGN import.
-- **[tech-debt](https://github.com/quadrismegistus/botvinnik/labels/tech-debt)** — analysis-budget tuning, the non-rotating ort cache, native Square recalibration.
+- **[tech-debt](https://github.com/quadrismegistus/botvinnik/labels/tech-debt)** — analysis-budget tuning, the non-rotating ort cache, native Squarefish recalibration.
 
 ## How to add work
 

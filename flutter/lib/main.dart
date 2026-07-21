@@ -483,7 +483,7 @@ class _AppShellState extends State<AppShell> {
           ),
           title: Text(
               '${game['result']} · '
-              '${game[kImportedKey] == true ? importedTitle(game) : game['botPersona'] ?? 'game'}',
+              '${game[kImportedKey] == true ? importedTitle(game) : _opponentName(context, game)}',
               style: const TextStyle(fontSize: 15),
               overflow: TextOverflow.ellipsis),
           actions: _keyboardHelp(context),
@@ -610,6 +610,14 @@ class _SplitHandleState extends State<_SplitHandle> {
       ),
     );
   }
+}
+
+/// The opponent's display name for a stored game, resolving ids renamed since
+/// it was archived. Falls back to the raw id so an unknown persona still says
+/// something rather than "game".
+String _opponentName(BuildContext context, Map<String, dynamic> game) {
+  final id = game['botPersona'] as String?;
+  return context.read<GameController>().personaFor(id)?.name ?? id ?? 'game';
 }
 
 class _PlayTabState extends State<PlayTab> {

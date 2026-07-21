@@ -87,7 +87,7 @@ class _LinesTreePaneState extends State<LinesTreePane> {
             // the anchor to the right edge
             size: Size(
                 [
-                  tree.width,
+                  tree.widthFor(blind: blind),
                   (tree.nodes[tree.anchorId]?.x ?? 0) + 340,
                   MediaQuery.of(context).size.width,
                 ].reduce(max),
@@ -221,5 +221,10 @@ class _TreePainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_TreePainter old) => old.version != version;
+  bool shouldRepaint(_TreePainter old) =>
+      // `blind` as well as `version`: the model only bumps version on ingest,
+      // and analysis stops at depth 22 or 3s. Toggling blind after that built a
+      // new painter, got `false` here, and left the engine's lines painted on
+      // the cached layer until the next move.
+      old.version != version || old.blind != blind;
 }

@@ -50,10 +50,9 @@ class _NewGameSheetState extends State<_NewGameSheet> {
 
   String _nameOf(String? id) {
     if (id == null) return 'You';
-    for (final p in widget.game.rosterPersonas) {
-      if (p.id == id) return p.name;
-    }
-    return 'Bot';
+    // personaFor, not a roster scan: the stored id may predate a rename, and a
+    // scan falls through to 'Bot' while the plate names the bot correctly.
+    return widget.game.personaFor(id)?.name ?? 'Bot';
   }
 
   String get _summary {

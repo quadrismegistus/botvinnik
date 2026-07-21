@@ -1,5 +1,5 @@
-// Move selection + roster: the shaped bot (Squares), the numeric recipe
-// (Fish), repetition avoidance, and the persona list.
+// Move selection + roster: the shaped bot (Squarefish), the numeric recipe
+// (Stockfish), repetition avoidance, and the persona list.
 
 import 'js_bridge.dart';
 import 'types.dart';
@@ -20,7 +20,7 @@ class BotApi {
   ///
   /// It defaults to `wasm`, which was correct while the only caller was a web
   /// build; the retired Tauri shell was what used to flip it. Until this
-  /// existed, native Squares mapped their labels through the WASM table while
+  /// existed, native Squarefish mapped their labels through the WASM table while
   /// playing Stockfish 18 over FFI or a spawned process — twelve of the
   /// thirty-two personas playing at a strength nobody had measured (#104).
   ///
@@ -32,7 +32,7 @@ class BotApi {
   /// integration test can assert the boot call landed rather than trusting it.
   String substrate() => _bridge.call('getBotSubstrate') as String;
 
-  /// shapedBotMove — the Squares' miss-the-tactic picker (v4.1 scan model).
+  /// shapedBotMove — the Squarefish' miss-the-tactic picker (v4.1 scan model).
   /// Returns the UCI move or null (caller falls back to the top line).
   String? shapedMove({
     required List<EngineMove> lines,

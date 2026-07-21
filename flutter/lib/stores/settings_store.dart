@@ -137,7 +137,7 @@ class SettingsStore extends ChangeNotifier {
 
   static Future<SettingsStore> load() async {
     final prefs = await SharedPreferences.getInstance();
-    var personaId = 'square-900';
+    var personaId = 'squarefish-900';
     // default: you play White, the bot plays Black
     String? whitePersonaId;
     String? blackPersonaId = personaId;

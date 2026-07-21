@@ -204,9 +204,9 @@ const GARBO: BotPersona = {
 	garboMs: 1000
 };
 
-// 12 Squares (600-1700) + 3 Maias (real @maia lichess ratings) + 3 retro
+// 12 Squarefish (600-1700) + 3 Maias (real @maia lichess ratings) + 3 retro
 // engines (real morlock-bot lichess ratings) + 3 Dalas (desktop only, real
-// dala-bot lichess ratings) + 8 Fish (1800-2500; internal 2040-2740, inside
+// dala-bot lichess ratings) + 8 Stockfish (1800-2500; internal 2040-2740, inside
 // the WASM honest ceiling 2800) = 29 (26 on the web).
 export const PERSONAS: BotPersona[] = [
 	horizon(550, 1),

@@ -336,6 +336,6 @@ web branch of every conditional import.
   everywhere else. Unverified until there is an Android target to run it on.
 - **Calibration drift on native engines.** Labels were measured against
   lite-single WASM; mobile FFI and desktop sidecars are different engines. The
-  desktop Square knots are known stale and documented as such in-source.
+  desktop Squarefish knots are known stale and documented as such in-source.
 - **Dala is desktop-only** and needs an lc0 binary whose provisioning is not
   scripted the way Stockfish's is.
