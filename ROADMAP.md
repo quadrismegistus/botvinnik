@@ -26,6 +26,20 @@ Open an issue. Put the hard-won detail *in the issue* — measured numbers, file
 
 ## Design notes / known quirks
 
+**Linux and Windows are the PWA, not a native build** (decided 2026-07-21).
+`flutter_js` uses JavaScriptCore only on iOS and macOS; Windows, Linux and
+Android all get QuickJS, and the QuickJS it ships has no BigInt — so `brain.js`
+fails to *parse* there and the app would not boot (#46). The BigInt is
+chess.js's incrementally-maintained Zobrist hash, so it cannot be dropped.
+
+Android has a route out (JavaScriptCore via the `fastdev-jsruntimes-jsc` AAR).
+Linux and Windows do not: there is no equivalent prebuilt, so it would mean
+shipping our own JSC or forking flutter_js's QuickJS bridge to rebuild it with
+`CONFIG_BIGNUM`. Against that, the web app is already an offline-capable PWA
+with the full 32-persona roster on those platforms today. Installing it is the
+supported answer.
+
+
 - Testing layout: vitest = `brain/**/*.test.ts` + `svelte/src/**/*.test.ts`
   (pure logic; 264 tests in 17 files), `svelte/e2e/` = @playwright/test against
   the built bundle (9 tests in 7 files; local Chrome via `npm run test:e2e`,

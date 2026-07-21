@@ -10,6 +10,50 @@ The full pre-2026-07-19 roadmap — with the complete calibration saga and every
 design note as it was written — is preserved in git history (it was this file's
 predecessor, `ROADMAP.md` before the 2026-07-19 trim).
 
+## 2026-07-21 — the Squares play at their labels again
+
+The only change this month that alters how the app *plays*.
+
+- **#113** — **native Squares were using the web's calibration table** (#104).
+  The brain keeps two, because a persona label means different things
+  depending on the engine underneath it; it defaults to `wasm`, and the only
+  thing that ever flipped it was the Tauri shell, which is gone. So on macOS
+  and iOS twelve of thirty-two personas mapped their labels through the WASM
+  table while playing Stockfish 18 over FFI or a spawned process. Measured
+  against the fresh native curve, **every Square was playing 17-150 points
+  below its label**, 91 on average. The fix is one line at boot; each Square
+  now picks a label 18-135 points higher and searches up to 2 ply deeper.
+
+  The old in-source note guessed the opposite — "desktop Squares will play
+  above label" — because it described the stale table rather than what the app
+  was doing with it.
+
+- **#110** — **the native grid, remeasured** (#70), against the Stockfish 18
+  the macOS app actually bundles, n=100/pair on the same grid as the live wasm
+  run. Every knot moved up, as the saturated-loss fix predicts. The more
+  interesting result is that the substrates **re-converged**: the mean gap to
+  wasm fell from ~200 to ~93, restoring the older finding that the choice layer
+  dominates so completely that backbone quality barely moves strength — and
+  reframing the large gap as evidence of a stale table rather than a real
+  difference between engines.
+
+  iOS needs no separate grid: `package:stockfish` vendors the same Stockfish 18
+  with the same two nets, and the shaped search is depth-bounded, so it visits
+  identical nodes on any hardware.
+
+- **#111, #112** — 25 files of Gradle build cache, swept into #110 by
+  `git add -A` and removed again. An Android scaffold on a spike branch carries
+  its own `.gitignore`; checking out a branch without it deletes the rules
+  while leaving the untracked cache on disk. `.gradle/` and `flutter/android/`
+  are now ignored at the root, where it holds on any branch.
+
+- Decision recorded: **Linux and Windows are the PWA**, not a native build.
+  `flutter_js` gives JavaScriptCore only to iOS and macOS; Windows, Linux and
+  Android all get a QuickJS with no BigInt, so `brain.js` does not parse and
+  the app does not boot. Android has a route out (#109, confirmed on a real
+  emulator); Linux and Windows would mean shipping our own JavaScriptCore,
+  against a web app that already offers the full roster there offline.
+
 ## 2026-07-21 — one app
 
 The SvelteKit app the project began as is gone, and the last two open
