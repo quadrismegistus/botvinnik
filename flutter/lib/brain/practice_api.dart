@@ -27,15 +27,30 @@ class PracticeApi {
           List<Map<String, dynamic>> items, String id) =>
       _castItems(_bridge.call('removeItem', args: [items, id]));
 
+  /// [motif] restricts the pool to items tagged with it (the brain's `motifs`
+  /// list); null draws from everything.
   Map<String, dynamic>? nextItem(List<Map<String, dynamic>> items,
-      {String? excludeId, bool easyFirst = false}) {
-    // now/motif/rand omitted so the brain's defaults (Date.now, Math.random)
-    // engage — a JSON null would poison the date math
+      {String? excludeId, String? motif, bool easyFirst = false}) {
+    // now/rand omitted so the brain's defaults (Date.now, Math.random) engage
+    // — a JSON null would poison the date math. Measured against the shipped
+    // bundle (node, assets/brain.js): null for `rand` throws outright ("rand2
+    // is not a function"), and null for `now` makes every
+    // `Date.parse(dueAt) <= now` false, so nothing is ever due and it quietly
+    // serves the soonest item instead of a weighted pick among the due ones.
+    //
+    // `motif` is the same slot discipline for a different reason. The brain
+    // gates on `if (motif)`, so a null there is harmless TODAY — measured, 300
+    // draws, same two-item spread as undefined. But `undefined` is what "no
+    // argument" means at this boundary, the omission is what the parameter
+    // default is written for, and the day that gate becomes `!== undefined` a
+    // null would silently empty the queue. The guard for this is in
+    // practice_motif_test, at the marshalling layer, because that is the only
+    // layer where null and undefined differ.
     final r = _bridge.call('nextItem', args: [
       items,
       excludeId,
       JsBridge.omit,
-      JsBridge.omit,
+      motif ?? JsBridge.omit,
       JsBridge.omit,
       easyFirst,
     ]);

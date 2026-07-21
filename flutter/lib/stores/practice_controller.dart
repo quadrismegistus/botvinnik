@@ -71,6 +71,35 @@ class PracticeController extends ChangeNotifier {
 
   int get due => loaded ? _api.dueCount(servable) : 0;
 
+  /// The motif the drill is restricted to, or null for everything.
+  ///
+  /// Deliberately not persisted: a filter is a property of the session you are
+  /// sitting in, not of the collection. Reopening the app on a "fork only"
+  /// queue set weeks ago, with the badge counting puzzles it will not serve,
+  /// is a bug report waiting to happen.
+  String? motifFilter;
+
+  /// Motifs carried by the items practice would actually serve, commonest
+  /// first, with their counts.
+  ///
+  /// The picker is built from this rather than from the brain's `Motif` union
+  /// so it can never offer a filter that matches nothing — and because the
+  /// Dart side has no equivalent of the brain's `loadItems` backfill, so items
+  /// collected before motif tagging simply carry no tags and are correctly
+  /// absent here rather than hiding behind an empty option.
+  Map<String, int> get motifCounts {
+    final counts = <String, int>{};
+    for (final i in servable) {
+      for (final m in (i['motifs'] as List?)?.cast<String>() ?? const []) {
+        counts[m] = (counts[m] ?? 0) + 1;
+      }
+    }
+    final entries = counts.entries.toList()
+      ..sort((a, b) =>
+          a.value != b.value ? b.value.compareTo(a.value) : a.key.compareTo(b.key));
+    return Map.fromEntries(entries);
+  }
+
   Future<void> load() async {
     final raw = await _db.kvGet(_kvKey);
     if (raw != null) {
@@ -110,12 +139,28 @@ class PracticeController extends ChangeNotifier {
   void startSession() {
     sessionSolved = 0;
     sessionStreak = 0;
-    _serve(_api.nextItem(servable, easyFirst: true));
+    _serve(_api.nextItem(servable, motif: motifFilter, easyFirst: true));
   }
 
-  void nextPuzzle() =>
-      _serve(_api.nextItem(servable, excludeId: current?['id'] as String?,
-          easyFirst: true));
+  void nextPuzzle() {
+    final id = current?['id'] as String?;
+    // The exclusion means "don't hand me the same one twice running", not "run
+    // out". Under a motif filter down to a single item, honouring it empties
+    // the pool and the tab announces there is nothing to practise while
+    // holding a puzzle — so fall back to the unexcluded draw.
+    final next = _api.nextItem(servable,
+            excludeId: id, motif: motifFilter, easyFirst: true) ??
+        _api.nextItem(servable, motif: motifFilter, easyFirst: true);
+    _serve(next);
+  }
+
+  /// Restrict the drill to [motif] (null = everything) and serve at once.
+  /// Waiting for the next Skip to feel it reads as the filter not working.
+  void setMotifFilter(String? motif) {
+    if (motif == motifFilter) return;
+    motifFilter = motif;
+    _serve(_api.nextItem(servable, motif: motif, easyFirst: true));
+  }
 
   void _serve(Map<String, dynamic>? item) {
     current = item;
@@ -218,9 +263,19 @@ class PracticeController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Drop a puzzle from the collection for good.
+  ///
+  /// The only escape hatch there is: nothing else removes an item, and #137
+  /// decided that a blunder you took back stays collected, so without this a
+  /// position you consider noise is in the queue permanently.
+  ///
+  /// Deleting the one on screen serves the next rather than emptying the tab —
+  /// "this one is noise" is a step through the queue, not the end of it.
   Future<void> remove(String id) async {
     items = _api.removeItem(items, id);
-    if (current?['id'] == id) _serve(null);
+    if (current?['id'] == id) {
+      _serve(_api.nextItem(servable, motif: motifFilter, easyFirst: true));
+    }
     await _persist();
     notifyListeners();
   }
