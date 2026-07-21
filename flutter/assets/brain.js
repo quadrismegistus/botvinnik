@@ -3895,6 +3895,8 @@ var brain = (() => {
     PERSONAS: () => PERSONAS,
     SCALE_OFFSET: () => SCALE_OFFSET,
     addItem: () => addItem,
+    addItems: () => addItems,
+    analysedGameToStored: () => analysedGameToStored,
     availablePersonas: () => availablePersonas,
     avoidRepetition: () => avoidRepetition,
     backfillGrade: () => backfillGrade,
@@ -3924,6 +3926,7 @@ var brain = (() => {
     judgeTacticalWin: () => judgeTacticalWin,
     judgeThreat: () => judgeThreat,
     labelCounts: () => labelCounts,
+    lichessGameToStored: () => lichessGameToStored,
     masteryStats: () => masteryStats,
     motifTags: () => motifTags,
     moveAccuracy: () => moveAccuracy,
@@ -9274,6 +9277,29 @@ var brain = (() => {
     save(next);
     return next;
   }
+  function addItems(items, dataList) {
+    const seen = new Set(items.map((i) => i.fen));
+    const now = (/* @__PURE__ */ new Date()).toISOString();
+    const added = [];
+    for (const data of dataList) {
+      if (seen.has(data.fen)) continue;
+      seen.add(data.fen);
+      added.push({
+        ...data,
+        id: data.fen,
+        createdAt: now,
+        box: 0,
+        dueAt: now,
+        // due immediately
+        attempts: 0,
+        correct: 0
+      });
+    }
+    if (added.length === 0) return null;
+    const next = [...items, ...added];
+    save(next);
+    return next;
+  }
   function removeItem(items, id) {
     const next = items.filter((i) => i.id !== id);
     save(next);
@@ -9407,6 +9433,146 @@ var brain = (() => {
       out[m.label] = (out[m.label] ?? 0) + 1;
     }
     return out;
+  }
+
+  // brain/lichessImport.ts
+  var START_EVAL = { eval: 15 };
+  function wcWhite(e, fallback) {
+    const entry = e ?? fallback;
+    if (entry.mate !== void 0) return entry.mate > 0 ? 100 : 0;
+    return winChance((entry.eval ?? 0) / 100, null);
+  }
+  function labelForDrop(drop) {
+    if (drop >= 20) return "blunder";
+    if (drop >= 10) return "mistake";
+    if (drop >= 5) return "inaccuracy";
+    return drop <= 2 ? "excellent" : "good";
+  }
+  function variationToUcis(fenBefore, variation, max = 12) {
+    const out = [];
+    try {
+      const c = new Chess(fenBefore);
+      for (const san of variation.split(/\s+/).slice(0, max)) {
+        const m = c.move(san);
+        if (!m) break;
+        out.push(m.from + m.to + (m.promotion ?? ""));
+      }
+    } catch {
+    }
+    return out;
+  }
+  function analysedGameToStored(game2, username, source = "lichess") {
+    if (game2.variant !== "standard" || !game2.analysis?.length || !game2.moves) return null;
+    const lower = username.toLowerCase();
+    const humanColor = game2.players.white.user?.name.toLowerCase() === lower ? "w" : game2.players.black.user?.name.toLowerCase() === lower ? "b" : null;
+    const c = new Chess();
+    const moves = [];
+    const practice = [];
+    const sans = game2.moves.split(" ");
+    for (let i = 0; i < sans.length; i++) {
+      const fenBefore = c.fen();
+      let m;
+      try {
+        m = c.move(sans[i]);
+      } catch {
+        return null;
+      }
+      if (!m) return null;
+      const uci = m.from + m.to + (m.promotion ?? "");
+      const color = m.color;
+      const before = game2.analysis[i - 1] ?? START_EVAL;
+      const after = game2.analysis[i];
+      const wcAfterWhite = after ? wcWhite(after, before) : c.isCheckmate() ? color === "w" ? 100 : 0 : wcWhite(void 0, before);
+      const wcBeforeWhite = wcWhite(before, START_EVAL);
+      const moverBefore = color === "w" ? wcBeforeWhite : 100 - wcBeforeWhite;
+      const moverAfter = color === "w" ? wcAfterWhite : 100 - wcAfterWhite;
+      const wcDrop = Math.max(0, moverBefore - moverAfter);
+      const cpAfter = after?.eval;
+      const mateAfter = after?.mate;
+      const evalPawns = cpAfter !== void 0 ? (color === "w" ? cpAfter : -cpAfter) / 100 : null;
+      const mate = mateAfter !== void 0 ? color === "w" ? mateAfter : -mateAfter : null;
+      const bestUci = after?.best;
+      let bestPv = bestUci && after?.variation ? variationToUcis(fenBefore, after.variation) : [];
+      if (bestUci && bestPv[0] !== bestUci) bestPv = [bestUci];
+      let bestSan;
+      if (bestUci) {
+        try {
+          const t = new Chess(fenBefore);
+          const bm = t.move({
+            from: bestUci.slice(0, 2),
+            to: bestUci.slice(2, 4),
+            promotion: bestUci.length > 4 ? bestUci[4] : void 0
+          });
+          bestSan = bm?.san;
+        } catch {
+          bestSan = void 0;
+        }
+      }
+      const label = labelForDrop(wcDrop);
+      let explanation;
+      if ((label === "inaccuracy" || label === "mistake" || label === "blunder") && bestUci && bestPv.length >= 1) {
+        const point = bestMovePoint(fenBefore, bestUci, bestPv);
+        if (point) {
+          explanation = { bestPoint: point, evidence: { fen: fenBefore, ucis: bestPv.slice(0, 9) } };
+        }
+      }
+      moves.push({
+        ply: i + 1,
+        san: m.san,
+        uci,
+        color,
+        fenBefore,
+        fenAfter: c.fen(),
+        evalPawns,
+        mate,
+        pctBest: null,
+        wcDrop,
+        label,
+        bestSan,
+        bestUci,
+        explanation
+      });
+      if (humanColor === color && bestUci && bestSan) {
+        practice.push({
+          fen: fenBefore,
+          playedSan: m.san,
+          playedUci: uci,
+          bestSan,
+          bestUci,
+          bestPv: bestPv.length ? bestPv : [bestUci],
+          // opponent's move into this position (previous ply), for replay context
+          setupUci: moves[i - 1]?.uci ?? enPassantSetup(fenBefore) ?? void 0,
+          // the best move roughly preserves the pre-move eval
+          evalBestPawns: before.eval !== void 0 ? (color === "w" ? before.eval : -before.eval) / 100 : 0,
+          mateBest: null,
+          wcBest: moverBefore,
+          drop: wcDrop,
+          depth: 22
+          // lichess server analysis depth (nominal)
+        });
+      }
+    }
+    const result = game2.winner === "white" ? "1-0" : game2.winner === "black" ? "0-1" : game2.status === "draw" || game2.status === "stalemate" ? "1/2-1/2" : "*";
+    const stored = {
+      id: `${source}-${game2.id}`,
+      endedAt: new Date(game2.lastMoveAt).toISOString(),
+      result,
+      pgn: game2.pgn ?? "",
+      botElo: null,
+      botColor: humanColor === "w" ? "b" : humanColor === "b" ? "w" : null,
+      moveCount: moves.length,
+      whiteAccuracy: gameAccuracy(moves, "w"),
+      blackAccuracy: gameAccuracy(moves, "b"),
+      labelCounts: { w: labelCounts(moves, "w"), b: labelCounts(moves, "b") },
+      moves,
+      white: game2.players.white.user?.name ?? "Anonymous",
+      black: game2.players.black.user?.name ?? "Anonymous",
+      source
+    };
+    return { stored, practice, humanColor };
+  }
+  function lichessGameToStored(game2, username) {
+    return analysedGameToStored(game2, username, "lichess");
   }
 
   // brain/playerElo.ts

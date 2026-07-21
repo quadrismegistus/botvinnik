@@ -13,6 +13,7 @@ import 'package:provider/provider.dart';
 
 import 'brain/bot_api.dart';
 import 'brain/chess_api.dart';
+import 'brain/lichess_import_api.dart';
 import 'brain/explorer_api.dart';
 import 'brain/grading_api.dart';
 import 'brain/js_bridge.dart';
@@ -197,6 +198,7 @@ class _BootGateState extends State<BootGate> {
             ),
             ChangeNotifierProvider(create: (_) => BookStore()),
             Provider(create: (_) => ChessApi(booted.bridge)),
+            Provider(create: (_) => LichessImportApi(booted.bridge)),
             Provider(create: (_) => ExplorerApi(booted.bridge)),
           ],
           child: MaterialApp(
@@ -515,7 +517,10 @@ class _AppShellState extends State<AppShell> {
           title: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.smart_toy_outlined,
+              // The app's own mark, not a generic robot. player_plate keeps
+              // Icons.smart_toy_outlined for a bot OPPONENT — a different
+              // meaning, deliberately left alone.
+              const ImageIcon(AssetImage('assets/roboknight.png'),
                   size: 20, color: Color(0xFF81B64C)),
               const SizedBox(width: 8),
               const Text('botvinnik',
@@ -630,6 +635,16 @@ class _SplitHandleState extends State<_SplitHandle> {
 /// it was archived. Falls back to the raw id so an unknown persona still says
 /// something rather than "game".
 String _opponentName(BuildContext context, Map<String, dynamic> game) {
+  // A FETCHED game (source set) carries no persona — it carries real player
+  // names — so falling through to personaFor gave the review header "0-1 ·
+  // game" above a list row that correctly read "vs respects_55". games_list
+  // already made this distinction; this copy of it had not been updated.
+  final source = game['source'] as String?;
+  if (source != null) {
+    final youAreWhite = (game['botColor'] as String?) != 'w';
+    final them = (youAreWhite ? game['black'] : game['white']) as String?;
+    if (them != null) return them;
+  }
   final id = game['botPersona'] as String?;
   return context.read<GameController>().personaFor(id)?.name ?? id ?? 'game';
 }

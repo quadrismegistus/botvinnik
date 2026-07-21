@@ -9,8 +9,7 @@ import {
 	puzzleDifficulty,
 	puzzleSetupMove,
 	recordResult,
-	type PracticeItem
-} from './practice';
+	type PracticeItem, addItems} from './practice';
 import { winChance } from './engine/insights';
 import type { StoredMove } from './gameStore';
 
@@ -91,6 +90,58 @@ describe('itemDataFromStoredMove', () => {
 		const data = itemDataFromStoredMove(move({ evalPawns: 12, wcDrop: 30 }))!;
 		expect(data.wcBest).toBeLessThanOrEqual(100);
 		expect(data.evalBestPawns).toBeLessThanOrEqual(15);
+	});
+});
+
+describe('addItems (the bulk form)', () => {
+	// Every field PracticeItem requires. Written out rather than partial: tsc
+	// is what catches a short fixture, and `npx vitest run` TRANSPILES without
+	// typechecking — a green vitest run says nothing about this, which is how
+	// the first version of these tests reached CI.
+	const seed = (fen: string) => ({
+		fen,
+		playedUci: 'e2e4',
+		bestUci: 'd2d4',
+		playedSan: 'e4',
+		bestSan: 'd4',
+		drop: 20,
+		depth: 22,
+		evalBestPawns: 0.3,
+		mateBest: null,
+		wcBest: 55,
+		motifs: [] as string[]
+	});
+
+	it('adds many in one pass', () => {
+		const next = addItems([], [seed('a'), seed('b')])!;
+		expect(next.map((i) => i.fen)).toEqual(['a', 'b']);
+	});
+
+	it('skips a fen already collected', () => {
+		const first = addItems([], [seed('a')])!;
+		const next = addItems(first, [seed('a'), seed('b')])!;
+		expect(next.map((i) => i.fen)).toEqual(['a', 'b']);
+	});
+
+	it('skips a duplicate WITHIN the batch', () => {
+		// addItem could not hit this: one call, one item. A lichess import can
+		// easily carry the same position twice.
+		const next = addItems([], [seed('a'), seed('a')])!;
+		expect(next).toHaveLength(1);
+	});
+
+	it('returns null when nothing was added, so the caller can skip persisting',
+		() => {
+			const first = addItems([], [seed('a')])!;
+			expect(addItems(first, [seed('a')])).toBeNull();
+			expect(addItems(first, [])).toBeNull();
+		});
+
+	it('agrees with addItem on the fields it sets', () => {
+		const viaOne = addItem([], seed('a'))!;
+		const viaMany = addItems([], [seed('a')])!;
+		const strip = (i: (typeof viaOne)[number]) => ({ ...i, createdAt: '', dueAt: '' });
+		expect(viaMany.map(strip)).toEqual(viaOne.map(strip));
 	});
 });
 
