@@ -223,7 +223,10 @@ void main() {
         {required Persona persona, required String id}) async {
       final settings = await loadSettings(white: id);
       final game = GameController(
-          FakeArbiter(analysisLines: kFakeLines, streamPartials: true),
+          FakeArbiter(
+              analysisLines: kFakeLines,
+              streamPartials: true,
+              searchLines: kFakeLines),
           FakeBot({id: persona}),
           FakeGrading(),
           settings);
@@ -266,13 +269,98 @@ void main() {
       await windDown(tester, game, s);
     });
 
-    testWidgets('a square bot never reaches the fallback at all',
+    testWidgets('a square bot plays its own branch and never falls through',
         (tester) async {
-      final (game, s) = await botTurn(persona: testBotPersona, id: kTestBotId);
+      // Uses squareBotPersona, which carries a shapedLabel. With
+      // testBotPersona this test was VACUOUS: `p.shapedLabel!` threw before the
+      // square branch called anything, the catch-all swallowed it, and the test
+      // passed even when square was rewritten to fall through to the stand-in
+      // on failure — the exact regression it names. Found by review on #131.
+      final (game, s) =
+          await botTurn(persona: squareBotPersona, id: kSquareBotId);
       await tester.pump(const Duration(seconds: 2));
+      expect(game.moves, isNotEmpty,
+          reason: 'square must actually have played, or this proves nothing');
       expect(game.botFallback, isFalse);
 
       await windDown(tester, game, s);
+    });
+
+    testWidgets('bot vs bot badges only the persona that was stood in for',
+        (tester) async {
+      // The flag is a property of the game, but the CLAIM it corrects is per
+      // side. White falls through to the stand-in; black is a square bot
+      // playing its own branch. A per-game bool put the chip on both.
+      final settings =
+          await loadSettings(white: kFallbackBotId, black: kSquareBotId);
+      final game = GameController(
+          FakeArbiter(
+              analysisLines: kFakeLines,
+              streamPartials: true,
+              searchLines: kFakeLines),
+          const FakeBot({
+            kFallbackBotId: fallbackBotPersona,
+            kSquareBotId: squareBotPersona,
+          }),
+          FakeGrading(),
+          settings);
+      await tester.pump(const Duration(seconds: 2));
+
+      expect(game.stoodInFor(kFallbackBotId), isTrue,
+          reason: 'white had no engine of its own');
+      expect(game.stoodInFor(kSquareBotId), isFalse,
+          reason: 'black played itself and must not be accused');
+
+      settings.setPlayers(white: null, black: null);
+      game.newGame();
+      await tester.pump(const Duration(milliseconds: 200));
+    });
+
+    testWidgets('an abandoned turn does not flag the game that replaced it',
+        (tester) async {
+      // The reason the flag is committed by the CALLER rather than where the
+      // stand-in is chosen. _pickBotMove awaits — maia, retro and garbo all
+      // wait on an engine, and the stand-in itself waits on a search — and the
+      // generation is only re-checked after it returns. Set the flag inside
+      // and a turn abandoned by a new game resumes into the game that replaced
+      // it.
+      //
+      // Found by review on PR #131. It was not hypothetical: the original
+      // implementation set the flag on entry to the fallback block, and this
+      // test reproduced a square bot's game being marked as substituted.
+      final settings = await loadSettings(white: kFallbackBotId);
+      final game = GameController(
+          FakeArbiter(
+              analysisLines: kFakeLines,
+              streamPartials: true,
+              searchLines: kFakeLines,
+              // the window the new game lands in
+              searchDelay: const Duration(milliseconds: 500)),
+          const FakeBot({
+            kFallbackBotId: fallbackBotPersona,
+            kTestBotId: testBotPersona,
+          }),
+          FakeGrading(),
+          settings);
+
+      // game 1's turn is now parked awaiting the stand-in's search
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(game.botFallback, isFalse, reason: 'still in flight');
+
+      // game 2 starts under it, against a bot that plays itself
+      settings.setPlayers(white: kTestBotId, black: null);
+      game.newGame();
+      expect(game.botFallback, isFalse, reason: 'newGame cleared it');
+
+      // game 1's abandoned turn now resumes and returns its stand-in move
+      await tester.pump(const Duration(seconds: 1));
+      expect(game.botFallback, isFalse,
+          reason: 'game 2 is a square bot playing itself — the abandoned '
+              'game-1 turn must not stamp it');
+
+      settings.setPlayers(white: null, black: null);
+      game.newGame();
+      await tester.pump(const Duration(milliseconds: 200));
     });
 
     testWidgets('a new game clears it', (tester) async {

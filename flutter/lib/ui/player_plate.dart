@@ -86,9 +86,22 @@ class PlayerPlate extends StatelessWidget {
           Icon(persona == null ? Icons.person_outline : Icons.smart_toy_outlined,
               size: 15, color: Colors.white54),
           const SizedBox(width: 6),
-          Text(name,
-              style: const TextStyle(
-                  fontSize: 13, fontWeight: FontWeight.w600, color: Colors.white70)),
+          // The name is the ONLY thing here that can shrink, so it is the
+          // only Flexible: it ellipsizes, while the tray is rigid 16px images
+          // and the elo, chip and +N are text that must stay whole. Making the
+          // tray Flexible too (the first attempt at this) split the free space
+          // between them equally instead — the name stopped ellipsizing at its
+          // half share and the tray, unable to shrink at all, burst anyway.
+          // See test/player_plate_overflow_test.dart.
+          Flexible(
+            child: Text(name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.white70)),
+          ),
           if (persona != null) ...[
             const SizedBox(width: 5),
             Text('${persona.elo}',
@@ -103,13 +116,11 @@ class PlayerPlate extends StatelessWidget {
             // the captured pieces. U+26A0 is in no bundled face, so a Text
             // would fetch Noto from fonts.gstatic.com on web. Material icons
             // ship with the app.
-            if (game.botFallback) ...[
+            if (game.stoodInFor(persona.id)) ...[
               const SizedBox(width: 6),
               Tooltip(
-                message:
-                    "${persona.name}'s engine could not answer, so Stockfish "
-                    'moved instead. This game will not count toward your '
-                    'rating.',
+                message: "${persona.name}'s engine could not answer, so "
+                    'Stockfish moved some of its moves instead.',
                 child: Container(
                   padding:
                       const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
@@ -135,15 +146,13 @@ class PlayerPlate extends StatelessWidget {
             // (black) pieces vanish against the app's dark background — they
             // are drawn as images, so a mid-light backing is what gives both
             // colours their contrast, black by fill and white by outline.
-            Flexible(
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 1),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF9c988c),
-                  borderRadius: BorderRadius.circular(4),
-                ),
-                child: Row(mainAxisSize: MainAxisSize.min, children: pieces),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 1),
+              decoration: BoxDecoration(
+                color: const Color(0xFF9c988c),
+                borderRadius: BorderRadius.circular(4),
               ),
+              child: Row(mainAxisSize: MainAxisSize.min, children: pieces),
             ),
           ],
           const Spacer(),

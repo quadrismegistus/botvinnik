@@ -94,7 +94,10 @@ void main() {
         (tester) async {
       final settings = await loadSettings(white: kFallbackBotId);
       final game = GameController(
-          FakeArbiter(analysisLines: kFakeLines, streamPartials: true),
+          FakeArbiter(
+              analysisLines: kFakeLines,
+              streamPartials: true,
+              searchLines: kFakeLines),
           const FakeBot({kFallbackBotId: fallbackBotPersona}),
           FakeGrading(),
           settings);
