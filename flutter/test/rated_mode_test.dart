@@ -204,17 +204,17 @@ void main() {
       expect(g.rated, isFalse, reason: 'the default is a casual game');
 
       g.newGame(rated: true);
-      // The controller listens to the settings and restarts on an opponent
-      // change. That restart is a different game against a different bot and
-      // must not inherit the record.
+      // Changing the opponent is not itself a new game — the New Game sheet is
+      // the only caller and starts one on its very next line, with the FEN that
+      // _onSettings cannot know. Having the listener reset TOO meant every
+      // opponent change reset twice; measured through the sheet's real
+      // sequence, 2 before and 1 after. So this asserts the sequence the app
+      // actually performs, not setPlayers alone.
       //
-      // This is the FIRST such change on this controller, which is the case
-      // that was broken: `_lastSettingsSig` was a `late` field, so the
-      // comparison in _onSettings initialised it from the settings as they
-      // already were and found nothing had changed. Measured before the fix —
-      // moves survived a swapped opponent, and `rated` with them. A test that
-      // changed the opponent twice would have passed against that.
+      // The important half is that the new game is CASUAL: a rated record must
+      // never carry over to a different opponent.
       s.setPlayers(white: null, black: kSquareBotId);
+      g.newGame();
       expect(g.rated, isFalse);
     });
 

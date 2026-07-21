@@ -8,6 +8,8 @@
 
 import 'package:dartchess/dartchess.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -22,6 +24,7 @@ import 'brain/rating_api.dart';
 import 'db/app_db.dart';
 import 'db/db_init.dart';
 import 'engine/arbiter.dart';
+import 'engine/maia_weights.dart';
 import 'engine/engine_factory.dart';
 import 'stores/book_store.dart';
 import 'stores/game_controller.dart';
@@ -131,6 +134,13 @@ class _BootGateState extends State<BootGate> {
     final settings = await SettingsStore.load();
     final db = await AppDb.open();
     final grading = GradingApi(bridge);
+    // Fire and forget: three 3.5MB bands, cached to a file that survives
+    // relaunch, so one connected session closes the offline gap for every Maia
+    // persona. A no-op on web by design (#30 — not 10MB unasked to a browser),
+    // idempotent, and it never opens an ORT session, so a failure here cannot
+    // retire a band the player has not chosen yet.
+    unawaited(MaiaWeights.prefetch());
+
     final classTable =
         ClassTable(grading.classTable(), labelOrder: grading.labelOrder());
     final practice = PracticeController(

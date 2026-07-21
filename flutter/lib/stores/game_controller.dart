@@ -385,7 +385,18 @@ class GameController extends ChangeNotifier {
     }
     _lastSettingsSig = sig;
     _syncRetro();
-    newGame();
+    // NOT newGame(). The only caller that changes players is the New Game
+    // sheet, and its very next line calls newGame(fromFen:) itself — with the
+    // FEN, which this cannot know. Resetting here too meant every opponent
+    // change bumped the generation twice, started two analyses, and wiped to
+    // the standard start before the sheet immediately redid it with the FEN.
+    //
+    // Measured through the sheet's real sequence: 2 resets per change before
+    // this, 1 after. Making _lastSettingsSig eager (an earlier attempt at the
+    // same issue) went the other way — it took the FIRST change from 1 to 2.
+    //
+    // The contract this creates: changing players is not itself a new game;
+    // the caller starts one. setPlayers says so.
   }
 
   /// Keep at most one retro worker alive, matching the active persona.
