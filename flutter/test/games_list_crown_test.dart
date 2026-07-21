@@ -234,4 +234,19 @@ void main() {
           reason: 'the help line spilled out of its own row at $width');
     });
   }
+  test('a bot-vs-bot game earns nobody a crown', () {
+    // playerColor falls back to 'w' when both sides carry a persona, so such a
+    // game archives with botColor 'b', a real botElo and botHintsUsed false —
+    // which read as "the human played White, blind, and won". Nobody played it.
+    expect(
+        winCrown({
+          'result': '1-0',
+          'botElo': 1440,
+          'botColor': 'b',
+          'botHintsUsed': false,
+          'botBothSides': true,
+        }),
+        isNull);
+  });
+
 }

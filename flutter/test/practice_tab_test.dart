@@ -132,10 +132,43 @@ void main() {
       expect(find.textContaining('pin'), findsNothing);
 
       await tester
-          .tap(find.widgetWithText(CheckedPopupMenuItem<String?>, 'fork (1)'));
+          .tap(find.widgetWithText(CheckedPopupMenuItem<String>, 'fork (1)'));
       await tester.pumpAndSettle();
       expect(h.practice.motifFilter, 'fork');
       expect(h.practice.current?['id'], _forkFen);
+    });
+
+    testWidgets('and the "all" row clears the filter again', (tester) async {
+      // The picker was one-way. PopupMenuButton cannot tell a null-valued
+      // selection from a dismissal — popup_menu.dart calls onCanceled and
+      // returns before onSelected — so the "All puzzles" row, which had
+      // value: null, was inert. The filter lives on the controller and
+      // survives re-entering the tab, so a filter that still had items in it
+      // could not be cleared for the rest of the session.
+      //
+      // The test above cannot see this: it only ever taps a NON-null row.
+      final h = makePractice([
+        practiceItem(_forkFen, motifs: ['fork', 'material']),
+        practiceItem(_pinFen, motifs: ['material']),
+      ]);
+      h.practice.startSession();
+      await _pumpTab(tester, h.practice);
+
+      await tester.tap(find.byIcon(Icons.filter_list));
+      await tester.pumpAndSettle();
+      await tester
+          .tap(find.widgetWithText(CheckedPopupMenuItem<String>, 'fork (1)'));
+      await tester.pumpAndSettle();
+      expect(h.practice.motifFilter, 'fork', reason: 'precondition');
+
+      await tester.tap(find.byIcon(Icons.filter_list));
+      await tester.pumpAndSettle();
+      await tester.tap(
+          find.widgetWithText(CheckedPopupMenuItem<String>, 'All puzzles (2)'));
+      await tester.pumpAndSettle();
+
+      expect(h.practice.motifFilter, isNull,
+          reason: 'the all row must actually clear it');
     });
 
     testWidgets('an untagged collection gets no picker at all', (tester) async {

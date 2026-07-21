@@ -270,21 +270,27 @@ class _PracticeTabState extends State<PracticeTab> {
     final counts = practice.motifCounts;
     final active = practice.motifFilter;
     if (counts.isEmpty && active == null) return const SizedBox.shrink();
-    return PopupMenuButton<String?>(
+    return PopupMenuButton<String>(
       tooltip: 'Practise one motif',
       icon: Icon(Icons.filter_list,
           size: 20,
           color: active == null ? Colors.white70 : const Color(0xFF81B64C)),
       padding: EdgeInsets.zero,
-      onSelected: practice.setMotifFilter,
+      // '' is the sentinel for "all", NOT null: PopupMenuButton cannot tell a
+      // null-valued selection from a dismissal — it calls onCanceled and
+      // returns before onSelected (popup_menu.dart, `if (newValue == null)`).
+      // With value: null the "All puzzles" row was inert, and since the filter
+      // lives on the controller and survives re-entering the tab, a filter with
+      // items left in it could not be cleared for the rest of the session.
+      onSelected: (v) => practice.setMotifFilter(v.isEmpty ? null : v),
       itemBuilder: (context) => [
-        CheckedPopupMenuItem<String?>(
-          value: null,
+        CheckedPopupMenuItem<String>(
+          value: '',
           checked: active == null,
           child: Text('All puzzles (${practice.servable.length})'),
         ),
         for (final e in counts.entries)
-          CheckedPopupMenuItem<String?>(
+          CheckedPopupMenuItem<String>(
             value: e.key,
             checked: active == e.key,
             child: Text('${e.key} (${e.value})'),

@@ -31,6 +31,10 @@ WinCrown? winCrown(Map<String, dynamic> g) {
   if (g[kImportedKey] == true) return null; // no "you" in an imported game
   final botColor = g['botColor'] as String?;
   if (g['botElo'] == null || botColor == null) return null; // solo analysis
+  // Two bots playing each other: playerColor defaults to 'w' in that case, so
+  // the record looks like a human White game and the result would read as a
+  // human win. Nobody played it.
+  if (g['botBothSides'] == true) return null;
   final humanWon = g['result'] == (botColor == 'b' ? '1-0' : '0-1');
   if (!humanWon) return null;
 

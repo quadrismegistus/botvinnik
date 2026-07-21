@@ -562,6 +562,12 @@ class GameController extends ChangeNotifier {
     // botFallback shipped with two days ago (#117), and these two would have
     // repeated it verbatim. botEnabled is read here for the same reason.
     final wasBotGame = botEnabled;
+    // Bot-vs-bot has no human in it, so nothing about it is a human result.
+    // playerColor falls back to 'w' when BOTH sides carry a persona, so such a
+    // game archives as "the human was White" and would otherwise collect a
+    // Won-clean crown for a game nobody played.
+    final bothBots = _settings.whitePersonaId != null &&
+        _settings.blackPersonaId != null;
     final undos = wasBotGame ? _botUndos : 0;
     final hintsUsed = wasBotGame && _botHintsUsed;
 
@@ -595,6 +601,7 @@ class GameController extends ChangeNotifier {
       // crown rather than crediting them with a discipline nobody recorded.
       // An explicit false is the only way to say "known clean".
       if (wasBotGame) 'botHintsUsed': hintsUsed,
+      if (bothBots) 'botBothSides': true,
       // the snapshot, not a fresh read of playerColor: the crown asks which
       // side the human was on, and this is the one line below the wait that
       // was still asking the live settings

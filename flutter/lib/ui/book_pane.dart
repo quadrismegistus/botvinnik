@@ -59,7 +59,7 @@ class _BookPaneState extends State<BookPane> {
     final key = [
       fen,
       node == null ? '-' : 'book',
-      for (final l in lines) '${l.multipv}:${l.depth}:${l.uci}:${l.score}:${l.mate}',
+      for (final l in lines) '${l.multipv}:${l.uci}:${l.score}:${l.mate}',
     ].join('|');
     if (key == _rowsKey) return _rows;
     _rowsKey = key;

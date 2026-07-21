@@ -69,7 +69,13 @@ void main() {
     ]);
 
     expect(h.practice.motifCounts, {'material': 2, 'fork': 1},
-        reason: 'commonest first, and nothing the items do not carry');
+        reason: 'nothing the items do not carry');
+    // Separately, because `expect` on a Map compares order-independently:
+    // the "commonest first" half of the claim above was untested, and
+    // replacing the sort with insertion order left this suite green while the
+    // picker's promised ordering broke.
+    expect(h.practice.motifCounts.keys.toList(), ['material', 'fork'],
+        reason: 'commonest first');
   });
 
   test('an item below the serve threshold contributes no picker option', () {
