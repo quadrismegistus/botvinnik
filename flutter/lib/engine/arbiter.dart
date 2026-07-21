@@ -20,7 +20,17 @@ import 'uci_protocol.dart';
 // whose result is an overlay the player is waiting to see, while analysis is
 // a 3s search that streams and backfills. Behind analysis it arrived seconds
 // late; ahead of it, it preempts, runs, and analysis resumes where it left.
-enum SearchPriority { botMove, practiceCheck, threatProbe, analysis }
+//
+// backgroundGrade is LAST on purpose (#170): it is the bulk pass that grades
+// imported games long after they were played, and it must be invisible to live
+// play. Being the lowest priority means every other request preempts it via the
+// exact `stop()`-and-re-enqueue path analysis already uses for botMove — so a
+// background search yields the instant the board, a bot, a probe or an analysis
+// wants the engine, and it never preempts any of them. That is the FLOOR under
+// "do not spoil live play", not the whole of it: the service driving it also
+// refuses to run at all while a real game is on the board (see
+// stores/background_grader.dart).
+enum SearchPriority { botMove, practiceCheck, threatProbe, analysis, backgroundGrade }
 
 /// Work that belongs to one board position, and is pointless once the board
 /// moves on. Both kinds are dropped by [SearchArbiter.cancelAnalyses].
@@ -152,6 +162,34 @@ class SearchArbiter {
       } else {
         _stopAtDepth = _kMinUsefulDepth; // stop once it gets there
       }
+    }
+  }
+
+  /// Drop background grading work: the pass is yielding the engine (a real
+  /// game just came onto the board) or shutting down. Queued background
+  /// searches resolve null; a running one is stopped and resolves with whatever
+  /// partial lines it has, and — unlike a preemption — is NOT re-enqueued, so
+  /// the pass truly lets go rather than clawing the engine back the moment it
+  /// falls idle. Never touches a search of any other priority: a bot move
+  /// mid-flight is exactly what this is getting out of the way of, not into.
+  void cancelBackgroundGrades() {
+    final keep = <_Request>[];
+    for (final r in _queue) {
+      if (r.priority == SearchPriority.backgroundGrade) {
+        if (!r.completer.isCompleted) r.completer.complete(null);
+      } else {
+        keep.add(r);
+      }
+    }
+    _queue
+      ..clear()
+      ..addAll(keep);
+    final running = _running;
+    if (running != null &&
+        running.priority == SearchPriority.backgroundGrade &&
+        !running.cancelled) {
+      running.cancelled = true;
+      _engine?.stop();
     }
   }
 

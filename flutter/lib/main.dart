@@ -28,6 +28,7 @@ import 'engine/arbiter.dart';
 import 'engine/maia_engine.dart';
 import 'engine/maia_weights.dart';
 import 'engine/engine_factory.dart';
+import 'stores/background_grader.dart';
 import 'stores/book_store.dart';
 import 'stores/game_controller.dart';
 import 'stores/pgn_import.dart';
@@ -217,6 +218,31 @@ class _BootGateState extends State<BootGate> {
             Provider(create: (_) => ChessApi(booted.bridge)),
             Provider(create: (_) => LichessImportApi(booted.bridge)),
             Provider(create: (_) => ExplorerApi(booted.bridge)),
+            // Grades ungraded archived games in the background and seeds
+            // practice from the blunders (#170), below analysis so it never
+            // spoils live play. Eager (lazy: false) because nothing reads it
+            // from the tree — it has to start itself — and it reads the
+            // GameController declared above only to pause while a game is on the
+            // board (botThinking, or a bot game with moves that is not over).
+            Provider<BackgroundGrader>(
+              lazy: false,
+              create: (ctx) {
+                final game = ctx.read<GameController>();
+                return BackgroundGrader(
+                  booted.arbiter,
+                  booted.db,
+                  GradingApi(booted.bridge),
+                  booted.practice,
+                  game, // the live game to watch
+                  () =>
+                      game.botThinking ||
+                      (game.botEnabled &&
+                          !game.gameOver &&
+                          game.moves.isNotEmpty), // …is it being played now?
+                )..start();
+              },
+              dispose: (_, g) => g.dispose(),
+            ),
           ],
           child: MaterialApp(
             title: 'botvinnik',
