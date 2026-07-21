@@ -52,11 +52,19 @@ class RosterGroup {
   final List<Persona> members;
   const RosterGroup(this.family, this.members);
 
-  /// Where the group sits in the sheet. Averaged over [members] — the personas
-  /// that SURVIVED the platform filter — so the sheet cannot come out in one
-  /// order on the web and another on iOS for no reason a player can see.
-  /// Averaged over the whole roster instead, Dala (1107) would take a place
-  /// between Horizon and Squarefish on every platform and render nothing in it.
+  /// Where the group sits in the sheet: its members' average elo.
+  ///
+  /// A note on what this does NOT guard against, because the issue and an
+  /// earlier version of this comment both got it wrong. The filter is
+  /// family-granular — every persona of a family shares its family — so a
+  /// surviving family keeps ALL its members either way, and its average is
+  /// identical whether computed before or after filtering. Averaging "too
+  /// early" cannot reorder anything.
+  ///
+  /// The real failure is GROUPING before filtering: that builds a heading for
+  /// a family this platform cannot play and then empties it, leaving a Dala
+  /// heading with nothing under it. [groupRoster] filters as it groups, so the
+  /// empty heading is unconstructable rather than guarded against.
   double get averageElo =>
       members.fold<int>(0, (sum, p) => sum + p.elo) / members.length;
 

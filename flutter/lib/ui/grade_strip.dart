@@ -10,7 +10,18 @@ import 'package:flutter/material.dart';
 /// The brain's CLASS table {label: {glyph, color, noun}}, provided at boot.
 class ClassTable {
   final Map<String, dynamic> raw;
-  const ClassTable(this.raw);
+
+  /// The brain's LABEL_ORDER — best first, blunder last.
+  ///
+  /// Snapshotted alongside CLASS rather than read through GradingApi, for the
+  /// same reason CLASS is: it is a const array, so one read at boot is the
+  /// whole of it. Read through the API instead and it crosses the bridge on
+  /// every rebuild — Review's summary is built inside a widget that watches the
+  /// ReviewController, so that is one `JSON.stringify` per arrow press, on the
+  /// UI thread, per frame under key repeat.
+  final List<String> labelOrder;
+
+  const ClassTable(this.raw, {this.labelOrder = const []});
 
   String glyph(String label) => (raw[label]?['glyph'] as String?) ?? '';
 

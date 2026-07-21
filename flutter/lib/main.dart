@@ -125,7 +125,9 @@ class _BootGateState extends State<BootGate> {
     final arbiter = SearchArbiter(startEngine());
     final settings = await SettingsStore.load();
     final db = await AppDb.open();
-    final classTable = ClassTable(GradingApi(bridge).classTable());
+    final grading = GradingApi(bridge);
+    final classTable =
+        ClassTable(grading.classTable(), labelOrder: grading.labelOrder());
     final practice = PracticeController(
         db, PracticeApi(bridge), GradingApi(bridge), arbiter)
       ..settings = settings;
@@ -184,10 +186,6 @@ class _BootGateState extends State<BootGate> {
             ),
             ChangeNotifierProvider(create: (_) => BookStore()),
             Provider(create: (_) => ChessApi(booted.bridge)),
-            // Review's summary reads LABEL_ORDER through it. The ClassTable
-            // above is a snapshot of one brain property; this is the API
-            // itself, on the same footing as ChessApi.
-            Provider(create: (_) => GradingApi(booted.bridge)),
           ],
           child: MaterialApp(
             title: 'botvinnik',

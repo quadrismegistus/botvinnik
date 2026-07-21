@@ -16,7 +16,6 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 
-import 'package:botvinnik_mobile/brain/grading_api.dart';
 import 'package:botvinnik_mobile/db/app_db.dart';
 import 'package:botvinnik_mobile/stores/pgn_import.dart';
 import 'package:botvinnik_mobile/stores/review_controller.dart';
@@ -54,19 +53,6 @@ const _kClassRaw = {
 };
 
 class _StubDb implements AppDb {
-  @override
-  dynamic noSuchMethod(Invocation invocation) => null;
-}
-
-/// Only [labelOrder] is reached from the UI; everything else in GradingApi
-/// runs at save time, well before a game is reviewed.
-class _StubGrading implements GradingApi {
-  final List<String> order;
-  const _StubGrading(this.order);
-
-  @override
-  List<String> labelOrder() => order;
-
   @override
   dynamic noSuchMethod(Invocation invocation) => null;
 }
@@ -150,13 +136,18 @@ Future<ReviewController> _pumpReview(
   WidgetTester tester,
   Map<String, dynamic> game, {
   List<String> order = _kLabelOrder,
+  double? split,
 }) async {
   final settings = await loadSettings();
+  if (split != null) settings.split = split;
   final review = ReviewController(_StubDb())..open(game);
   await tester.pumpWidget(MultiProvider(
     providers: [
-      Provider<ClassTable>.value(value: const ClassTable(_kClassRaw)),
-      Provider<GradingApi>.value(value: _StubGrading(order)),
+      // LABEL_ORDER now rides on the ClassTable snapshot rather than being
+      // read through GradingApi on every rebuild, so the order under test is
+      // injected here.
+      Provider<ClassTable>.value(
+          value: ClassTable(_kClassRaw, labelOrder: order)),
       ChangeNotifierProvider<SettingsStore>.value(value: settings),
       ChangeNotifierProvider<ReviewController>.value(value: review),
     ],
@@ -183,8 +174,37 @@ void main() {
     expect(find.text('White (you)'), findsOneWidget,
         reason: 'botColor is b, so White is the player');
     expect(find.text('Black (bot)'), findsOneWidget);
-    expect(find.text('84%'), findsOneWidget);
-    expect(find.text('72%'), findsOneWidget, reason: '71.9 rounds to 72');
+
+    // The numbers must be UNDER THEIR OWN HEADINGS. Asserting only that both
+    // percentages exist somewhere passes just as happily when the two cells
+    // are swapped, which is the mutation this test is named for.
+    expect(_columnUnder(tester, 'White (you)'), '84%');
+    expect(_columnUnder(tester, 'Black (bot)'), '72%',
+        reason: '71.9 rounds to 72');
+  });
+
+  testWidgets('the bot playing White is attributed the other way round',
+      (tester) async {
+    // The untested direction. With only botColor 'b' fixtured, a build that
+    // simply always calls White "you" ships green — and every player who took
+    // Black reads their own moves as the bot's.
+    await _pumpReview(tester, _played(botColor: 'w'));
+    expect(find.text('Black (you)'), findsOneWidget);
+    expect(find.text('White (bot)'), findsOneWidget);
+  });
+
+  testWidgets('each label row shows the right count per side', (tester) async {
+    // Nothing asserted a single count value: the grid could render all zeroes,
+    // or swap its two columns, with the suite green.
+    await _pumpReview(
+        tester,
+        _played(counts: {
+          'w': {'blunder': 3, 'best': 7},
+          'b': {'blunder': 1, 'best': 9},
+        }));
+
+    expect(_countsInRow(tester, 'blunder'), ['3', '1']);
+    expect(_countsInRow(tester, 'best'), ['7', '9']);
   });
 
   testWidgets('a game with no bot attributes neither side', (tester) async {
@@ -216,10 +236,9 @@ void main() {
       order: _kLabelOrder.reversed.toList(),
     );
 
-    double y(String label) => tester.getTopLeft(find.text(label)).dy;
-    final rendered = [
-      for (final l in _kLabelOrder.reversed) (l, y(_capitalised(l))),
-    ];
+    double y(String label) =>
+        tester.getTopLeft(find.byKey(ValueKey('summary-row-$label'))).dy;
+    final rendered = [for (final l in _kLabelOrder.reversed) (l, y(l))];
     for (var i = 1; i < rendered.length; i++) {
       expect(rendered[i].$2, greaterThan(rendered[i - 1].$2),
           reason: '${rendered[i].$1} should be drawn below ${rendered[i - 1].$1}');
@@ -264,22 +283,35 @@ void main() {
   // suite says anything about it. Roboto is loaded above because the default
   // test font is Ahem, whose uniform square glyphs are not a measurement of
   // anything a player sees.
-  for (final width in [375.0, 320.0]) {
-    testWidgets('the summary does not overflow at ${width.toInt()}px',
+  // Widths BELOW kWideBreakpoint (720) take the phone branch, where the list is
+  // full width. The wide branch splits the width with the board, so the pane
+  // can be a fraction of it — and with the splitter at kMaxSplit that pane is
+  // narrower than any phone. Testing only 375/320 could never fail there.
+  for (final (width, split) in [
+    (375.0, null),
+    (320.0, null),
+    (720.0, kMaxSplit),
+    (800.0, kMaxSplit),
+    (880.0, kMaxSplit),
+  ]) {
+    final where = split == null ? 'narrow' : 'wide, split $split';
+    testWidgets('the summary does not overflow at ${width.toInt()}px ($where)',
         (tester) async {
-      tester.view.physicalSize = Size(width, 800);
+      tester.view.physicalSize = Size(width, 900);
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.reset);
 
       await _pumpReview(
           tester,
+          split: split,
           _played(counts: {
             // the widest realistic grid: every label, two-digit counts
             'w': {for (final l in _kLabelOrder) l: 24},
             'b': {for (final l in _kLabelOrder) l: 17},
           }));
 
-      expect(find.text('Inaccuracy'), findsOneWidget,
+      expect(find.byKey(const ValueKey('summary-row-inaccuracy')),
+          findsOneWidget,
           reason: 'the grid must be on screen, or this proves nothing');
       expect(tester.takeException(), isNull,
           reason: 'the summary overflowed at ${width.toInt()}px');
@@ -287,5 +319,33 @@ void main() {
   }
 }
 
-String _capitalised(String label) =>
-    label[0].toUpperCase() + label.substring(1);
+
+/// The text of the cell sitting directly below [heading] — i.e. in its column,
+/// not merely somewhere in the tree.
+String _columnUnder(WidgetTester tester, String heading) {
+  // Right edges, not centres: the cell is a Column with
+  // crossAxisAlignment.end, so heading and value are shrink-wrapped to
+  // different widths and share only their right edge.
+  final x = tester.getBottomRight(find.text(heading)).dx;
+  for (final e in tester.widgetList<Text>(find.byType(Text))) {
+    final f = find.byWidget(e);
+    final data = e.data;
+    if (data == null || !data.endsWith('%') && data != '—') continue;
+    if ((tester.getBottomRight(f).dx - x).abs() < 1.0) return data;
+  }
+  return '<none aligned>';
+}
+
+/// The two count cells on [label]'s row, left to right.
+List<String> _countsInRow(WidgetTester tester, String label) {
+  final row = find.byKey(ValueKey('summary-row-$label'));
+  final cells = <(double, String)>[];
+  for (final e
+      in tester.widgetList<Text>(find.descendant(of: row, matching: find.byType(Text)))) {
+    final data = e.data;
+    if (data == null || int.tryParse(data) == null) continue;
+    cells.add((tester.getCenter(find.byWidget(e)).dx, data));
+  }
+  cells.sort((a, b) => a.$1.compareTo(b.$1));
+  return [for (final c in cells) c.$2];
+}

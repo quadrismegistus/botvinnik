@@ -3,11 +3,16 @@
 // is its members' average elo, averaged over the personas that survived
 // `_playableFamilies`.
 //
-// That distinction is invisible on the web, where every family but Dala plays,
-// which is why these tests inject the platform filter rather than trusting the
-// one the host happens to have. Computing the averages before the filter puts
-// a Dala heading (avg 1107) between Horizon and Squarefish on every platform,
-// with nothing under it — the exact bug the issue asks to be designed out.
+// These tests inject the platform filter rather than trusting the host's,
+// because CI is Linux and the host is a Mac: Retro, Garbo and Maia are all
+// unsupported on Linux, so a fixture that leans on them asserts less there
+// than it does here, silently.
+//
+// The bug being designed out is GROUPING before filtering — a heading for a
+// family this platform cannot play, with nothing under it. Note it is NOT
+// "averaging before filtering", which the issue and an early version of this
+// header both claimed: the filter is family-granular, so a surviving family's
+// average is the same either way. See the note on RosterGroup.averageElo.
 //
 //   cd flutter && flutter test test/roster_picker_test.dart
 
