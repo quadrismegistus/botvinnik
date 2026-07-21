@@ -55,4 +55,11 @@ class GradingApi {
           List<Map<String, dynamic>> storedMoves, String color) =>
       (_bridge.call('labelCounts', args: [storedMoves, color]) as Map)
           .cast<String, dynamic>();
+
+  /// LABEL_ORDER: the brain's own ranking of the labels, brilliant first and
+  /// blunder last. Anything that lists all nine — the review summary's count
+  /// grid — orders by this rather than by a list of its own, which is how the
+  /// UI and the brain's ranking drift apart.
+  List<String> labelOrder() =>
+      (_bridge.call('LABEL_ORDER', isProperty: true) as List).cast<String>();
 }

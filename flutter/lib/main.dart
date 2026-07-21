@@ -184,6 +184,10 @@ class _BootGateState extends State<BootGate> {
             ),
             ChangeNotifierProvider(create: (_) => BookStore()),
             Provider(create: (_) => ChessApi(booted.bridge)),
+            // Review's summary reads LABEL_ORDER through it. The ClassTable
+            // above is a snapshot of one brain property; this is the API
+            // itself, on the same footing as ChessApi.
+            Provider(create: (_) => GradingApi(booted.bridge)),
           ],
           child: MaterialApp(
             title: 'botvinnik',
