@@ -71,3 +71,11 @@ flutter/web/brain.js
 # sqflite's shared-worker build: unused (db_init_web uses the no-worker
 # factory) and regenerable with `dart run sqflite_common_ffi_web:setup`
 flutter/web/sqflite_sw.js
+
+# Gradle's build cache. Not merely noise: it is hundreds of MB of binaries, and
+# it slipped into a calibration PR (#110) because checking out a branch without
+# flutter/android/ deletes that directory's own .gitignore while leaving the
+# untracked cache on disk — so `git add -A` swept it up. Ignoring it here, at
+# the root, holds whatever branch you are on.
+.gradle/
+flutter/android/local.properties
