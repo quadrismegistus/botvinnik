@@ -15,6 +15,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../stores/chess_clock.dart';
 import '../stores/game_controller.dart';
 import '../stores/settings_store.dart';
 import 'roster_picker.dart';
@@ -52,6 +53,11 @@ class _NewGameSheetState extends State<_NewGameSheet> {
   // game is a thing the player decides to sit down for, and a sticky switch
   // would put them on the record without their having said so this time.
   bool _rated = false;
+
+  /// The clock a rated game runs on. Null is a rated game with no clock, which
+  /// is still rated — the time control is a property of the game, not of what
+  /// counts.
+  TimeControl? _time = TimeControl.parse('10+0');
 
   /// A rated game needs exactly one human and one bot. Analysis has no result
   /// to rate and bot-vs-bot has no human in it — `playerElo` refuses both
@@ -135,6 +141,38 @@ class _NewGameSheetState extends State<_NewGameSheet> {
 
   /// Material [Icon]s, not a check glyph in a [Text]: an uncovered codepoint
   /// is a font download from fonts.gstatic.com on web.
+  /// Time controls, offered only once Rated is ticked — a clock on a casual
+  /// game is a different feature and #169 does not ask for one.
+  static final _presets = [
+    TimeControl.parse('3+2'),
+    TimeControl.parse('5+0'),
+    TimeControl.parse('10+0'),
+    TimeControl.parse('15+10'),
+  ];
+
+  Widget _timeRow() => Padding(
+        padding: const EdgeInsets.fromLTRB(34, 2, 8, 6),
+        child: Wrap(
+          spacing: 6,
+          runSpacing: 6,
+          children: [
+            for (final t in _presets)
+              ChoiceChip(
+                label: Text(t.notation, style: const TextStyle(fontSize: 12)),
+                selected: _time?.notation == t.notation,
+                onSelected: (_) => setState(() => _time = t),
+                showCheckmark: false,
+              ),
+            ChoiceChip(
+              label: const Text('no clock', style: TextStyle(fontSize: 12)),
+              selected: _time == null,
+              onSelected: (_) => setState(() => _time = null),
+              showCheckmark: false,
+            ),
+          ],
+        ),
+      );
+
   Widget _ratedRow() => InkWell(
         onTap: () => setState(() => _rated = !_rated),
         child: Padding(
@@ -213,6 +251,7 @@ class _NewGameSheetState extends State<_NewGameSheet> {
             Text(_summary,
                 style: const TextStyle(color: Colors.white38, fontSize: 12)),
             if (_rateable) _ratedRow(),
+            if (_rateable && _rated) _timeRow(),
             const SizedBox(height: 10),
             _fenField(),
             const SizedBox(height: 14),
@@ -246,7 +285,10 @@ class _NewGameSheetState extends State<_NewGameSheet> {
                 // to be the last one.
                 widget.settings.setPlayers(white: _white, black: _black);
                 widget.game
-                    .newGame(fromFen: fen.isEmpty ? null : fen, rated: rated);
+                    .newGame(
+                        fromFen: fen.isEmpty ? null : fen,
+                        rated: rated,
+                        timeControl: rated ? _time : null);
                 Navigator.pop(context);
               },
               style: FilledButton.styleFrom(
