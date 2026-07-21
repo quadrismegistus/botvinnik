@@ -1287,7 +1287,7 @@
      "id": "fix",
      "createdAt": "2026-01-01T00:00:00Z",
      "box": 2,
-     "dueAt": "2026-07-23T14:35:24.063Z",
+     "dueAt": "2026-07-24T10:01:23.396Z",
      "attempts": 3,
      "correct": 2,
      "lastResult": "pass"
@@ -1349,7 +1349,7 @@
      "id": "fix",
      "createdAt": "2026-01-01T00:00:00Z",
      "box": 0,
-     "dueAt": "2026-07-20T14:45:28.864Z",
+     "dueAt": "2026-07-21T10:11:28.197Z",
      "attempts": 3,
      "correct": 1,
      "lastResult": "fail"
@@ -1365,10 +1365,10 @@
     "square-900"
    ],
    "expected": {
-    "id": "square-900",
-    "name": "Square 900",
+    "id": "squarefish-900",
+    "name": "Squarefish 900",
     "elo": 900,
-    "family": "square",
+    "family": "squarefish",
     "blurb": "Plays sound chess but misses ~46% of tactical moments — and stays blind to what it hasn't seen.",
     "shapedLabel": 849
    }
@@ -1379,10 +1379,10 @@
     "fish-2000"
    ],
    "expected": {
-    "id": "fish-2000",
-    "name": "Fish 2000",
+    "id": "stockfish-2000",
+    "name": "Stockfish 2000",
     "elo": 2000,
-    "family": "fish",
+    "family": "stockfish",
     "blurb": "Stockfish with the strength limiter on — cold, accurate, occasionally merciful.",
     "numericElo": 2240
    }

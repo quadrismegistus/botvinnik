@@ -88,8 +88,8 @@ JavaScript; three download weights at runtime; one needs a native binary.
 ```mermaid
 flowchart LR
     subgraph FAM["brain/bots.ts — 35 personas"]
-        SQ["Square ×12<br/>600–1700"]
-        FI["Fish ×8<br/>1800–2500"]
+        SQ["Squarefish ×12<br/>600–1700"]
+        FI["Stockfish ×8<br/>1800–2500"]
         MA["Maia ×6"]
         RE["Retro ×3"]
         HO["Horizon ×2"]
@@ -117,13 +117,13 @@ and never redistributed in the repo or the app bundle.
 
 Two consequences worth knowing before touching any of this:
 
-**Square's weakening is not in the search.** The engine always searches at
-full strength for a Square; a separate pure-JS choice layer decides which
-tactics that persona fails to notice. That is why Squares can be recalibrated
+**Squarefish's weakening is not in the search.** The engine always searches at
+full strength for a Squarefish; a separate pure-JS choice layer decides which
+tactics that persona fails to notice. That is why they can be recalibrated
 without re-running an engine, and why their labels are only valid against the
 exact engine build they were measured on.
 
-**Everything except Square and Fish is fallible.** Each of the other five can
+**Everything except Squarefish and Stockfish is fallible.** Each of the other five can
 fail — a blocked CDN, an unreachable model host, a browser that cannot run
 ort-web — and each falls back to Stockfish at the persona's internal ELO. The
 fallback sets a flag the UI surfaces, because a silent stand-in would corrupt

@@ -8758,10 +8758,10 @@ var brain = (() => {
     const label = shapedLabelFor(displayElo + SCALE_OFFSET);
     const missPct = Math.round(shapedParams(label).missProb * 100);
     return {
-      id: `square-${displayElo}`,
-      name: `Square ${displayElo}`,
+      id: `squarefish-${displayElo}`,
+      name: `Squarefish ${displayElo}`,
       elo: displayElo,
-      family: "square",
+      family: "squarefish",
       blurb: `Plays sound chess but misses ~${missPct}% of tactical moments \u2014 and stays blind to what it hasn't seen.`,
       shapedLabel: label
     };
@@ -8789,10 +8789,10 @@ var brain = (() => {
   }
   function fish(displayElo) {
     return {
-      id: `fish-${displayElo}`,
-      name: `Fish ${displayElo}`,
+      id: `stockfish-${displayElo}`,
+      name: `Stockfish ${displayElo}`,
       elo: displayElo,
-      family: "fish",
+      family: "stockfish",
       blurb: "Stockfish with the strength limiter on \u2014 cold, accurate, occasionally merciful.",
       numericElo: displayElo + SCALE_OFFSET
     };
@@ -8873,8 +8873,17 @@ var brain = (() => {
     return native ? PERSONAS : PERSONAS.filter((p) => !p.nativeOnly);
   }
   var byId = new Map(PERSONAS.map((p) => [p.id, p]));
+  function renamedId(id) {
+    if (id.startsWith("fish-")) return `stockfish-${id.slice(5)}`;
+    if (id.startsWith("square-")) return `squarefish-${id.slice(7)}`;
+    return null;
+  }
   function personaById(id) {
-    return id && byId.get(id) || null;
+    if (!id) return null;
+    const direct = byId.get(id);
+    if (direct) return direct;
+    const renamed = renamedId(id);
+    return renamed && byId.get(renamed) || null;
   }
   function personaInternalElo(p) {
     return p.elo + SCALE_OFFSET;

@@ -607,7 +607,7 @@ class GameController extends ChangeNotifier {
   /// it after its own generation check, and only once the move is really played.
   Future<({String? uci, bool standIn})> _pickBotMove(Persona p) async {
     final fen = position.fen;
-    if (p.family == 'square') {
+    if (p.family == 'squarefish') {
       final label = p.shapedLabel!;
       final lines = await _arbiter.search(
         fen: fen,
@@ -693,8 +693,9 @@ class GameController extends ChangeNotifier {
       }
       debugPrint('[bot] maia had no move; falling back to the engine');
     }
-    // Fish, and the fallback for anything that could not answer for itself.
-    // internalElo rather than numericElo: only fish carries numericElo, and a
+    // Stockfish, and the fallback for anything that could not answer for
+    // itself. internalElo rather than numericElo: only stockfish carries
+    // numericElo, and a
     // family without an implementation here should play at its own rating
     // rather than crash on a null.
     //
@@ -716,10 +717,10 @@ class GameController extends ChangeNotifier {
     // log sites would silently miss the second kind, and would need a new call
     // adding every time a family is added.
     //
-    // `fish` is the exception because this block IS its engine — it is the only
+    // `stockfish` is the exception because this block IS its engine — the only
     // family that arrives here having played itself. Flagging it too would put
-    // the mark on every fish game and leave the flag meaning nothing.
-    final standIn = p.family != 'fish';
+    // the mark on every stockfish game and leave the flag meaning nothing.
+    final standIn = p.family != 'stockfish';
     final internalElo = p.numericElo ?? _bot.internalElo(p);
     final spec = _bot.botSpec(internalElo);
     switch (spec['kind'] as String) {
