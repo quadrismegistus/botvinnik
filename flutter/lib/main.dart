@@ -7,6 +7,7 @@
 // restarts — cold-start the app after touching engine code.
 
 import 'package:dartchess/dartchess.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -108,6 +109,13 @@ class _BootGateState extends State<BootGate> {
   Future<_Booted> _start() async {
     initDatabaseFactory(); // web: sqlite3 WASM; native: no-op
     final bridge = await JsBridge.load();
+    // Which engine the roster's labels are calibrated against — before any bot
+    // can be asked for a move. Web runs the lite-single WASM build the wasm
+    // table was measured on; everywhere else is a real Stockfish 18, over FFI
+    // on iOS and a spawned process on macOS, which is the native table. The
+    // brain defaults to wasm, so without this line native Squares play at a
+    // strength that was never measured for them (#104).
+    BotApi(bridge).setSubstrate(kIsWeb ? 'wasm' : 'native');
     // Started, NOT awaited. On the web the engine is a 7MB WASM download plus
     // a UCI handshake, and awaiting it here put all of that in front of the
     // first frame: 17.3MB before anything was drawn, measured at 16s on fast
