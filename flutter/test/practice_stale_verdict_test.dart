@@ -96,9 +96,11 @@ void main() {
     expect(h.db.kv, isNotEmpty);
   });
 
-  // Both doors onto the same hole. Skip has had it since the tab shipped;
-  // delete arrived with #137.
-  for (final door in ['skip', 'delete']) {
+  // Three doors onto the same hole. Skip has had it since the tab shipped;
+  // delete arrived with #137, and picking a row out of the collection browser
+  // is the third — you can open the list while a check is in flight, and the
+  // list is the one route to a puzzle the scheduler did not choose.
+  for (final door in ['skip', 'delete', 'browser']) {
     test('a $door mid-check drops the verdict instead of landing it on the '
         'next puzzle', () async {
       final arbiter = ParkedArbiter();
@@ -113,8 +115,10 @@ void main() {
 
       if (door == 'skip') {
         h.practice.nextPuzzle();
-      } else {
+      } else if (door == 'delete') {
         await h.practice.remove(_fenA);
+      } else {
+        h.practice.serveItem(_fenB);
       }
       expect(h.practice.current?['id'], _fenB,
           reason: 'the $door must have served the other puzzle');
