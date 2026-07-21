@@ -46,6 +46,12 @@ export function estimatePlayerElo(gamesList: StoredGame[]): PlayerEloEstimate | 
 		if (!p) continue;
 		if (g.botFallback) continue; // opponent wasn't really the persona — off the ruler
 		if ((g.botUndos ?? 0) > 0) continue; // takebacks = assisted result — off the ruler
+		// Two bots playing each other. playerColor falls back to White when both
+		// sides carry a persona, so such a game archives looking like a human
+		// White game and was being scored as one. #144 stopped it earning a crown
+		// and not this; the exclusion belongs here, beside the other two, or every
+		// future consumer of the archive repeats the mistake.
+		if (g.botBothSides) continue;
 		const score = playerScore(g);
 		if (score === null) continue;
 		outcomes.push({ opp: p.elo, score });

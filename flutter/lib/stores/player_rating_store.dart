@@ -170,16 +170,13 @@ class PlayerRatingStore extends ChangeNotifier {
 
   /// The archive as the estimator gets it.
   ///
-  /// Bot-vs-bot games are the one exclusion made HERE rather than by the
-  /// brain, and only because the brain cannot: `botBothSides` is written by
-  /// the Flutter save path and is not a field of the brain's StoredGame, so
-  /// `estimatePlayerElo` reads one as a human win or loss (verified against
-  /// the bundle — a lone botBothSides game comes back as games: 1). Nobody
-  /// played it. Everything else the estimator refuses, it refuses on its own.
-  List<Map<String, dynamic>> _fit(List<Map<String, dynamic>> raw) => [
-        for (final g in raw)
-          if (g['botBothSides'] != true) _forFit(g),
-      ];
+  /// Every exclusion is the brain's — botFallback, botUndos and botBothSides
+  /// are all refused by estimatePlayerElo itself. This filtered here for one
+  /// commit, because `botBothSides` was a Flutter-only field the brain's
+  /// StoredGame did not declare; it does now, and the rule moved next to the
+  /// other two so a future consumer of the archive cannot miss it.
+  List<Map<String, dynamic>> _fit(List<Map<String, dynamic>> raw) =>
+      [for (final g in raw) _forFit(g)];
 
   /// The record as the estimator gets it: everything except the move list.
   ///
