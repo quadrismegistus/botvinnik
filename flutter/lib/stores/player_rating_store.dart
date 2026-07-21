@@ -180,8 +180,9 @@ class PlayerRatingStore extends ChangeNotifier {
 
   /// The archive as the estimator gets it.
   ///
-  /// Every exclusion is the brain's — botFallback, botUndos and botBothSides
-  /// are all refused by estimatePlayerElo itself. This filtered here for one
+  /// Every exclusion is the brain's — botFallback, botUndos, botBothSides,
+  /// botHintsUsed and the `rated` gate itself are all refused by
+  /// estimatePlayerElo. This filtered here for one
   /// commit, because `botBothSides` was a Flutter-only field the brain's
   /// StoredGame did not declare; it does now, and the rule moved next to the
   /// other two so a future consumer of the archive cannot miss it.
@@ -201,19 +202,28 @@ class PlayerRatingStore extends ChangeNotifier {
   Map<String, dynamic> _forFit(Map<String, dynamic> game) =>
       Map<String, dynamic>.of(game)..remove('moves');
 
-  /// Prose for one refused game. Ordered by what the player most needs to
-  /// hear: the two flags that describe something they did or that happened to
-  /// them come before the structural reasons.
+  /// Prose for one refused game.
+  ///
+  /// Ordered so the sentence is not misleading rather than by severity. The
+  /// two reasons that mean nobody could have been rated come first; then
+  /// whether the game was on the record at all, because saying "you took a
+  /// move back" about a casual game implies it would have counted otherwise,
+  /// which is false — since #168 no casual game counts whatever happens in it.
+  /// Only then the things the player did inside a rated game.
   String? _reasonFor(Map<String, dynamic> game) {
     final undos = (game['botUndos'] as num?)?.toInt() ?? 0;
+    if (game['botPersona'] == null) return 'there was no bot opponent';
+    if (game['botBothSides'] == true) return 'both sides were bots';
+    if (game['rated'] != true) return 'it was not a rated game';
     if (game['botFallback'] == true) {
       return 'your opponent was substituted part-way through';
     }
     if (undos > 0) {
       return undos == 1 ? 'you took a move back' : 'you took $undos moves back';
     }
-    if (game['botBothSides'] == true) return 'both sides were bots';
-    if (game['botPersona'] == null) return 'there was no bot opponent';
+    if (game['botHintsUsed'] == true) {
+      return 'the hint overlays were on the board';
+    }
     if (game['result'] == '*') return 'it has no result';
     return null;
   }
