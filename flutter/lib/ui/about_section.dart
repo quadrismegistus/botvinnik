@@ -9,6 +9,8 @@
 // originals by `stage-legal.sh`, guarded in CI.
 
 import 'package:flutter/material.dart';
+
+import 'layout.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -90,7 +92,7 @@ class LegalTextScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text(title)),
+      appBar: insetAppBar(context, AppBar(title: Text(title))),
       body: FutureBuilder<String>(
         future: DefaultAssetBundle.of(context).loadString(asset),
         builder: (context, snap) {

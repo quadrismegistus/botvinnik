@@ -86,9 +86,20 @@ class PlayerPlate extends StatelessWidget {
           Icon(persona == null ? Icons.person_outline : Icons.smart_toy_outlined,
               size: 15, color: Colors.white54),
           const SizedBox(width: 6),
-          Text(name,
-              style: const TextStyle(
-                  fontSize: 13, fontWeight: FontWeight.w600, color: Colors.white70)),
+          // Flexible + ellipsis: the Row also carries the elo, the optional
+          // stand-in chip, the captured tray and the +N advantage. Left rigid,
+          // a long persona name ("Maia III (sampled)") plus the chip overflowed
+          // at phone widths and the clipping landed on the tray and the
+          // advantage — the two things a player actually reads mid-game.
+          Flexible(
+            child: Text(name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.white70)),
+          ),
           if (persona != null) ...[
             const SizedBox(width: 5),
             Text('${persona.elo}',
@@ -103,13 +114,11 @@ class PlayerPlate extends StatelessWidget {
             // the captured pieces. U+26A0 is in no bundled face, so a Text
             // would fetch Noto from fonts.gstatic.com on web. Material icons
             // ship with the app.
-            if (game.botFallback) ...[
+            if (game.stoodInFor(persona.id)) ...[
               const SizedBox(width: 6),
               Tooltip(
-                message:
-                    "${persona.name}'s engine could not answer, so Stockfish "
-                    'moved instead. This game will not count toward your '
-                    'rating.',
+                message: "${persona.name}'s engine could not answer, so "
+                    'Stockfish moved some of its moves instead.',
                 child: Container(
                   padding:
                       const EdgeInsets.symmetric(horizontal: 5, vertical: 1),

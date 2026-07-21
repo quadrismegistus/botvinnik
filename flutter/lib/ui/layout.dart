@@ -6,6 +6,7 @@
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 
 /// Below this the panel column has no room and the phone layout is used.
 const double kWideBreakpoint = 720;
@@ -111,8 +112,54 @@ double wideBoardSize(double width, double height, double split) => math.min(
 /// The window is `fullSizeContentView` with a transparent titlebar (see
 /// macos/Runner/MainFlutterWindow.swift), so the Flutter view owns the whole
 /// window and the close/minimise/zoom buttons sit on top of whatever is at the
-/// top-left. They occupy roughly x 13-67; 78 clears them with a margin.
+/// top-left. They occupy x 9-69 (measured against the live window; these are
+/// points, so it is scale-invariant), and 78 clears them with a margin.
 ///
 /// Zero everywhere else — no other platform draws anything over the app.
 double get macTitlebarInset =>
     !kIsWeb && defaultTargetPlatform == TargetPlatform.macOS ? 78.0 : 0.0;
+
+/// Re-lay an [AppBar] so nothing it draws lands under the traffic lights.
+///
+/// Every AppBar in the app must go through this, not just the shell's. A
+/// pushed route builds its own bar with an IMPLIED back button, and an implied
+/// leading is the case to watch: it is null on the AppBar, so a wrapper that
+/// only pads `bar.leading` insets the title and leaves the back arrow under the
+/// close button. Clicking it closes the window — AppKit wins the hit test and
+/// Flutter never sees the tap. That shipped in the About screen's legal viewer.
+///
+/// Returns [bar] untouched off macOS, where the inset is 0.
+AppBar insetAppBar(BuildContext context, AppBar bar) {
+  final inset = macTitlebarInset;
+  if (inset == 0) return bar;
+  // Resolve the implied back button into a real one so it can be padded.
+  final leading = bar.leading ??
+      (bar.automaticallyImplyLeading && Navigator.of(context).canPop()
+          ? const BackButton()
+          : null);
+  return AppBar(
+    leading: leading == null
+        ? null
+        : Padding(padding: EdgeInsets.only(left: inset), child: leading),
+    leadingWidth: leading == null ? null : inset + 56,
+    // already resolved above; letting Material imply a second one would put it
+    // straight back under the buttons
+    automaticallyImplyLeading: false,
+    titleSpacing: leading == null ? inset : bar.titleSpacing,
+    title: bar.title,
+    actions: bar.actions,
+    bottom: bar.bottom,
+    // carried through rather than dropped: a future bar that styles itself
+    // would otherwise lose that styling on macOS only, which is the hardest
+    // kind of bug to notice
+    backgroundColor: bar.backgroundColor,
+    foregroundColor: bar.foregroundColor,
+    elevation: bar.elevation,
+    shape: bar.shape,
+    flexibleSpace: bar.flexibleSpace,
+    centerTitle: bar.centerTitle,
+    toolbarHeight: bar.toolbarHeight,
+    systemOverlayStyle: bar.systemOverlayStyle,
+    iconTheme: bar.iconTheme,
+  );
+}
