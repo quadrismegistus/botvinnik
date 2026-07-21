@@ -202,18 +202,25 @@ void main() {
   });
 
   test('a username that is not one never reaches the network', () async {
-    // The name goes into the PATH. `../` or a space is a request for
-    // something else entirely, or a 404 with a baffling message.
-    final client = MockClient((_) async => fail('should not have requested'));
-    final api = LichessImportApi(NodeBrainBridge(), client: client);
-    for (final bad in ['', 'a', 'me and you', '../../api/account', 'x' * 31]) {
+    // RECORD the urls, do not fail() inside the client: the API catches
+    // everything and rethrows it as LichessImportException, so a fail() there
+    // is swallowed and the assertion passes either way. Mutating the username
+    // regex to `^.*$` left this file green, and three requests went out —
+    // including .../api/api/account from the input '../../api/account'.
+    final urls = <String>[];
+    final client = MockClient((req) async {
+      urls.add(req.url.toString());
+      return http.Response('', 200);
+    });
+    for (final bad in ['', '  ', '../../api/account', 'a/b', 'x' * 40, 'a b']) {
       await expectLater(
-        api.importGames(
-            username: bad, existingIds: {}, collectThreshold: 5),
+        LichessImportApi(NodeBrainBridge(), client: client).importGames(
+            username: bad, existingIds: const {}, collectThreshold: 5),
         throwsA(isA<LichessImportException>()),
-        reason: 'accepted "$bad"',
       );
     }
+    expect(urls, isEmpty,
+        reason: 'a rejected username must never be put in a URL');
   });
 
   test('an unreachable lichess is reported, not thrown raw', () async {

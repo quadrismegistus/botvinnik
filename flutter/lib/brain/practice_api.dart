@@ -17,6 +17,15 @@ class PracticeApi {
   }
 
   /// Returns the new items array, or null when the fen is already collected.
+  /// The bulk form. One bridge round trip for a whole import, where a loop of
+  /// [addItem] marshals the entire growing collection per seed — measured at
+  /// 986MB of expression text for a 300-game import.
+  List<Map<String, dynamic>>? addItems(
+      List<Map<String, dynamic>> items, List<Map<String, dynamic>> dataList) {
+    final r = _bridge.call('addItems', args: [items, dataList]);
+    return r == null ? null : _castItems(r);
+  }
+
   List<Map<String, dynamic>>? addItem(
       List<Map<String, dynamic>> items, Map<String, dynamic> data) {
     final r = _bridge.call('addItem', args: [items, data]);

@@ -8,7 +8,6 @@ class ChessApi {
   final JsBridge _bridge;
   const ChessApi(this._bridge);
 
-
   String san(String fen, String uci) =>
       _bridge.call('getSan', args: [fen, uci]) as String;
 

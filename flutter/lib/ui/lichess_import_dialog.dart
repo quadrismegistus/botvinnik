@@ -60,6 +60,10 @@ class _LichessImportDialogState extends State<_LichessImportDialog> {
   int _seen = 0;
   String _stage = '';
 
+  /// True only while the ndjson stream is being consumed, so the progress line
+  /// can hand back to [_stage] for the phases that follow it.
+  bool _streaming = false;
+
   @override
   void dispose() {
     _name.dispose();
@@ -72,6 +76,7 @@ class _LichessImportDialogState extends State<_LichessImportDialog> {
       _error = null;
       _seen = 0;
       _stage = 'Asking lichess…';
+      _streaming = true;
     });
     final api = widget.api ??
         context.read<LichessImportApi>();
@@ -97,20 +102,24 @@ class _LichessImportDialogState extends State<_LichessImportDialog> {
       );
 
       if (!mounted) return;
-      setState(() => _stage = 'Saving ${result.games.length}…');
+      setState(() {
+        _streaming = false;
+        _stage = 'Saving ${result.games.length}…';
+      });
       for (final game in result.games) {
         await widget.review.db.saveGame(game);
       }
       await widget.review.loadGames();
 
-      // Practice items are deduped by position inside the controller, so the
-      // honest count of what this import added is the difference — not the
-      // number of candidates handed over.
-      final before = widget.practice.items.length;
-      for (final seed in result.practice) {
-        await widget.practice.maybeCollect(seed.move, setupUci: seed.setupUci);
-      }
-      final puzzles = widget.practice.items.length - before;
+      // collectAll, not a loop of maybeCollect: the per-item form marshals the
+      // whole growing collection across the bridge EACH TIME, so a 300-game
+      // import measured at 986MB of expression text and 9.3s on a desktop VM
+      // with no JS engine running. It returns the honest count of what was
+      // added, since items dedupe by position.
+      final puzzles = await widget.practice.collectAll([
+        for (final seed in result.practice)
+          (move: seed.move, setupUci: seed.setupUci),
+      ]);
 
       if (!mounted) return;
       if (result.games.isEmpty) {
@@ -216,7 +225,11 @@ class _LichessImportDialogState extends State<_LichessImportDialog> {
                   backgroundColor: Color(0xFF2c2a26),
                   color: Color(0xFF81B64C)),
               const SizedBox(height: 6),
-              Text(_seen > 0 ? 'Read $_seen games — grading…' : _stage,
+              // `_streaming &&` is what makes the third phase reachable. Testing
+      // `_seen > 0` alone never yielded back to _stage — _seen only grows — so
+      // 'Saving N…' was dead and the dialog said "grading…" through the whole
+      // archive write and practice seed, which are the slow parts.
+      Text(_streaming && _seen > 0 ? 'Read $_seen games — grading…' : _stage,
                   style:
                       const TextStyle(fontSize: 11.5, color: Colors.white38)),
             ],

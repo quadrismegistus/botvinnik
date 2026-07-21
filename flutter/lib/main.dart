@@ -635,6 +635,16 @@ class _SplitHandleState extends State<_SplitHandle> {
 /// it was archived. Falls back to the raw id so an unknown persona still says
 /// something rather than "game".
 String _opponentName(BuildContext context, Map<String, dynamic> game) {
+  // A FETCHED game (source set) carries no persona — it carries real player
+  // names — so falling through to personaFor gave the review header "0-1 ·
+  // game" above a list row that correctly read "vs respects_55". games_list
+  // already made this distinction; this copy of it had not been updated.
+  final source = game['source'] as String?;
+  if (source != null) {
+    final youAreWhite = (game['botColor'] as String?) != 'w';
+    final them = (youAreWhite ? game['black'] : game['white']) as String?;
+    if (them != null) return them;
+  }
   final id = game['botPersona'] as String?;
   return context.read<GameController>().personaFor(id)?.name ?? id ?? 'game';
 }

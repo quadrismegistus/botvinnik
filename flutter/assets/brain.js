@@ -3895,6 +3895,7 @@ var brain = (() => {
     PERSONAS: () => PERSONAS,
     SCALE_OFFSET: () => SCALE_OFFSET,
     addItem: () => addItem,
+    addItems: () => addItems,
     analysedGameToStored: () => analysedGameToStored,
     availablePersonas: () => availablePersonas,
     avoidRepetition: () => avoidRepetition,
@@ -9273,6 +9274,29 @@ var brain = (() => {
       correct: 0
     };
     const next = [...items, item];
+    save(next);
+    return next;
+  }
+  function addItems(items, dataList) {
+    const seen = new Set(items.map((i) => i.fen));
+    const now = (/* @__PURE__ */ new Date()).toISOString();
+    const added = [];
+    for (const data of dataList) {
+      if (seen.has(data.fen)) continue;
+      seen.add(data.fen);
+      added.push({
+        ...data,
+        id: data.fen,
+        createdAt: now,
+        box: 0,
+        dueAt: now,
+        // due immediately
+        attempts: 0,
+        correct: 0
+      });
+    }
+    if (added.length === 0) return null;
+    const next = [...items, ...added];
     save(next);
     return next;
   }

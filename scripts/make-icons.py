@@ -270,7 +270,14 @@ def main() -> int:
             have = Image.open(f)
             # Compare PIXELS, not bytes: a different zlib would re-encode the
             # same image differently and that is not drift.
-            if have.size != image.size or have.convert(image.mode).tobytes() != image.tobytes():
+            # Mode BEFORE pixels. `have.convert(image.mode)` drops an extra
+            # alpha channel and keeps the RGB, so an iOS icon that regained
+            # alpha compared EQUAL — and alpha in an iOS app icon is an App
+            # Store rejection, which the header calls load-bearing.
+            if have.mode != image.mode:
+                bad.append(f"{path}: mode {have.mode}, expected {image.mode}")
+                continue
+            if have.size != image.size or have.tobytes() != image.tobytes():
                 bad.append(f'{path}: differs from the master ({have.size} {have.mode})')
         for line in bad:
             print(line, file=sys.stderr)

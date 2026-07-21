@@ -151,6 +151,49 @@ export function addItem(
 	return next;
 }
 
+/**
+ * Add many items in one pass — the bulk form of [addItem].
+ *
+ * Importing a season of lichess games seeds hundreds of puzzles at once, and
+ * calling addItem per seed made the cost quadratic on the DART side: every call
+ * marshals the whole growing collection into a JS expression string and decodes
+ * the whole result back. Measured at 300 games (~1500 seeds): 986MB of
+ * expression text and 493MB of writes, 9.3s on a desktop VM with no JS engine
+ * running at all — a strict lower bound on what a phone would do.
+ *
+ * Same rules as addItem, applied in order: a fen already present is skipped,
+ * and so is a duplicate WITHIN [dataList], so a file containing the same
+ * position twice cannot produce two items.
+ *
+ * Returns the new list, or null if nothing was added — matching addItem, so a
+ * caller can skip the persist entirely.
+ */
+export function addItems(
+	items: PracticeItem[],
+	dataList: Omit<PracticeItem, 'id' | 'createdAt' | 'box' | 'dueAt' | 'attempts' | 'correct'>[]
+): PracticeItem[] | null {
+	const seen = new Set(items.map((i) => i.fen));
+	const now = new Date().toISOString();
+	const added: PracticeItem[] = [];
+	for (const data of dataList) {
+		if (seen.has(data.fen)) continue;
+		seen.add(data.fen);
+		added.push({
+			...data,
+			id: data.fen,
+			createdAt: now,
+			box: 0,
+			dueAt: now, // due immediately
+			attempts: 0,
+			correct: 0
+		});
+	}
+	if (added.length === 0) return null;
+	const next = [...items, ...added];
+	save(next);
+	return next;
+}
+
 export function removeItem(items: PracticeItem[], id: string): PracticeItem[] {
 	const next = items.filter((i) => i.id !== id);
 	save(next);

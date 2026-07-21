@@ -70,16 +70,27 @@ void main() {
         // deliberately out of due order in the stored array
         practiceItem(_fenA, playedSan: 'Qh5', dueAt: _ahead(const Duration(days: 2))),
         practiceItem(_fenB, playedSan: 'Nf3', dueAt: _ago(const Duration(days: 3))),
-        practiceItem(_fenC, playedSan: 'Ke2', dueAt: _ago(const Duration(hours: 4))),
+        // _fenD is BLACK to move, so the orientation assertion below is not
+        // trivially satisfied by three white-to-move fixtures.
+        practiceItem(_fenD, playedSan: 'Ke2', dueAt: _ago(const Duration(hours: 4))),
       ]);
       h.practice.startSession();
       await _pumpTab(tester, h.practice);
       await tester.tap(find.byIcon(Icons.format_list_bulleted));
       await tester.pumpAndSettle();
 
-      // A thumbnail per row, not a FEN — the ask in #125, and the part that
-      // makes the list scannable at all.
-      expect(find.byType(StaticChessboard), findsNWidgets(3));
+      // A thumbnail per row, showing THAT ROW'S position from the side to
+      // move. Counting widgets is not enough: `flutter test` resolves neither
+      // the piece images nor the board texture, so every board paints as a
+      // blank box — hard-coding all three to the start position, or forcing
+      // one orientation, left this file green. Read the widget's own fields.
+      final boards = tester.widgetList<StaticChessboard>(
+          find.byType(StaticChessboard)).toList();
+      expect(boards, hasLength(3));
+      expect(boards.map((b) => b.fen).toSet(), hasLength(3),
+          reason: 'three rows, three positions');
+      expect(boards.map((b) => b.orientation).toSet(), hasLength(greaterThan(1)),
+          reason: 'orientation follows each position\'s side to move');
 
       double y(String san) =>
           tester.getTopLeft(find.textContaining('played $san')).dy;
@@ -378,4 +389,20 @@ void main() {
       });
     }
   });
+  testWidgets('tapping a sub-threshold row serves it anyway', (tester) async {
+    // serveItem searches `items`, not `servable`, and says so — "practise this
+    // one anyway" is the whole reason the browser lists sub-threshold puzzles
+    // it cannot queue. Searching `servable` instead makes the tap a dead one:
+    // nothing is served, but the list still closes, which is exactly the "No
+    // puzzles yet" dead end the browser exists to remove.
+    final h = makePractice([
+      practiceItem(_fenA, drop: 3), // under the 15% collect threshold
+    ]);
+    expect(h.practice.servable, isEmpty, reason: 'precondition: not queueable');
+
+    h.practice.serveItem(_fenA);
+    expect(h.practice.current?['id'], _fenA,
+        reason: 'a row you tap is served whether or not it is queueable');
+  });
+
 }

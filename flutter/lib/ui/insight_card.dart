@@ -167,15 +167,30 @@ class InsightCard extends StatelessWidget {
   /// it is not on. The endpoints are context and do not need the precision.
   Widget _winChanceLine(
       ({double before, double after, double drop}) wc, Color? tone) {
+    // A move that LOST nothing does not say "lost 0.0%". The drop is clamped at
+    // zero, but the endpoints are printed raw — and the deeper backfill eval
+    // routinely lands above the pre-move best, so the played-best case read
+    // "Win chance lost 0.0% · 70% to 74%": a loss of nothing beside two numbers
+    // that went up. Say what happened instead.
+    final gained = wc.after > wc.before;
     return Text.rich(
       TextSpan(children: [
-        const TextSpan(text: 'Win chance lost '),
-        TextSpan(
-          text: '${wc.drop.toStringAsFixed(1)}%',
-          style: TextStyle(
-              color: tone ?? Colors.white70, fontWeight: FontWeight.w700),
-        ),
-        TextSpan(text: ' · ${wc.before.round()}% to ${wc.after.round()}%'),
+        if (wc.drop <= 0 && gained) ...[
+          const TextSpan(text: 'Win chance held · '),
+          TextSpan(
+            text: '${wc.before.round()}% to ${wc.after.round()}%',
+            style: TextStyle(
+                color: tone ?? Colors.white70, fontWeight: FontWeight.w700),
+          ),
+        ] else ...[
+          const TextSpan(text: 'Win chance lost '),
+          TextSpan(
+            text: '${wc.drop.toStringAsFixed(1)}%',
+            style: TextStyle(
+                color: tone ?? Colors.white70, fontWeight: FontWeight.w700),
+          ),
+          TextSpan(text: ' · ${wc.before.round()}% to ${wc.after.round()}%'),
+        ],
       ]),
       style: const TextStyle(color: Colors.white38, fontSize: 12),
     );

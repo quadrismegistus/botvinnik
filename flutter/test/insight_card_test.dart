@@ -418,4 +418,21 @@ void main() {
       });
     }
   });
+  testWidgets('a move that gained shows no loss, and no negative drop',
+      (tester) async {
+    // The backfilled eval is DEEPER than the pre-move MultiPV best, so it
+    // routinely lands above it — a played-best move then computes a negative
+    // "loss". The drop is clamped at zero, but the endpoints print raw, which
+    // read as "Win chance lost 0.0% · 70% to 74%": nothing lost, beside two
+    // numbers that went up. Removing the clamp left all 335 tests green.
+    final game = await _withGrade(gradeRaw(evalPawns: 2.4, isBest: true));
+    final wc = game.lastGradeWinChance!;
+    expect(wc.drop, 0.0, reason: 'clamped — a gain is not a loss');
+    expect(wc.after, greaterThan(wc.before), reason: 'it really did gain');
+
+    await _pump(tester, game);
+    expect(find.textContaining('lost 0.0%'), findsNothing);
+    expect(find.textContaining('held'), findsOneWidget);
+  });
+
 }

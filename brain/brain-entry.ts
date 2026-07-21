@@ -73,6 +73,7 @@ export {
 	puzzleSetupMove,
 	enPassantSetup,
 	addItem,
+	addItems,
 	removeItem,
 	dueCount,
 	puzzleDifficulty,

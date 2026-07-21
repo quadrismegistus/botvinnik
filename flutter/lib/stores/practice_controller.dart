@@ -181,6 +181,38 @@ class PracticeController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Collect many at once — the import path.
+  ///
+  /// A loop of [maybeCollect] is quadratic on this side, not the brain's: each
+  /// call marshals the whole growing collection into a JS expression, decodes
+  /// the whole result back, re-encodes it for the kvPut, and notifies — which
+  /// makes the nav badge re-count over the bridge too. Measured for a 300-game
+  /// import (~1500 seeds): 986MB of expression text, 493MB written, 9.3s on a
+  /// desktop VM with no JS engine running at all.
+  ///
+  /// One bridge call, one write, one notify.
+  Future<int> collectAll(
+      List<({Map<String, dynamic> move, String? setupUci})> seeds,
+      {int minDepth = 8}) async {
+    if (!loaded) await load();
+    final data = <Map<String, dynamic>>[];
+    for (final s in seeds) {
+      final drop = (s.move['wcDrop'] as num?)?.toDouble() ?? 0;
+      final depth = (s.move['depth'] as num?)?.toInt() ?? 0;
+      if (drop < kCollectMin || depth < minDepth) continue;
+      final d = _api.itemData(s.move, s.setupUci);
+      if (d != null) data.add(d);
+    }
+    if (data.isEmpty) return 0;
+    final before = items.length;
+    final next = _api.addItems(items, data);
+    if (next == null) return 0; // every one a duplicate
+    items = next;
+    await _persist();
+    notifyListeners();
+    return items.length - before;
+  }
+
   // ---- session ----
 
   void startSession() {
