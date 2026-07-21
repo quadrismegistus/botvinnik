@@ -5,6 +5,12 @@
 //   You (W) vs bot (B)  → you play White
 //   bot (W) vs bot (B)  → bot-vs-bot, you watch (and they can be different bots)
 //   You (W) vs You (B)  → analysis, you move both sides
+//
+// It is also where a RATED game is started (#168), for the same reason: being
+// on the record is a choice about one game, not a persistent setting. The
+// switch is what turns blind on and the three overlays off — this sheet owns
+// that, because they are the player's settings and GameController does not own
+// them; the controller only records that the game was started rated.
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -41,6 +47,17 @@ class _NewGameSheetState extends State<_NewGameSheet> {
   // optional: start from a pasted FEN instead of the standard position
   final _fen = TextEditingController();
   String? _fenError;
+
+  // Off by default, and deliberately not remembered between games: a rated
+  // game is a thing the player decides to sit down for, and a sticky switch
+  // would put them on the record without their having said so this time.
+  bool _rated = false;
+
+  /// A rated game needs exactly one human and one bot. Analysis has no result
+  /// to rate and bot-vs-bot has no human in it — `playerElo` refuses both
+  /// regardless, so offering the switch there would be a promise the archive
+  /// does not keep.
+  bool get _rateable => (_white == null) != (_black == null);
 
   @override
   void dispose() {
@@ -116,6 +133,45 @@ class _NewGameSheetState extends State<_NewGameSheet> {
     );
   }
 
+  /// Material [Icon]s, not a check glyph in a [Text]: an uncovered codepoint
+  /// is a font download from fonts.gstatic.com on web.
+  Widget _ratedRow() => InkWell(
+        onTap: () => setState(() => _rated = !_rated),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 6),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(_rated ? Icons.check_box : Icons.check_box_outline_blank,
+                  size: 18,
+                  color: _rated ? const Color(0xFF81B64C) : Colors.white38),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Rated game',
+                        style: TextStyle(
+                            fontSize: 13.5,
+                            fontWeight: FontWeight.w600,
+                            color: _rated
+                                ? const Color(0xFF81B64C)
+                                : Colors.white70)),
+                    const SizedBox(height: 1),
+                    const Text(
+                        'Played blind, with the hint overlays off. Only rated '
+                        'games move your rating, and a takeback still takes '
+                        'one off it.',
+                        style:
+                            TextStyle(fontSize: 11, color: Colors.white38)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+
   Widget _fenField() => TextField(
         controller: _fen,
         style: const TextStyle(fontSize: 12.5, color: Colors.white70),
@@ -156,6 +212,7 @@ class _NewGameSheetState extends State<_NewGameSheet> {
             const SizedBox(height: 8),
             Text(_summary,
                 style: const TextStyle(color: Colors.white38, fontSize: 12)),
+            if (_rateable) _ratedRow(),
             const SizedBox(height: 10),
             _fenField(),
             const SizedBox(height: 14),
@@ -166,8 +223,30 @@ class _NewGameSheetState extends State<_NewGameSheet> {
                   setState(() => _fenError = 'Not a valid FEN');
                   return;
                 }
+                // `_rateable` again, not just `_rated`: the switch is hidden
+                // when neither side is a bot, but a player who ticks it and
+                // then changes a side leaves it ticked behind the fold.
+                final rated = _rated && _rateable;
+                if (rated) {
+                  // The mode, applied to the settings the board actually
+                  // reads. Persistent on purpose — these are ordinary
+                  // switches the player can turn back on, and restoring them
+                  // at game over would flip the board mid-recap. What stops
+                  // that from quietly rating an assisted game is that
+                  // GameController samples `botHintsUsed` at every human
+                  // move, so turning one back on during the game excludes it.
+                  widget.settings.blind = true;
+                  widget.settings.showArrows = false;
+                  widget.settings.showThreats = false;
+                  widget.settings.showControl = false;
+                }
+                // Before newGame: setPlayers can itself restart the game (the
+                // controller listens and calls newGame() on an opponent
+                // change), and that restart is unrated. The explicit call has
+                // to be the last one.
                 widget.settings.setPlayers(white: _white, black: _black);
-                widget.game.newGame(fromFen: fen.isEmpty ? null : fen);
+                widget.game
+                    .newGame(fromFen: fen.isEmpty ? null : fen, rated: rated);
                 Navigator.pop(context);
               },
               style: FilledButton.styleFrom(

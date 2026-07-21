@@ -55,6 +55,20 @@ const double kPlayerPlate = 24;
 /// the desktop minimum window size keeps us clear of it.
 const double kMinBoard = 200;
 
+/// One clock face's height at its default 26px digits: the line box plus its
+/// symmetric padding. A layout that hangs a clock over the board must reserve
+/// this the way it reserves [kPlayerPlate], or the clock pushes the board's
+/// bottom edge off the screen.
+///
+/// Measured rather than assumed: clock_display_test.dart pumps the real
+/// [ClockFace] with the real Roboto and asserts this number, so a style change
+/// that grows the face reddens a test instead of eating board height.
+const double kClockFace = 39;
+
+/// A clock face is never narrower than this, so the pair does not jump about
+/// as `12:34` becomes `9:59` becomes `0:09.4`.
+const double kClockMinWidth = 96;
+
 /// Practice: the prompt strip (two lines) plus the hint/retry action row.
 const double kPracticeChrome = 56 + 48;
 

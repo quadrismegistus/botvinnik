@@ -163,14 +163,24 @@ void main() {
       expect(g.botHintsUsed, isFalse);
     });
 
-    test('switching all three overlays off makes a move unhelped', () async {
+    test('overlays off is NOT enough — the panels still show the engine',
+        () async {
+      // This asserted the opposite until the rated mode made the gap visible.
+      // `blind` gates the Lines pane, the Book and the tree as well as the
+      // three overlays, so with blind OFF the engine's principal variations are
+      // on screen in text no matter what the overlay switches say. A rated
+      // game could be played by reading the best line off the Lines pane and
+      // playing it by hand, and archived clean.
+      //
+      // There is exactly one route to unhelped, and it is blind — see the test
+      // above.
       final (g, s, _) = await _botGame();
       s.showArrows = false;
       s.showThreats = false;
       s.showControl = false;
-      expect(s.blind, isFalse, reason: 'this is the not-blind route to clean');
+      expect(s.blind, isFalse, reason: 'the engine is still legible');
       _mate(g);
-      expect(g.botHintsUsed, isFalse);
+      expect(g.botHintsUsed, isTrue);
     });
 
     test('the flag is sampled per move, not read at the end', () async {

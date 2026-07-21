@@ -4,6 +4,11 @@
 // floats. Maximum-likelihood over the logistic Elo model, all games weighted
 // equally.
 //
+// Only RATED persona games count. Rated is a mode the player starts a game in
+// (blind, no hint overlays, and a takeback still costs the game) rather than
+// something read back off the settings afterwards — the argument is beside the
+// exclusion below.
+//
 // Only PERSONA games count: legacy slider games were played against the old
 // softmax sampler, whose label-vs-strength mapping is broken against coherent
 // opponents (the founding result of the shaped-bot work) — those results
@@ -52,6 +57,32 @@ export function estimatePlayerElo(gamesList: StoredGame[]): PlayerEloEstimate | 
 		// and not this; the exclusion belongs here, beside the other two, or every
 		// future consumer of the archive repeats the mistake.
 		if (g.botBothSides) continue;
+		// Rated play is a MODE the player opted into, not a property inferred
+		// from the four help switches (#168).
+		//
+		// Inference was the obvious design and it is unreachable. Arrows,
+		// threats and control all default ON and blind defaults OFF
+		// (settings_store.dart), so "no help was on the board" rates no game a
+		// default install ever plays; and no archived game carries the intent
+		// either, so it would rate nothing historical. A field is also honest
+		// about what it records — the player knew they were on the record —
+		// and survives a later change to what "assisted" means, where
+		// inference re-derives that decision from whatever the switches happen
+		// to mean at the time of the read.
+		//
+		// Nothing archived before #168 rates. That discontinuity is deliberate
+		// and sanctioned; real rated games accumulate from here.
+		if (g.rated !== true) continue;
+		// The mode is a starting state, not a promise: all four switches stay
+		// live during the game, and botHintsUsed is sampled at every human move
+		// (GameController._hintsOnBoard). Turn arrows back on for one move in a
+		// rated game and this drops it — `rated` is what the player meant, this
+		// is what they did. Written since #144 and, until #168, read by nothing:
+		// arrows, threat rings and square control excluded no game at all.
+		//
+		// Takebacks need nothing extra here — `botUndos > 0` above already
+		// takes a rewound rated game off the ruler.
+		if (g.botHintsUsed) continue;
 		const score = playerScore(g);
 		if (score === null) continue;
 		outcomes.push({ opp: p.elo, score });

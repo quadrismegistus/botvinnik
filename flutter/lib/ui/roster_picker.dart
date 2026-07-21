@@ -17,6 +17,7 @@ import 'package:provider/provider.dart';
 import '../brain/types.dart';
 import '../engine/garbo_engine.dart';
 import '../engine/maia_engine.dart';
+import '../engine/maia_weights.dart';
 import '../engine/retro_engine.dart';
 import '../stores/game_controller.dart';
 
@@ -117,19 +118,71 @@ Future<String?> pickBot(BuildContext context, {String? current}) {
 
 /// The sheet itself. Public only so a widget test can pump it without driving
 /// a modal route.
-class RosterSheet extends StatelessWidget {
+class RosterSheet extends StatefulWidget {
   final GameController game;
   final String? current;
-  const RosterSheet({super.key, required this.game, this.current});
 
+  /// The platform filter, injectable for the same reason [groupRoster]'s is:
+  /// CI is Linux, where Maia is not playable, so a test that leaned on the
+  /// host's answer would assert nothing there and say so nowhere.
+  final Set<String>? playable;
+
+  const RosterSheet({
+    super.key,
+    required this.game,
+    this.current,
+    this.playable,
+  });
+
+  @override
+  State<RosterSheet> createState() => _RosterSheetState();
+}
+
+class _RosterSheetState extends State<RosterSheet> {
   /// Where a member tile's text starts, so it lines up under its heading's
   /// label rather than under the heading's mark: 16 padding + a 32-wide
   /// CircleAvatar + the 12 gap.
   static const double _memberIndent = 60;
 
   @override
+  void initState() {
+    super.initState();
+    // Two things, and only one of them is about this sheet.
+    //
+    // [refresh] is: the marks below are a claim about the disk, so the disk is
+    // what they are read from, every time the sheet opens.
+    //
+    // [prefetch] is the app's (#130), and this is not where it belongs —
+    // boot is. It is here because opening the opponent list is the first
+    // moment this file knows Maia is on screen, and somebody browsing the
+    // roster is precisely the person about to need a band. It is not the only
+    // trigger: MaiaEngine starts it again once a band has loaded, so a player
+    // who never opens this sheet still fills the cache by playing one Maia
+    // game. Returns immediately, skips what is already cached, runs at most
+    // once per launch, and does nothing at all on the web.
+    // Gated like the boot trigger. MaiaEngine.supported is macOS/iOS only, but
+    // the conditional export keys on dart.library.js_interop, so Android
+    // resolves the _io implementation and would fetch three unusable 3.5MB
+    // nets — for a family the picker has already filtered out.
+    if (MaiaEngine.supported) {
+      MaiaWeights.refresh();
+      MaiaWeights.prefetch();
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final groups = groupRoster(game.rosterPersonas);
+    return ValueListenableBuilder<Set<int>?>(
+      // So a band that lands while the sheet is open stops asking to be
+      // downloaded — the prefetch this sheet just started can finish under it.
+      valueListenable: MaiaWeights.cached,
+      builder: (context, cached, _) => _sheet(cached),
+    );
+  }
+
+  Widget _sheet(Set<int>? cached) {
+    final game = widget.game;
+    final groups = groupRoster(game.rosterPersonas, playable: widget.playable);
     // Flattened once rather than indexed into with arithmetic per row: the
     // heading/member distinction is then a type, not an offset calculation.
     final rows = <Object>[
@@ -137,7 +190,7 @@ class RosterSheet extends StatelessWidget {
     ];
     // Resolved once, outside the builder: `current` comes from settings and may
     // be a pre-rename id, which would match no tile and highlight nothing.
-    final currentId = game.personaFor(current)?.id ?? current;
+    final currentId = game.personaFor(widget.current)?.id ?? widget.current;
     return DraggableScrollableSheet(
       expand: false,
       initialChildSize: 0.7,
@@ -170,29 +223,76 @@ class RosterSheet extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                     style:
                         const TextStyle(fontSize: 11.5, color: Colors.white38)),
-                // Maia is the one persona family that reaches the network, and
-                // the only place the app does at all. Say so before it is
-                // chosen rather than during the pause it causes — the weights
-                // are GPL-3.0 and deliberately not shipped with the app, so
-                // this is a permanent property, not a first-run detail.
-                if (p.maiaBand != null)
-                  const Padding(
-                    padding: EdgeInsets.only(top: 3),
-                    // Not "a 3.5MB model, once": that is the weights alone and
-                    // omits the ~3.3MB runtime, which a deploy re-fetches (see
-                    // MaiaProgress.reassurance). "A short download" promises
-                    // neither a size nor a frequency it cannot keep; "then
-                    // plays offline" is the durable truth.
-                    child: Text(
-                      'a short download the first time — then plays offline',
-                      style: TextStyle(fontSize: 10.5, color: Color(0xFF9a8f7a)),
-                    ),
-                  ),
+                if (p.maiaBand != null) _maiaNote(p.maiaBand!, cached),
               ],
             ),
             onTap: () => Navigator.pop(context, p.id),
           );
         },
+      ),
+    );
+  }
+
+  /// What a Maia row says about its weights, which is the one thing on this
+  /// sheet that can differ between two personas with the same blurb.
+  ///
+  /// Maia is the only family that reaches the network, and the only place the
+  /// app does at all — the nets are GPL-3.0 and deliberately fetched rather
+  /// than shipped (#30, #130), so this is a permanent property rather than a
+  /// first-run detail. Three states, because there are genuinely three:
+  ///
+  ///   cached      — the file is under Application Support; this persona plays
+  ///                 with the network off.
+  ///   not cached  — it is not, and choosing it now means waiting. This is the
+  ///                 case the sheet used to hide, and the commonest way a
+  ///                 persona quietly becomes Stockfish instead (#117).
+  ///   unknown     — the web, where the weights live in the worker's IndexedDB
+  ///                 and Dart cannot see them. Says what it always said.
+  ///
+  /// Material [Icon]s, never a Unicode arrow or cloud: those live in no
+  /// bundled font, so drawing one makes Flutter web fetch a font from
+  /// fonts.gstatic.com — a third-party request the offline build cannot serve.
+  Widget _maiaNote(int band, Set<int>? cached) {
+    final ready = cached?.contains(band);
+    final (IconData icon, String text, Color color) = switch (ready) {
+      true => (
+          Icons.offline_pin_outlined,
+          'downloaded — plays offline',
+          const Color(0xFF7f9a72),
+        ),
+      false => (
+          Icons.file_download_outlined,
+          'needs a short download — then plays offline',
+          const Color(0xFF9a8f7a),
+        ),
+      // Not "a 3.5MB model, once": that is the weights alone and omits the
+      // ~3.3MB runtime, which a deploy re-fetches (see
+      // MaiaProgress.reassurance). "A short download" promises neither a size
+      // nor a frequency it cannot keep; "then plays offline" is the durable
+      // truth.
+      null => (
+          Icons.file_download_outlined,
+          'a short download the first time — then plays offline',
+          const Color(0xFF9a8f7a),
+        ),
+    };
+    return Padding(
+      padding: const EdgeInsets.only(top: 3),
+      child: Row(
+        children: [
+          Icon(icon, size: 12, color: color),
+          const SizedBox(width: 4),
+          // Expanded, because these lines wrap on a narrow phone and a Row
+          // that overflows is a runtime error the analyzer cannot see.
+          Expanded(
+            child: Text(
+              text,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontSize: 10.5, color: color),
+            ),
+          ),
+        ],
       ),
     );
   }

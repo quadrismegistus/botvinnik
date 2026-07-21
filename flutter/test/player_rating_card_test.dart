@@ -37,6 +37,7 @@ Map<String, dynamic> _game({
   String? persona = 'squarefish-1200',
   bool fallback = false,
   int undos = 0,
+  bool rated = true,
 }) =>
     {
       'id': id,
@@ -46,6 +47,11 @@ Map<String, dynamic> _game({
       'botPersona': ?persona,
       if (fallback) 'botFallback': true,
       if (undos > 0) 'botUndos': undos,
+      // Rated by default since #168: the gate, without which the fit is empty
+      // and every assertion below is about an empty card. See the note on the
+      // same helper in player_rating_test.dart.
+      if (persona != null && rated) 'rated': true,
+      if (persona != null) 'botHintsUsed': false,
       'botColor': 'b',
       'moveCount': 2,
       'moves': const [],
@@ -133,9 +139,11 @@ void main() {
   testWidgets('an empty archive offers no number at all', (tester) async {
     await _pump(tester, []);
     expect(_text(tester), contains('No rated games yet'));
-    // The explanation names both refusals, because the first time a player
-    // sees "not rated" they will have just taken a move back.
-    expect(_text(tester), contains('takebacks'));
+    // The explanation names the MODE first. Since #168 a player can have
+    // finished twenty clean games and still be here, and copy that only listed
+    // the refusals would send them looking for a fault in games that had none.
+    expect(_text(tester), contains('Rated game'));
+    expect(_text(tester), contains('takeback'));
     expect(_text(tester), contains('substituted'));
     expect(find.textContaining('give or take'), findsNothing);
   });

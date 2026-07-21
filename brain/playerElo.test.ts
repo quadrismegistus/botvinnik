@@ -2,7 +2,9 @@ import { describe, it, expect } from 'vitest';
 import { estimatePlayerElo } from './playerElo';
 import type { StoredGame } from './gameStore';
 
-// minimal persona game: result + botColor + botPersona are all the fit reads
+// A minimal RATED persona game. `rated` is here because since #168 it is the
+// gate: a fixture without it fits nothing at all, which is the point — no game
+// counts unless the player started it as a rated one.
 function game(personaId: string, result: string, botColor: 'w' | 'b' = 'w'): StoredGame {
 	return {
 		id: `t-${Math.random()}`,
@@ -11,6 +13,7 @@ function game(personaId: string, result: string, botColor: 'w' | 'b' = 'w'): Sto
 		pgn: '',
 		botElo: 0,
 		botPersona: personaId,
+		rated: true,
 		botColor,
 		moveCount: 30,
 		whiteAccuracy: null,
@@ -103,6 +106,7 @@ describe('takeback exclusion', () => {
 			pgn: '',
 			botElo: 0,
 			botPersona: 'maia-s-1500',
+			rated: true,
 			botUndos: 1,
 			botColor: 'w' as const,
 			moveCount: 40,
@@ -112,6 +116,80 @@ describe('takeback exclusion', () => {
 			moves: []
 		};
 		expect(estimatePlayerElo([g])).toBeNull();
+	});
+});
+
+describe('rated mode is the gate (#168)', () => {
+	it('a game not started as rated never counts, however clean it was', () => {
+		// The pair. Same game, same result, same opponent — the ONLY difference
+		// is the mode the player chose at the start, and `botHintsUsed: false`
+		// on both sides so this cannot be the hint rule firing instead.
+		const casual = { ...game('squarefish-1000', '1-0', 'b'), rated: undefined, botHintsUsed: false };
+		const rated = { ...game('squarefish-1000', '1-0', 'b'), botHintsUsed: false };
+		expect(estimatePlayerElo([casual])).toBeNull();
+		expect(estimatePlayerElo([rated])).not.toBeNull();
+	});
+
+	it('an archive from before rated mode existed rates nothing', () => {
+		// Every game saved before #168 lacks the field, and the discontinuity is
+		// the sanctioned half of the decision: a rating that quietly counted a
+		// history of assisted games is the thing being fixed.
+		const legacy = [
+			{ ...game('squarefish-1000', '1-0', 'b'), rated: undefined },
+			{ ...game('squarefish-1200', '0-1', 'w'), rated: undefined },
+			{ ...game('squarefish-1400', '1/2-1/2'), rated: undefined }
+		];
+		expect(estimatePlayerElo(legacy)).toBeNull();
+	});
+
+	it('rated is not inferred from the help flags being clean', () => {
+		// The rejected design: "no hints and no takebacks" read off the record.
+		// This game passes every one of those tests and still does not rate,
+		// because the player never said it was on the record.
+		const clean = {
+			...game('squarefish-1000', '1-0', 'b'),
+			rated: undefined,
+			botHintsUsed: false,
+			botUndos: 0,
+			botFallback: false,
+			botBothSides: false
+		};
+		expect(estimatePlayerElo([clean])).toBeNull();
+	});
+});
+
+describe('hint exclusion', () => {
+	it('help on the board takes a rated game off the ruler', () => {
+		// The pair, and the bug it closes: botHintsUsed has been declared since
+		// the archive existed and written since #144, and until #168 nothing
+		// read it — arrows, threat rings and square control excluded no game at
+		// all. An unpaired fixture would have passed against that code too.
+		const helped = { ...game('squarefish-1000', '1-0', 'b'), botHintsUsed: true };
+		const blind = { ...game('squarefish-1000', '1-0', 'b'), botHintsUsed: false };
+		expect(estimatePlayerElo([helped])).toBeNull();
+		expect(estimatePlayerElo([blind])).not.toBeNull();
+	});
+
+	it('one helped game drops out of a fit the rest of the archive still makes', () => {
+		// The count is what proves the exclusion here: a single refusal inside a
+		// surviving fit is invisible in the elo alone.
+		const clean = [
+			game('squarefish-1000', '1-0', 'b'),
+			game('squarefish-1200', '0-1', 'w'),
+			game('squarefish-1400', '1-0', 'b')
+		];
+		expect(estimatePlayerElo(clean)!.games).toBe(3);
+		expect(estimatePlayerElo([{ ...clean[0], botHintsUsed: true }, clean[1], clean[2]])!.games).toBe(2);
+	});
+
+	it('an absent botHintsUsed does not refuse a rated game', () => {
+		// "Hints unknown" is what absence means on a game archived before the
+		// field existed — but such a game is not rated either, so this can only
+		// arise if the save path ever stops writing the field on a rated game.
+		// Refusing on absence would then take every rated game off the ruler
+		// silently, which is the failure mode this whole issue is about.
+		const unknown = { ...game('squarefish-1000', '1-0', 'b'), botHintsUsed: undefined };
+		expect(estimatePlayerElo([unknown])).not.toBeNull();
 	});
 });
 
@@ -125,6 +203,7 @@ describe('fallback exclusion', () => {
 			pgn: '',
 			botElo: 0,
 			botPersona: 'retro-bernstein-2',
+			rated: true,
 			botFallback: true,
 			botColor: 'w' as const,
 			moveCount: 30,

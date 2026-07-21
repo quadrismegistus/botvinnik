@@ -47,6 +47,13 @@ export interface StoredGame {
 	// human move. ABSENT on games saved before tracking began (2026-07-16):
 	// hints unknown — those games can never earn a clean crown.
 	botHintsUsed?: boolean;
+	// the player started this one as a RATED game: the New Game sheet's mode
+	// that puts the result on the record, which turns blind on and the three
+	// overlays off. The rating counts exactly these (see playerElo.ts, which
+	// says why this is a stored intent and not something inferred from the
+	// four switches). Absent on every game archived before #168, and on every
+	// casual game after it.
+	rated?: boolean;
 	botColor: 'w' | 'b' | null; // side the human did NOT play (drives review orientation)
 	moveCount: number;
 	whiteAccuracy: number | null;
