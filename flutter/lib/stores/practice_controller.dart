@@ -59,6 +59,13 @@ class PracticeController extends ChangeNotifier {
   int sessionSolved = 0;
   int sessionStreak = 0;
 
+  /// Bumped by every `_serve`, i.e. by anything that puts a different puzzle on
+  /// screen — Skip/Next, the motif picker, a delete, a new session. An
+  /// in-flight [checkAttempt] compares it across its await and drops the
+  /// verdict rather than recording it against whatever is there now. Same shape
+  /// as `GameController._gen`.
+  int _gen = 0;
+
   PracticeController(this._db, this._api, this._grading, this._arbiter);
 
   /// Items at or above the configured threshold — what practice serves.
@@ -163,6 +170,7 @@ class PracticeController extends ChangeNotifier {
   }
 
   void _serve(Map<String, dynamic>? item) {
+    _gen++;
     current = item;
     attempt = null;
     pendingUci = null;
@@ -198,6 +206,7 @@ class PracticeController extends ChangeNotifier {
   Future<void> checkAttempt(String uci, String san, String fenAfter) async {
     final item = current;
     if (item == null || checking) return;
+    final gen = _gen;
     checking = true;
     pendingUci = uci; // show the move on the board while we check
     notifyListeners();
@@ -219,6 +228,17 @@ class PracticeController extends ChangeNotifier {
         movetimeMs: 1500,
         priority: SearchPriority.practiceCheck,
       );
+      // The puzzle changed under us — Skip/Next, the picker, or a delete of the
+      // one being drilled, any of which serves a different item during the ~1.5s
+      // this search takes. The grading above is harmless; what must not happen
+      // is the commit below, which would move the NEW puzzle's Leitner box on
+      // the OLD puzzle's verdict and corrupt the schedule for both, silently.
+      //
+      // Nothing to clean up: _serve has already reset checking, pendingUci and
+      // attempt for the item now on screen, and touching them here would clobber
+      // it. (Only this await needs the check — the bestUci branch has none, so
+      // it commits in the same turn it was called.)
+      if (gen != _gen) return;
       if (lines == null || lines.isEmpty) {
         // null now also means "the engine never started" — the arbiter resolves
         // null rather than throwing so this path is reached instead of leaving

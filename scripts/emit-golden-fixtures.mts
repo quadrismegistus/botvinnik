@@ -30,6 +30,8 @@ import { itemDataFromStoredMove, recordResult } from '../brain/practice';
 import { personaById } from '../brain/bots';
 import { threatProbeFen, judgeThreat } from '../brain/engine/threats';
 import { controlSquares } from '../brain/brain-entry';
+import { unifyMoves, confidences } from '../brain/explorer';
+import type { ExplorerPosition } from '../brain/explorer';
 import type { EngineMove } from '../brain/engine/types';
 
 const START = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
@@ -176,6 +178,46 @@ record('controlSquares', [italianish], controlSquares(italianish));
 // whole in-check path replays green even if it regresses.
 const inCheck = '4k3/8/8/8/7q/8/8/4K2R w K - 0 1';
 record('controlSquares', [inCheck], controlSquares(inCheck));
+
+// ---- the Book pane's merged table (#141) ----
+// The whole ExplorerApi boundary was verified only in node until these; the
+// bridge crossing itself — JSON.stringify → the host's string result →
+// jsonDecode → `as num` — was asserted nowhere. Both functions are pure and
+// deterministic, so neither needs an `ignore` entry.
+//
+// Scholar's mate, White to move: Qxf7# is real mate here, so the mate line is
+// the position's actual best rather than a number invented to fill the slot.
+// The engine scores are still INPUTS, as everywhere in this file — these
+// fixtures pin the merge and the softmax, not a search.
+const scholars = 'r1bqkbnr/pppp1ppp/2n5/2b1p3/2B1P3/5Q2/PPPP1PPP/RNB1K1NR w KQkq - 4 4';
+const explorerLines: EngineMove[] = [
+	{ pv: ['f3f7'], score: 0, mate: 1, depth: 20, multipv: 1 },
+	{ pv: ['b1c3'], score: 1.2, mate: null, depth: 20, multipv: 2 },
+	{ pv: ['d2d3'], score: 0.9, mate: null, depth: 20, multipv: 3 }
+];
+// Three kinds of book row at once: one the engine also has (merges onto the
+// mate row), one it does not (a book-only row), and one with no games at all
+// (dropped, so the row count itself is part of what replays).
+const explorerBook: ExplorerPosition = {
+	total: 1000,
+	moves: [
+		{ uci: 'f3f7', san: 'Qxf7#', white: 900, draws: 0, black: 0 },
+		{ uci: 'c4f7', san: 'Bxf7+', white: 40, draws: 5, black: 15 },
+		{ uci: 'a2a3', san: 'a3', white: 0, draws: 0, black: 0 }
+	]
+};
+// masters is null, not omitted: the second book is the slot the Dart side
+// passes a real null into, and null-versus-undefined is what this suite exists
+// to catch.
+record(
+	'unifyMoves',
+	[scholars, explorerLines, explorerBook, null],
+	unifyMoves(scholars, explorerLines, explorerBook, null)
+);
+// The mate maps to 39 and dominates, which drives the non-mate lines' share
+// down to a value with a large negative exponent — the shape of number this
+// bundle has never round-tripped through the bridge under test.
+record('confidences', [explorerLines], confidences(explorerLines));
 
 const out = resolve(dirname(fileURLToPath(import.meta.url)), '../flutter/assets/brain-fixtures.json');
 writeFileSync(out, JSON.stringify({ version: 1, fixtures }, null, 1));
