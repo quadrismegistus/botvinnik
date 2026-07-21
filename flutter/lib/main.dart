@@ -13,6 +13,7 @@ import 'package:provider/provider.dart';
 
 import 'brain/bot_api.dart';
 import 'brain/chess_api.dart';
+import 'brain/explorer_api.dart';
 import 'brain/grading_api.dart';
 import 'brain/js_bridge.dart';
 import 'brain/practice_api.dart';
@@ -125,7 +126,9 @@ class _BootGateState extends State<BootGate> {
     final arbiter = SearchArbiter(startEngine());
     final settings = await SettingsStore.load();
     final db = await AppDb.open();
-    final classTable = ClassTable(GradingApi(bridge).classTable());
+    final grading = GradingApi(bridge);
+    final classTable =
+        ClassTable(grading.classTable(), labelOrder: grading.labelOrder());
     final practice = PracticeController(
         db, PracticeApi(bridge), GradingApi(bridge), arbiter)
       ..settings = settings;
@@ -184,6 +187,7 @@ class _BootGateState extends State<BootGate> {
             ),
             ChangeNotifierProvider(create: (_) => BookStore()),
             Provider(create: (_) => ChessApi(booted.bridge)),
+            Provider(create: (_) => ExplorerApi(booted.bridge)),
           ],
           child: MaterialApp(
             title: 'botvinnik',

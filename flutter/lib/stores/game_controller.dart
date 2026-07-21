@@ -132,6 +132,37 @@ class GameController extends ChangeNotifier {
   /// `StoredGame.botFallback` is one boolean for the whole game.
   bool get botFallback => _standInPersonas.isNotEmpty;
 
+  /// Takebacks the human used against the bot this game.
+  ///
+  /// The urgent half of the pair. `playerElo.ts` already drops any
+  /// game carrying a takeback from the rating fit ("assisted result — off the
+  /// ruler") — an assisted result is real practice but not a measurement — and
+  /// until this was written it never saw one, so the drop was dead code and a
+  /// rating would have counted games the player rewound. Issue #144.
+  ///
+  /// Counted in [undo], given back by [redo] (see there), reset by [newGame].
+  int _botUndos = 0;
+  int get botUndos => _botUndos;
+
+  /// Whether the engine's hint overlays were on the board for any human move
+  /// this game — the other half of the clean-win question.
+  ///
+  /// Sampled per move rather than read at save time: blind mode and the three
+  /// overlay switches are all toggleable mid-game (they do not restart it —
+  /// see [_settingsSig]), so what the switches say at mate is not what the
+  /// player had while playing. Sticky for the game, like [botFallback]: help
+  /// taken once cannot be untaken by switching the overlays off afterwards.
+  bool _botHintsUsed = false;
+  bool get botHintsUsed => _botHintsUsed;
+
+  /// What the board is drawing right now, from the player's side: the three
+  /// engine overlays, with blind mode suppressing all of them. Kept in step
+  /// with [engineArrowUcis], [threat] and [controlMap] — each gates on exactly
+  /// this pair of conditions.
+  bool get _hintsOnBoard =>
+      !blind &&
+      (_settings.showArrows || _settings.showThreats || _settings.showControl);
+
   GameController(this._arbiter, this._bot, this._grading, this._settings,
       [this._db, this._practice, ChessApi? chessApi]) {
     _chess = chessApi;
@@ -317,6 +348,9 @@ class GameController extends ChangeNotifier {
     maiaProgress = null;
     _maia?.cancelPending();
     _standInPersonas.clear();
+    _botUndos = 0;
+    _botHintsUsed = false;
+    _undoWasCounted.clear();
     _saved = false;
     gameSeed = _newSeed();
     _analysis.clear();
@@ -335,6 +369,13 @@ class GameController extends ChangeNotifier {
   /// to earn. Any new move discards them (see _apply).
   final RedoStack _redoStack = RedoStack();
 
+  /// One flag per batch sitting in [_redoStack]: whether that undo added to
+  /// [_botUndos]. Same order as the stack (newest undo at the front, which is
+  /// the batch redo takes first), so a redo gives back the takeback the undo it
+  /// undoes actually counted — and a game whose bot was switched off partway
+  /// cannot come out with a negative count.
+  final List<bool> _undoWasCounted = [];
+
   bool get canUndo =>
       !botThinking &&
       (botEnabled
@@ -350,6 +391,13 @@ class GameController extends ChangeNotifier {
     // in a bot game there must be a player move to take back: undoing the
     // bot's lone opening move would leave the bot on turn with input dead
     if (botEnabled && !moves.any((m) => m.color == playerColor)) return;
+    // Counted HERE, below every early return, so a takeback that was refused
+    // — the bot still thinking, or nothing of yours left to take back — is not
+    // recorded as one. On the analysis board there is no result to assist, so
+    // nothing is counted there either.
+    final counted = botEnabled;
+    if (counted) _botUndos++;
+    _undoWasCounted.insert(0, counted);
     _gen++;
     _arbiter.bumpGeneration();
     final undone = <MoveRecord>[];
@@ -382,6 +430,14 @@ class GameController extends ChangeNotifier {
   void redo() {
     _browsePly = null;
     if (_redoStack.isEmpty || botThinking) return;
+    // An undo→redo round trip taught you nothing and changed nothing: the same
+    // moves go back on the same board, so it is not a takeback and must not
+    // cost the game its clean crown or its place in the rating fit. Only a
+    // round trip can reach here — any divergent move clears the redo stack
+    // (see _apply), which is what makes the takeback stand.
+    if (_undoWasCounted.isNotEmpty && _undoWasCounted.removeAt(0)) {
+      _botUndos--;
+    }
     _gen++;
     _arbiter.bumpGeneration();
     // one undo's worth: the player move and the bot's reply that sat on it
@@ -399,6 +455,10 @@ class GameController extends ChangeNotifier {
   /// The human plays a move (already validated by the board).
   void playerMove(NormalMove move, String san) {
     if (!isPlayerTurn || botThinking || gameOver) return;
+    // the sample point: what the board was showing at the moment a human move
+    // was committed (see [_botHintsUsed]). Bot replies come through _apply
+    // directly, so only human moves are sampled.
+    if (botEnabled && _hintsOnBoard) _botHintsUsed = true;
     _apply(move, san);
     _maybeBotTurn();
   }
@@ -408,6 +468,11 @@ class GameController extends ChangeNotifier {
     if (!isPlayerTurn || botThinking || gameOver) return;
     final move = NormalMove.fromUci(uci);
     if (!position.isLegal(move)) return;
+    // Both callers are a machine handing you a move to play — the engine's
+    // lines in the tree pane, and the opening book. Taking one is help whatever
+    // the overlay switches say, so this does not go through [_hintsOnBoard].
+    // Set after the legality check: a tap that plays nothing is not help taken.
+    if (botEnabled) _botHintsUsed = true;
     final (_, san) = position.makeSan(move);
     playerMove(move, san);
   }
@@ -419,6 +484,7 @@ class GameController extends ChangeNotifier {
     // a new move makes the undone future unreachable — without this, redo
     // after a divergent move replayed a stale record onto the wrong position
     _redoStack.clear();
+    _undoWasCounted.clear(); // nothing left to redo, so nothing left to refund
     final fenBefore = position.fen;
     position = position.playUnchecked(move);
     lastMove = move;
@@ -489,6 +555,21 @@ class GameController extends ChangeNotifier {
     // snapshotted with the rest: a new game during the grade wait below clears
     // it, and the record being written belongs to the game that just ended
     final fallback = botFallback;
+    // The same shape and the same hazard. All three are per-game counters that
+    // newGame resets, and after a checkmate the player starts the next game
+    // while this wait is still running — reading them below archives the NEW
+    // game's help against the old game's result. That is exactly the bug
+    // botFallback shipped with two days ago (#117), and these two would have
+    // repeated it verbatim. botEnabled is read here for the same reason.
+    final wasBotGame = botEnabled;
+    // Bot-vs-bot has no human in it, so nothing about it is a human result.
+    // playerColor falls back to 'w' when BOTH sides carry a persona, so such a
+    // game archives as "the human was White" and would otherwise collect a
+    // Won-clean crown for a game nobody played.
+    final bothBots = _settings.whitePersonaId != null &&
+        _settings.blackPersonaId != null;
+    final undos = wasBotGame ? _botUndos : 0;
+    final hintsUsed = wasBotGame && _botHintsUsed;
 
     // let in-flight grading land so the archive gets labels (bounded — the
     // terminal move's backfill may never come: a mate position has no lines)
@@ -511,7 +592,20 @@ class GameController extends ChangeNotifier {
       // estimatePlayerElo tests it for truthiness, so absent and false mean the
       // same thing — and every game saved before this existed is absent.
       if (fallback) 'botFallback': true,
-      'botColor': p == null ? null : (playerColor == 'w' ? 'b' : 'w'),
+      // omitted at zero for the same reason as botFallback — playerElo reads
+      // `(g.botUndos ?? 0) > 0`, so absent and 0 already mean the same thing
+      if (undos > 0) 'botUndos': undos,
+      // Written even when FALSE, unlike the two above, because here absent
+      // carries its own meaning: "hints unknown". Every game archived before
+      // this shipped lacks the field, and the archive refuses those the clean
+      // crown rather than crediting them with a discipline nobody recorded.
+      // An explicit false is the only way to say "known clean".
+      if (wasBotGame) 'botHintsUsed': hintsUsed,
+      if (bothBots) 'botBothSides': true,
+      // the snapshot, not a fresh read of playerColor: the crown asks which
+      // side the human was on, and this is the one line below the wait that
+      // was still asking the live settings
+      'botColor': p == null ? null : (youAreWhite ? 'b' : 'w'),
       'moveCount': played.length,
       'whiteAccuracy': _bridgeAccuracy(stored, 'w'),
       'blackAccuracy': _bridgeAccuracy(stored, 'b'),
@@ -1136,6 +1230,20 @@ class GameController extends ChangeNotifier {
     // blunders against a bot; a bot's move (either side of bot-vs-bot) is not
     // yours to fix, and the analysis board (both sides human, botEnabled false)
     // is exploration — its "mistakes" are deliberate, not puzzles to drill.
+    //
+    // A blunder you TOOK BACK still lands here, and that is deliberate (decided
+    // 2026-07-21). The generation check above looks like it would prevent it —
+    // undo() bumps _gen — but it never fires for a takeback: undo() refuses
+    // while botThinking, the bot starts thinking the instant you move, and
+    // grading has collected long before undo is permitted. That check guards
+    // against a NEW GAME landing mid-grade. Do not "fix" it into cancelling
+    // collection: you played the blunder, and taking it back does not mean you
+    // would find the move next time.
+    //
+    // Deliberately inconsistent with playerElo.ts, which DOES drop takeback
+    // games from the rating fit — rating measures outcomes, practice measures
+    // errors. The consequence is that PracticeController.remove() is the only
+    // way out of a puzzle you consider noise, and it has no UI yet (#137).
     final practice = _practice;
     if (practice != null && botEnabled && isHumanSide(record.color)) {
       final prevUci =

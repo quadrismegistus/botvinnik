@@ -3904,6 +3904,7 @@ var brain = (() => {
     botEloMin: () => botEloMin,
     botRecipe: () => botRecipe,
     botSpec: () => botSpec,
+    confidences: () => confidences,
     controlSquares: () => controlSquares,
     dueCount: () => dueCount,
     enPassantSetup: () => enPassantSetup,
@@ -3944,6 +3945,7 @@ var brain = (() => {
     shapedStrengthRange: () => shapedStrengthRange,
     specToRecipe: () => specToRecipe,
     threatProbeFen: () => threatProbeFen,
+    unifyMoves: () => unifyMoves,
     whitePovWinChance: () => whitePovWinChance,
     winChance: () => winChance
   });
@@ -8912,6 +8914,57 @@ var brain = (() => {
     "miss",
     "blunder"
   ];
+
+  // brain/explorer.ts
+  var mateScore = (mate) => Math.sign(mate) * (40 - Math.min(Math.abs(mate), 20));
+  function confidences(engine) {
+    if (engine.length === 0) return [];
+    const cps = engine.map(
+      (m) => m.mate !== null ? mateScore(m.mate) : Math.max(-15, Math.min(15, m.score))
+    );
+    const max = Math.max(...cps);
+    const exps = cps.map((c) => Math.exp(c - max));
+    const sum = exps.reduce((a, b) => a + b, 0);
+    return exps.map((e) => e / sum * 100);
+  }
+  function unifyMoves(fen, engine, lichess, masters) {
+    const rows = /* @__PURE__ */ new Map();
+    const conf = confidences(engine);
+    engine.forEach((m, i) => {
+      const uci = m.pv[0];
+      if (!uci || rows.has(uci)) return;
+      rows.set(uci, {
+        uci,
+        san: getSan(fen, uci),
+        // falls back to the uci itself on an illegal move
+        engine: { score: m.score, mate: m.mate, confidence: conf[i] }
+      });
+    });
+    const add = (kind, pos) => {
+      if (!pos) return;
+      for (const mv of pos.moves) {
+        const games = mv.white + mv.draws + mv.black;
+        if (games === 0) continue;
+        let row = rows.get(mv.uci);
+        if (!row) {
+          row = { uci: mv.uci, san: mv.san };
+          rows.set(mv.uci, row);
+        }
+        row[kind] = {
+          games,
+          pct: pos.total > 0 ? games / pos.total * 100 : 0,
+          white: mv.white / games * 100,
+          draws: mv.draws / games * 100,
+          black: mv.black / games * 100
+        };
+      }
+    };
+    add("lichess", lichess);
+    add("masters", masters);
+    return [...rows.values()].sort(
+      (a, b) => (b.lichess?.games ?? b.masters?.games ?? 0) - (a.lichess?.games ?? a.masters?.games ?? 0)
+    );
+  }
 
   // brain/engine/threats.ts
   function nullMoveFen(fen) {
