@@ -55,17 +55,69 @@ class LinesTreeModel {
   int _lastPathLen = 0;
   int version = 0;
 
+  // ---- blind mode ----
+  //
+  // One place, because the tree gives the engine away three separate ways: the
+  // links out of the current position, the green ring on the best node, and the
+  // nodes themselves. Gating them independently in the painter is how the first
+  // attempt shipped with the links hidden and the nodes still drawn.
+
+  /// A link that is the engine's opinion about the CURRENT position, rather
+  /// than part of the game's own history.
+  bool isLiveHint(String key) {
+    final l = links[key];
+    return l != null &&
+        liveKeys.contains(key) &&
+        !pathKeys.contains(key) &&
+        l.anchor == anchorId;
+  }
+
+  /// The node to ring green, or null while blind — the best move is the single
+  /// most valuable thing blind mode exists to withhold.
+  String? visibleBestNodeId({required bool blind}) => blind ? null : bestNodeId;
+
+  /// Which nodes may be drawn.
+  ///
+  /// Hiding only the LINKS is not enough: a node IS its move name, so an
+  /// engine suggestion left on screen without a curve attached is still the
+  /// suggestion. Blind keeps exactly the nodes some surviving link references,
+  /// which is the played path and any earlier exploration — not the live fan
+  /// out of the position in front of the player.
+  Set<String> visibleNodeIds({required bool blind}) {
+    if (!blind) return nodes.keys.toSet();
+    final keep = <String>{kRoot};
+    for (final key in links.keys) {
+      if (isLiveHint(key)) continue;
+      final l = links[key]!;
+      keep.add(l.source);
+      keep.add(l.target);
+    }
+    return keep.intersection(nodes.keys.toSet());
+  }
+
   // getSanLine goes through the JS bridge — memoize per fen+pv prefix
   final Map<String, List<Map<String, dynamic>>> _sanCache = {};
 
   static const int _topN = 5;
   static const int _depthLimit = 12;
 
-  double get width =>
-      kPadLeft + kNodeW + _maxDepth() * kPlyW + kPadLeft;
+  double get width => widthFor(blind: false);
 
-  int _maxDepth() =>
-      nodes.values.fold(1, (m, n) => max(m, n.depth));
+  /// Canvas width for what will actually be DRAWN.
+  ///
+  /// Sizing from every node leaked the search through the scrollbar: with the
+  /// hints hidden, the scroll extent still grew as the engine's pv deepened and
+  /// collapsed when it found a forced mate, so the blind player could read the
+  /// line's length off the scroll bar.
+  double widthFor({required bool blind}) =>
+      kPadLeft + kNodeW + _maxDepth(blind: blind) * kPlyW + kPadLeft;
+
+  int _maxDepth({bool blind = false}) {
+    final visible = blind ? visibleNodeIds(blind: true) : null;
+    return nodes.values
+        .where((n) => visible == null || visible.contains(n.id))
+        .fold(1, (m, n) => max(m, n.depth));
+  }
 
   double _xForDepth(int d) => kPadLeft + kNodeW / 2 + d * kPlyW;
 

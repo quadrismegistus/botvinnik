@@ -107,7 +107,7 @@ const testBotPersona = Persona({
   'id': kTestBotId,
   'name': 'Test Bot',
   'elo': 1500,
-  'family': 'square',
+  'family': 'squarefish',
   'blurb': '',
 });
 
@@ -120,7 +120,7 @@ const squareBotPersona = Persona({
   'id': kSquareBotId,
   'name': 'Square Bot',
   'elo': 1500,
-  'family': 'square',
+  'family': 'squarefish',
   'blurb': '',
   'shapedLabel': 1200,
 });
@@ -148,7 +148,7 @@ const fishBotPersona = Persona({
   'id': kFishBotId,
   'name': 'Fish 1500',
   'elo': 1500,
-  'family': 'fish',
+  'family': 'stockfish',
   'blurb': '',
   'numericElo': 1740,
 });

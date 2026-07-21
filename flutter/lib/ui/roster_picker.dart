@@ -26,8 +26,8 @@ import '../stores/game_controller.dart';
 // where it cannot play would be the exact substitution this filter exists to
 // prevent.
 final _playableFamilies = {
-  'square',
-  'fish',
+  'squarefish',
+  'stockfish',
   'horizon',
   if (RetroEngine.supported) 'retro',
   if (GarboEngine.supported) 'garbo',
@@ -57,6 +57,9 @@ class _RosterSheet extends StatelessWidget {
     final personas = game.rosterPersonas
         .where((p) => _playableFamilies.contains(p.family))
         .toList();
+    // Resolved once, outside the builder: `current` comes from settings and may
+    // be a pre-rename id, which would match no tile and highlight nothing.
+    final currentId = game.personaFor(current)?.id ?? current;
     return DraggableScrollableSheet(
       expand: false,
       initialChildSize: 0.7,
@@ -65,7 +68,7 @@ class _RosterSheet extends StatelessWidget {
         itemCount: personas.length,
         itemBuilder: (context, i) {
           final p = personas[i];
-          final selected = p.id == current;
+          final selected = p.id == currentId;
           return ListTile(
             dense: true,
             selected: selected,
@@ -115,8 +118,8 @@ class _RosterSheet extends StatelessWidget {
   /// icon font is already bundled and tree-shaken, so these cost ~nothing.
   Widget _familyMark(Persona p) {
     final (icon, color) = switch (p.family) {
-      'square' => (Icons.grid_view, const Color(0xFFd0b755)),
-      'fish' => (Icons.diamond_outlined, const Color(0xFF5b8bb0)),
+      'squarefish' => (Icons.grid_view, const Color(0xFFd0b755)),
+      'stockfish' => (Icons.diamond_outlined, const Color(0xFF5b8bb0)),
       // a sun resting on the horizon — the same idea as the web avatar: this
       // engine cannot see past its own exchanges
       'horizon' => (Icons.wb_twilight, const Color(0xFFc4783f)),

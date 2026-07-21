@@ -24,13 +24,24 @@ describe('estimatePlayerElo', () => {
 	it('returns null with no persona games', () => {
 		expect(estimatePlayerElo([])).toBeNull();
 		// legacy slider game: no persona id ⇒ excluded (broken-ruler opponents)
-		expect(estimatePlayerElo([{ ...game('square-1000', '1-0'), botPersona: undefined }])).toBeNull();
+		expect(estimatePlayerElo([{ ...game('squarefish-1000', '1-0'), botPersona: undefined }])).toBeNull();
+	});
+
+	it('counts games archived under a pre-rename persona id', () => {
+		// The whole argument for the id migration is that estimatePlayerElo does
+		// `if (!p) continue` — a broken alias drops history silently rather than
+		// failing. Every other id in this file is post-rename, so without this
+		// the alias could be deleted and this suite would stay green.
+		const legacy = estimatePlayerElo([game('square-1000', '1-0', 'b')]);
+		const renamed = estimatePlayerElo([game('squarefish-1000', '1-0', 'b')]);
+		expect(legacy).not.toBeNull();
+		expect(legacy).toEqual(renamed);
 	});
 
 	it('a win over 1000 and a loss to 1500 lands in between', () => {
 		const est = estimatePlayerElo([
-			game('square-1000', '0-1', 'w'), // bot is white, black won ⇒ player win
-			game('square-1500', '1-0', 'w') // bot is white and won ⇒ player loss
+			game('squarefish-1000', '0-1', 'w'), // bot is white, black won ⇒ player win
+			game('squarefish-1500', '1-0', 'w') // bot is white and won ⇒ player loss
 		])!;
 		expect(est.games).toBe(2);
 		expect(est.elo).toBeGreaterThan(1000);
@@ -39,16 +50,16 @@ describe('estimatePlayerElo', () => {
 	});
 
 	it('handles the player-as-white orientation (botColor=b)', () => {
-		const win = estimatePlayerElo([game('square-1000', '1-0', 'b')])!; // white (player) won
-		const loss = estimatePlayerElo([game('square-1000', '0-1', 'b')])!;
+		const win = estimatePlayerElo([game('squarefish-1000', '1-0', 'b')])!; // white (player) won
+		const loss = estimatePlayerElo([game('squarefish-1000', '0-1', 'b')])!;
 		expect(win.elo).toBeGreaterThan(loss.elo);
 	});
 
 	it('stays finite on an all-win record (virtual-draw regularizer)', () => {
 		const est = estimatePlayerElo([
-			game('square-1000', '0-1', 'w'),
-			game('square-1000', '0-1', 'w'),
-			game('square-1000', '0-1', 'w')
+			game('squarefish-1000', '0-1', 'w'),
+			game('squarefish-1000', '0-1', 'w'),
+			game('squarefish-1000', '0-1', 'w')
 		])!;
 		expect(Number.isFinite(est.elo)).toBe(true);
 		expect(est.elo).toBeGreaterThan(1000); // above the opponent it keeps beating
@@ -56,16 +67,16 @@ describe('estimatePlayerElo', () => {
 	});
 
 	it('abandoned games are excluded', () => {
-		expect(estimatePlayerElo([game('square-1000', '*')])).toBeNull();
+		expect(estimatePlayerElo([game('squarefish-1000', '*')])).toBeNull();
 	});
 
 	it('more games shrink the standard error', () => {
 		const two = estimatePlayerElo([
-			game('square-1200', '0-1', 'w'),
-			game('square-1200', '1-0', 'w')
+			game('squarefish-1200', '0-1', 'w'),
+			game('squarefish-1200', '1-0', 'w')
 		])!;
 		const eight = estimatePlayerElo(
-			Array.from({ length: 8 }, (_, i) => game('square-1200', i % 2 ? '0-1' : '1-0', 'w'))
+			Array.from({ length: 8 }, (_, i) => game('squarefish-1200', i % 2 ? '0-1' : '1-0', 'w'))
 		)!;
 		expect(eight.se).toBeLessThan(two.se);
 	});

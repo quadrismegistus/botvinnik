@@ -24,7 +24,14 @@ import type { RetroSpec } from './engine/types';
 /** WASM-numeric scale ≈ lichess-rapid + 240 (maia1 bridge, club-range anchors). */
 export const SCALE_OFFSET = 240;
 
-export type BotFamily = 'square' | 'maia' | 'fish' | 'retro' | 'dala' | 'horizon' | 'garbo';
+export type BotFamily =
+	| 'squarefish'
+	| 'maia'
+	| 'stockfish'
+	| 'retro'
+	| 'dala'
+	| 'horizon'
+	| 'garbo';
 
 export interface BotPersona {
 	id: string; // stable key: persisted in settings and stored games
@@ -62,10 +69,10 @@ function square(displayElo: number): BotPersona {
 	const label = shapedLabelFor(displayElo + SCALE_OFFSET);
 	const missPct = Math.round(shapedParams(label).missProb * 100);
 	return {
-		id: `square-${displayElo}`,
-		name: `Square ${displayElo}`,
+		id: `squarefish-${displayElo}`,
+		name: `Squarefish ${displayElo}`,
 		elo: displayElo,
-		family: 'square',
+		family: 'squarefish',
 		blurb: `Plays sound chess but misses ~${missPct}% of tactical moments — and stays blind to what it hasn't seen.`,
 		shapedLabel: label
 	};
@@ -102,10 +109,10 @@ function maiaSampled(displayElo: number, band: number, roman: string): BotPerson
 
 function fish(displayElo: number): BotPersona {
 	return {
-		id: `fish-${displayElo}`,
-		name: `Fish ${displayElo}`,
+		id: `stockfish-${displayElo}`,
+		name: `Stockfish ${displayElo}`,
 		elo: displayElo,
-		family: 'fish',
+		family: 'stockfish',
 		blurb: 'Stockfish with the strength limiter on — cold, accurate, occasionally merciful.',
 		numericElo: displayElo + SCALE_OFFSET
 	};
@@ -197,9 +204,9 @@ const GARBO: BotPersona = {
 	garboMs: 1000
 };
 
-// 12 Squares (600-1700) + 3 Maias (real @maia lichess ratings) + 3 retro
+// 12 Squarefish (600-1700) + 3 Maias (real @maia lichess ratings) + 3 retro
 // engines (real morlock-bot lichess ratings) + 3 Dalas (desktop only, real
-// dala-bot lichess ratings) + 8 Fish (1800-2500; internal 2040-2740, inside
+// dala-bot lichess ratings) + 8 Stockfish (1800-2500; internal 2040-2740, inside
 // the WASM honest ceiling 2800) = 29 (26 on the web).
 export const PERSONAS: BotPersona[] = [
 	horizon(550, 1),
@@ -226,8 +233,36 @@ export function availablePersonas(native: boolean): BotPersona[] {
 
 const byId = new Map(PERSONAS.map((p) => [p.id, p]));
 
+/**
+ * Ids renamed 2026-07-21: `fish-*` became `stockfish-*` and `square-*` became
+ * `squarefish-*`.
+ *
+ * Persona ids are PERSISTED — every archived game carries one as
+ * `StoredGame.botPersona`, and the player's chosen opponents are stored the
+ * same way. `personaById` is the single door both go through, so mapping here
+ * is the whole migration.
+ *
+ * `estimatePlayerElo` is why this matters rather than being cosmetic: it does
+ * `if (!p) continue`, so an id that stops resolving does not error, it silently
+ * drops that game from the rating fit. Renaming without this would have quietly
+ * erased every Squarefish and Stockfish game ever played.
+ *
+ * Never delete an entry. A game archived under an old id keeps pointing here
+ * for as long as the archive exists.
+ */
+function renamedId(id: string): string | null {
+	// `square-` cannot match `squarefish-*`: the seventh character is `f`, not `-`
+	if (id.startsWith('fish-')) return `stockfish-${id.slice(5)}`;
+	if (id.startsWith('square-')) return `squarefish-${id.slice(7)}`;
+	return null;
+}
+
 export function personaById(id: string | null | undefined): BotPersona | null {
-	return (id && byId.get(id)) || null;
+	if (!id) return null;
+	const direct = byId.get(id);
+	if (direct) return direct;
+	const renamed = renamedId(id);
+	return (renamed && byId.get(renamed)) || null;
 }
 
 /** The persona's strength on the app's internal WASM scale (for stored games). */

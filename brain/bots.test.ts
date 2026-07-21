@@ -6,11 +6,11 @@ describe('bot roster', () => {
 		expect(PERSONAS.length).toBe(35);
 		expect(PERSONAS.filter((p) => p.family === 'garbo').length).toBe(1);
 		expect(PERSONAS.filter((p) => p.family === 'horizon').length).toBe(2);
-		expect(PERSONAS.filter((p) => p.family === 'square').length).toBe(12);
+		expect(PERSONAS.filter((p) => p.family === 'squarefish').length).toBe(12);
 		expect(PERSONAS.filter((p) => p.family === 'retro').length).toBe(3);
 		expect(PERSONAS.filter((p) => p.family === 'dala').length).toBe(3);
 		expect(PERSONAS.filter((p) => p.family === 'maia').length).toBe(6);
-		expect(PERSONAS.filter((p) => p.family === 'fish').length).toBe(8);
+		expect(PERSONAS.filter((p) => p.family === 'stockfish').length).toBe(8);
 	});
 
 	it('sampled Maias: same nets, temperature 1, estimated ratings 260 below argmax', () => {
@@ -45,9 +45,9 @@ describe('bot roster', () => {
 				(x) => x !== undefined
 			).length;
 			expect(bindings, p.id).toBe(1);
-			if (p.family === 'square') expect(p.shapedLabel).toBeDefined();
+			if (p.family === 'squarefish') expect(p.shapedLabel).toBeDefined();
 			if (p.family === 'maia') expect(p.maiaBand).toBeDefined();
-			if (p.family === 'fish') expect(p.numericElo).toBeDefined();
+			if (p.family === 'stockfish') expect(p.numericElo).toBeDefined();
 			if (p.family === 'retro') expect(p.retro).toBeDefined();
 			if (p.family === 'dala') expect(p.dalaBand).toBeDefined();
 			if (p.family === 'horizon') expect(p.jsceLevel).toBeDefined();
@@ -63,7 +63,7 @@ describe('bot roster', () => {
 	});
 
 	it('square labels come from the measured curve and stay in the calibrated range', () => {
-		const squares = PERSONAS.filter((p) => p.family === 'square');
+		const squares = PERSONAS.filter((p) => p.family === 'squarefish');
 		for (const p of squares) {
 			expect(p.shapedLabel!).toBeGreaterThanOrEqual(600);
 			expect(p.shapedLabel!).toBeLessThanOrEqual(1500);
@@ -80,17 +80,54 @@ describe('bot roster', () => {
 	});
 
 	it('fish stay inside the WASM honest ceiling (2800 internal)', () => {
-		for (const p of PERSONAS.filter((q) => q.family === 'fish'))
+		for (const p of PERSONAS.filter((q) => q.family === 'stockfish'))
 			expect(p.numericElo!).toBeLessThanOrEqual(2800);
 	});
 
 	it('personaInternalElo applies the maia-bridge offset', () => {
-		const p = personaById('square-1000')!;
+		const p = personaById('squarefish-1000')!;
 		expect(personaInternalElo(p)).toBe(1000 + SCALE_OFFSET);
 	});
 
 	it('personaById returns null for unknown/null ids', () => {
 		expect(personaById('nope')).toBeNull();
 		expect(personaById(null)).toBeNull();
+	});
+});
+
+describe('renamed persona ids still resolve', () => {
+	// Ids are persisted in every archived game and in the player's saved
+	// opponents, so the 2026-07-21 rename had to keep the old ones working.
+	// estimatePlayerElo skips a game whose persona will not resolve rather than
+	// failing, so a broken alias is invisible: the archive stays on screen and
+	// the rating quietly stops counting it.
+	it('maps old fish/square ids to the renamed personas', () => {
+		expect(personaById('fish-1800')?.id).toBe('stockfish-1800');
+		expect(personaById('square-1000')?.id).toBe('squarefish-1000');
+	});
+
+	it('still resolves the new ids directly', () => {
+		expect(personaById('stockfish-1800')?.id).toBe('stockfish-1800');
+		expect(personaById('squarefish-1000')?.id).toBe('squarefish-1000');
+	});
+
+	it('does not invent personas for ids that never existed', () => {
+		expect(personaById('fish-9999')).toBeNull();
+		expect(personaById('square-9999')).toBeNull();
+		expect(personaById('squarefish-')).toBeNull();
+		expect(personaById(null)).toBeNull();
+	});
+
+	it('every old id has a live target', () => {
+		// the rename is only safe if the mapping is total — one missed elo is one
+		// silently uncounted slice of the archive
+		for (const p of PERSONAS) {
+			if (p.family === 'squarefish') {
+				expect(personaById(`square-${p.elo}`)?.id).toBe(p.id);
+			}
+			if (p.family === 'stockfish') {
+				expect(personaById(`fish-${p.elo}`)?.id).toBe(p.id);
+			}
+		}
 	});
 });

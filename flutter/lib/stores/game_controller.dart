@@ -152,7 +152,22 @@ class GameController extends ChangeNotifier {
   // the settings; these resolve the ids to personas.
   Persona? get whitePersona => _personaOf(_settings.whitePersonaId);
   Persona? get blackPersona => _personaOf(_settings.blackPersonaId);
-  Persona? _personaOf(String? id) => id == null ? null : _bot.personaById(id);
+  Persona? _personaOf(String? id) => personaFor(id);
+
+  /// Resolve a persona id — including one renamed since it was stored.
+  ///
+  /// Anything that turns a PERSISTED id into something a player sees must come
+  /// through here rather than scanning [rosterPersonas]: archived games and
+  /// saved opponents still carry pre-rename ids, and a raw scan misses them
+  /// silently (the New Game sheet showed the literal "Bot", the picker
+  /// highlighted nothing).
+  ///
+  /// Memoised because it crosses the JS bridge — the archive would otherwise
+  /// make one call per row per rebuild.
+  final Map<String, Persona?> _personaCache = {};
+  Persona? personaFor(String? id) => id == null
+      ? null
+      : _personaCache.putIfAbsent(id, () => _bot.personaById(id));
 
   /// The persona of the side to move, or null if the human is on the move.
   Persona? get personaToMove =>
@@ -607,7 +622,7 @@ class GameController extends ChangeNotifier {
   /// it after its own generation check, and only once the move is really played.
   Future<({String? uci, bool standIn})> _pickBotMove(Persona p) async {
     final fen = position.fen;
-    if (p.family == 'square') {
+    if (p.family == 'squarefish') {
       final label = p.shapedLabel!;
       final lines = await _arbiter.search(
         fen: fen,
@@ -693,10 +708,10 @@ class GameController extends ChangeNotifier {
       }
       debugPrint('[bot] maia had no move; falling back to the engine');
     }
-    // Fish, and the fallback for anything that could not answer for itself.
-    // internalElo rather than numericElo: only fish carries numericElo, and a
-    // family without an implementation here should play at its own rating
-    // rather than crash on a null.
+    // Stockfish, and the fallback for anything that could not answer for
+    // itself. internalElo rather than numericElo: only stockfish carries
+    // numericElo, and a family without an implementation here should play at
+    // its own rating rather than crash on a null.
     //
     // This IS the "different opponent wearing the persona's name" that
     // roster_picker refuses to offer, and the two are complementary rather
@@ -716,10 +731,10 @@ class GameController extends ChangeNotifier {
     // log sites would silently miss the second kind, and would need a new call
     // adding every time a family is added.
     //
-    // `fish` is the exception because this block IS its engine — it is the only
+    // `stockfish` is the exception because this block IS its engine — the only
     // family that arrives here having played itself. Flagging it too would put
-    // the mark on every fish game and leave the flag meaning nothing.
-    final standIn = p.family != 'fish';
+    // the mark on every stockfish game and leave the flag meaning nothing.
+    final standIn = p.family != 'stockfish';
     final internalElo = p.numericElo ?? _bot.internalElo(p);
     final spec = _bot.botSpec(internalElo);
     switch (spec['kind'] as String) {

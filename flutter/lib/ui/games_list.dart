@@ -5,6 +5,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../stores/game_controller.dart';
 import '../stores/pgn_import.dart';
 import '../stores/review_controller.dart';
 import 'review_screen.dart';
@@ -55,7 +56,14 @@ class _GamesListBodyState extends State<GamesListBody> {
         ? const Color(0xFF81B64C)
         : (lost ? const Color(0xFFCA3431) : Colors.white54);
 
-    final personaId = g['botPersona'] as String? ?? 'bot';
+    final storedId = g['botPersona'] as String?;
+    // The NAME, not the stored id. Two reasons: the archive used to read
+    // "vs squarefish-1200", and after the rename the same opponent appeared
+    // under two different slugs depending on when the game was played.
+    final personaId =
+        context.read<GameController>().personaFor(storedId)?.name ??
+            storedId ??
+            'bot';
     final endedAt = g['endedAt'] as String? ?? '';
     final when = endedAt.length >= 16
         ? endedAt.substring(0, 16).replaceFirst('T', ' ')
