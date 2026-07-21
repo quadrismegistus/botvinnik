@@ -850,54 +850,92 @@ class _PlayTabState extends State<PlayTab> {
   Set<int> _collapsed(BuildContext context) =>
       context.watch<SettingsStore>().collapsed;
 
-  /// The rated screen: board, plates, clocks. Nothing else.
+  /// The rated screen: board, plates, clock. No panels.
   ///
-  /// The board takes the full HEIGHT — it is the scarce dimension on a desktop
-  /// window — and the plates and clocks live in a column to its RIGHT, which is
-  /// where the space is. Top side pinned to the board's top, bottom side to its
-  /// bottom, each name and clock together just outside the board edge.
+  /// The plates stay full-width above and below the board as they do in a
+  /// casual game — cramming a plate into a narrow column overflowed its
+  /// captured-piece tray. Only the CLOCK moves, and where it goes depends on
+  /// which dimension is scarce:
+  ///
+  ///   wide  — height is the constraint, so the clock goes to the RIGHT of the
+  ///           board, flanking it top and bottom, spending the ample width.
+  ///   narrow — width is the constraint, so the clock goes in the plate strips
+  ///           above and below, spending height.
   Widget _ratedShell(
       BuildContext context, GameController game, BoxConstraints c) {
     final clock = game.clock;
-    // Square, as tall as the window allows, and never wider than leaves room
-    // for the side column.
-    const sideColumn = 148.0;
-    final board = math.max(
-        160.0, math.min(c.maxHeight, c.maxWidth - sideColumn - 16));
     final topSide = game.whiteAtBottom ? 'b' : 'w';
     final botSide = game.whiteAtBottom ? 'w' : 'b';
+    final wide = c.maxWidth >= _PlayTabState._wideBreakpoint;
 
-    Widget corner(String s, {required bool below}) => Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+    Widget clockFor(String s) => clock == null
+        ? const SizedBox.shrink()
+        : ClockFace(
+            clock: clock, side: ClockSide.fromChar(s), fontSize: wide ? 34 : 26);
+
+    if (wide) {
+      // The clock column takes fixed width; the board is what is left of both
+      // dimensions, square.
+      const clockCol = 132.0;
+      final board = math.max(
+          160.0,
+          math.min(c.maxHeight - kPlayerPlate * 2, c.maxWidth - clockCol - 16));
+      Widget plate(String s, {required bool below}) => SizedBox(
+          width: board,
+          height: kPlayerPlate,
+          child: PlayerPlate(key: ValueKey(s), side: s, below: below));
+      return Center(
+        child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            SizedBox(
-                height: kPlayerPlate,
-                child: PlayerPlate(key: ValueKey(s), side: s, below: below)),
-            if (clock != null)
-              ClockFace(
-                  clock: clock, side: ClockSide.fromChar(s), fontSize: 34),
-          ],
-        );
-
-    return Center(
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          SizedBox(width: board, height: board, child: const BoardPane()),
-          const SizedBox(width: 16),
-          SizedBox(
-            width: sideColumn,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+            Column(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                corner(topSide, below: false),
-                const Spacer(),
-                corner(botSide, below: true),
+                plate(topSide, below: false),
+                SizedBox(width: board, height: board, child: const BoardPane()),
+                plate(botSide, below: true),
               ],
             ),
-          ),
+            const SizedBox(width: 16),
+            SizedBox(
+              width: clockCol,
+              height: board + kPlayerPlate * 2,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  clockFor(topSide),
+                  const Spacer(),
+                  clockFor(botSide),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    // Narrow: the clock rides in the plate strip, so the plate flexes and the
+    // clock takes a fixed slice on the outer edge.
+    final board = math.max(
+        160.0, math.min(c.maxWidth, c.maxHeight - (kPlayerPlate + 4) * 2));
+    Widget strip(String s, {required bool below}) => SizedBox(
+        width: board,
+        child: Row(
+          children: [
+            Expanded(
+                child: SizedBox(
+                    height: kPlayerPlate,
+                    child: PlayerPlate(key: ValueKey(s), side: s, below: below))),
+            if (clock != null) clockFor(s),
+          ],
+        ));
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          strip(topSide, below: false),
+          SizedBox(width: board, height: board, child: const BoardPane()),
+          strip(botSide, below: true),
         ],
       ),
     );

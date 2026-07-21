@@ -7,7 +7,10 @@
 //
 //   cd flutter && flutter test test/rated_shell_test.dart
 
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 
@@ -61,8 +64,19 @@ Future<void> _pump(WidgetTester tester, GameController g, SettingsStore s,
   await tester.pump();
 }
 
+Future<void> _loadRoboto() async {
+  for (final w in ['Regular', 'Medium', 'Bold']) {
+    final f = File('assets/fonts/Roboto-$w.ttf');
+    if (!f.existsSync()) continue;
+    await (FontLoader('Roboto')
+          ..addFont(Future.value(ByteData.sublistView(f.readAsBytesSync()))))
+        .load();
+  }
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  setUpAll(_loadRoboto);
 
   testWidgets('a rated game draws no panels at all', (tester) async {
     final (g, s) = await _game();
@@ -140,4 +154,31 @@ void main() {
     g.newGame();
     await tester.pumpAndSettle();
   });
+  // The bug real use hit: the plate's captured-piece tray overflowed when the
+  // shell crammed it into a narrow column. A position where one side has taken
+  // many pieces is the widest the tray gets.
+  const lopsided = 'r1bqk2r/ppp2ppp/8/8/8/8/PPP2PPP/R1BQK2R w KQkq - 0 8';
+
+  for (final (label, width, height) in [
+    ('wide', 1000.0, 780.0),
+    ('narrow', 380.0, 820.0),
+  ]) {
+    testWidgets('the rated shell does not overflow ($label)', (tester) async {
+      tester.view.physicalSize = Size(width, height);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      final (g, s) = await _game();
+      g.newGame(fromFen: lopsided, rated: true, timeControl: TimeControl.parse('5+0'));
+      await _pump(tester, g, s, width: width);
+
+      expect(tester.takeException(), isNull,
+          reason: 'the plate tray or the clock overflowed at \$label');
+      expect(find.byType(ClockFace), findsNWidgets(2));
+
+      g.newGame();
+      await tester.pumpAndSettle();
+    });
+  }
+
 }
