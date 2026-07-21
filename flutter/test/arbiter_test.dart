@@ -234,6 +234,84 @@ void main() {
     engine.current.stream([line('e2e4', depth: 11)]); // stale: dropped
     expect(got, [9, 10]);
   });
+
+  // #170: the background grading pass runs at the lowest priority so it never
+  // spoils live play. These pin the two halves of that: everything preempts it,
+  // and it preempts nothing — plus the clean-yield escape hatch the service
+  // uses to let go of the engine the instant a game starts.
+  group('background grading is the lowest priority', () {
+    test('analysis preempts a running background grade, which then resumes',
+        () async {
+      final bg = arbiter.search(
+          fen: 'bg',
+          depth: 16,
+          multiPv: 1,
+          movetimeMs: 4000,
+          priority: SearchPriority.backgroundGrade);
+      await tick();
+      expect(engine.current.fen, 'bg'); // runs when nothing else wants the engine
+
+      final an = arbiter.analysis('an'); // outranks background grading
+      await tick();
+      expect(engine.current.stopped, isTrue); // …so it preempts
+
+      engine.current.finish([line('e2e4', depth: 6)]); // bg stopped short of 16
+      await tick();
+      expect(engine.current.fen, 'an'); // analysis runs first
+      engine.current.finish([line('d2d4', depth: 22)]);
+      expect((await an)!.first.uci, 'd2d4');
+
+      await tick();
+      expect(engine.current.fen, 'bg'); // then bg re-runs, below analysis
+      engine.current.finish([line('g1f3', depth: 16)]);
+      expect((await bg)!.first.uci, 'g1f3');
+    });
+
+    test('a background grade never preempts a running search', () async {
+      arbiter.analysis('an');
+      await tick();
+      arbiter.search(
+          fen: 'bg',
+          depth: 16,
+          multiPv: 1,
+          priority: SearchPriority.backgroundGrade);
+      await tick();
+      // the lowest priority stops nothing: analysis keeps the engine
+      expect(engine.current.fen, 'an');
+      expect(engine.current.stopped, isFalse);
+    });
+
+    test('cancelBackgroundGrades stops a running grade with no re-run',
+        () async {
+      final bg = arbiter.search(
+          fen: 'bg',
+          depth: 16,
+          multiPv: 1,
+          priority: SearchPriority.backgroundGrade);
+      await tick();
+      expect(engine.current.fen, 'bg');
+
+      arbiter.cancelBackgroundGrades();
+      expect(engine.current.stopped, isTrue);
+      engine.current.finish([line('e2e4', depth: 7)]); // partial, below target
+      // resolves with the partials it has, and does NOT re-enqueue — the whole
+      // point of the cancel is that the pass lets go rather than clawing back
+      expect((await bg)!.first.depth, 7);
+      await tick();
+      expect(engine.searches.length, 1);
+    });
+
+    test('cancelBackgroundGrades leaves higher-priority work running',
+        () async {
+      final bot = arbiter.search(
+          fen: 'bot', depth: 6, multiPv: 12, priority: SearchPriority.botMove);
+      await tick();
+      arbiter.cancelBackgroundGrades();
+      expect(engine.current.stopped, isFalse); // never touches a bot move
+      engine.current.finish([line('e2e4', depth: 6)]);
+      expect((await bot)!.first.uci, 'e2e4');
+    });
+  });
 }
 
 // Appended: budget invariants. These are constants rather than behaviour, but
