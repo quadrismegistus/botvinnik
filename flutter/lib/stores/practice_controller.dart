@@ -68,13 +68,18 @@ class PracticeController extends ChangeNotifier {
 
   PracticeController(this._db, this._api, this._grading, this._arbiter);
 
+  /// The drop a puzzle needs before practice will serve it.
+  ///
+  /// Read by the collection browser as well as by [servable], from here rather
+  /// than from the widget's own SettingsStore: the browser labels the items it
+  /// is NOT going to serve, and a browser reading one number while the filter
+  /// reads another would label the wrong rows.
+  int get threshold => settings?.collectThreshold ?? 15;
+
   /// Items at or above the configured threshold — what practice serves.
-  List<Map<String, dynamic>> get servable {
-    final threshold = settings?.collectThreshold ?? 15;
-    return items
-        .where((i) => ((i['drop'] as num?)?.toDouble() ?? 0) >= threshold)
-        .toList();
-  }
+  List<Map<String, dynamic>> get servable => items
+      .where((i) => ((i['drop'] as num?)?.toDouble() ?? 0) >= threshold)
+      .toList();
 
   int get due => loaded ? _api.dueCount(servable) : 0;
 
@@ -105,6 +110,41 @@ class PracticeController extends ChangeNotifier {
       ..sort((a, b) =>
           a.value != b.value ? b.value.compareTo(a.value) : a.key.compareTo(b.key));
     return Map.fromEntries(entries);
+  }
+
+  // Two brain answers the collection browser asks for, cached against the
+  // IDENTITY of `items` — which is replaced wholesale by every mutation
+  // (`items = next`), never edited in place, so identity is an exact
+  // change signal. Both calls marshal through JSON to the JS host, and the
+  // browser asks for them on every frame it paints: mastery once per frame,
+  // difficulty once per visible row. Uncached, scrolling the list would put
+  // the whole collection back on the wire for every repaint.
+  Map<String, int>? _mastery;
+  List<Map<String, dynamic>>? _masteryFor;
+  final Map<String, String> _difficulty = {};
+  List<Map<String, dynamic>>? _difficultyFor;
+
+  /// mastered / learning / fresh / total.
+  ///
+  /// Over the whole collection, not the servable slice: this is a picture of
+  /// what you have learned, and an item you mastered before raising the
+  /// threshold did not become less mastered by falling out of the queue.
+  Map<String, int> get mastery {
+    if (_mastery == null || !identical(_masteryFor, items)) {
+      _masteryFor = items;
+      _mastery = _api.masteryStats(items);
+    }
+    return _mastery!;
+  }
+
+  /// The brain's difficulty badge for one item — grounded in your own attempt
+  /// history once you have one, position features before that.
+  String difficultyOf(Map<String, dynamic> item) {
+    if (!identical(_difficultyFor, items)) {
+      _difficultyFor = items;
+      _difficulty.clear();
+    }
+    return _difficulty[item['id'] as String] ??= _api.puzzleDifficulty(item);
   }
 
   Future<void> load() async {
@@ -141,6 +181,38 @@ class PracticeController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Collect many at once — the import path.
+  ///
+  /// A loop of [maybeCollect] is quadratic on this side, not the brain's: each
+  /// call marshals the whole growing collection into a JS expression, decodes
+  /// the whole result back, re-encodes it for the kvPut, and notifies — which
+  /// makes the nav badge re-count over the bridge too. Measured for a 300-game
+  /// import (~1500 seeds): 986MB of expression text, 493MB written, 9.3s on a
+  /// desktop VM with no JS engine running at all.
+  ///
+  /// One bridge call, one write, one notify.
+  Future<int> collectAll(
+      List<({Map<String, dynamic> move, String? setupUci})> seeds,
+      {int minDepth = 8}) async {
+    if (!loaded) await load();
+    final data = <Map<String, dynamic>>[];
+    for (final s in seeds) {
+      final drop = (s.move['wcDrop'] as num?)?.toDouble() ?? 0;
+      final depth = (s.move['depth'] as num?)?.toInt() ?? 0;
+      if (drop < kCollectMin || depth < minDepth) continue;
+      final d = _api.itemData(s.move, s.setupUci);
+      if (d != null) data.add(d);
+    }
+    if (data.isEmpty) return 0;
+    final before = items.length;
+    final next = _api.addItems(items, data);
+    if (next == null) return 0; // every one a duplicate
+    items = next;
+    await _persist();
+    notifyListeners();
+    return items.length - before;
+  }
+
   // ---- session ----
 
   void startSession() {
@@ -159,6 +231,25 @@ class PracticeController extends ChangeNotifier {
             excludeId: id, motif: motifFilter, easyFirst: true) ??
         _api.nextItem(servable, motif: motifFilter, easyFirst: true);
     _serve(next);
+  }
+
+  /// Drill one named item, picked out of the collection browser rather than
+  /// drawn by the scheduler.
+  ///
+  /// Goes through [_serve] like every other route to a different puzzle, which
+  /// is what bumps the generation: opening the list mid-check and tapping a row
+  /// is a third door onto the stale-verdict hole that Skip and delete already
+  /// opened, and the guard in [checkAttempt] only closes doors that come
+  /// through here. Unfiltered by [servable] on purpose — the browser lists what
+  /// the queue will not serve so you can act on it, and "practise this one
+  /// anyway" is one of the actions.
+  void serveItem(String id) {
+    for (final item in items) {
+      if (item['id'] == id) {
+        _serve(item);
+        return;
+      }
+    }
   }
 
   /// Restrict the drill to [motif] (null = everything) and serve at once.

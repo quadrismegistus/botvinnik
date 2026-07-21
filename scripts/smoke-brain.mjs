@@ -86,6 +86,43 @@ if (!brain.getFenAfter(START, 'e2e4')?.includes(' b ')) fail('getFenAfter');
 if (brain.dueCount([], 0) !== 0) fail('dueCount');
 if (brain.nextItem([], true, 0, () => 0.5) !== null) fail('nextItem empty');
 
+// lichess import — the mapper only, called by name from
+// flutter/lib/brain/lichess_import_api.dart. Dart does the HTTP, so this is
+// the whole brain surface the import stands on; drop the export and the
+// import dialog throws on a device while everything else stays green.
+//
+// Two plies of a real (trimmed) response shape: White plays a losing queen
+// move, and the importing player is White, so the mapper must both grade it
+// and mine it as a practice candidate.
+const imported = brain.lichessGameToStored(
+	{
+		id: 'smokeGam',
+		variant: 'standard',
+		speed: 'blitz',
+		status: 'resign',
+		winner: 'black',
+		lastMoveAt: 1775677126911,
+		players: { white: { user: { name: 'Smoke' } }, black: { user: { name: 'Test' } } },
+		moves: 'e4 e5 Qh5 Nc6 Qxf7+',
+		pgn: '1. e4 e5 2. Qh5 Nc6 3. Qxf7+ 0-1',
+		analysis: [
+			{ eval: 30 },
+			{ eval: 25 },
+			{ eval: 20 },
+			{ eval: 15 },
+			{ eval: -900, best: 'd2d4', variation: 'd4 Nf6' }
+		]
+	},
+	'Smoke'
+);
+if (imported?.humanColor !== 'w') fail(`lichessGameToStored humanColor ${imported?.humanColor}`);
+if (imported.stored.id !== 'lichess-smokeGam' || imported.stored.source !== 'lichess')
+	fail(`lichessGameToStored stored ${JSON.stringify(imported.stored.id)}`);
+if (imported.stored.moves.length !== 5) fail(`lichessGameToStored moves ${imported.stored.moves.length}`);
+// the drop is the whole point: no candidates means an import seeds nothing
+if (!imported.practice.some((p) => p.drop > 20)) fail('lichessGameToStored practice candidates');
+if (typeof brain.analysedGameToStored !== 'function') fail('analysedGameToStored export');
+
 // stored-game math
 if (brain.moveAccuracy(0) < 99) fail('moveAccuracy(0)');
 if (brain.gameAccuracy([], 'w') !== null) fail('gameAccuracy empty');

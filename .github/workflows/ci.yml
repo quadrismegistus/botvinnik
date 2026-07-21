@@ -68,6 +68,19 @@ jobs:
         run: npm run check:flutter-ts
       - name: The committed bundles must match their TypeScript sources
         run: git diff --exit-code flutter/assets/brain.js flutter/assets/maia-brain.js
+      # The maskable PWA icons promise, via manifest.json's purpose field, that
+      # their ink fits Android's 80% safe circle. Nothing in the Dart suite can
+      # see that — app_icons_test only compares bytes, and on develop the two
+      # maskables were byte-identical copies of the plain ones, so the promise
+      # was empty. make-icons.py measures the real ink radius on the shipped
+      # pixels; without this step it measures it only when a human runs it.
+      - name: Icons match their source and fit the maskable safe circle
+        # Pillow is not on the runner. The script exits 1 with "needs Pillow"
+        # rather than skipping, which is why this was caught the first time the
+        # step ran rather than passing vacuously forever.
+        run: |
+          python3 -m pip install --quiet --disable-pip-version-check Pillow
+          python3 scripts/make-icons.py --check
       # the bundled licence texts must match the repo-root originals, or the
       # app ships a stale licence — a real GPL-compliance defect, not a nit
       - name: Bundled licence texts must match root

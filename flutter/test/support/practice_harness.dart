@@ -24,6 +24,9 @@ typedef BrainCall = ({String fn, List<Object?> args});
 class FakeBridge implements JsBridge {
   final List<BrainCall> calls = [];
 
+  /// Difficulty per item id, for the tests that care which badge a row gets.
+  final Map<Object?, String> difficulties = {};
+
   /// Every `nextItem` argument list, in order.
   List<List<Object?>> get nextItemArgs =>
       calls.where((c) => c.fn == 'nextItem').map((c) => c.args).toList();
@@ -46,7 +49,30 @@ class FakeBridge implements JsBridge {
         final now = DateTime.now();
         return _items(args[0]).where((i) => !_dueAt(i).isAfter(now)).length;
       case 'puzzleDifficulty':
-        return 'medium';
+        // Not the brain's rule — the brain decides difficulty from attempt
+        // history and position features, and copying that here would be one
+        // more place for it to drift. What a widget test needs is a per-item
+        // answer it chose, so it can tell the badge is routing each row's own
+        // item through the brain rather than printing a constant.
+        return difficulties[(args[0] as Map)['id']] ?? 'medium';
+      case 'masteryStats':
+        // The brain's own classification, brain/practice.ts:201.
+        var mastered = 0, learning = 0, fresh = 0;
+        for (final i in _items(args[0])) {
+          if ((i['attempts'] as num) == 0) {
+            fresh++;
+          } else if ((i['box'] as num) >= 3) {
+            mastered++;
+          } else {
+            learning++;
+          }
+        }
+        return {
+          'mastered': mastered,
+          'learning': learning,
+          'fresh': fresh,
+          'total': _items(args[0]).length,
+        };
       case 'puzzleSetupMove':
         return null;
       default:
@@ -151,6 +177,10 @@ Map<String, dynamic> practiceItem(
   String bestSan = 'd4',
   String playedSan = 'a3',
   DateTime? dueAt,
+  int box = 0,
+  int attempts = 0,
+  int correct = 0,
+  String? lastResult,
 }) {
   final due = (dueAt ?? DateTime.now().subtract(const Duration(minutes: 5)))
       .toUtc()
@@ -171,10 +201,11 @@ Map<String, dynamic> practiceItem(
     'drop': drop,
     'depth': 22,
     'createdAt': DateTime.now().toUtc().toIso8601String(),
-    'box': 0,
+    'box': box,
     'dueAt': due,
-    'attempts': 0,
-    'correct': 0,
+    'attempts': attempts,
+    'correct': correct,
+    'lastResult': ?lastResult,
   };
 }
 

@@ -1,13 +1,18 @@
-// The insight card: the latest graded player move with its label chip,
-// win-chance context, and the brain's explanation prose — the web
-// InsightsPanel's core card, phone-sized.
+// The insight card: the latest graded player move with its label chip, the
+// win chance it gave away, that move against the engine's on a miniature
+// board, and the brain's explanation prose — the web InsightsPanel's core
+// card, phone-sized.
 
+import 'package:chessground/chessground.dart';
+import 'package:dartchess/dartchess.dart' show Move, NormalMove, Side;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../brain/types.dart';
 import '../engine/maia_progress.dart';
 import '../stores/game_controller.dart';
+import '../stores/settings_store.dart';
+import 'board_theme.dart';
 import 'grade_strip.dart';
 
 class InsightCard extends StatelessWidget {
@@ -94,13 +99,40 @@ class InsightCard extends StatelessWidget {
       ),
     ];
 
-    if (!grade.isBest) {
+    // The evidence for the chip. The label IS this number thresholded, and the
+    // same number decides whether the move becomes a practice puzzle — so
+    // withholding it left the card asserting a verdict and keeping its
+    // reasons. Absent until the grade is backfilled; see [lastGradeWinChance].
+    final wc = game.lastGradeWinChance;
+    if (wc != null) {
       children.add(Padding(
         padding: const EdgeInsets.only(top: 6),
-        child: Text(
-          'Best was ${grade.bestSan}',
-          style: const TextStyle(color: Colors.white70, fontSize: 13),
-        ),
+        child: _winChanceLine(wc, label == null ? null : table.color(label)),
+      ));
+    }
+
+    if (!grade.isBest) {
+      final preview = _previewArrows(grade);
+      children.add(Padding(
+        padding: const EdgeInsets.only(top: 8),
+        child: preview == null
+            // no board to draw (see [_previewArrows]): the sentence it would
+            // have replaced, unchanged
+            ? Text(
+                'Best was ${grade.bestSan}',
+                style: const TextStyle(color: Colors.white70, fontSize: 13),
+              )
+            : _MovePreview(
+                fen: grade.fenBefore,
+                played: preview.$1,
+                best: preview.$2,
+                playedSan: grade.san,
+                bestSan: grade.bestSan,
+                // the mover's own side. In an ordinary game against a bot that
+                // is the player's, so it agrees with the board above unless
+                // they have flipped it by hand.
+                orientation: grade.color == 'w' ? Side.white : Side.black,
+              ),
       ));
     }
 
@@ -124,6 +156,69 @@ class InsightCard extends StatelessWidget {
         children: children,
       ),
     );
+  }
+
+  /// The win-chance drop, with the two figures it is the difference of.
+  ///
+  /// One decimal on the loss and none on the endpoints, so "12.4%" and
+  /// "71% to 59%" can differ by a tenth: the loss is the load-bearing figure
+  /// (the label's thresholds are 5 / 10 / 20 and practice collects at 5), and
+  /// rounding it to a whole number would put a move either side of a threshold
+  /// it is not on. The endpoints are context and do not need the precision.
+  Widget _winChanceLine(
+      ({double before, double after, double drop}) wc, Color? tone) {
+    // A move that LOST nothing does not say "lost 0.0%". The drop is clamped at
+    // zero, but the endpoints are printed raw — and the deeper backfill eval
+    // routinely lands above the pre-move best, so the played-best case read
+    // "Win chance lost 0.0% · 70% to 74%": a loss of nothing beside two numbers
+    // that went up. Say what happened instead.
+    final gained = wc.after > wc.before;
+    return Text.rich(
+      TextSpan(children: [
+        if (wc.drop <= 0 && gained) ...[
+          const TextSpan(text: 'Win chance held · '),
+          TextSpan(
+            text: '${wc.before.round()}% to ${wc.after.round()}%',
+            style: TextStyle(
+                color: tone ?? Colors.white70, fontWeight: FontWeight.w700),
+          ),
+        ] else ...[
+          const TextSpan(text: 'Win chance lost '),
+          TextSpan(
+            text: '${wc.drop.toStringAsFixed(1)}%',
+            style: TextStyle(
+                color: tone ?? Colors.white70, fontWeight: FontWeight.w700),
+          ),
+          TextSpan(text: ' · ${wc.before.round()}% to ${wc.after.round()}%'),
+        ],
+      ]),
+      style: const TextStyle(color: Colors.white38, fontSize: 12),
+    );
+  }
+
+  /// The two moves as board arrows, or null when a board cannot show the
+  /// difference between them.
+  ///
+  /// Refuses two cases. A uci that will not parse — nothing to draw at all.
+  /// And two moves with the same origin and destination, which happens on a
+  /// promotion where only the piece chosen differs (e7e8q vs e7e8n): the two
+  /// arrows would be drawn on the identical line and read as one, so the
+  /// sentence naming the piece is the only thing that can say it.
+  (NormalMove, NormalMove)? _previewArrows(MoveGrade grade) {
+    final played = _normalMove(grade.uci);
+    final best = _normalMove(grade.bestUci);
+    if (played == null || best == null) return null;
+    if (played.from == best.from && played.to == best.to) return null;
+    return (played, best);
+  }
+
+  NormalMove? _normalMove(String uci) {
+    if (uci.length < 4) return null;
+    final move = Move.parse(uci);
+    // Arrow asserts orig != dest, and a drop move has no origin square at all.
+    // Neither can come out of the engine, and both are an assertion failure —
+    // i.e. a red screen — rather than a missing arrow if one ever does.
+    return move is NormalMove && move.from != move.to ? move : null;
   }
 
   /// What the board's red arrow is threatening, as a chip — the board already
@@ -252,6 +347,102 @@ class InsightCard extends StatelessWidget {
       ),
     );
   }
+}
+
+/// "Best was Nc6" as a picture: the position the move was chosen in, with the
+/// move played and the move the engine wanted drawn on it.
+///
+/// The colours are #29's board grammar rather than the issue's red/green,
+/// because that grammar is already on the board six inches above this one:
+/// BLUE is the engine's move everywhere in this app (green is taken — it is
+/// the control overlay's "your squares"), and RED is the move that costs you.
+/// Two arrows, two facts, and nothing else on the squares.
+///
+/// It shows only what the card's own sentence already says, so it needs no
+/// blind-mode gate that the sentence does not have.
+class _MovePreview extends StatelessWidget {
+  final String fen;
+  final NormalMove played;
+  final NormalMove best;
+  final String playedSan;
+  final String bestSan;
+  final Side orientation;
+
+  const _MovePreview({
+    required this.fen,
+    required this.played,
+    required this.best,
+    required this.playedSan,
+    required this.bestSan,
+    required this.orientation,
+  });
+
+  /// Small enough to leave the legend room at 320pt (the card is ~276pt wide
+  /// there), big enough for a piece to be recognisable at 13pt a square.
+  static const double _size = 104;
+
+  @override
+  Widget build(BuildContext context) {
+    final settings = context.watch<SettingsStore>();
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        StaticChessboard(
+          size: _size,
+          orientation: orientation,
+          fen: fen,
+          settings: staticBoardSettingsFor(settings),
+          shapes: {
+            // Fixed opacity, not the user's arrow/threat sliders. Those exist
+            // so the live overlays do not drown a position being played; here
+            // the arrows are the entire content, and a slider left low would
+            // leave a board with nothing on it.
+            Arrow(
+                color: kThreatArrowRed.withValues(alpha: 0.85),
+                orig: played.from,
+                dest: played.to),
+            Arrow(
+                color: kEngineArrowBlue.withValues(alpha: 0.9),
+                orig: best.from,
+                dest: best.to),
+          },
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _key(kThreatArrowRed, 'Played $playedSan'),
+              const SizedBox(height: 6),
+              _key(kEngineArrowBlue, 'Best was $bestSan'),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// A legend row. The swatch is a drawn box rather than a glyph: a coloured
+  /// bullet would be a codepoint, and an uncovered codepoint is a font fetch.
+  Widget _key(Color color, String text) => Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 10,
+            height: 10,
+            margin: const EdgeInsets.only(top: 3),
+            decoration: BoxDecoration(
+              color: color,
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          const SizedBox(width: 7),
+          Expanded(
+            child: Text(text,
+                style: const TextStyle(color: Colors.white70, fontSize: 13)),
+          ),
+        ],
+      );
 }
 
 class _CardShell extends StatelessWidget {

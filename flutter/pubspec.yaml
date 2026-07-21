@@ -64,6 +64,13 @@ dependencies:
   file_selector: ^1.1.0
   share_plus: ^13.2.1
   web: ^1.1.1
+  # Getting data IN over the network (#134: import your games from lichess).
+  # Already here as a transitive dependency; named directly because
+  # lib/brain/lichess_import_api.dart imports it. dart:io's HttpClient does
+  # not exist on web and package:web's fetch would need its own conditional
+  # import — http covers both branches with one API, and its MockClient is
+  # the seam the import tests answer at instead of calling lichess.
+  http: ^1.6.0
 
 dev_dependencies:
   flutter_test:
@@ -119,6 +126,12 @@ flutter:
     # guard — never edit these directly.
     - assets/legal/LICENSE
     - assets/legal/THIRD-PARTY-NOTICES.md
+    # the robot-knight mark, for the app bar beside the wordmark. Black on
+    # transparency ON PURPOSE: ImageIcon tints through the alpha channel, so
+    # this one asset follows the theme instead of being baked a colour. Every
+    # other icon in the repo is generated from the same master and flattened —
+    # `python3 scripts/make-icons.py`, which owns this file too.
+    - assets/roboknight.png
 
   # Roboto, bundled rather than fetched. Flutter web otherwise downloads its
   # default font from fonts.gstatic.com at runtime — a third-party request on

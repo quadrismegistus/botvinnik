@@ -17,6 +17,15 @@ class PracticeApi {
   }
 
   /// Returns the new items array, or null when the fen is already collected.
+  /// The bulk form. One bridge round trip for a whole import, where a loop of
+  /// [addItem] marshals the entire growing collection per seed — measured at
+  /// 986MB of expression text for a 300-game import.
+  List<Map<String, dynamic>>? addItems(
+      List<Map<String, dynamic>> items, List<Map<String, dynamic>> dataList) {
+    final r = _bridge.call('addItems', args: [items, dataList]);
+    return r == null ? null : _castItems(r);
+  }
+
   List<Map<String, dynamic>>? addItem(
       List<Map<String, dynamic>> items, Map<String, dynamic> data) {
     final r = _bridge.call('addItem', args: [items, data]);
@@ -70,6 +79,14 @@ class PracticeApi {
 
   String puzzleDifficulty(Map<String, dynamic> item) =>
       _bridge.call('puzzleDifficulty', args: [item]) as String;
+
+  /// {mastered, learning, fresh, total} over a collection — the brain's own
+  /// classification (box ≥3 mastered, attempted-but-not-there learning, never
+  /// attempted fresh), not a Dart copy of it that can drift from the boxes the
+  /// scheduler actually promotes through.
+  Map<String, int> masteryStats(List<Map<String, dynamic>> items) =>
+      (_bridge.call('masteryStats', args: [items]) as Map)
+          .map((k, v) => MapEntry(k as String, (v as num).toInt()));
 
   List<Map<String, dynamic>> _castItems(dynamic r) => (r as List)
       .map((i) => (i as Map).cast<String, dynamic>())
