@@ -94,6 +94,10 @@ describe('itemDataFromStoredMove', () => {
 });
 
 describe('addItems (the bulk form)', () => {
+	// Every field PracticeItem requires. Written out rather than partial: tsc
+	// is what catches a short fixture, and `npx vitest run` TRANSPILES without
+	// typechecking — a green vitest run says nothing about this, which is how
+	// the first version of these tests reached CI.
 	const seed = (fen: string) => ({
 		fen,
 		playedUci: 'e2e4',
@@ -101,6 +105,10 @@ describe('addItems (the bulk form)', () => {
 		playedSan: 'e4',
 		bestSan: 'd4',
 		drop: 20,
+		depth: 22,
+		evalBestPawns: 0.3,
+		mateBest: null,
+		wcBest: 55,
 		motifs: [] as string[]
 	});
 
