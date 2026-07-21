@@ -54,6 +54,23 @@ if (!backfilled.backfilled || !backfilled.label) fail('backfillGrade shape');
 if (typeof brain.winChance(0.5, null) !== 'number') fail('winChance');
 if (!brain.CLASS.blunder?.color) fail('CLASS table');
 
+// unified move table — Dart calls both of these by name from
+// flutter/lib/brain/explorer_api.dart, so a dropped export is invisible until
+// the Book pane throws on a device
+const conf = brain.confidences(lines);
+if (conf.length !== lines.length || Math.abs(conf.reduce((a, b) => a + b, 0) - 100) > 1e-6)
+	fail(`confidences ${JSON.stringify(conf)}`);
+const unified = brain.unifyMoves(
+	START,
+	lines,
+	{ total: 300, moves: [{ uci: 'e2e4', san: 'e4', white: 100, draws: 50, black: 50 }] },
+	null
+);
+// the book move outranks every engine-only line, whatever the engine thinks
+if (unified[0]?.san !== 'e4' || unified[0]?.lichess?.games !== 200)
+	fail(`unifyMoves ${JSON.stringify(unified[0])}`);
+if (unified.length !== lines.length) fail(`unifyMoves rows ${unified.length}`);
+
 // SAN helpers
 if (brain.getSan(START, 'g1f3') !== 'Nf3') fail('getSan');
 if (!brain.getFenAfter(START, 'e2e4')?.includes(' b ')) fail('getFenAfter');
