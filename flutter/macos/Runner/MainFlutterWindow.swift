@@ -21,25 +21,32 @@ class MainFlutterWindow: NSWindow {
 
     // Let the Flutter view own the whole window, titlebar included.
     //
-    // The four settings the Flutter issue tracker's answer reaches for through
+    // The three settings the Flutter issue tracker's answer reaches for through
     // Interface Builder — they are ordinary window properties, so there is no
     // reason to open Xcode or edit a XIB for them:
     //
     //   fullSizeContentView   the content view extends under the titlebar
     //   titlebarAppearsTransparent  no bar chrome drawn over it
     //   titleVisibility = .hidden   no window title text
-    //   isMovableByWindowBackground drag the window by its content, since
-    //                               there is no longer a bar to grab
+    //
+    // That answer also sets isMovableByWindowBackground, and this window did
+    // too until it was measured: FlutterView is opaque, covers the whole frame
+    // and reports mouseDownCanMoveWindow = false, so it is the hit view
+    // everywhere inside the window and AppKit never begins a background drag.
+    // The property had no effect and its usual rationale — "there is no longer
+    // a bar to grab" — is not true here either. The residual
+    // NSTitlebarContainerView still occupies the top 32pt and still drags the
+    // window natively, which is the behaviour we want: the strip moves it, the
+    // board and the panels do not. Confirmed by hand on 2026-07-21. See #119.
     //
     // The traffic lights stay — they are the system's, they respect the user's
     // settings, and reimplementing them means reimplementing hover states,
     // full-screen behaviour and accessibility for no gain. What changes is
     // that they now float over the app's own app bar, which is why the Dart
-    // side insets its leading edge on macOS (see kMacTitlebarInset).
+    // side insets its leading edge on macOS (see macTitlebarInset).
     self.styleMask.insert(.fullSizeContentView)
     self.titlebarAppearsTransparent = true
     self.titleVisibility = .hidden
-    self.isMovableByWindowBackground = true
 
     RegisterGeneratedPlugins(registry: flutterViewController)
 
