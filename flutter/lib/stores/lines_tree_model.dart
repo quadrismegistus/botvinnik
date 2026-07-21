@@ -55,6 +55,46 @@ class LinesTreeModel {
   int _lastPathLen = 0;
   int version = 0;
 
+  // ---- blind mode ----
+  //
+  // One place, because the tree gives the engine away three separate ways: the
+  // links out of the current position, the green ring on the best node, and the
+  // nodes themselves. Gating them independently in the painter is how the first
+  // attempt shipped with the links hidden and the nodes still drawn.
+
+  /// A link that is the engine's opinion about the CURRENT position, rather
+  /// than part of the game's own history.
+  bool isLiveHint(String key) {
+    final l = links[key];
+    return l != null &&
+        liveKeys.contains(key) &&
+        !pathKeys.contains(key) &&
+        l.anchor == anchorId;
+  }
+
+  /// The node to ring green, or null while blind — the best move is the single
+  /// most valuable thing blind mode exists to withhold.
+  String? visibleBestNodeId({required bool blind}) => blind ? null : bestNodeId;
+
+  /// Which nodes may be drawn.
+  ///
+  /// Hiding only the LINKS is not enough: a node IS its move name, so an
+  /// engine suggestion left on screen without a curve attached is still the
+  /// suggestion. Blind keeps exactly the nodes some surviving link references,
+  /// which is the played path and any earlier exploration — not the live fan
+  /// out of the position in front of the player.
+  Set<String> visibleNodeIds({required bool blind}) {
+    if (!blind) return nodes.keys.toSet();
+    final keep = <String>{kRoot};
+    for (final key in links.keys) {
+      if (isLiveHint(key)) continue;
+      final l = links[key]!;
+      keep.add(l.source);
+      keep.add(l.target);
+    }
+    return keep.intersection(nodes.keys.toSet());
+  }
+
   // getSanLine goes through the JS bridge — memoize per fen+pv prefix
   final Map<String, List<Map<String, dynamic>>> _sanCache = {};
 
