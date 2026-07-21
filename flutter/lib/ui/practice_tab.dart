@@ -57,7 +57,19 @@ class _PracticeTabState extends State<PracticeTab> {
     final practice = context.watch<PracticeController>();
     final item = practice.current;
 
-    if (item == null) {
+    if (item == null) return _empty(practice);
+    return _puzzle(context, practice, item);
+  }
+
+  /// Nothing to serve.
+  ///
+  /// The motif picker lives in the action row, which is only drawn with a
+  /// puzzle on screen — so a filter that empties the queue would otherwise be
+  /// unclearable, and the tab would blame the collection for the filter's
+  /// doing. Say which filter, and offer the way out.
+  Widget _empty(PracticeController practice) {
+    final motif = practice.motifFilter;
+    if (motif == null) {
       return const Center(
         child: Padding(
           padding: EdgeInsets.all(24),
@@ -70,7 +82,26 @@ class _PracticeTabState extends State<PracticeTab> {
         ),
       );
     }
-    return _puzzle(context, practice, item);
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              'Nothing to practise tagged $motif.',
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: Colors.white38, height: 1.4),
+            ),
+            TextButton(
+              onPressed: () => practice.setMotifFilter(null),
+              child: const Text('Show all puzzles',
+                  style: TextStyle(color: Colors.white70)),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Widget _puzzle(BuildContext context, PracticeController practice,
@@ -118,7 +149,7 @@ class _PracticeTabState extends State<PracticeTab> {
             children: [
               Center(child: board(size)),
               _promptStrip(item, practice, sideToMove),
-              _actionRow(practice),
+              _actionRow(context, practice),
             ],
           );
         }
@@ -136,7 +167,7 @@ class _PracticeTabState extends State<PracticeTab> {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   _promptStrip(item, practice, sideToMove),
-                  _actionRow(practice),
+                  _actionRow(context, practice),
                 ],
               ),
             ),
@@ -231,43 +262,141 @@ class _PracticeTabState extends State<PracticeTab> {
     );
   }
 
-  Widget _actionRow(PracticeController practice) {
+  /// The motif picker: built from the motifs the player's own items actually
+  /// carry, so every option serves something. Hidden entirely when there are
+  /// none — an untagged collection gets a menu with one item saying "all",
+  /// which is furniture pretending to be a feature.
+  Widget _motifMenu(PracticeController practice) {
+    final counts = practice.motifCounts;
+    final active = practice.motifFilter;
+    if (counts.isEmpty && active == null) return const SizedBox.shrink();
+    return PopupMenuButton<String>(
+      tooltip: 'Practise one motif',
+      icon: Icon(Icons.filter_list,
+          size: 20,
+          color: active == null ? Colors.white70 : const Color(0xFF81B64C)),
+      padding: EdgeInsets.zero,
+      // '' is the sentinel for "all", NOT null: PopupMenuButton cannot tell a
+      // null-valued selection from a dismissal — it calls onCanceled and
+      // returns before onSelected (popup_menu.dart, `if (newValue == null)`).
+      // With value: null the "All puzzles" row was inert, and since the filter
+      // lives on the controller and survives re-entering the tab, a filter with
+      // items left in it could not be cleared for the rest of the session.
+      onSelected: (v) => practice.setMotifFilter(v.isEmpty ? null : v),
+      itemBuilder: (context) => [
+        CheckedPopupMenuItem<String>(
+          value: '',
+          checked: active == null,
+          child: Text('All puzzles (${practice.servable.length})'),
+        ),
+        for (final e in counts.entries)
+          CheckedPopupMenuItem<String>(
+            value: e.key,
+            checked: active == e.key,
+            child: Text('${e.key} (${e.value})'),
+          ),
+      ],
+    );
+  }
+
+  /// Confirmed, not undoable.
+  ///
+  /// `remove` deletes the item and persists; nothing puts it back. The only
+  /// route to the same puzzle is blundering in that exact position again, and
+  /// that arrives through `addItem` as a fresh item — box 0, attempts cleared
+  /// — so an "Undo" here would restore a different thing wearing the same
+  /// name. A one-tap SnackBar undo that lies is worse than a dialog. The
+  /// button also sits beside Next, which is the one people hit fast.
+  Future<void> _confirmDelete(BuildContext context,
+      PracticeController practice, String id) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete this puzzle?'),
+        content: const Text(
+          'It leaves your practice queue for good — this is the only way out, '
+          'since a position you blundered stays collected even if you took '
+          'the move back.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Delete',
+                style: TextStyle(color: Color(0xFFCA3431))),
+          ),
+        ],
+      ),
+    );
+    if (ok == true) await practice.remove(id);
+  }
+
+  Widget _actionRow(BuildContext context, PracticeController practice) {
     final attempt = practice.attempt;
-    final bestUci = practice.current?['bestUci'] as String?;
+    final current = practice.current;
+    final bestUci = current?['bestUci'] as String?;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       color: const Color(0xFF1f1e1b),
       child: Row(
         children: [
-          if (attempt == null && practice.hintTier < 3)
-            TextButton(
-              onPressed: practice.hint,
-              child: Text(
-                practice.hintTier == 0
-                    ? 'Hint'
-                    : practice.hintTier == 1
-                        ? 'Another hint'
-                        : 'Show best',
-                style: const TextStyle(color: Colors.white70),
-              ),
+          // The word buttons scroll instead of competing for the width.
+          // Measured, not assumed: with a plain Row and a Spacer, a failed
+          // attempt (Retry + Show best) plus the picker, the delete and Next
+          // overflows by 34px at 320 logical pixels under the real Roboto. It
+          // fits at 375 — but a RenderFlex overflow is a runtime error that
+          // neither the analyzer nor a green suite says anything about, and
+          // the row only grows.
+          Expanded(
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(children: [
+                if (attempt == null && practice.hintTier < 3)
+                  TextButton(
+                    onPressed: practice.hint,
+                    child: Text(
+                      practice.hintTier == 0
+                          ? 'Hint'
+                          : practice.hintTier == 1
+                              ? 'Another hint'
+                              : 'Show best',
+                      style: const TextStyle(color: Colors.white70),
+                    ),
+                  ),
+                // pass or fail: retry to hunt the best, reveal if you haven't
+                // found it (a "good enough" pass still has a better move to see)
+                if (attempt != null)
+                  TextButton(
+                    onPressed: practice.retry,
+                    child: const Text('Retry',
+                        style: TextStyle(color: Colors.white70)),
+                  ),
+                if (attempt != null &&
+                    !practice.revealBest &&
+                    attempt.uci != bestUci)
+                  TextButton(
+                    onPressed: practice.reveal,
+                    child: const Text('Show best',
+                        style: TextStyle(color: Colors.white70)),
+                  ),
+              ]),
             ),
-          // pass or fail: retry to hunt the best, reveal if you haven't
-          // found it (a "good enough" pass still has a better move to see)
-          if (attempt != null)
-            TextButton(
-              onPressed: practice.retry,
-              child:
-                  const Text('Retry', style: TextStyle(color: Colors.white70)),
+          ),
+          _motifMenu(practice),
+          if (current != null)
+            IconButton(
+              tooltip: 'Delete this puzzle',
+              icon: const Icon(Icons.delete_outline,
+                  size: 20, color: Colors.white70),
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+              onPressed: () =>
+                  _confirmDelete(context, practice, current['id'] as String),
             ),
-          if (attempt != null &&
-              !practice.revealBest &&
-              attempt.uci != bestUci)
-            TextButton(
-              onPressed: practice.reveal,
-              child: const Text('Show best',
-                  style: TextStyle(color: Colors.white70)),
-            ),
-          const Spacer(),
+          const SizedBox(width: 6),
           FilledButton(
             onPressed: practice.nextPuzzle,
             style: FilledButton.styleFrom(

@@ -51,6 +51,11 @@ export { CLASS, LABEL_ORDER } from './classifications';
 // ---- explanations ----
 export { explainMove, explainGoodMove, bestMovePoint, motifTags, MOTIF_TAGS_VERSION } from './engine/explain';
 
+// ---- opening book × engine (the unified move table) ----
+// The Book pane's rows: the engine's lines merged with the baked book's counts
+// and ranked by popularity. Dart loads the book assets and passes the node in.
+export { unifyMoves, confidences } from './explorer';
+
 // ---- SAN / fen helpers (so Dart never re-implements chess.js rendering) ----
 export { getSan, getSanLine, getNumberedSanLine, getFenAfter, isCapture } from './engine/chess';
 
