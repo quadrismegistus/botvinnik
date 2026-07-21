@@ -64,6 +64,13 @@ dependencies:
   file_selector: ^1.1.0
   share_plus: ^13.2.1
   web: ^1.1.1
+  # Getting data IN over the network (#134: import your games from lichess).
+  # Already here as a transitive dependency; named directly because
+  # lib/brain/lichess_import_api.dart imports it. dart:io's HttpClient does
+  # not exist on web and package:web's fetch would need its own conditional
+  # import — http covers both branches with one API, and its MockClient is
+  # the seam the import tests answer at instead of calling lichess.
+  http: ^1.6.0
 
 dev_dependencies:
   flutter_test:

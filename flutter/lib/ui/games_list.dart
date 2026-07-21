@@ -8,8 +8,10 @@ import 'package:provider/provider.dart';
 import '../stores/backup.dart';
 import '../stores/files.dart';
 import '../stores/game_controller.dart';
+import '../brain/lichess_import_api.dart';
 import '../stores/pgn_import.dart';
 import '../stores/review_controller.dart';
+import 'lichess_import_dialog.dart';
 import 'review_screen.dart';
 
 /// A human win over a bot, and how it was won. [clean] draws the solid crown;
@@ -59,7 +61,12 @@ class GamesListBody extends StatefulWidget {
   /// bytes assertable at all.
   final TextFileSaver saveFile;
 
-  const GamesListBody({super.key, this.saveFile = saveTextFile});
+  /// The lichess importer. Null means "build the real one from the bridge
+  /// when the dialog opens" — the same injection seam as [saveFile], and the
+  /// reason a test can drive the whole import without a network or a JS host.
+  final LichessImportApi? importApi;
+
+  const GamesListBody({super.key, this.saveFile = saveTextFile, this.importApi});
 
   @override
   State<GamesListBody> createState() => _GamesListBodyState();
@@ -78,18 +85,75 @@ class _GamesListBodyState extends State<GamesListBody> {
     if (!review.loaded) {
       return const Center(child: CircularProgressIndicator());
     }
-    if (review.games.isEmpty) {
-      return const Center(
-        child: Text('No games yet — finish one and it lands here.',
-            style: TextStyle(color: Colors.white38)),
-      );
-    }
-    return ListView.separated(
-      itemCount: review.games.length,
-      separatorBuilder: (_, i) =>
-          const Divider(height: 1, color: Color(0xFF2c2a26)),
-      itemBuilder: (context, i) => _row(context, review, review.games[i]),
+    return Column(
+      children: [
+        _importBar(context),
+        const Divider(height: 1, color: Color(0xFF2c2a26)),
+        Expanded(
+          child: review.games.isEmpty
+              ? const Center(
+                  child: Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 24),
+                    child: Text(
+                      'No games yet — finish one, or import your lichess '
+                      'history above.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: Colors.white38),
+                    ),
+                  ),
+                )
+              // Lazy by construction: ListView.separated builds only the rows
+              // in view, which is the guard the Svelte archive had to hand-roll
+              // (it virtualised because "thousands of imported games would
+              // otherwise become thousands of DOM rows"). What is NOT lazy is
+              // the data behind it — ReviewController holds every stored game,
+              // moves and all, decoded in memory. See the import dialog's game
+              // cap.
+              : ListView.separated(
+                  itemCount: review.games.length,
+                  separatorBuilder: (_, i) =>
+                      const Divider(height: 1, color: Color(0xFF2c2a26)),
+                  itemBuilder: (context, i) =>
+                      _row(context, review, review.games[i]),
+                ),
+        ),
+      ],
     );
+  }
+
+  /// The import affordance, in the tab the imported games land in.
+  ///
+  /// Here rather than only in the wide-window Game menu (which is where the
+  /// PGN paste lives) because that menu does not exist on a phone, and
+  /// because "where are my games" and "bring my games in" are the same
+  /// thought.
+  Widget _importBar(BuildContext context) => Align(
+        alignment: Alignment.centerLeft,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(4, 2, 4, 2),
+          child: TextButton.icon(
+            onPressed: () => _importFromLichess(context),
+            icon: const Icon(Icons.cloud_download_outlined, size: 17),
+            label: const Text('Import from lichess',
+                style: TextStyle(fontSize: 12.5)),
+            style: TextButton.styleFrom(foregroundColor: Colors.white54),
+          ),
+        ),
+      );
+
+  Future<void> _importFromLichess(BuildContext context) async {
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    final summary = await showLichessImport(context, api: widget.importApi);
+    if (summary == null) return; // cancelled, or it reported its own error
+    final games = '${summary.games} game${summary.games == 1 ? '' : 's'}';
+    final puzzles = summary.puzzles == 0
+        ? 'no new practice positions'
+        : '${summary.puzzles} practice position'
+            '${summary.puzzles == 1 ? '' : 's'}';
+    messenger?.showSnackBar(SnackBar(
+      content: Text('Imported $games · $puzzles'
+          '${summary.skipped > 0 ? ' · ${summary.skipped} skipped' : ''}'),
+    ));
   }
 
   /// Hand one game's PGN to the platform.
@@ -150,6 +214,12 @@ class _GamesListBodyState extends State<GamesListBody> {
         ? const Color(0xFF81B64C)
         : (lost ? const Color(0xFFCA3431) : Colors.white54);
 
+    // 'lichess' | 'chesscom' — a game fetched from your account (#134),
+    // which is NOT the same thing as a pasted PGN: there is a "you" in it
+    // (the mapper set botColor to the OPPONENT's colour, so Won/Lost and the
+    // accuracy column both mean what they say), and the opponent has a name
+    // rather than a persona id.
+    final source = g['source'] as String?;
     final storedId = g['botPersona'] as String?;
     // The NAME, not the stored id. Two reasons: the archive used to read
     // "vs squarefish-1200", and after the rename the same opponent appeared
@@ -169,9 +239,16 @@ class _GamesListBodyState extends State<GamesListBody> {
     final blunders = (counts?['blunder'] as num?)?.toInt() ?? 0;
     final mistakes = (counts?['mistake'] as num?)?.toInt() ?? 0;
 
-    // An import has no "you" in it, so Won/Lost and "vs <bot>" are both
+    // A pasted PGN has no "you" in it, so Won/Lost and "vs <bot>" are both
     // meaningless — show the raw result and whoever the PGN said was playing.
-    final imported = g[kImportedKey] == true;
+    // A fetched game whose importer is not one of the players (nothing
+    // produces one today, but the mapper can return that) is in the same boat.
+    final imported = g[kImportedKey] == true || (source != null && botColor == null);
+    // Who you actually played. Falling through to the persona name would put
+    // "vs bot" on every imported game, since no persona is stored on one.
+    final opponent = source == null
+        ? 'vs $personaId'
+        : 'vs ${(youAreWhite ? g['black'] : g['white']) as String? ?? 'unknown'}';
     final crown = winCrown(g);
     // Every archived record has carried a full PGN since the save path was
     // written; until now it had no way out of the app (#138). Games saved by
@@ -201,7 +278,7 @@ class _GamesListBodyState extends State<GamesListBody> {
         ],
         const SizedBox(width: 8),
         Expanded(
-          child: Text(imported ? importedTitle(g) : 'vs $personaId',
+          child: Text(imported ? importedTitle(g) : opponent,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(fontSize: 13)),
@@ -216,6 +293,9 @@ class _GamesListBodyState extends State<GamesListBody> {
         children: [
           Text(
             '$when · ${g['moveCount']} moves'
+            // where it came from, since the grades on an imported game are
+            // that server's and not this app's engine
+            '${source != null ? ' · $source' : ''}'
             '${blunders > 0 ? ' · $blunders ??' : ''}'
             '${mistakes > 0 ? ' · $mistakes ?' : ''}',
             style: const TextStyle(fontSize: 11.5, color: Colors.white38),
