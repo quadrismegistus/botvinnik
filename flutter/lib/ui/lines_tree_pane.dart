@@ -59,6 +59,9 @@ class _LinesTreePaneState extends State<LinesTreePane> {
     }
 
     final playable = tree.playableUci();
+    // Blind only bites in a real game: on the analysis board both sides are the
+    // player and there is no opponent to hide the engine from.
+    final blind = game.blind && game.botEnabled;
     return SizedBox(
       height: _kHeight,
       child: SingleChildScrollView(
@@ -90,10 +93,8 @@ class _LinesTreePaneState extends State<LinesTreePane> {
                 ].reduce(max),
                 _kHeight),
             painter: _TreePainter(tree,
-                game.blind && game.botEnabled
-                    ? const {}
-                    : playable.keys.toSet(),
-                hideCurrent: game.blind && game.botEnabled),
+                blind ? const {} : playable.keys.toSet(),
+                blind: blind),
           ),
         ),
       ),
@@ -104,10 +105,19 @@ class _LinesTreePaneState extends State<LinesTreePane> {
 class _TreePainter extends CustomPainter {
   final LinesTreeModel tree;
   final Set<String> playable;
-  final bool hideCurrent; // blind: the past stays, the present won't hint
+  final bool blind; // the past stays, the present won't hint
   final int version;
-  _TreePainter(this.tree, this.playable, {this.hideCurrent = false})
-      : version = tree.version;
+
+  /// Resolved once here rather than per node, and asked of the model rather
+  /// than decided in the painter — the three things blind has to withhold used
+  /// to be three independent checks, and one of them was missing.
+  final Set<String> _visibleNodes;
+  final String? _bestNodeId;
+
+  _TreePainter(this.tree, this.playable, {this.blind = false})
+      : version = tree.version,
+        _visibleNodes = tree.visibleNodeIds(blind: blind),
+        _bestNodeId = tree.visibleBestNodeId(blind: blind);
 
   Color _qualityColor(double pctBest) {
     final v = pctBest.clamp(0.0, 100.0);
@@ -124,8 +134,8 @@ class _TreePainter extends CustomPainter {
       if (from == null || to == null) continue;
       final onPath = tree.pathKeys.contains(entry.key);
       final live = tree.liveKeys.contains(entry.key);
-      if (hideCurrent && live && !onPath && l.anchor == tree.anchorId) {
-        continue; // blind mode: no hints anchored at the current position
+      if (blind && tree.isLiveHint(entry.key)) {
+        continue; // no engine opinion about the position in front of the player
       }
 
       final p0 = Offset(from.x + kNodeW / 2, from.y);
@@ -162,6 +172,8 @@ class _TreePainter extends CustomPainter {
 
     // nodes on top
     for (final n in tree.nodes.values) {
+      // a node IS its move name, so withholding the link is not enough
+      if (!_visibleNodes.contains(n.id)) continue;
       if (n.id == kRoot) {
         canvas.drawCircle(Offset(n.x, n.y), 3,
             Paint()..color = Colors.white38);
@@ -172,7 +184,7 @@ class _TreePainter extends CustomPainter {
             center: Offset(n.x, n.y), width: kNodeW, height: kNodeH),
         const Radius.circular(5),
       );
-      final isBest = n.id == tree.bestNodeId;
+      final isBest = n.id == _bestNodeId;
       final isPlayable = playable.contains(n.id);
       final white = n.color == 'w';
       canvas.drawRRect(
