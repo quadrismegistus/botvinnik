@@ -274,3 +274,18 @@ Future<GameController> makeGame({String? fromFen}) async {
 /// to it.
 const kStandardStartFen =
     'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+
+/// The harness's [FakeGrading] answers the whole-game calls out of
+/// `noSuchMethod`, i.e. with null, which a non-nullable `labelCounts` rejects
+/// — so it cannot reach the end of a save. These two are the difference
+/// between a test that archives a game and one that dies in the accountancy.
+class SavingGrading extends FakeGrading {
+  @override
+  double? gameAccuracy(List<Map<String, dynamic>> storedMoves, String color) =>
+      null;
+
+  @override
+  Map<String, dynamic> labelCounts(
+          List<Map<String, dynamic>> storedMoves, String color) =>
+      const {'blunder': 0, 'mistake': 0, 'inaccuracy': 0};
+}

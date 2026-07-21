@@ -443,6 +443,36 @@ class _AppShellState extends State<AppShell> {
             ]
           : const [];
 
+  /// Resigning is a permanent entry on the record and there is no undo for it,
+  /// so it asks. A mis-tapped flag in the app bar, next to undo, would be a
+  /// loss the player did not play.
+  Future<void> _confirmResign(BuildContext context, GameController game) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF262421),
+        title: const Text('Resign this game?'),
+        content: const Text(
+            'It is archived as a loss and counts toward your rating. '
+            'Walking away instead leaves the game unfinished, and an '
+            'unfinished game counts for nothing.'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Keep playing')),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xFFCA3431),
+                foregroundColor: Colors.white),
+            child: const Text('Resign'),
+          ),
+        ],
+      ),
+    );
+    if (ok == true) game.resign();
+  }
+
   /// The app bar, with room made for the macOS traffic lights.
   ///
   /// The window has no titlebar of its own (fullSizeContentView), so the
@@ -532,6 +562,17 @@ class _AppShellState extends State<AppShell> {
             ],
           ),
           actions: [
+            // In the app bar, not a panel: panels are individually toggleable
+            // and the whole layout changes at the breakpoint, so anywhere else
+            // is somewhere a player can end up unable to reach. Absent — not
+            // disabled — on the analysis board, where there is nobody to
+            // concede to.
+            if (game.botEnabled && !game.gameOver && game.moves.isNotEmpty)
+              IconButton(
+                onPressed: () => _confirmResign(context, game),
+                icon: const Icon(Icons.flag_outlined),
+                tooltip: 'Resign',
+              ),
             IconButton(
               onPressed: game.canUndo ? game.undo : null,
               icon: const Icon(Icons.undo),

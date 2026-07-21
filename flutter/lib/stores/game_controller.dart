@@ -217,13 +217,27 @@ class GameController extends ChangeNotifier {
   /// Whether the given side ('w'/'b') is played by the human.
   bool isHumanSide(String color) =>
       color == 'w' ? whitePersona == null : blackPersona == null;
-  bool get gameOver => position.isGameOver;
+  /// The human resigned this game. Position-derived results cannot express it:
+  /// a resignation leaves a perfectly playable board.
+  ///
+  /// It matters beyond the scoreboard. Without a way to resign, a game the
+  /// player was losing ends by being abandoned, and an abandoned game archives
+  /// as '*', which brain/playerElo.ts drops. So every game a player would have
+  /// resigned was invisible to their rating, and the estimate read high — worse
+  /// against stronger opponents, where you resign more often.
+  bool _resigned = false;
+  bool get resigned => _resigned;
+
+  bool get gameOver => position.isGameOver || _resigned;
   /// Whose colour sits at the bottom of the board (follows orientation).
   bool get whiteAtBottom => (playerColor == 'w') != flipped;
   /// The position actually on screen: a browsed ply, a hover preview, or live.
   String get displayFen => browseFen ?? previewFen ?? position.fen;
 
   String get statusLine {
+    if (_resigned) {
+      return 'You resigned — ${playerColor == 'w' ? 'Black' : 'White'} wins';
+    }
     if (position.isCheckmate) {
       final winner = position.turn == Side.white ? 'Black' : 'White';
       return 'Checkmate — $winner wins';
@@ -403,6 +417,7 @@ class GameController extends ChangeNotifier {
     // it straight back.
     maiaProgress = null;
     _maia?.cancelPending();
+    _resigned = false;
     _standInPersonas.clear();
     _botUndos = 0;
     _botHintsUsed = false;
@@ -447,6 +462,22 @@ class GameController extends ChangeNotifier {
 
   /// Undo the last player move (and the bot reply on top of it);
   /// on the analysis board, one ply at a time.
+  /// Concede the game: archive it as a loss and stop play.
+  ///
+  /// Only in a real game — the analysis board has no opponent to concede to —
+  /// and only while one is in progress. Saving here rather than waiting for
+  /// something else to notice, because nothing else will: no move follows a
+  /// resignation.
+  void resign() {
+    if (!botEnabled || _resigned || position.isGameOver || moves.isEmpty) return;
+    _resigned = true;
+    _gen++; // a bot turn in flight must not answer a game that has ended
+    _arbiter.bumpGeneration();
+    botThinking = false;
+    notifyListeners();
+    _saveGame();
+  }
+
   void undo() {
     _browsePly = null;
     if (moves.isEmpty || botThinking) return;
@@ -591,6 +622,9 @@ class GameController extends ChangeNotifier {
   Future<void> debugForceSave() => _saveGame();
 
   String get _result {
+    // Before the position checks: the board is still playable, which is the
+    // whole point of resigning.
+    if (_resigned) return playerColor == 'w' ? '0-1' : '1-0';
     if (position.isCheckmate) {
       return position.turn == Side.white ? '0-1' : '1-0';
     }
