@@ -86,11 +86,13 @@ class PlayerPlate extends StatelessWidget {
           Icon(persona == null ? Icons.person_outline : Icons.smart_toy_outlined,
               size: 15, color: Colors.white54),
           const SizedBox(width: 6),
-          // Flexible + ellipsis: the Row also carries the elo, the optional
-          // stand-in chip, the captured tray and the +N advantage. Left rigid,
-          // a long persona name ("Maia III (sampled)") plus the chip overflowed
-          // at phone widths and the clipping landed on the tray and the
-          // advantage — the two things a player actually reads mid-game.
+          // The name is the ONLY thing here that can shrink, so it is the
+          // only Flexible: it ellipsizes, while the tray is rigid 16px images
+          // and the elo, chip and +N are text that must stay whole. Making the
+          // tray Flexible too (the first attempt at this) split the free space
+          // between them equally instead — the name stopped ellipsizing at its
+          // half share and the tray, unable to shrink at all, burst anyway.
+          // See test/player_plate_overflow_test.dart.
           Flexible(
             child: Text(name,
                 maxLines: 1,
@@ -144,15 +146,13 @@ class PlayerPlate extends StatelessWidget {
             // (black) pieces vanish against the app's dark background — they
             // are drawn as images, so a mid-light backing is what gives both
             // colours their contrast, black by fill and white by outline.
-            Flexible(
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 1),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF9c988c),
-                  borderRadius: BorderRadius.circular(4),
-                ),
-                child: Row(mainAxisSize: MainAxisSize.min, children: pieces),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 1),
+              decoration: BoxDecoration(
+                color: const Color(0xFF9c988c),
+                borderRadius: BorderRadius.circular(4),
               ),
+              child: Row(mainAxisSize: MainAxisSize.min, children: pieces),
             ),
           ],
           const Spacer(),
