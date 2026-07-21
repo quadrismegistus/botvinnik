@@ -42,7 +42,13 @@ export interface BotPersona {
 	numericElo?: number;
 	/** retro: historical engine + ply (morlock re-implementations, wasm worker) */
 	retro?: RetroSpec;
-	/** dala: imitation-net bracket (700/900/1300) — native (Tauri) only */
+	/** dala: imitation-net bracket (700/900/1300).
+	 *
+	 * NOT IMPLEMENTED ANYWHERE. The only build that could run these was the
+	 * Tauri desktop shell, retired 2026-07-20; no current platform offers the
+	 * family and no weights are fetched. They also carry NO LICENCE — the
+	 * upstream repo states none — so implementing this needs the author's
+	 * permission first, not just an lc0 sidecar (#45, #47). */
 	dalaBand?: number;
 	/** horizon: js-chess-engine difficulty level (1-2 shipped) */
 	jsceLevel?: number;
