@@ -53,13 +53,29 @@ class InsightCard extends StatelessWidget {
 
     final label = grade.label;
     final expl = grade.explanation;
-    // the line to narrate on the board: the explanation's evidence line
-    // (played move + refutation) when there is one, else the best move's pv
+    // The line to narrate on the board: the BEST move's pv, falling back to the
+    // explanation's evidence line when there is no best pv to show.
+    //
+    // It used to be the other way round, and the evidence line is the move you
+    // PLAYED plus its refutation (explain.ts builds it from playedPv). So the
+    // card said "Best was Nc6", drew Nc6 on the preview board, and then played
+    // your own mistake when you pressed the arrow. That predates this card's
+    // board preview by months; the preview is what made it visible.
+    //
+    // One button, not two: the threat chip already has its own play control in
+    // this same card, and they coordinate through `previewTag` so only one
+    // shows STOP. A third would be worse than the confusion it fixed. If the
+    // refutation animation turns out to be missed, the natural home is a tap on
+    // the played arrow in the preview, which already distinguishes the two.
     final evidence = expl?.evidence;
-    final previewBase = evidence?['fen'] as String? ?? grade.fenBefore;
-    final previewUcis = evidence != null
-        ? (evidence['ucis'] as List).cast<String>()
-        : grade.bestPv;
+    final hasBest = grade.bestPv.isNotEmpty;
+    final previewBase =
+        hasBest ? grade.fenBefore : (evidence?['fen'] as String? ?? grade.fenBefore);
+    final previewUcis = hasBest
+        ? grade.bestPv
+        : (evidence != null
+            ? (evidence['ucis'] as List).cast<String>()
+            : const <String>[]);
     final canPreview = previewUcis.isNotEmpty;
 
     final children = <Widget>[
