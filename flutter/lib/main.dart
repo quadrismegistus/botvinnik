@@ -887,6 +887,7 @@ class _PlayTabState extends State<PlayTab> {
       return Center(
         child: Row(
           mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
             Column(
               mainAxisSize: MainAxisSize.min,
@@ -896,10 +897,13 @@ class _PlayTabState extends State<PlayTab> {
                 plate(botSide, below: true),
               ],
             ),
-            const SizedBox(width: 16),
+            const SizedBox(width: 8),
+            // Exactly the BOARD's height, centred against the whole stack — so
+            // it spans the board and not the plates: the top clock sits flush
+            // with the board's top-right corner, the bottom with its bottom.
             SizedBox(
               width: clockCol,
-              height: board + kPlayerPlate * 2,
+              height: board,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [

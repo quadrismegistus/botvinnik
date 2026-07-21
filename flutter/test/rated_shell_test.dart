@@ -18,6 +18,7 @@ import 'package:botvinnik_mobile/main.dart';
 import 'package:botvinnik_mobile/stores/chess_clock.dart';
 import 'package:botvinnik_mobile/stores/game_controller.dart';
 import 'package:botvinnik_mobile/stores/settings_store.dart';
+import 'package:botvinnik_mobile/ui/board_pane.dart';
 import 'package:botvinnik_mobile/ui/clock_display.dart';
 import 'package:botvinnik_mobile/ui/grade_strip.dart';
 
@@ -180,5 +181,34 @@ void main() {
       await tester.pumpAndSettle();
     });
   }
+
+  testWidgets('the clocks are flush with the board top and bottom (wide)',
+      (tester) async {
+    tester.view.physicalSize = const Size(1000, 780);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    final (g, s) = await _game();
+    g.newGame(rated: true, timeControl: TimeControl.parse('5+0'));
+    await _pump(tester, g, s, width: 1000);
+
+    final board = tester.getRect(find.byType(BoardPane));
+    final clocks = tester.widgetList<ClockFace>(find.byType(ClockFace)).toList();
+    final top = tester.getRect(find.byWidget(clocks.first));
+    final bot = tester.getRect(find.byWidget(clocks.last));
+
+    // Level with the board, not the plates above/below it.
+    expect(top.top, moreOrLessEquals(board.top, epsilon: 1),
+        reason: 'the top clock is flush with the board top');
+    expect(bot.bottom, moreOrLessEquals(board.bottom, epsilon: 1),
+        reason: 'the bottom clock is flush with the board bottom');
+    // Just outside the right edge, not floating far off it.
+    expect(top.left, greaterThanOrEqualTo(board.right));
+    expect(top.left - board.right, lessThan(24),
+        reason: 'snug to the board, not adrift');
+
+    g.newGame();
+    await tester.pumpAndSettle();
+  });
 
 }
