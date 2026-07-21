@@ -53,6 +53,13 @@ const backfilled = brain.backfillGrade(grade, child);
 if (!backfilled.backfilled || !backfilled.label) fail('backfillGrade shape');
 if (typeof brain.winChance(0.5, null) !== 'number') fail('winChance');
 if (!brain.CLASS.blunder?.color) fail('CLASS table');
+// Dart reads this by string through the bridge, so a dropped export is silent
+// everywhere else: tsc passes, vitest passes, the bundle rebuilds and CI's
+// brain.js diff passes — and Review dies on open with a null cast. Proved by
+// deleting the export and watching the whole green path stay green.
+if (!Array.isArray(brain.LABEL_ORDER) || brain.LABEL_ORDER.length === 0) {
+  fail('LABEL_ORDER export');
+}
 
 // SAN helpers
 if (brain.getSan(START, 'g1f3') !== 'Nf3') fail('getSan');

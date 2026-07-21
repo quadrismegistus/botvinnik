@@ -1136,6 +1136,20 @@ class GameController extends ChangeNotifier {
     // blunders against a bot; a bot's move (either side of bot-vs-bot) is not
     // yours to fix, and the analysis board (both sides human, botEnabled false)
     // is exploration — its "mistakes" are deliberate, not puzzles to drill.
+    //
+    // A blunder you TOOK BACK still lands here, and that is deliberate (decided
+    // 2026-07-21). The generation check above looks like it would prevent it —
+    // undo() bumps _gen — but it never fires for a takeback: undo() refuses
+    // while botThinking, the bot starts thinking the instant you move, and
+    // grading has collected long before undo is permitted. That check guards
+    // against a NEW GAME landing mid-grade. Do not "fix" it into cancelling
+    // collection: you played the blunder, and taking it back does not mean you
+    // would find the move next time.
+    //
+    // Deliberately inconsistent with playerElo.ts, which DOES drop takeback
+    // games from the rating fit — rating measures outcomes, practice measures
+    // errors. The consequence is that PracticeController.remove() is the only
+    // way out of a puzzle you consider noise, and it has no UI yet (#137).
     final practice = _practice;
     if (practice != null && botEnabled && isHumanSide(record.color)) {
       final prevUci =
