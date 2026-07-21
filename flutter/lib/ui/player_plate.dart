@@ -86,13 +86,59 @@ class PlayerPlate extends StatelessWidget {
           Icon(persona == null ? Icons.person_outline : Icons.smart_toy_outlined,
               size: 15, color: Colors.white54),
           const SizedBox(width: 6),
-          Text(name,
-              style: const TextStyle(
-                  fontSize: 13, fontWeight: FontWeight.w600, color: Colors.white70)),
+          // The name is the ONLY thing here that can shrink, so it is the
+          // only Flexible: it ellipsizes, while the tray is rigid 16px images
+          // and the elo, chip and +N are text that must stay whole. Making the
+          // tray Flexible too (the first attempt at this) split the free space
+          // between them equally instead — the name stopped ellipsizing at its
+          // half share and the tray, unable to shrink at all, burst anyway.
+          // See test/player_plate_overflow_test.dart.
+          Flexible(
+            child: Text(name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.white70)),
+          ),
           if (persona != null) ...[
             const SizedBox(width: 5),
             Text('${persona.elo}',
                 style: const TextStyle(fontSize: 11, color: Colors.white30)),
+            // The name and elo to the left are a claim about who is playing,
+            // and when the persona's engine could not answer they are false —
+            // Stockfish moved instead. This is the correction, and it belongs
+            // here rather than in a toast because the claim it corrects is
+            // still on screen. Sticky for the game, like the flag.
+            //
+            // Icon, not the ⚠ glyph: this file already learned that lesson for
+            // the captured pieces. U+26A0 is in no bundled face, so a Text
+            // would fetch Noto from fonts.gstatic.com on web. Material icons
+            // ship with the app.
+            if (game.stoodInFor(persona.id)) ...[
+              const SizedBox(width: 6),
+              Tooltip(
+                message: "${persona.name}'s engine could not answer, so "
+                    'Stockfish moved some of its moves instead.',
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                  decoration: BoxDecoration(
+                    color: const Color(0x33E8A33D),
+                    borderRadius: BorderRadius.circular(3),
+                  ),
+                  child: const Row(mainAxisSize: MainAxisSize.min, children: [
+                    Icon(Icons.warning_amber_rounded,
+                        size: 11, color: Color(0xFFE8A33D)),
+                    SizedBox(width: 3),
+                    Text('stand-in',
+                        style: TextStyle(
+                            fontSize: 10, color: Color(0xFFE8A33D))),
+                  ]),
+                ),
+              ),
+            ],
           ],
           if (pieces.isNotEmpty) ...[
             const SizedBox(width: 8),
@@ -100,15 +146,13 @@ class PlayerPlate extends StatelessWidget {
             // (black) pieces vanish against the app's dark background — they
             // are drawn as images, so a mid-light backing is what gives both
             // colours their contrast, black by fill and white by outline.
-            Flexible(
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 1),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF9c988c),
-                  borderRadius: BorderRadius.circular(4),
-                ),
-                child: Row(mainAxisSize: MainAxisSize.min, children: pieces),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 1),
+              decoration: BoxDecoration(
+                color: const Color(0xFF9c988c),
+                borderRadius: BorderRadius.circular(4),
               ),
+              child: Row(mainAxisSize: MainAxisSize.min, children: pieces),
             ),
           ],
           const Spacer(),

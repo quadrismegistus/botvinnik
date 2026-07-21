@@ -106,6 +106,32 @@ class GameController extends ChangeNotifier {
   /// exactly why the first Maia move looked like a hang.
   MaiaProgress? maiaProgress;
 
+  /// At least one move this game came from the Stockfish stand-in rather than
+  /// the persona's own engine — see the fallback at the end of [_pickBotMove].
+  ///
+  /// Sticky for the game, because that is the unit the fact applies to: one
+  /// substituted move means the opponent you played was not the one on the
+  /// card, and no later success un-plays it. Reset by [newGame].
+  ///
+  /// This is the only trace the substitution leaves. Nothing about the fallback
+  /// fails — no crash, no error, no missing move — so without the flag the
+  /// player, the saved game, and `estimatePlayerElo` all believe the persona
+  /// played. `estimatePlayerElo` already drops games carrying `botFallback`
+  /// ("opponent wasn't really the persona — off the ruler"); until this was
+  /// recorded it never saw one. Issue #117.
+  final Set<String> _standInPersonas = {};
+
+  /// True when [personaId] was ever stood in for this game. The plate asks per
+  /// side: in a bot-vs-bot game one persona can fail while the other plays
+  /// itself, and a per-game bool put the chip on both — an accusation against
+  /// the one that never failed.
+  bool stoodInFor(String? personaId) =>
+      personaId != null && _standInPersonas.contains(personaId);
+
+  /// Any substitution at all this game — what the saved record stores, since
+  /// `StoredGame.botFallback` is one boolean for the whole game.
+  bool get botFallback => _standInPersonas.isNotEmpty;
+
   GameController(this._arbiter, this._bot, this._grading, this._settings,
       [this._db, this._practice, ChessApi? chessApi]) {
     _chess = chessApi;
@@ -275,6 +301,7 @@ class GameController extends ChangeNotifier {
     // it straight back.
     maiaProgress = null;
     _maia?.cancelPending();
+    _standInPersonas.clear();
     _saved = false;
     gameSeed = _newSeed();
     _analysis.clear();
@@ -444,6 +471,9 @@ class GameController extends ChangeNotifier {
     final result = _result;
     final botName = p == null ? 'Analysis' : '${p.name} (${p.elo})';
     final youAreWhite = playerColor == 'w';
+    // snapshotted with the rest: a new game during the grade wait below clears
+    // it, and the record being written belongs to the game that just ended
+    final fallback = botFallback;
 
     // let in-flight grading land so the archive gets labels (bounded — the
     // terminal move's backfill may never come: a mate position has no lines)
@@ -462,6 +492,10 @@ class GameController extends ChangeNotifier {
       'pgn': _pgn(played, result, botName, youAreWhite),
       'botElo': p == null ? null : p.elo + 240, // internal scale (SCALE_OFFSET)
       if (p != null) 'botPersona': p.id,
+      // omitted rather than false when clean: the schema field is optional and
+      // estimatePlayerElo tests it for truthiness, so absent and false mean the
+      // same thing — and every game saved before this existed is absent.
+      if (fallback) 'botFallback': true,
       'botColor': p == null ? null : (playerColor == 'w' ? 'b' : 'w'),
       'moveCount': played.length,
       'whiteAccuracy': _bridgeAccuracy(stored, 'w'),
@@ -524,11 +558,17 @@ class GameController extends ChangeNotifier {
     // botThinking when gen == _gen.)
     if (gen != _gen) return;
     try {
-      final uci = await _pickBotMove(p);
+      final picked = await _pickBotMove(p);
+      final uci = picked.uci;
       if (gen != _gen || uci == null) return;
       final move = NormalMove.fromUci(uci);
       if (!position.isLegal(move)) return;
       final san = _sanOf(position, move);
+      // Committed here, not where the stand-in was chosen: this is past the
+      // generation check, so an abandoned turn cannot stamp the game that
+      // replaced it, and past the legality check, so a turn that produced no
+      // move does not claim a substitution that never reached the board.
+      if (picked.standIn) _standInPersonas.add(p.id);
       _apply(move, san);
       // If the NEXT side to move is also a bot, keep going on our own — this
       // is what makes bot-vs-bot play itself, and it is a no-op in a normal
@@ -558,7 +598,14 @@ class GameController extends ChangeNotifier {
     }
   }
 
-  Future<String?> _pickBotMove(Persona p) async {
+  /// The bot's move, and whether it came from the Stockfish stand-in rather
+  /// than the persona's own engine.
+  ///
+  /// Returned rather than written straight to [botFallback] because this
+  /// method awaits — a turn abandoned mid-await by a new game would otherwise
+  /// resume and stamp the flag on the game that replaced it. The caller commits
+  /// it after its own generation check, and only once the move is really played.
+  Future<({String? uci, bool standIn})> _pickBotMove(Persona p) async {
     final fen = position.fen;
     if (p.family == 'square') {
       final label = p.shapedLabel!;
@@ -568,7 +615,7 @@ class GameController extends ChangeNotifier {
         multiPv: kBotMultiPv,
         priority: SearchPriority.botMove,
       );
-      if (lines == null || lines.isEmpty) return null;
+      if (lines == null || lines.isEmpty) return (uci: null, standIn: false);
       final lastTo =
           lastMove is NormalMove ? (lastMove as NormalMove).uci.substring(2, 4) : null;
       final pick = _bot.shapedMove(
@@ -579,7 +626,7 @@ class GameController extends ChangeNotifier {
             lastMoveTo: lastTo,
           ) ??
           lines.first.uci;
-      return _bot.avoidRepetition(pick, _fenHistory(), lines);
+      return (uci: _bot.avoidRepetition(pick, _fenHistory(), lines), standIn: false);
     }
     if (p.family == 'horizon') {
       // no engine search at all — js-chess-engine runs inside the JS runtime
@@ -589,7 +636,7 @@ class GameController extends ChangeNotifier {
       // and an empty list degrades to returning the move unchanged.
       final uci = _bot.horizonMove(fen, p.jsceLevel ?? 1);
       if (uci != null) {
-        return _bot.avoidRepetition(uci, _fenHistory(), currentLines);
+        return (uci: _bot.avoidRepetition(uci, _fenHistory(), currentLines), standIn: false);
       }
       debugPrint('[bot] horizon had no move; falling back to the engine');
     }
@@ -603,7 +650,7 @@ class GameController extends ChangeNotifier {
       // and the move's legality before anything reaches the board.
       final uci = await _syncRetro()?.move(fen);
       if (uci != null) {
-        return _bot.avoidRepetition(uci, _fenHistory(), currentLines);
+        return (uci: _bot.avoidRepetition(uci, _fenHistory(), currentLines), standIn: false);
       }
       debugPrint('[bot] retro had no move; falling back to the engine');
     }
@@ -615,7 +662,7 @@ class GameController extends ChangeNotifier {
         _garbo ??= GarboEngine();
         final uci = await _garbo!.move(fen, movetimeMs: p.garboMs ?? 1000);
         if (uci != null) {
-          return _bot.avoidRepetition(uci, _fenHistory(), currentLines);
+          return (uci: _bot.avoidRepetition(uci, _fenHistory(), currentLines), standIn: false);
         }
       }
       debugPrint('[bot] garbo had no move; falling back to the engine');
@@ -641,7 +688,7 @@ class GameController extends ChangeNotifier {
           notifyListeners();
         }
         if (uci != null) {
-          return _bot.avoidRepetition(uci, _fenHistory(), currentLines);
+          return (uci: _bot.avoidRepetition(uci, _fenHistory(), currentLines), standIn: false);
         }
       }
       debugPrint('[bot] maia had no move; falling back to the engine');
@@ -659,10 +706,20 @@ class GameController extends ChangeNotifier {
     // web, where the roster is larger. A stand-in beats the alternative here,
     // which used to be `p.numericElo!` throwing and wedging the bot's turn.
     //
-    // It is not free, though: on the web the substitution is surfaced, because
-    // grading a game against the rating you THINK you played corrupts the
-    // player-rating fit. Flutter does not fit a rating yet; when it does, this
-    // is the branch that has to tell it.
+    // It is not free, though: grading a game against the rating you THINK you
+    // played corrupts the player-rating fit, so the substitution is recorded.
+    //
+    // Tested here rather than at each `falling back to the engine` log above
+    // because this is the one place that cannot drift: every family that gets
+    // its own branch reaches this line only by failing, and a family that never
+    // gets a branch at all (dala, #45) reaches it without one. Marking at the
+    // log sites would silently miss the second kind, and would need a new call
+    // adding every time a family is added.
+    //
+    // `fish` is the exception because this block IS its engine — it is the only
+    // family that arrives here having played itself. Flagging it too would put
+    // the mark on every fish game and leave the flag meaning nothing.
+    final standIn = p.family != 'fish';
     final internalElo = p.numericElo ?? _bot.internalElo(p);
     final spec = _bot.botSpec(internalElo);
     switch (spec['kind'] as String) {
@@ -673,14 +730,14 @@ class GameController extends ChangeNotifier {
           multiPv: 24,
           priority: SearchPriority.botMove,
         );
-        if (lines == null || lines.isEmpty) return null;
+        if (lines == null || lines.isEmpty) return (uci: null, standIn: false);
         final pick = _bot.fishMove(
               lines: lines,
               internalElo: internalElo,
               alpha: (spec['alpha'] as num?)?.toDouble(),
             ) ??
             lines.first.uci;
-        return _bot.avoidRepetition(pick, _fenHistory(), lines);
+        return (uci: _bot.avoidRepetition(pick, _fenHistory(), lines), standIn: standIn);
       case 'skill':
         final lines = await _arbiter.search(
           fen: fen,
@@ -691,7 +748,7 @@ class GameController extends ChangeNotifier {
           ],
           priority: SearchPriority.botMove,
         );
-        return lines?.isNotEmpty == true ? lines!.first.uci : null;
+        return (uci: lines?.isNotEmpty == true ? lines!.first.uci : null, standIn: standIn);
       default: // ucielo
         final lines = await _arbiter.search(
           fen: fen,
@@ -704,7 +761,7 @@ class GameController extends ChangeNotifier {
           ],
           priority: SearchPriority.botMove,
         );
-        return lines?.isNotEmpty == true ? lines!.first.uci : null;
+        return (uci: lines?.isNotEmpty == true ? lines!.first.uci : null, standIn: standIn);
     }
   }
 

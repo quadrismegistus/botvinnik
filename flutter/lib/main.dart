@@ -427,7 +427,21 @@ class _AppShellState extends State<AppShell> {
             ]
           : const [];
 
+  /// The app bar, with room made for the macOS traffic lights.
+  ///
+  /// The window has no titlebar of its own (fullSizeContentView), so the
+  /// close/minimise/zoom buttons float over this bar's leading edge. Applying
+  /// the inset in ONE place means a new branch below cannot forget it — the
+  /// failure mode is a back button sitting underneath the close button, which
+  /// is the kind of thing that only shows up on the one platform nobody is
+  /// looking at.
   PreferredSizeWidget _appBar(BuildContext context) {
+    final bar = _appBarFor(context);
+    if (bar is! AppBar) return bar;
+    return insetAppBar(context, bar);
+  }
+
+  PreferredSizeWidget _appBarFor(BuildContext context) {
     switch (_tab) {
       case 1:
         final practice = context.watch<PracticeController>();

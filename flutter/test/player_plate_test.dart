@@ -4,9 +4,15 @@
 //   cd flutter && flutter test test/player_plate_test.dart
 
 import 'package:dartchess/dartchess.dart' show Role;
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:provider/provider.dart';
 
+import 'package:botvinnik_mobile/stores/game_controller.dart';
+import 'package:botvinnik_mobile/stores/settings_store.dart';
 import 'package:botvinnik_mobile/ui/player_plate.dart';
+
+import 'support/game_harness.dart';
 
 const _start = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
 
@@ -48,5 +54,72 @@ void main() {
     expect(black.advantage, 2);
     expect(black.captured[Role.knight], 1);
     expect(PlayerPlate.materialFor(fen, 'w').captured[Role.pawn], 1);
+  });
+
+  group('the stand-in badge', () {
+    // The plate states who is playing. When the persona's engine could not
+    // answer, that statement is false and the badge is the correction — so the
+    // thing to pin is that it appears exactly when the claim is wrong. #117.
+    Future<void> pumpPlate(WidgetTester tester,
+        {required GameController game,
+        required SettingsStore settings,
+        String side = 'w'}) async {
+      await tester.pumpWidget(MultiProvider(
+        providers: [
+          ChangeNotifierProvider<GameController>.value(value: game),
+          ChangeNotifierProvider<SettingsStore>.value(value: settings),
+        ],
+        child: MaterialApp(
+          home: Scaffold(body: PlayerPlate(side: side)),
+        ),
+      ));
+    }
+
+    testWidgets('is absent while the persona is playing itself',
+        (tester) async {
+      final settings = await loadSettings(white: kTestBotId);
+      final game = GameController(FakeArbiter(),
+          const FakeBot({kTestBotId: testBotPersona}), FakeGrading(), settings);
+      await pumpPlate(tester, game: game, settings: settings);
+
+      expect(find.text('Test Bot'), findsOneWidget);
+      expect(find.text('stand-in'), findsNothing);
+
+      settings.setPlayers(white: null, black: null);
+      game.newGame();
+      await tester.pump(const Duration(milliseconds: 120));
+    });
+
+    testWidgets('appears next to the name once Stockfish has stood in',
+        (tester) async {
+      final settings = await loadSettings(white: kFallbackBotId);
+      final game = GameController(
+          FakeArbiter(
+              analysisLines: kFakeLines,
+              streamPartials: true,
+              searchLines: kFakeLines),
+          const FakeBot({kFallbackBotId: fallbackBotPersona}),
+          FakeGrading(),
+          settings);
+      await tester.pump(const Duration(seconds: 2));
+      expect(game.botFallback, isTrue, reason: 'precondition for the badge');
+
+      await pumpPlate(tester, game: game, settings: settings);
+
+      // the false claim and its correction, side by side
+      expect(find.text('Fallback Bot'), findsOneWidget);
+      expect(find.text('stand-in'), findsOneWidget);
+
+      // and NOT on the human's plate. The flag is a property of the game, so
+      // the obvious wrong implementation marks both sides — which would read
+      // as an accusation that the player was substituted.
+      await pumpPlate(tester, game: game, settings: settings, side: 'b');
+      expect(find.text('You'), findsOneWidget);
+      expect(find.text('stand-in'), findsNothing);
+
+      settings.setPlayers(white: null, black: null);
+      game.newGame();
+      await tester.pump(const Duration(milliseconds: 120));
+    });
   });
 }

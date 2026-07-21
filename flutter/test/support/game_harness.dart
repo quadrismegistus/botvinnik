@@ -35,14 +35,42 @@ const kFakeLines = [
 /// than running down the unstubbed shapedMove/botSpec path.
 class FakeArbiter implements SearchArbiter {
   final List<EngineMove>? analysisLines;
-  FakeArbiter({this.analysisLines});
+
+  /// Push [analysisLines] through `onUpdate` as well as returning them, which
+  /// fills the controller's `_partials`.
+  ///
+  /// Off by default because it changes grading inputs (`_partials` is one of
+  /// the places `_storedMoveOf` looks for pre/post lines). It exists for tests
+  /// that must get PAST the bot turn's opening wait: that loop spins until the
+  /// analysis reaches depth 10 *or* 1500ms of `DateTime.now()` elapse — and
+  /// `tester.pump` advances fake timers, not the wall clock, so the timeout
+  /// never fires under a widget test. Depth-10 partials are the only exit.
+  final bool streamPartials;
+
+  /// Make `search()` RESOLVE with these lines instead of hanging forever, after
+  /// an optional [searchDelay]. Needed by any test that must watch a bot turn
+  /// run to completion — the default never-resolving search parks it at
+  /// move-picking, which is what most tests want and this one cannot use.
+  ///
+  /// The delay is the window a new game can land in, which is the only way to
+  /// exercise a turn abandoned mid-flight.
+  final List<EngineMove>? searchLines;
+  final Duration searchDelay;
+  FakeArbiter({
+    this.analysisLines,
+    this.streamPartials = false,
+    this.searchLines,
+    this.searchDelay = Duration.zero,
+  });
 
   @override
   Future<List<EngineMove>?> analysis(String fen,
-          {void Function(List<EngineMove>)? onUpdate}) =>
-      analysisLines == null
-          ? Completer<List<EngineMove>?>().future
-          : Future<List<EngineMove>?>.value(analysisLines);
+      {void Function(List<EngineMove>)? onUpdate}) {
+    final lines = analysisLines;
+    if (lines == null) return Completer<List<EngineMove>?>().future;
+    if (streamPartials) onUpdate?.call(lines);
+    return Future<List<EngineMove>?>.value(lines);
+  }
 
   @override
   Future<List<EngineMove>?> search({
@@ -54,8 +82,11 @@ class FakeArbiter implements SearchArbiter {
     List<List<String>> extraOptions = const [],
     required SearchPriority priority,
     void Function(List<EngineMove>)? onUpdate,
-  }) =>
-      Completer<List<EngineMove>?>().future;
+  }) {
+    final lines = searchLines;
+    if (lines == null) return Completer<List<EngineMove>?>().future;
+    return Future<List<EngineMove>?>.delayed(searchDelay, () => lines);
+  }
 
   @override
   void bumpGeneration() {}
@@ -80,6 +111,48 @@ const testBotPersona = Persona({
   'blurb': '',
 });
 
+/// A square persona that genuinely EXERCISES the square branch — it carries a
+/// `shapedLabel`, without which `p.shapedLabel!` throws before the branch does
+/// anything and the catch-all swallows it. [testBotPersona] deliberately does
+/// not, so tests wanting the parked-at-move-picking state keep it.
+const kSquareBotId = 'squarebot';
+const squareBotPersona = Persona({
+  'id': kSquareBotId,
+  'name': 'Square Bot',
+  'elo': 1500,
+  'family': 'square',
+  'blurb': '',
+  'shapedLabel': 1200,
+});
+
+/// A persona whose family has no branch in `_pickBotMove` at all, so a bot turn
+/// falls straight through to the Stockfish stand-in. `dala` is the real such
+/// family (#45: never implemented), which makes it the honest fixture for the
+/// substitution path — no engine has to be stubbed to reach it.
+const kFallbackBotId = 'fallbackbot';
+const fallbackBotPersona = Persona({
+  'id': kFallbackBotId,
+  'name': 'Fallback Bot',
+  'elo': 1500,
+  'family': 'dala',
+  'blurb': '',
+});
+
+/// A fish persona, which reaches the same final block as [fallbackBotPersona]
+/// — but legitimately, because that block IS the fish engine. It is the only
+/// family that arrives there having played itself, which makes it the one
+/// fixture that can tell a real substitution from the normal case.
+/// `numericElo` is display elo + SCALE_OFFSET, as `fish()` builds it.
+const kFishBotId = 'fish-1500';
+const fishBotPersona = Persona({
+  'id': kFishBotId,
+  'name': 'Fish 1500',
+  'elo': 1500,
+  'family': 'fish',
+  'blurb': '',
+  'numericElo': 1740,
+});
+
 class FakeBot implements BotApi {
   final Map<String, Persona> byId;
   const FakeBot([this.byId = const {}]);
@@ -87,6 +160,35 @@ class FakeBot implements BotApi {
   List<Persona> personas() => byId.values.toList(growable: false);
   @override
   Persona? personaById(String id) => byId[id];
+
+  // Enough of the stand-in path to produce a move. `skill` is the simplest of
+  // the three botSpec kinds — it searches once and plays the first line, with
+  // no sampling or repetition logic to stub.
+  @override
+  int internalElo(Persona p) => p.elo + 240;
+
+  // Enough of the SQUARE branch to let it run and return, rather than throwing
+  // on `p.shapedLabel!` before it reaches its own arbiter call. Without these,
+  // a test claiming "square never falls through" proves nothing — square dies
+  // upstream and the catch-all swallows it.
+  @override
+  int shapedSearchDepth(int label) => 8;
+  @override
+  String? shapedMove({
+    required List<EngineMove> lines,
+    required int label,
+    required String seed,
+    required String fen,
+    String? lastMoveTo,
+  }) =>
+      lines.first.uci;
+  @override
+  String avoidRepetition(
+          String uci, List<String> fenHistory, List<EngineMove> lines) =>
+      uci;
+  @override
+  Map<String, dynamic> botSpec(int internalElo) =>
+      const {'kind': 'skill', 'depth': 8, 'level': 3};
   @override
   dynamic noSuchMethod(Invocation invocation) => null;
 }
