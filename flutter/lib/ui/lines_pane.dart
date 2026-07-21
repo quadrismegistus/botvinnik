@@ -52,7 +52,10 @@ class _LinesPaneState extends State<LinesPane> {
       _stepCache.clear();
       _colMax = [];
     }
-    if (game.blind && game.botEnabled) {
+    // `!gameOver` because the message below promises the engine comes back when
+    // the game ends — without it the pane says so and never reopens. book_pane
+    // already gated this way; the two disagreed.
+    if (game.blind && game.botEnabled && !game.gameOver) {
       return const Padding(
         padding: EdgeInsets.all(14),
         child: Text('Blind mode — no engine help until the game ends.',

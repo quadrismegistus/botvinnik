@@ -101,11 +101,23 @@ class LinesTreeModel {
   static const int _topN = 5;
   static const int _depthLimit = 12;
 
-  double get width =>
-      kPadLeft + kNodeW + _maxDepth() * kPlyW + kPadLeft;
+  double get width => widthFor(blind: false);
 
-  int _maxDepth() =>
-      nodes.values.fold(1, (m, n) => max(m, n.depth));
+  /// Canvas width for what will actually be DRAWN.
+  ///
+  /// Sizing from every node leaked the search through the scrollbar: with the
+  /// hints hidden, the scroll extent still grew as the engine's pv deepened and
+  /// collapsed when it found a forced mate, so the blind player could read the
+  /// line's length off the scroll bar.
+  double widthFor({required bool blind}) =>
+      kPadLeft + kNodeW + _maxDepth(blind: blind) * kPlyW + kPadLeft;
+
+  int _maxDepth({bool blind = false}) {
+    final visible = blind ? visibleNodeIds(blind: true) : null;
+    return nodes.values
+        .where((n) => visible == null || visible.contains(n.id))
+        .fold(1, (m, n) => max(m, n.depth));
+  }
 
   double _xForDepth(int d) => kPadLeft + kNodeW / 2 + d * kPlyW;
 

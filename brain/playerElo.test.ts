@@ -27,6 +27,17 @@ describe('estimatePlayerElo', () => {
 		expect(estimatePlayerElo([{ ...game('squarefish-1000', '1-0'), botPersona: undefined }])).toBeNull();
 	});
 
+	it('counts games archived under a pre-rename persona id', () => {
+		// The whole argument for the id migration is that estimatePlayerElo does
+		// `if (!p) continue` — a broken alias drops history silently rather than
+		// failing. Every other id in this file is post-rename, so without this
+		// the alias could be deleted and this suite would stay green.
+		const legacy = estimatePlayerElo([game('square-1000', '1-0', 'b')]);
+		const renamed = estimatePlayerElo([game('squarefish-1000', '1-0', 'b')]);
+		expect(legacy).not.toBeNull();
+		expect(legacy).toEqual(renamed);
+	});
+
 	it('a win over 1000 and a loss to 1500 lands in between', () => {
 		const est = estimatePlayerElo([
 			game('squarefish-1000', '0-1', 'w'), // bot is white, black won ⇒ player win

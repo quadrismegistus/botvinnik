@@ -57,6 +57,9 @@ class _RosterSheet extends StatelessWidget {
     final personas = game.rosterPersonas
         .where((p) => _playableFamilies.contains(p.family))
         .toList();
+    // Resolved once, outside the builder: `current` comes from settings and may
+    // be a pre-rename id, which would match no tile and highlight nothing.
+    final currentId = game.personaFor(current)?.id ?? current;
     return DraggableScrollableSheet(
       expand: false,
       initialChildSize: 0.7,
@@ -65,7 +68,7 @@ class _RosterSheet extends StatelessWidget {
         itemCount: personas.length,
         itemBuilder: (context, i) {
           final p = personas[i];
-          final selected = p.id == current;
+          final selected = p.id == currentId;
           return ListTile(
             dense: true,
             selected: selected,
