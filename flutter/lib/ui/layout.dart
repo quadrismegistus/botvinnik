@@ -5,6 +5,8 @@
 
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart';
+
 /// Below this the panel column has no room and the phone layout is used.
 const double kWideBreakpoint = 720;
 
@@ -103,3 +105,14 @@ double wideBoardSize(double width, double height, double split) => math.min(
       math.max(240.0, width * split),
       math.max(120.0, height - 2 * kPlayerPlate),
     );
+
+/// Room for the macOS traffic lights, which float over the app's own chrome.
+///
+/// The window is `fullSizeContentView` with a transparent titlebar (see
+/// macos/Runner/MainFlutterWindow.swift), so the Flutter view owns the whole
+/// window and the close/minimise/zoom buttons sit on top of whatever is at the
+/// top-left. They occupy roughly x 13-67; 78 clears them with a margin.
+///
+/// Zero everywhere else — no other platform draws anything over the app.
+double get macTitlebarInset =>
+    !kIsWeb && defaultTargetPlatform == TargetPlatform.macOS ? 78.0 : 0.0;
