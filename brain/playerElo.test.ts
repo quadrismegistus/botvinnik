@@ -27,6 +27,17 @@ describe('estimatePlayerElo', () => {
 		expect(estimatePlayerElo([{ ...game('squarefish-1000', '1-0'), botPersona: undefined }])).toBeNull();
 	});
 
+	it('drops a game both sides of which were bots', () => {
+		// #144 stopped these earning a "won clean" crown but not being scored as
+		// a human result: playerColor falls back to White when both sides carry a
+		// persona, so the record looks like a human White game. Verified against
+		// the shipped bundle that an unflagged one is counted, so this pair fails
+		// if the fixture never reaches the exclusion.
+		const both = { ...game('squarefish-1000', '1-0', 'b'), botBothSides: true };
+		expect(estimatePlayerElo([both])).toBeNull();
+		expect(estimatePlayerElo([game('squarefish-1000', '1-0', 'b')])).not.toBeNull();
+	});
+
 	it('counts games archived under a pre-rename persona id', () => {
 		// The whole argument for the id migration is that estimatePlayerElo does
 		// `if (!p) continue` — a broken alias drops history silently rather than

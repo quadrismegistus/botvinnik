@@ -1287,7 +1287,7 @@
      "id": "fix",
      "createdAt": "2026-01-01T00:00:00Z",
      "box": 2,
-     "dueAt": "2026-07-24T10:01:23.396Z",
+     "dueAt": "2026-07-24T12:45:33.521Z",
      "attempts": 3,
      "correct": 2,
      "lastResult": "pass"
@@ -1349,7 +1349,7 @@
      "id": "fix",
      "createdAt": "2026-01-01T00:00:00Z",
      "box": 0,
-     "dueAt": "2026-07-21T10:11:28.197Z",
+     "dueAt": "2026-07-21T12:55:38.322Z",
      "attempts": 3,
      "correct": 1,
      "lastResult": "fail"
@@ -1474,6 +1474,154 @@
     "4k3/8/8/8/7q/8/8/4K2R w K - 0 1"
    ],
    "expected": {}
+  },
+  {
+   "fn": "unifyMoves",
+   "args": [
+    "r1bqkbnr/pppp1ppp/2n5/2b1p3/2B1P3/5Q2/PPPP1PPP/RNB1K1NR w KQkq - 4 4",
+    [
+     {
+      "pv": [
+       "f3f7"
+      ],
+      "score": 0,
+      "mate": 1,
+      "depth": 20,
+      "multipv": 1
+     },
+     {
+      "pv": [
+       "b1c3"
+      ],
+      "score": 1.2,
+      "mate": null,
+      "depth": 20,
+      "multipv": 2
+     },
+     {
+      "pv": [
+       "d2d3"
+      ],
+      "score": 0.9,
+      "mate": null,
+      "depth": 20,
+      "multipv": 3
+     }
+    ],
+    {
+     "total": 1000,
+     "moves": [
+      {
+       "uci": "f3f7",
+       "san": "Qxf7#",
+       "white": 900,
+       "draws": 0,
+       "black": 0
+      },
+      {
+       "uci": "c4f7",
+       "san": "Bxf7+",
+       "white": 40,
+       "draws": 5,
+       "black": 15
+      },
+      {
+       "uci": "a2a3",
+       "san": "a3",
+       "white": 0,
+       "draws": 0,
+       "black": 0
+      }
+     ]
+    },
+    null
+   ],
+   "expected": [
+    {
+     "uci": "f3f7",
+     "san": "Qxf7#",
+     "engine": {
+      "score": 0,
+      "mate": 1,
+      "confidence": 100
+     },
+     "lichess": {
+      "games": 900,
+      "pct": 90,
+      "white": 100,
+      "draws": 0,
+      "black": 0
+     }
+    },
+    {
+     "uci": "c4f7",
+     "san": "Bxf7+",
+     "lichess": {
+      "games": 60,
+      "pct": 6,
+      "white": 66.66666666666666,
+      "draws": 8.333333333333332,
+      "black": 25
+     }
+    },
+    {
+     "uci": "b1c3",
+     "san": "Nc3",
+     "engine": {
+      "score": 1.2,
+      "mate": null,
+      "confidence": 3.834145450438509e-15
+     }
+    },
+    {
+     "uci": "d2d3",
+     "san": "d3",
+     "engine": {
+      "score": 0.9,
+      "mate": null,
+      "confidence": 2.840404810428748e-15
+     }
+    }
+   ]
+  },
+  {
+   "fn": "confidences",
+   "args": [
+    [
+     {
+      "pv": [
+       "f3f7"
+      ],
+      "score": 0,
+      "mate": 1,
+      "depth": 20,
+      "multipv": 1
+     },
+     {
+      "pv": [
+       "b1c3"
+      ],
+      "score": 1.2,
+      "mate": null,
+      "depth": 20,
+      "multipv": 2
+     },
+     {
+      "pv": [
+       "d2d3"
+      ],
+      "score": 0.9,
+      "mate": null,
+      "depth": 20,
+      "multipv": 3
+     }
+    ]
+   ],
+   "expected": [
+    100,
+    3.834145450438509e-15,
+    2.840404810428748e-15
+   ]
   }
  ]
 }

@@ -15,6 +15,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../brain/explorer_api.dart';
+import 'eval_text.dart';
 import '../brain/types.dart';
 import '../stores/book_store.dart';
 import '../stores/game_controller.dart';
@@ -105,7 +106,7 @@ class _BookPaneState extends State<BookPane> {
     // visibleLines, not currentLines: blind mode hides the engine here for the
     // same reason it hides the Lines panel.
     final rows = _unified(context, fen, game.visibleLines, node);
-    final blackToMove = fen.split(' ')[1] == 'b';
+    final blackToMove = fenBlackToMove(fen);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -239,14 +240,8 @@ class _BookPaneState extends State<BookPane> {
       return const Text('—',
           style: TextStyle(color: Colors.white24, fontSize: 12));
     }
-    final String text;
-    if (r.mate != null) {
-      final m = blackToMove ? -r.mate! : r.mate!;
-      text = '#$m';
-    } else {
-      final e = blackToMove ? -r.score! : r.score!;
-      text = (e >= 0 ? '+' : '') + e.toStringAsFixed(1);
-    }
+    final text = whitePovEval(
+        score: r.score, mate: r.mate, blackToMove: blackToMove);
     return Container(
       margin: const EdgeInsets.only(right: 4),
       padding: const EdgeInsets.symmetric(vertical: 1),

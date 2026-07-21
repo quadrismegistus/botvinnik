@@ -16,6 +16,15 @@ class ReviewController extends ChangeNotifier {
 
   ReviewController(this._db);
 
+  /// The store behind the archive.
+  ///
+  /// Exposed for BackupService (#138), which writes the games table AND the
+  /// practice kv row in one pass and so has no single controller to go
+  /// through. This is the one controller in the tree that already holds the
+  /// db, so a getter here is cheaper than a second provider carrying the same
+  /// object.
+  AppDb get db => _db;
+
   Future<void> loadGames() async {
     games = await _db.listGames();
     loaded = true;

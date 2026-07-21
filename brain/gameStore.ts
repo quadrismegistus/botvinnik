@@ -39,6 +39,10 @@ export interface StoredGame {
 	botPersona?: string; // roster persona id (bots.ts); absent for slider/legacy games
 	botFallback?: boolean; // some moves came from the Stockfish stand-in, not the persona's engine
 	botUndos?: number; // takebacks the human used — assisted result, off the rating ruler
+	// both sides were bots: there is no human result in the game at all. Written
+	// by the Flutter app since #144; absent means "not known to be", which is
+	// right for every game archived before it.
+	botBothSides?: boolean;
 	// hint overlays (arrows/threats/control, i.e. not blind) were visible on any
 	// human move. ABSENT on games saved before tracking began (2026-07-16):
 	// hints unknown — those games can never earn a clean crown.
