@@ -78,4 +78,11 @@ flutter/web/sqflite_sw.js
 # untracked cache on disk — so `git add -A` swept it up. Ignoring it here, at
 # the root, holds whatever branch you are on.
 .gradle/
-flutter/android/local.properties
+
+# The Android target does not exist yet (#109 — the app cannot boot there until
+# flutter_js is swapped to JavaScriptCore). `flutter create --platforms=android`
+# scaffolds it locally for the spike branch; none of it belongs on develop, and
+# ignoring the whole directory is what stops `git add -A` re-adding the pieces
+# that are not covered by more specific rules. Delete this block when Android
+# becomes a real target and commit the scaffold deliberately.
+flutter/android/
