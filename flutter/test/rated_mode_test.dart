@@ -177,22 +177,24 @@ void main() {
       expect(rec['botHintsUsed'], isTrue, reason: 'and so does what happened');
     });
 
-    test('a takeback needs no rated machinery of its own', () async {
-      // The simpler answer was already true: botUndos > 0 has excluded a game
-      // since the rating shipped, and it excludes a rated one the same way. So
-      // "no takebacks" costs no code here — only the assertion that a rated
-      // game still counts them.
+    test('a rated game refuses the takeback outright', () async {
+      // Originally this asserted the softer rule — allow the takeback, let
+      // botUndos > 0 drop it from the fit. Once a rated game has a CLOCK that is
+      // not the choice: there is no coherent way to un-press a clock, so a
+      // takeback would desync it and could hand a bogus loss on time. So a rated
+      // game refuses undo entirely (canUndo is false), the move stands, and the
+      // record needs no botUndos at all. See clock_lifecycle_test.dart.
       final (g, s, db) = await _botGame();
       _asRated(s);
       g.newGame(fromFen: _mateIn1, rated: true);
-      _mate(g);
-      g.undo();
+      expect(g.canUndo, isFalse, reason: 'no takebacks in a rated game');
       _mate(g);
       await pumpEventQueue();
 
       final rec = db.saved.last;
       expect(rec['rated'], isTrue);
-      expect(rec['botUndos'], 1);
+      expect(rec.containsKey('botUndos'), isFalse,
+          reason: 'nothing was taken back, so nothing to record');
     });
 
     test('a new game clears it, including the one an opponent change forces',

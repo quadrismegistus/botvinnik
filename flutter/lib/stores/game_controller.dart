@@ -287,14 +287,16 @@ class GameController extends ChangeNotifier {
   String get displayFen => browseFen ?? previewFen ?? position.fen;
 
   String get statusLine {
+    // _resigned before _flagged, matching [_result]: if both were somehow set,
+    // the two must not name different winners.
+    if (_resigned) {
+      return 'You resigned — ${playerColor == 'w' ? 'Black' : 'White'} wins';
+    }
     final flag = _flagged;
     if (flag != null) {
       final loser = flag == ClockSide.white ? 'White' : 'Black';
       final winner = flag == ClockSide.white ? 'Black' : 'White';
       return '$loser ran out of time — $winner wins';
-    }
-    if (_resigned) {
-      return 'You resigned — ${playerColor == 'w' ? 'Black' : 'White'} wins';
     }
     if (position.isCheckmate) {
       final winner = position.turn == Side.white ? 'Black' : 'White';
@@ -516,6 +518,11 @@ class GameController extends ChangeNotifier {
     _clock = rated && timeControl != null
         ? (ChessClock(timeControl)
           ..onFlag = (side) {
+            // A flag on an already-decided game is a no-op. The clock is
+            // stopped at every ending so its ticker cannot get here — but a
+            // flag arriving by any other path must not overwrite a mate, a
+            // draw or a resignation that already stands.
+            if (gameOver) return;
             // A result, so it archives like one. The board is still legal,
             // exactly as with a resignation.
             _flagged = side;
@@ -560,10 +567,11 @@ class GameController extends ChangeNotifier {
 
   bool get canUndo =>
       !botThinking &&
+      !_rated && // #168: no takebacks in a rated game
       (botEnabled
           ? moves.any((m) => m.color == playerColor)
           : moves.isNotEmpty);
-  bool get canRedo => _redoStack.isNotEmpty && !botThinking;
+  bool get canRedo => _redoStack.isNotEmpty && !botThinking && !_rated;
 
   /// Undo the last player move (and the bot reply on top of it);
   /// on the analysis board, one ply at a time.
@@ -574,8 +582,12 @@ class GameController extends ChangeNotifier {
   /// something else to notice, because nothing else will: no move follows a
   /// resignation.
   void resign() {
-    if (!botEnabled || _resigned || position.isGameOver || moves.isEmpty) return;
+    // gameOver, not position.isGameOver: a game already ended by a flag must
+    // not also be resigned — that stacked _resigned on top of _flagged and the
+    // two disagreed about who won.
+    if (!botEnabled || gameOver || moves.isEmpty) return;
     _resigned = true;
+    _clock?.stop();
     _gen++; // a bot turn in flight must not answer a game that has ended
     _arbiter.bumpGeneration();
     botThinking = false;
@@ -585,7 +597,11 @@ class GameController extends ChangeNotifier {
 
   void undo() {
     _browsePly = null;
-    if (moves.isEmpty || botThinking) return;
+    // A rated game does not permit takebacks — that is part of what "rated"
+    // means (#168), and it is also what stops the clock and the position from
+    // desyncing: there is no coherent way to un-press a chess clock, so the
+    // honest answer is to not take the move back at all.
+    if (moves.isEmpty || botThinking || _rated) return;
     // in a bot game there must be a player move to take back: undoing the
     // bot's lone opening move would leave the bot on turn with input dead
     if (botEnabled && !moves.any((m) => m.color == playerColor)) return;
@@ -627,7 +643,7 @@ class GameController extends ChangeNotifier {
   /// instead of being recomputed — or lost.
   void redo() {
     _browsePly = null;
-    if (_redoStack.isEmpty || botThinking) return;
+    if (_redoStack.isEmpty || botThinking || _rated) return;
     // An undo→redo round trip taught you nothing and changed nothing: the same
     // moves go back on the same board, so it is not a takeback and must not
     // cost the game its clean crown or its place in the rating fit. Only a
@@ -724,7 +740,12 @@ class GameController extends ChangeNotifier {
     pipeline = _gradePipeline(record, _gen)
       ..whenComplete(() => _pendingGrades.remove(pipeline));
     _pendingGrades.add(pipeline);
-    if (gameOver) _saveGame();
+    if (gameOver) {
+      // The ticker keeps counting otherwise, and eventually flags — rewriting a
+      // decided game (a mate, a draw) as a loss on time on the live board.
+      _clock?.stop();
+      _saveGame();
+    }
   }
 
   void _earlyBackfill(MoveRecord record, List<EngineMove> lines, int gen) {
