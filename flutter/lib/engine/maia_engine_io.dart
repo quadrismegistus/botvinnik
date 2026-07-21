@@ -384,6 +384,11 @@ class MaiaEngine {
       _nets.remove(band);
       // A network that accepts and never answers costs a full 30s on every
       // move; nothing about that improves by trying again.
+      // NOT a JoinedDownloadFailure: that timeout belonged to a download this
+      // move merely joined — usually the boot prefetch — so it says nothing
+      // about how long THIS request waited. Latching it meant a background
+      // download nobody asked for could retire a persona for the session, and
+      // never retry even once the network recovered.
       if (e is TimeoutException) _deadBands.add(band);
       // A model ORT will not open has already been deleted, so the retry is a
       // fresh 3.5MB download. Worth exactly one — the file really can be

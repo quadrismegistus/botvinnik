@@ -48,6 +48,27 @@ const Duration kMaiaLoadTimeout = Duration(seconds: 30);
 /// This is the seam a test fakes: everything past it — the progress steps, the
 /// `.part` write and rename, what a half-arrived download leaves behind — is
 /// the real code, and none of it needs a network to exercise.
+/// A failure that belonged to a download this caller merely JOINED — most often
+/// a background prefetch.
+///
+/// The distinction is load-bearing. `MaiaEngine._net` latches a
+/// `TimeoutException` into `_deadBands`, on the sound reasoning that a network
+/// which accepts and never answers costs 30s per move. But a joiner inherits
+/// the ORIGINAL download's clock: a prefetch that started at boot and times out
+/// at t=30s hands that timeout to a move that arrived at t=29s, after one
+/// second of its own waiting. Latching it kills a persona the player has only
+/// just chosen, because of a download nobody asked for — and it never retries,
+/// even if the network recovers a second later.
+///
+/// So a joined failure is wrapped, the caller can tell, and the decision to
+/// give up belongs to whoever actually waited.
+class JoinedDownloadFailure implements Exception {
+  JoinedDownloadFailure(this.cause);
+  final Object cause;
+  @override
+  String toString() => 'JoinedDownloadFailure($cause)';
+}
+
 class MaiaBody {
   const MaiaBody({
     required this.chunks,
@@ -223,6 +244,7 @@ class MaiaWeights {
     if (onProgress != null) listeners.add(onProgress);
     try {
       var fetch = _inFlight[band];
+      final joined = fetch != null;
       if (fetch == null) {
         late final Future<Uint8List> started;
         started = _download(band, file).whenComplete(() {
@@ -231,7 +253,15 @@ class MaiaWeights {
         _inFlight[band] = started;
         fetch = started;
       }
-      return await fetch;
+      try {
+        return await fetch;
+      } catch (e) {
+        // Wrapped only when this caller did NOT start the download: the error
+        // carries the original request's clock, and treating it as this
+        // caller's own is what kills a band. See [JoinedDownloadFailure].
+        if (joined) throw JoinedDownloadFailure(e);
+        rethrow;
+      }
     } finally {
       if (onProgress != null) {
         listeners.remove(onProgress);

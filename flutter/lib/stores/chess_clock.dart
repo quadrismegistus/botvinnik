@@ -240,11 +240,17 @@ class ChessClock extends ChangeNotifier {
   /// been taken off it — and not at all if they were already through zero when
   /// they pressed, which is a flag, not a move.
   ///
-  /// Pressing when the clock was not running for [mover] (before [start], or
-  /// out of turn) simply hands over with no increment: no time was spent, so
-  /// there is nothing to increment.
+  /// Pressing before [start] simply hands over with no increment: no time was
+  /// spent, so there is nothing to increment.
+  ///
+  /// Pressing OUT OF TURN is ignored entirely. It used to fall through to the
+  /// re-origin below, which silently refunded the running side every second it
+  /// had spent — 30s of White's time handed back, with White still to move,
+  /// because `mover.opponent` put it straight back on White. A double press,
+  /// or a bot-reply path racing the human's, is exactly the shape that takes.
   void press(ClockSide mover) {
     if (_flagged != null) return;
+    if (_running != null && _running != mover) return;
     if (_running == mover) {
       // [_exact] reads the bank while paused, so a move made over a paused
       // clock costs nothing and still earns its increment.

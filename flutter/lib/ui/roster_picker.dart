@@ -160,8 +160,14 @@ class _RosterSheetState extends State<RosterSheet> {
     // who never opens this sheet still fills the cache by playing one Maia
     // game. Returns immediately, skips what is already cached, runs at most
     // once per launch, and does nothing at all on the web.
-    MaiaWeights.refresh();
-    MaiaWeights.prefetch();
+    // Gated like the boot trigger. MaiaEngine.supported is macOS/iOS only, but
+    // the conditional export keys on dart.library.js_interop, so Android
+    // resolves the _io implementation and would fetch three unusable 3.5MB
+    // nets — for a family the picker has already filtered out.
+    if (MaiaEngine.supported) {
+      MaiaWeights.refresh();
+      MaiaWeights.prefetch();
+    }
   }
 
   @override

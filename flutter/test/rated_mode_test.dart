@@ -203,19 +203,21 @@ void main() {
       g.newGame();
       expect(g.rated, isFalse, reason: 'the default is a casual game');
 
+      // Changing the opponent is NOT itself a new game: the New Game sheet is
+      // the only caller and starts one on its next line, with the FEN
+      // _onSettings cannot know. Both halves are asserted, because my first
+      // rewrite of this test asserted neither — it drove setPlayers + newGame
+      // and checked `rated`, which the two lines above already prove, so
+      // deleting the setPlayers left it green.
       g.newGame(rated: true);
-      // Changing the opponent is not itself a new game — the New Game sheet is
-      // the only caller and starts one on its very next line, with the FEN that
-      // _onSettings cannot know. Having the listener reset TOO meant every
-      // opponent change reset twice; measured through the sheet's real
-      // sequence, 2 before and 1 after. So this asserts the sequence the app
-      // actually performs, not setPlayers alone.
-      //
-      // The important half is that the new game is CASUAL: a rated record must
-      // never carry over to a different opponent.
       s.setPlayers(white: null, black: kSquareBotId);
+      expect(g.rated, isTrue,
+          reason: 'changing players alone does not start a game — the caller '
+              'does, and until it has, this IS still the rated game');
+
       g.newGame();
-      expect(g.rated, isFalse);
+      expect(g.rated, isFalse,
+          reason: 'and the game the sheet then starts is casual');
     });
 
     testWidgets('a casual game started during the grade wait cannot un-rate '
@@ -402,6 +404,27 @@ void main() {
       expect(store.refusedReason, 'there was no bot opponent');
     });
   });
+
+  test('turning blind off taints a rated game, overlays or not', () async {
+    // The hole this closes. The rated preset turns all three overlay switches
+    // off, which made the old `!blind && (any overlay)` predicate insensitive
+    // to blind entirely. But blind is also what hides the Lines pane, the Book
+    // and the tree — the engine's principal variations, in text. So: start
+    // rated, press `b`, read the best line, play it by hand, and the record
+    // archived `botHintsUsed: false` and counted toward the rating.
+    final (g, s, db) = await _botGame();
+    _asRated(s);
+    g.newGame(fromFen: _mateIn1, rated: true);
+
+    s.blind = false; // one toolbar button, or the `b` key
+    _mate(g);
+    await pumpEventQueue();
+
+    expect(db.saved.single['botHintsUsed'], isTrue,
+        reason: 'the engine was legible in the Lines pane');
+    expect(db.saved.single['rated'], isTrue,
+        reason: 'the intent stands; what happened is what excludes it');
+  });
 }
 
 /// A practice controller whose collect NEVER returns, which parks the grading
@@ -416,4 +439,5 @@ class _ParkingPractice implements PracticeController {
 
   @override
   dynamic noSuchMethod(Invocation invocation) => null;
+
 }

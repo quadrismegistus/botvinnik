@@ -355,4 +355,31 @@ void main() {
       expect(formatClock(const Duration(minutes: 59, seconds: 59)), '59:59');
     });
   });
+  group('an out-of-turn press', () {
+    test('does not refund the running side its elapsed time', () {
+      // The bug: press(black) while White was running fell through to the
+      // re-origin, discarding White's elapsed time — and `mover.opponent` put
+      // White straight back on move, 30s richer. A double press, or a bot-reply
+      // path racing the human's, is exactly that shape.
+      final (c, t) = _clock('5+0');
+      c.start(_w);
+      t.advance(const Duration(seconds: 30));
+
+      c.press(_b); // not the mover
+      expect(c.remaining(_w), const Duration(minutes: 4, seconds: 30),
+          reason: 'the 30s stands');
+      expect(c.toMove, _w, reason: 'and it is still White to move');
+    });
+
+    test('does not hand the move over', () {
+      final (c, t) = _clock('5+0');
+      c.start(_w);
+      t.advance(const Duration(seconds: 10));
+      c.press(_b);
+      c.press(_w); // the real move
+      expect(c.toMove, _b);
+      expect(c.remaining(_w), const Duration(minutes: 4, seconds: 50));
+    });
+  });
+
 }

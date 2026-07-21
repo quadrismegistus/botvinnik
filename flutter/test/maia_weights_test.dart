@@ -36,6 +36,10 @@ class _FakeServer {
   /// on the same download at once.
   Completer<void>? gate;
 
+  /// Thrown from the body stream, after any [gate] releases — the shape a
+  /// per-chunk timeout has.
+  Object? chunkError;
+
   Future<MaiaBody> open(Uri url) async {
     final band = int.parse(RegExp(r'maia-(\d+)').firstMatch('$url')!.group(1)!);
     requests.update(band, (n) => n + 1, ifAbsent: () => 1);
@@ -51,6 +55,8 @@ class _FakeServer {
   Stream<List<int>> _chunks(int band) async* {
     final held = gate;
     if (held != null) await held.future;
+    final ce = chunkError;
+    if (ce != null) throw ce;
     final chunk = List<int>.filled(size ~/ 4, band % 251);
     for (var i = 0; i < 4; i++) {
       if (breakMidway && i == 2) {
@@ -188,6 +194,36 @@ void main() {
     expect(progress.map((p) => p.phase), contains('fetching'),
         reason: 'a move that joins a download still gets its bar');
     expect(cacheFile(1100).existsSync(), isTrue);
+  });
+
+  test('a JOINED failure is distinguishable from one you started', () async {
+    // The bug this closes. A move that joins a prefetch inherits that
+    // download's error INCLUDING ITS CLOCK — a prefetch started at boot and
+    // timing out at t=30s hands its TimeoutException to a move that arrived at
+    // t=29s. MaiaEngine latches a TimeoutException into _deadBands, so a
+    // background download nobody asked for retired a persona for the whole
+    // session, and never retried even once the network recovered.
+    //
+    // Wrapping it is what lets the latch tell the difference. It is NOT a
+    // TimeoutException, so `e is TimeoutException` no longer matches.
+    final gate = Completer<void>();
+    server.gate = gate;
+    server.chunkError = TimeoutException("the prefetch's own 30s");
+
+    final prefetching = MaiaWeights.prefetch();
+    await _settle();
+    final demand = MaiaWeights.load(1100); // joins the in-flight download
+    await _settle();
+    gate.complete();
+
+    await expectLater(demand, throwsA(isA<JoinedDownloadFailure>()));
+    await prefetching; // prefetch swallows its own failures by design
+
+    // And a caller that STARTS its own download still sees the raw error, so
+    // the latch keeps working for the case it was written for.
+    server.gate = null;
+    await expectLater(
+        MaiaWeights.load(1500), throwsA(isA<TimeoutException>()));
   });
 
   test('the prefetch waits for a download a move is watching', () async {

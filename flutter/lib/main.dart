@@ -24,6 +24,7 @@ import 'brain/rating_api.dart';
 import 'db/app_db.dart';
 import 'db/db_init.dart';
 import 'engine/arbiter.dart';
+import 'engine/maia_engine.dart';
 import 'engine/maia_weights.dart';
 import 'engine/engine_factory.dart';
 import 'stores/book_store.dart';
@@ -139,7 +140,10 @@ class _BootGateState extends State<BootGate> {
     // persona. A no-op on web by design (#30 — not 10MB unasked to a browser),
     // idempotent, and it never opens an ORT session, so a failure here cannot
     // retire a band the player has not chosen yet.
-    unawaited(MaiaWeights.prefetch());
+    // Guarded: MaiaEngine.supported is macOS/iOS only, and the roster filters
+    // Maia out elsewhere — so on Android this was three unusable 3.5MB
+    // downloads at first boot.
+    if (MaiaEngine.supported) unawaited(MaiaWeights.prefetch());
 
     final classTable =
         ClassTable(grading.classTable(), labelOrder: grading.labelOrder());

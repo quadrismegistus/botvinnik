@@ -181,9 +181,24 @@ class GameController extends ChangeNotifier {
   /// engine overlays, with blind mode suppressing all of them. Kept in step
   /// with [engineArrowUcis], [threat] and [controlMap] — each gates on exactly
   /// this pair of conditions.
-  bool get _hintsOnBoard =>
-      !blind &&
-      (_settings.showArrows || _settings.showThreats || _settings.showControl);
+  /// Was the engine legible to the player on this move?
+  ///
+  /// Just `!blind`, and the overlay switches deliberately do NOT appear.
+  /// `blind` already gates every one of them — engineArrowUcis, threat and
+  /// controlMap each check it — AND the Lines pane, the Book and the tree,
+  /// which show the engine's principal variations in text.
+  ///
+  /// It used to read `!blind && (any overlay switch)`, which is the predicate
+  /// for the BOARD overlays, and the two are not the same set. With every
+  /// overlay off — exactly what the rated preset does — that form was
+  /// insensitive to blind: start a rated game, press `b`, read the best line
+  /// off the Lines pane, play it by hand, and the record archived clean and
+  /// counted toward the rating.
+  ///
+  /// Blind off does not prove the player LOOKED — they may have closed every
+  /// panel. It proves the engine was available, which is the most that can
+  /// honestly be claimed, and the conservative direction to be wrong in.
+  bool get _assisted => !blind;
 
   GameController(this._arbiter, this._bot, this._grading, this._settings,
       [this._db, this._practice, ChessApi? chessApi]) {
@@ -445,7 +460,8 @@ class GameController extends ChangeNotifier {
   /// choice only: turning blind on and the overlays off is the SHEET's job,
   /// because those are the player's persistent settings and this class does
   /// not own them. Defaulting to false is what makes every other caller —
-  /// including the settings listener that restarts on an opponent change —
+  /// the settings listener no longer restarts on an opponent change; the
+    // New Game sheet does that itself —
   /// start a casual game, which is the right answer for all of them.
   void newGame({String? fromFen, bool rated = false}) {
     _browsePly = null;
@@ -605,7 +621,7 @@ class GameController extends ChangeNotifier {
     // the sample point: what the board was showing at the moment a human move
     // was committed (see [_botHintsUsed]). Bot replies come through _apply
     // directly, so only human moves are sampled.
-    if (botEnabled && _hintsOnBoard) _botHintsUsed = true;
+    if (botEnabled && _assisted) _botHintsUsed = true;
     _apply(move, san);
     _maybeBotTurn();
   }
@@ -617,7 +633,7 @@ class GameController extends ChangeNotifier {
     if (!position.isLegal(move)) return;
     // Both callers are a machine handing you a move to play — the engine's
     // lines in the tree pane, and the opening book. Taking one is help whatever
-    // the overlay switches say, so this does not go through [_hintsOnBoard].
+    // the overlay switches say, so this does not go through [_assisted].
     // Set after the legality check: a tap that plays nothing is not help taken.
     if (botEnabled) _botHintsUsed = true;
     final (_, san) = position.makeSan(move);
