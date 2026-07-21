@@ -339,6 +339,12 @@ class ChessClock extends ChangeNotifier {
     return false;
   }
 
+  /// Force a flag, for tests that need a clocked game to END without waiting
+  /// out real time — the ticker reads a monotonic source `tester.pump` cannot
+  /// advance.
+  @visibleForTesting
+  void debugFlag(ClockSide side) => _fall(side);
+
   void _fall(ClockSide side) {
     _banked[side] = Duration.zero;
     _flagged = side;

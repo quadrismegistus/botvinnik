@@ -9,6 +9,7 @@
 import 'package:dartchess/dartchess.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -35,6 +36,8 @@ import 'stores/practice_controller.dart';
 import 'stores/review_controller.dart';
 import 'stores/settings_store.dart';
 import 'ui/board_pane.dart';
+import 'ui/clock_display.dart';
+import 'stores/chess_clock.dart';
 import 'ui/book_pane.dart';
 import 'ui/games_list.dart';
 import 'ui/grade_strip.dart';
@@ -750,6 +753,18 @@ class _PlayTabState extends State<PlayTab> {
       builder: (context, constraints) {
         // watched: the plates flank the board by orientation, which flips
         final game = context.watch<GameController>();
+        // A rated game in progress is its own screen: no panels, no view bar,
+        // the board as large as the space allows and centred, with the clocks
+        // beside the names. #169.
+        //
+        // Not merely "the panels are empty" — blind already empties them. The
+        // absence is the point: a player should be able to tell at a glance
+        // that this game counts, and nothing on screen can leak an engine that
+        // is not rendered. It ends at gameOver so the recap, the result and the
+        // rating change are reachable without leaving the tab.
+        if (game.rated && !game.gameOver) {
+          return _ratedShell(context, game, constraints);
+        }
         if (constraints.maxWidth < _wideBreakpoint) {
           // The board is square and was taking the full width, which is right
           // on a phone — where height is plentiful — and overflows a desktop
@@ -834,6 +849,59 @@ class _PlayTabState extends State<PlayTab> {
   /// Panels folded to just their header — open, but drawing no body.
   Set<int> _collapsed(BuildContext context) =>
       context.watch<SettingsStore>().collapsed;
+
+  /// The rated screen: board, plates, clocks. Nothing else.
+  ///
+  /// The board takes the full HEIGHT — it is the scarce dimension on a desktop
+  /// window — and the plates and clocks live in a column to its RIGHT, which is
+  /// where the space is. Top side pinned to the board's top, bottom side to its
+  /// bottom, each name and clock together just outside the board edge.
+  Widget _ratedShell(
+      BuildContext context, GameController game, BoxConstraints c) {
+    final clock = game.clock;
+    // Square, as tall as the window allows, and never wider than leaves room
+    // for the side column.
+    const sideColumn = 148.0;
+    final board = math.max(
+        160.0, math.min(c.maxHeight, c.maxWidth - sideColumn - 16));
+    final topSide = game.whiteAtBottom ? 'b' : 'w';
+    final botSide = game.whiteAtBottom ? 'w' : 'b';
+
+    Widget corner(String s, {required bool below}) => Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(
+                height: kPlayerPlate,
+                child: PlayerPlate(key: ValueKey(s), side: s, below: below)),
+            if (clock != null)
+              ClockFace(
+                  clock: clock, side: ClockSide.fromChar(s), fontSize: 34),
+          ],
+        );
+
+    return Center(
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          SizedBox(width: board, height: board, child: const BoardPane()),
+          const SizedBox(width: 16),
+          SizedBox(
+            width: sideColumn,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                corner(topSide, below: false),
+                const Spacer(),
+                corner(botSide, below: true),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
   Widget _stackedPanel() {
     final game = context.watch<GameController>();
