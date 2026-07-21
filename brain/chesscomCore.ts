@@ -37,6 +37,15 @@ export function ccGameToStored(
 	username: string
 ): { stored: StoredGame; humanColor: 'w' | 'b' | null } | null {
 	if (cc.rules !== 'chess' || !cc.pgn) return null;
+	// A well-formed archive always carries these, but the chess.com API shape is
+	// not ours to trust: a drifted or partial record must be SKIPPED like any
+	// other bad game, never throw. The importer's walk makes one bridge call per
+	// game and does not catch, so a single thrown game would abort the entire
+	// import (up to 300 games, across many months). white/black feed the
+	// human-colour match below; end_time stamps endedAt.
+	if (!cc.white?.username || !cc.black?.username || typeof cc.end_time !== 'number') {
+		return null;
+	}
 	const c = new Chess();
 	try {
 		c.loadPgn(cc.pgn);

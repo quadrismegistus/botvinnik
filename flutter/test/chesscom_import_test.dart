@@ -125,6 +125,32 @@ void main() {
         isNot(contains('/pub/player/botvinnik_fan/games/2024/02')));
   });
 
+  test('a game whose mapping throws is skipped, not fatal to the whole batch',
+      () async {
+    // The mapper is guarded now, but the walk must survive a throw it did NOT
+    // anticipate — a record shape the brain never saw. One bad game across the
+    // bridge must be skipped-and-counted, never abort the import and discard the
+    // hundreds of good games behind it.
+    final srv = chesscomServer(
+      user: 'botvinnik_fan',
+      months: ['2024/03'],
+      monthBodies: {
+        '2024/03': monthBody([
+          ccGame(uuid: 'good1', endTime: 1709900002),
+          ccGame(uuid: 'bad', endTime: 1709900001),
+          ccGame(uuid: 'good2', endTime: 1709900000),
+        ]),
+      },
+    );
+    final result = await ChesscomImportApi(_ThrowOnUuidBridge('bad'), client: srv.client)
+        .importGames(username: 'botvinnik_fan', existingIds: const {});
+
+    expect(result.games.map((g) => g['id']), ['chesscom-good1', 'chesscom-good2'],
+        reason: 'the good games still land; the thrower did not take them down');
+    expect(result.skipped, 1);
+    expect(result.cancelled, isFalse);
+  });
+
   test('a non-standard game is skipped, not archived', () async {
     final srv = chesscomServer(
       user: 'botvinnik_fan',
@@ -243,4 +269,19 @@ class _SocketStandIn implements Exception {
   const _SocketStandIn();
   @override
   String toString() => 'connection failed';
+}
+
+/// A bridge that throws on one uuid — the shape-drifted record the walk must
+/// survive — and maps everything else exactly as [FakeCcBridge] does.
+class _ThrowOnUuidBridge extends FakeCcBridge {
+  final String badUuid;
+  _ThrowOnUuidBridge(this.badUuid);
+
+  @override
+  dynamic call(String fn,
+      {List<Object?> args = const [], bool isProperty = false}) {
+    final cc = (args[0] as Map).cast<String, dynamic>();
+    if (cc['uuid'] == badUuid) throw StateError('drifted record');
+    return super.call(fn, args: args, isProperty: isProperty);
+  }
 }

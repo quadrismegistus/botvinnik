@@ -9579,6 +9579,9 @@ var brain = (() => {
   // brain/chesscomCore.ts
   function ccGameToStored(cc, username) {
     if (cc.rules !== "chess" || !cc.pgn) return null;
+    if (!cc.white?.username || !cc.black?.username || typeof cc.end_time !== "number") {
+      return null;
+    }
     const c = new Chess();
     try {
       c.loadPgn(cc.pgn);

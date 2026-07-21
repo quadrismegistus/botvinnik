@@ -142,4 +142,25 @@ describe('ccGameToStored', () => {
 		};
 		expect(ccGameToStored(empty, 'x')).toBeNull();
 	});
+
+	it('skips a shape-drifted record instead of throwing', () => {
+		// The importer walks a whole archive with ONE bridge call per game and no
+		// catch, so a mapper that THREW on a missing field would discard the entire
+		// batch, not just the bad game. A drifted record must come back null like
+		// any other refusal. (These deletions violate CcGame on purpose — the
+		// chess.com API shape is not ours to trust.)
+		const noEndTime = { ...SCHOLARS_MATE } as Partial<CcGame>;
+		delete noEndTime.end_time;
+		expect(() => ccGameToStored(noEndTime as CcGame, 'x')).not.toThrow();
+		expect(ccGameToStored(noEndTime as CcGame, 'x')).toBeNull();
+
+		const noWhite = { ...SCHOLARS_MATE } as Partial<CcGame>;
+		delete noWhite.white;
+		expect(() => ccGameToStored(noWhite as CcGame, 'x')).not.toThrow();
+		expect(ccGameToStored(noWhite as CcGame, 'x')).toBeNull();
+
+		const noBlack = { ...SCHOLARS_MATE } as Partial<CcGame>;
+		delete noBlack.black;
+		expect(ccGameToStored(noBlack as CcGame, 'x')).toBeNull();
+	});
 });

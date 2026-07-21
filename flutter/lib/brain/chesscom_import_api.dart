@@ -192,9 +192,17 @@ class ChesscomImportApi {
           skipped++;
           continue;
         }
-        final mapped = _bridge.call('ccGameToStored', args: [cc, name]);
-        // null = non-standard variant, corrupt movetext, or a moveless game.
-        // The brain decides; this side only counts it.
+        // The brain returns null for a game it declines — non-standard variant,
+        // corrupt movetext, a moveless game, or a record whose shape drifted —
+        // and this side only counts it. The try/catch is the backstop for the
+        // shape it did NOT anticipate: a single malformed game must be skipped,
+        // never allowed to throw across the bridge and abort the whole import.
+        Object? mapped;
+        try {
+          mapped = _bridge.call('ccGameToStored', args: [cc, name]);
+        } catch (_) {
+          mapped = null;
+        }
         if (mapped == null) {
           skipped++;
           continue;
