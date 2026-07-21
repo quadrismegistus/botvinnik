@@ -27,6 +27,7 @@ import '../engine/retro_engine.dart';
 import 'lines_tree_model.dart';
 import 'practice_controller.dart';
 import 'redo_stack.dart';
+import 'chess_clock.dart';
 import 'settings_store.dart';
 
 /// How long archiving a finished game waits for in-flight grading.
@@ -175,6 +176,19 @@ class GameController extends ChangeNotifier {
   /// A takeback needs nothing here either: `botUndos > 0` already excludes,
   /// and it excludes for the same reason in a rated game as in a casual one.
   bool _rated = false;
+
+  /// The clock, in a rated game that was given a time control. Null otherwise —
+  /// a casual game has no clock, and a rated game without a chosen control is
+  /// still a rated game.
+  ///
+  /// Owned here rather than by the screen because it has to survive a rebuild
+  /// and because flag-fall is a RESULT, which only the controller can archive.
+  ChessClock? _clock;
+  ChessClock? get clock => _clock;
+
+  /// The side that ran out of time, if one did. Like [_resigned], the position
+  /// cannot express it.
+  ClockSide? _flagged;
   bool get rated => _rated;
 
   /// What the board is drawing right now, from the player's side: the three
@@ -266,15 +280,23 @@ class GameController extends ChangeNotifier {
   bool _resigned = false;
   bool get resigned => _resigned;
 
-  bool get gameOver => position.isGameOver || _resigned;
+  bool get gameOver => position.isGameOver || _resigned || _flagged != null;
   /// Whose colour sits at the bottom of the board (follows orientation).
   bool get whiteAtBottom => (playerColor == 'w') != flipped;
   /// The position actually on screen: a browsed ply, a hover preview, or live.
   String get displayFen => browseFen ?? previewFen ?? position.fen;
 
   String get statusLine {
+    // _resigned before _flagged, matching [_result]: if both were somehow set,
+    // the two must not name different winners.
     if (_resigned) {
       return 'You resigned — ${playerColor == 'w' ? 'Black' : 'White'} wins';
+    }
+    final flag = _flagged;
+    if (flag != null) {
+      final loser = flag == ClockSide.white ? 'White' : 'Black';
+      final winner = flag == ClockSide.white ? 'Black' : 'White';
+      return '$loser ran out of time — $winner wins';
     }
     if (position.isCheckmate) {
       final winner = position.turn == Side.white ? 'Black' : 'White';
@@ -463,7 +485,7 @@ class GameController extends ChangeNotifier {
   /// the settings listener no longer restarts on an opponent change; the
     // New Game sheet does that itself —
   /// start a casual game, which is the right answer for all of them.
-  void newGame({String? fromFen, bool rated = false}) {
+  void newGame({String? fromFen, bool rated = false, TimeControl? timeControl}) {
     _browsePly = null;
     _redoStack.clear();
     _gen++;
@@ -491,6 +513,26 @@ class GameController extends ChangeNotifier {
     _botUndos = 0;
     _botHintsUsed = false;
     _rated = rated;
+    _clock?.dispose();
+    _flagged = null;
+    _clock = rated && timeControl != null
+        ? (ChessClock(timeControl)
+          ..onFlag = (side) {
+            // A flag on an already-decided game is a no-op. The clock is
+            // stopped at every ending so its ticker cannot get here — but a
+            // flag arriving by any other path must not overwrite a mate, a
+            // draw or a resignation that already stands.
+            if (gameOver) return;
+            // A result, so it archives like one. The board is still legal,
+            // exactly as with a resignation.
+            _flagged = side;
+            _gen++;
+            _arbiter.bumpGeneration();
+            botThinking = false;
+            notifyListeners();
+            _saveGame();
+          })
+        : null;
     _undoWasCounted.clear();
     _saved = false;
     gameSeed = _newSeed();
@@ -525,10 +567,11 @@ class GameController extends ChangeNotifier {
 
   bool get canUndo =>
       !botThinking &&
+      !_rated && // #168: no takebacks in a rated game
       (botEnabled
           ? moves.any((m) => m.color == playerColor)
           : moves.isNotEmpty);
-  bool get canRedo => _redoStack.isNotEmpty && !botThinking;
+  bool get canRedo => _redoStack.isNotEmpty && !botThinking && !_rated;
 
   /// Undo the last player move (and the bot reply on top of it);
   /// on the analysis board, one ply at a time.
@@ -539,8 +582,12 @@ class GameController extends ChangeNotifier {
   /// something else to notice, because nothing else will: no move follows a
   /// resignation.
   void resign() {
-    if (!botEnabled || _resigned || position.isGameOver || moves.isEmpty) return;
+    // gameOver, not position.isGameOver: a game already ended by a flag must
+    // not also be resigned — that stacked _resigned on top of _flagged and the
+    // two disagreed about who won.
+    if (!botEnabled || gameOver || moves.isEmpty) return;
     _resigned = true;
+    _clock?.stop();
     _gen++; // a bot turn in flight must not answer a game that has ended
     _arbiter.bumpGeneration();
     botThinking = false;
@@ -550,7 +597,11 @@ class GameController extends ChangeNotifier {
 
   void undo() {
     _browsePly = null;
-    if (moves.isEmpty || botThinking) return;
+    // A rated game does not permit takebacks — that is part of what "rated"
+    // means (#168), and it is also what stops the clock and the position from
+    // desyncing: there is no coherent way to un-press a chess clock, so the
+    // honest answer is to not take the move back at all.
+    if (moves.isEmpty || botThinking || _rated) return;
     // in a bot game there must be a player move to take back: undoing the
     // bot's lone opening move would leave the bot on turn with input dead
     if (botEnabled && !moves.any((m) => m.color == playerColor)) return;
@@ -592,7 +643,7 @@ class GameController extends ChangeNotifier {
   /// instead of being recomputed — or lost.
   void redo() {
     _browsePly = null;
-    if (_redoStack.isEmpty || botThinking) return;
+    if (_redoStack.isEmpty || botThinking || _rated) return;
     // An undo→redo round trip taught you nothing and changed nothing: the same
     // moves go back on the same board, so it is not a takeback and must not
     // cost the game its clean crown or its place in the rating fit. Only a
@@ -643,6 +694,18 @@ class GameController extends ChangeNotifier {
   // ---- internals ----
 
   void _apply(NormalMove move, String san) {
+    // The clock, before anything else touches the position: the side that just
+    // moved is the one whose turn it currently IS, and playUnchecked below
+    // flips that. First move starts it rather than pressing — there is nothing
+    // to bank yet.
+    final c = _clock;
+    if (c != null) {
+      final mover = ClockSide.fromChar(position.turn == Side.white ? 'w' : 'b');
+      if (moves.isEmpty) {
+        c.start(mover);
+      }
+      c.press(mover);
+    }
     stopPreview();
     // a new move makes the undone future unreachable — without this, redo
     // after a divergent move replayed a stale record onto the wrong position
@@ -677,7 +740,12 @@ class GameController extends ChangeNotifier {
     pipeline = _gradePipeline(record, _gen)
       ..whenComplete(() => _pendingGrades.remove(pipeline));
     _pendingGrades.add(pipeline);
-    if (gameOver) _saveGame();
+    if (gameOver) {
+      // The ticker keeps counting otherwise, and eventually flags — rewriting a
+      // decided game (a mate, a draw) as a loss on time on the live board.
+      _clock?.stop();
+      _saveGame();
+    }
   }
 
   void _earlyBackfill(MoveRecord record, List<EngineMove> lines, int gen) {
@@ -695,6 +763,10 @@ class GameController extends ChangeNotifier {
     // Before the position checks: the board is still playable, which is the
     // whole point of resigning.
     if (_resigned) return playerColor == 'w' ? '0-1' : '1-0';
+    // Flag-fall, before the position checks for the same reason: the board is
+    // still playable, which is the point.
+    final flagged = _flagged;
+    if (flagged != null) return flagged == ClockSide.white ? '0-1' : '1-0';
     if (position.isCheckmate) {
       return position.turn == Side.white ? '0-1' : '1-0';
     }
@@ -965,11 +1037,27 @@ class GameController extends ChangeNotifier {
           maiaProgress = p;
           notifyListeners();
         });
-        final uci = await _maia!.move(
-          _fenHistory(),
-          band: band,
-          temperature: p.maiaTemp ?? 0,
-        );
+        // Retry before substituting. The one common reason move() returns null
+        // is the first call timing out mid-download — 3.5MB of weights plus
+        // ~13MB of WebAssembly, which a slow phone can push past the 90s cap.
+        // By the time it times out the download has almost always finished, so
+        // a second call answers with a real Maia move. Substituting on the
+        // first null made a slow connection show a Stockfish stand-in for a
+        // game that was actually Maia from move two on — and the badge is
+        // sticky per game, so it never cleared. A stand-in should mean the
+        // net genuinely will not run here, not that it was still arriving.
+        String? uci;
+        final startGen = _gen;
+        for (var attempt = 0; attempt < 2 && uci == null; attempt++) {
+          // Do not retry into a game that moved on under us (a new game, an
+          // undo) or a disposed engine.
+          if (attempt > 0 && (startGen != _gen || _maia == null)) break;
+          uci = await _maia!.move(
+            _fenHistory(),
+            band: band,
+            temperature: p.maiaTemp ?? 0,
+          );
+        }
         if (maiaProgress != null) {
           maiaProgress = null;
           notifyListeners();
@@ -978,7 +1066,7 @@ class GameController extends ChangeNotifier {
           return (uci: _bot.avoidRepetition(uci, _fenHistory(), currentLines), standIn: false);
         }
       }
-      debugPrint('[bot] maia had no move; falling back to the engine');
+      debugPrint('[bot] maia had no move after a retry; falling back');
     }
     // Stockfish, and the fallback for anything that could not answer for
     // itself. internalElo rather than numericElo: only stockfish carries
@@ -1467,6 +1555,10 @@ class GameController extends ChangeNotifier {
     _retro?.dispose();
     _garbo?.dispose();
     _maia?.dispose();
+    // Its ticker is a live Timer: left running it outlives the tree, which
+    // flutter_test reports as a pending timer and a device reports as a clock
+    // still counting down a game nobody is playing.
+    _clock?.dispose();
     super.dispose();
   }
 }

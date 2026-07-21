@@ -9,6 +9,7 @@
 import 'package:dartchess/dartchess.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -35,6 +36,8 @@ import 'stores/practice_controller.dart';
 import 'stores/review_controller.dart';
 import 'stores/settings_store.dart';
 import 'ui/board_pane.dart';
+import 'ui/clock_display.dart';
+import 'stores/chess_clock.dart';
 import 'ui/book_pane.dart';
 import 'ui/games_list.dart';
 import 'ui/grade_strip.dart';
@@ -566,10 +569,17 @@ class _AppShellState extends State<AppShell> {
               // meaning, deliberately left alone.
               const ImageIcon(AssetImage('assets/roboknight.png'),
                   size: 20, color: Color(0xFF81B64C)),
-              const SizedBox(width: 8),
-              const Text('botvinnik',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+              // The wordmark is dropped on a phone: the mark alone is identity
+              // enough, and the row shares the bar with resign/undo/redo/blind,
+              // which overran the title on a narrow screen.
               if (_wideShell(context)) ...[
+                const SizedBox(width: 8),
+                const Text('botvinnik',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                const SizedBox(width: 18),
+                _menuBar(context),
+              ] else if (MediaQuery.sizeOf(context).width >=
+                  _PlayTabState._wideBreakpoint) ...[
                 const SizedBox(width: 18),
                 _menuBar(context),
               ],
@@ -750,6 +760,18 @@ class _PlayTabState extends State<PlayTab> {
       builder: (context, constraints) {
         // watched: the plates flank the board by orientation, which flips
         final game = context.watch<GameController>();
+        // A rated game in progress is its own screen: no panels, no view bar,
+        // the board as large as the space allows and centred, with the clocks
+        // beside the names. #169.
+        //
+        // Not merely "the panels are empty" — blind already empties them. The
+        // absence is the point: a player should be able to tell at a glance
+        // that this game counts, and nothing on screen can leak an engine that
+        // is not rendered. It ends at gameOver so the recap, the result and the
+        // rating change are reachable without leaving the tab.
+        if (game.rated && !game.gameOver) {
+          return _ratedShell(context, game, constraints);
+        }
         if (constraints.maxWidth < _wideBreakpoint) {
           // The board is square and was taking the full width, which is right
           // on a phone — where height is plentiful — and overflows a desktop
@@ -834,6 +856,111 @@ class _PlayTabState extends State<PlayTab> {
   /// Panels folded to just their header — open, but drawing no body.
   Set<int> _collapsed(BuildContext context) =>
       context.watch<SettingsStore>().collapsed;
+
+  /// The rated screen: board, plates, clock. No panels.
+  ///
+  /// The plates stay full-width above and below the board as they do in a
+  /// casual game — cramming a plate into a narrow column overflowed its
+  /// captured-piece tray. Only the CLOCK moves, and where it goes depends on
+  /// which dimension is scarce:
+  ///
+  ///   wide  — height is the constraint, so the clock goes to the RIGHT of the
+  ///           board, flanking it top and bottom, spending the ample width.
+  ///   narrow — width is the constraint, so the clock goes in the plate strips
+  ///           above and below, spending height.
+  Widget _ratedShell(
+      BuildContext context, GameController game, BoxConstraints c) {
+    final clock = game.clock;
+    final topSide = game.whiteAtBottom ? 'b' : 'w';
+    final botSide = game.whiteAtBottom ? 'w' : 'b';
+    final wide = c.maxWidth >= _PlayTabState._wideBreakpoint;
+
+    Widget clockFor(String s) => clock == null
+        ? const SizedBox.shrink()
+        : ClockFace(
+            clock: clock, side: ClockSide.fromChar(s), fontSize: wide ? 34 : 26);
+
+    if (wide) {
+      // The clock column takes fixed width; the board is what is left of both
+      // dimensions, square.
+      const clockCol = 132.0;
+      // No 160 floor here: forcing a bigger board than the window can hold is
+      // what overflowed a very short window. A tiny board on a tiny window is
+      // the honest outcome.
+      final board = math.max(
+          64.0,
+          math.min(c.maxHeight - kPlayerPlate * 2, c.maxWidth - clockCol - 16));
+      Widget plate(String s, {required bool below}) => SizedBox(
+          width: board,
+          height: kPlayerPlate,
+          child: PlayerPlate(key: ValueKey(s), side: s, below: below));
+      return Center(
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                plate(topSide, below: false),
+                SizedBox(width: board, height: board, child: const BoardPane()),
+                plate(botSide, below: true),
+              ],
+            ),
+            const SizedBox(width: 8),
+            // Exactly the BOARD's height, centred against the whole stack — so
+            // it spans the board and not the plates: the top clock sits flush
+            // with the board's top-right corner, the bottom with its bottom.
+            SizedBox(
+              width: clockCol,
+              height: board,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  clockFor(topSide),
+                  const Spacer(),
+                  clockFor(botSide),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    // Narrow: the clock rides in the plate strip, so the plate flexes and the
+    // clock takes a fixed slice on the outer edge.
+    //
+    // The strip is as tall as its TALLEST child, and that is the clock
+    // (kClockFace 39), not the plate (kPlayerPlate 24) — so the two strips
+    // reserve 2*kClockFace when a clock is present, plate height otherwise.
+    // Reserving the plate height regardless overflowed a short window by the
+    // difference.
+    final stripH = clock == null ? kPlayerPlate : kClockFace;
+    final board = math.max(
+        64.0, math.min(c.maxWidth, c.maxHeight - (stripH + 4) * 2));
+    Widget strip(String s, {required bool below}) => SizedBox(
+        width: board,
+        child: Row(
+          children: [
+            Expanded(
+                child: SizedBox(
+                    height: kPlayerPlate,
+                    child: PlayerPlate(key: ValueKey(s), side: s, below: below))),
+            if (clock != null) clockFor(s),
+          ],
+        ));
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          strip(topSide, below: false),
+          SizedBox(width: board, height: board, child: const BoardPane()),
+          strip(botSide, below: true),
+        ],
+      ),
+    );
+  }
 
   Widget _stackedPanel() {
     final game = context.watch<GameController>();
