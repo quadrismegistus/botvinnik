@@ -39,6 +39,11 @@ import '../db/app_db.dart';
 /// the same quantity in its own words: "huge until ~8-10 games".
 const int kMaxUsefulSe = 200;
 
+/// Games that must COUNT before a number is shown at all. Three is where the
+/// estimator stops being dominated by its own virtual-draw regulariser; below
+/// it the figure moves by hundreds per game.
+const int kMinRatedGames = 3;
+
 class PlayerRatingStore extends ChangeNotifier {
   final AppDb _db;
   final RatingApi _api;
@@ -123,11 +128,16 @@ class PlayerRatingStore extends ChangeNotifier {
       _notify();
       return;
     }
-    // The id to watch for change, taken from the RAW list rather than from
-    // what [_fit] would keep: a bot-vs-bot game is dropped from the fit but is
-    // still the record being waited on, and watching the filtered list would
-    // sit out the whole deadline for one.
-    final before = raw.isEmpty ? null : raw.first['id'];
+    // The COUNT, not the head id. listGames orders by endedAt DESC and
+    // pgn_import takes endedAt from the PGN's [Date] header with no upper
+    // clamp, so one imported game dated 2030 parks itself at the head forever
+    // and the head id then never changes — the poll would sit out its whole
+    // deadline and print a rating excluding the game the recap is about. A
+    // clock moved back, or a westward timezone, does the same.
+    //
+    // Raw rather than fitted: a bot-vs-bot game is dropped from the fit but is
+    // still the record being waited on.
+    final before = raw.length;
     scoring = true;
     _notify();
     final deadline = DateTime.now().add(pollDeadline);
@@ -136,7 +146,7 @@ class PlayerRatingStore extends ChangeNotifier {
       if (_disposed || gen != _gen) return;
       raw = await _db.listGames();
       if (_disposed || gen != _gen) return;
-      if (raw.isNotEmpty && raw.first['id'] != before) {
+      if (raw.length != before) {
         _apply(raw);
         break;
       }
@@ -208,7 +218,22 @@ class PlayerRatingStore extends ChangeNotifier {
     return null;
   }
 
-  /// The number is worth printing: there is a fit and its own error bar is
-  /// small enough to distinguish it from a neighbouring one.
-  bool get confident => rating != null && (rating!.se ?? 9999) <= kMaxUsefulSe;
+  /// The number is worth printing.
+  ///
+  /// Standard error alone was the first rule, and it is NOT monotonic: beating
+  /// a much stronger bot widens the plausible range, so a good win could raise
+  /// se past the bar and take the number away again. Measured: three mixed
+  /// games gave elo 1290 / se 183 and printed; a fourth game, a win over
+  /// Stockfish 2000, gave elo 1580 / se 233 and withheld it. The best result a
+  /// player had ever had was the one that showed them the least — in the recap
+  /// for that very game, under copy telling them they had not played enough.
+  ///
+  /// So a game count decides whether a NUMBER appears, and se decides whether
+  /// it appears qualified. Games only accumulate, so visibility never reverses.
+  bool get confident => rating != null && rating!.games >= kMinRatedGames;
+
+  /// The fit is printable but still loose — shown with its error bar rather
+  /// than as a flat figure.
+  bool get provisional =>
+      rating != null && (rating!.se ?? 9999) > kMaxUsefulSe;
 }

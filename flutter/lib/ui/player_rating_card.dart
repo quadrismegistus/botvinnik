@@ -112,6 +112,9 @@ class _PlayerRatingCardState extends State<PlayerRatingCard> {
       ];
     }
 
+    // A loose fit is printed WITH its error bar rather than withheld: the
+    // number is real, its precision is what is in doubt, and saying so is more
+    // use than a progress message that reverses when the player wins well.
     final delta = store.delta;
     return [
       Row(
@@ -123,7 +126,10 @@ class _PlayerRatingCardState extends State<PlayerRatingCard> {
                   height: 1.1,
                   fontWeight: FontWeight.w600,
                   color: Color(0xFF81B64C))),
-          if (delta != null && delta != 0) ...[
+          // Not while scoring: `delta` is still the previous fit's, so a green
+          // up-arrow sat on a game the player had just lost, for as long as the
+          // save's grade wait ran. `refusedReason` was already gated this way.
+          if (delta != null && delta != 0 && !store.scoring) ...[
             const SizedBox(width: 8),
             Icon(delta > 0 ? Icons.arrow_upward : Icons.arrow_downward,
                 size: 13,

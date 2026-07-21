@@ -10,6 +10,7 @@ import 'package:provider/provider.dart';
 import '../brain/chess_api.dart';
 import '../brain/types.dart';
 import '../stores/game_controller.dart';
+import 'eval_text.dart';
 
 class LinesPane extends StatefulWidget {
   const LinesPane({super.key});
@@ -72,7 +73,7 @@ class _LinesPaneState extends State<LinesPane> {
       );
     }
 
-    final blackToMove = fen.split(' ')[1] == 'b';
+    final blackToMove = fenBlackToMove(fen);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -196,15 +197,7 @@ class _LinesPaneState extends State<LinesPane> {
 
   Widget _evalChip(BuildContext context, GameController game, String fen,
       EngineMove line, bool blackToMove) {
-    // white-POV
-    final String evalText;
-    if (line.mate != null) {
-      final m = blackToMove ? -line.mate! : line.mate!;
-      evalText = '#$m';
-    } else {
-      final e = blackToMove ? -line.score : line.score;
-      evalText = (e >= 0 ? '+' : '') + e.toStringAsFixed(1);
-    }
+    final evalText = whitePovEvalOf(line, blackToMove);
     return SizedBox(
       height: _rowHeight,
       child: InkWell(

@@ -12,6 +12,7 @@
 //   - no persona on the record (analysis and imported games)
 //   - `botFallback` — the opponent was the Stockfish stand-in, not the persona
 //   - `botUndos > 0` — the human took the result back at least once
+//   - `botBothSides` — two bots played each other; there is no human result
 //   - an undecided result ('*')
 //
 // So the records handed to [estimate] have to arrive with those fields intact.

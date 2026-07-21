@@ -200,9 +200,11 @@ void main() {
   });
 
   test('bot-vs-bot never enters the fit', () async {
-    // Nobody played this one. The brain cannot refuse it — `botBothSides` is
-    // written by the Flutter save path and is not a field of its StoredGame —
-    // so the store drops it, and this is the test that says so.
+    // Nobody played this one. The brain refuses it — gameStore declares
+    // botBothSides and playerElo drops it beside botFallback and botUndos — so
+    // this test reddens when that line goes, not when any Dart filter does.
+    // (It DID live in the store for one commit, while the field was
+    // Flutter-only; a93ab5e moved it where the other two are.)
     final store = await _store([
       _game(id: 'bots', result: '1-0', bothSides: true),
       ..._fourWins(),
@@ -261,15 +263,36 @@ void main() {
     expect(store.confident, isTrue);
   });
 
-  test('a run of wins over one bot stays unconfident', () async {
-    // Four games, and the count gate would have printed a number. The fit sits
-    // where the player wins nine in ten, so each win adds almost nothing and
-    // the error bar stays wide — which is the case for gating on the se rather
-    // than on how many games have been played.
+  test('a run of wins over one bot prints, but marked provisional', () async {
+    // The fit sits where the player wins nine in ten, so each win adds almost
+    // nothing and the error bar stays wide. That is worth SAYING — it is not a
+    // reason to withhold the number, which is what an se-only gate did.
     final store = await _store(_fourWins());
     expect(store.rating!.games, 4);
     expect(store.rating!.se, greaterThan(kMaxUsefulSe));
-    expect(store.confident, isFalse);
+    expect(store.confident, isTrue, reason: 'four counted games is a number');
+    expect(store.provisional, isTrue, reason: 'and a wide one');
+  });
+
+  test('winning well never takes the number away again', () async {
+    // The bug an se-only gate had: standard error is not monotonic. Beating a
+    // much stronger bot widens the plausible range, so a good win could push se
+    // past the bar and replace a printed rating with "not enough games yet" —
+    // in the recap for that very game. Measured against the shipped bundle:
+    // three mixed games gave se 183 and printed; adding a win over
+    // Stockfish 2000 gave se 233.
+    final before = await _store(_mixed().take(3).toList());
+    expect(before.confident, isTrue, reason: 'precondition: it was printing');
+
+    final after = await _store([
+      ..._mixed().take(3),
+      // the player, as White, beats a much stronger bot
+      _game(id: 'big-win', result: '1-0', persona: 'stockfish-2000'),
+    ]);
+    expect(after.rating!.se, greaterThan(before.rating!.se!),
+        reason: 'the error bar really does widen — that is the whole trap');
+    expect(after.confident, isTrue,
+        reason: 'and the number must still be there');
   });
 
   test('the fit waits for a game that is still being archived', () async {

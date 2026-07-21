@@ -187,8 +187,15 @@ class BackupService {
       // games restored, some not, and an error message where the counts should
       // be. Skipped instead: the file someone is restoring in a panic is
       // exactly the one likely to be damaged, and 40 of 41 games beats none.
+      // `is! String` on endedAt as well as parseability: the interpolated form
+      // stringifies, so a JSON NUMBER like 20260721 parsed fine here and then
+      // threw on AppDb's `endedAt as String` — aborting the restore mid-loop,
+      // which is the exact failure this guard exists to prevent. The test that
+      // claimed to cover it passed only because its damaged fixture used an
+      // unparseable string.
       if (game['id'] is! String ||
-          DateTime.tryParse('${game['endedAt']}') == null) {
+          game['endedAt'] is! String ||
+          DateTime.tryParse(game['endedAt'] as String) == null) {
         continue;
       }
       // Deliberate deviation from the source, which never adds to this set and

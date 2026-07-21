@@ -49,7 +49,7 @@ dependencies:
   ffi: ^2.1.4
   onnxruntime: ^1.4.1
   # Getting data OUT (#138). No single package covers all three targets, so
-  # lib/stores/file_out.dart picks per platform and these are what it picks
+  # lib/stores/files.dart picks per platform and these are what it picks
   # BETWEEN — see that file's header for why each branch is the one it is.
   #   file_selector — reading a backup back in, on all three; and the native
   #     save panel on macOS. flutter.dev's own package; openFile is the only
