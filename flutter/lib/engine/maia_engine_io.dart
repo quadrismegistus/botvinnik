@@ -31,38 +31,30 @@
 
 import 'dart:async';
 import 'dart:io';
-import 'dart:math' as math;
-import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_js/flutter_js.dart';
 import 'package:onnxruntime/onnxruntime.dart';
-import 'package:path_provider/path_provider.dart';
 
 import '../brain/js_bridge_shared.dart';
 import 'maia_progress.dart';
+import 'maia_weights.dart';
 
 /// Bump in lockstep with MAIA_BRAIN_VERSION in native_src/maia-brain.ts.
 const int _kExpectedMaiaBrainVersion = 1;
 
-/// Community pre-conversions of the CSSLab lc0 weights, one repo per band —
-/// the same URLs the web worker uses. GPL-3.0, which is why they are fetched
-/// rather than redistributed with the app (see ARCHITECTURE.md), and why this
-/// is the app's only third-party request on native as well.
+/// The weights themselves — where they are cached, and the one downloader for
+/// them — live in maia_weights_io.dart, because the roster picker and the
+/// prefetch (#130) both need them and neither should have to import ORT to
+/// ask. The download's shape is unchanged: 30s per chunk, and a `.part`
+/// rename so a half-arrived file is never readable as a cache hit.
 ///
 /// The two platforms run ORT versions two years apart (1.15.1 through the pod
 /// here, 1.27 through onnxruntime-web there). That is fine for a net this
 /// simple and is checked rather than assumed — the parity fixtures in
 /// integration_test/maia_native_test.dart are the thing that would notice, and
 /// they are the first place to look if a band ever starts disagreeing.
-String _modelUrl(int band) =>
-    'https://huggingface.co/shermansiu/maia-$band/resolve/main/model.onnx';
-
-/// 30s matches the web worker: a 3.5MB body that has not landed in thirty
-/// seconds is not about to. Applied per chunk, so a stalled connection is
-/// caught rather than only a slow one.
-const Duration _kLoadTimeout = Duration(seconds: 30);
 const Duration _kRunTimeout = Duration(seconds: 15);
 
 class _Net {
@@ -220,6 +212,14 @@ class MaiaEngine {
 
     final net = await _net(band);
     if (_disposed || gen != _gen) return null;
+
+    // This band's weights are on disk now, so filling in the other two cannot
+    // compete with a download somebody is watching — which is why the prefetch
+    // is started HERE rather than when the engine is built. Idempotent: the
+    // first call that gets through does the work, the rest join it. Its
+    // failures are its own (see MaiaWeights.prefetch) and cannot retire a band
+    // this session has not been asked to play.
+    unawaited(MaiaWeights.prefetch());
 
     final input = OrtValueTensor.createTensorWithDataList(planes, [1, 112, 8, 8]);
     final runOptions = OrtRunOptions();
@@ -402,10 +402,12 @@ class MaiaEngine {
   }
 
   Future<_Net> _load(int band) async {
-    final file = await _modelFile(band);
-    final bytes = await file.exists()
-        ? await file.readAsBytes()
-        : await _download(band, file);
+    // Cached file or fresh download, and the same single downloader either
+    // way — so a move that arrives while the prefetch is on this band joins
+    // that download (and its progress bar) rather than starting a second one
+    // onto the same `.part`.
+    final bytes =
+        await MaiaWeights.load(band, onProgress: (p) => _report(band, p));
 
     // ORT builds and optimises the graph here. It reports nothing and there is
     // no total to divide by, so this phase gets a name rather than a bar.
@@ -420,11 +422,7 @@ class MaiaEngine {
       // A cached model that will not open would fail identically forever, so
       // it goes — but only one re-download is granted (see _net), because
       // otherwise "delete and retry" is once per move, forever.
-      try {
-        await file.delete();
-      } catch (_) {
-        // never fatal
-      }
+      await MaiaWeights.discard(band);
       throw _ModelUnreadable('maia-$band: $e');
     }
   }
@@ -451,66 +449,6 @@ class MaiaEngine {
       // ORT copies what it needs at create time; the options are ours to free
       // either way, and one leak per band adds up over a roster of six.
       options.release();
-    }
-  }
-
-  static Future<File> _modelFile(int band) async {
-    final dir = await getApplicationSupportDirectory();
-    return File('${dir.path}/maia/maia-$band.onnx');
-  }
-
-  Future<Uint8List> _download(int band, File file) async {
-    final client = HttpClient()
-      ..connectionTimeout = const Duration(seconds: 10);
-    try {
-      final request =
-          await client.getUrl(Uri.parse(_modelUrl(band))).timeout(_kLoadTimeout);
-      final response = await request.close().timeout(_kLoadTimeout);
-      if (response.statusCode != 200) {
-        throw StateError('maia-$band fetch failed: ${response.statusCode}');
-      }
-      final total = math.max(response.contentLength, 0);
-      // Report every ~4% rather than every chunk: each report crosses into the
-      // controller and rebuilds a widget. The last chunk always reports, so
-      // the line always finishes.
-      final step = total > 0 ? math.max(total ~/ 25, 65536) : 262144;
-      final builder = BytesBuilder(copy: false);
-      var received = 0;
-      var reported = 0;
-      _report(band, MaiaProgress('fetching', received: 0, total: total));
-      await for (final chunk in response.timeout(_kLoadTimeout)) {
-        builder.add(chunk);
-        received += chunk.length;
-        if (received - reported >= step) {
-          reported = received;
-          _report(band,
-              MaiaProgress('fetching', received: received, total: total));
-        }
-      }
-      _report(band,
-          MaiaProgress('fetching',
-              received: received, total: total > 0 ? total : received));
-      final bytes = builder.takeBytes();
-
-      // Land it through a rename: a partial write must never be readable as a
-      // cache hit, and an interrupted download is the ordinary case here.
-      final part = File('${file.path}.part');
-      await part.parent.create(recursive: true);
-      try {
-        await part.writeAsBytes(bytes, flush: true);
-        await part.rename(file.path);
-      } catch (_) {
-        // do not leave 3.5MB of orphan behind on a full or read-only disk
-        try {
-          await part.delete();
-        } catch (_) {
-          // never fatal
-        }
-        rethrow;
-      }
-      return bytes;
-    } finally {
-      client.close(force: true);
     }
   }
 
