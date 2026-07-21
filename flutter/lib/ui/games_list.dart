@@ -8,9 +8,11 @@ import 'package:provider/provider.dart';
 import '../stores/backup.dart';
 import '../stores/files.dart';
 import '../stores/game_controller.dart';
+import '../brain/chesscom_import_api.dart';
 import '../brain/lichess_import_api.dart';
 import '../stores/pgn_import.dart';
 import '../stores/review_controller.dart';
+import 'chesscom_import_dialog.dart';
 import 'lichess_import_dialog.dart';
 import 'review_screen.dart';
 
@@ -66,7 +68,14 @@ class GamesListBody extends StatefulWidget {
   /// reason a test can drive the whole import without a network or a JS host.
   final LichessImportApi? importApi;
 
-  const GamesListBody({super.key, this.saveFile = saveTextFile, this.importApi});
+  /// The chess.com importer, same injection seam (#166).
+  final ChesscomImportApi? chesscomApi;
+
+  const GamesListBody(
+      {super.key,
+      this.saveFile = saveTextFile,
+      this.importApi,
+      this.chesscomApi});
 
   @override
   State<GamesListBody> createState() => _GamesListBodyState();
@@ -121,22 +130,37 @@ class _GamesListBodyState extends State<GamesListBody> {
     );
   }
 
-  /// The import affordance, in the tab the imported games land in.
+  /// The import affordances, in the tab the imported games land in.
   ///
   /// Here rather than only in the wide-window Game menu (which is where the
   /// PGN paste lives) because that menu does not exist on a phone, and
   /// because "where are my games" and "bring my games in" are the same
   /// thought.
+  ///
+  /// A Wrap, not a Row: the two buttons together are wider than a 375px phone,
+  /// so they flow onto a second line rather than overflowing.
   Widget _importBar(BuildContext context) => Align(
         alignment: Alignment.centerLeft,
         child: Padding(
           padding: const EdgeInsets.fromLTRB(4, 2, 4, 2),
-          child: TextButton.icon(
-            onPressed: () => _importFromLichess(context),
-            icon: const Icon(Icons.cloud_download_outlined, size: 17),
-            label: const Text('Import from lichess',
-                style: TextStyle(fontSize: 12.5)),
-            style: TextButton.styleFrom(foregroundColor: Colors.white54),
+          child: Wrap(
+            spacing: 4,
+            children: [
+              TextButton.icon(
+                onPressed: () => _importFromLichess(context),
+                icon: const Icon(Icons.cloud_download_outlined, size: 17),
+                label: const Text('Import from lichess',
+                    style: TextStyle(fontSize: 12.5)),
+                style: TextButton.styleFrom(foregroundColor: Colors.white54),
+              ),
+              TextButton.icon(
+                onPressed: () => _importFromChesscom(context),
+                icon: const Icon(Icons.download_outlined, size: 17),
+                label: const Text('Import from chess.com',
+                    style: TextStyle(fontSize: 12.5)),
+                style: TextButton.styleFrom(foregroundColor: Colors.white54),
+              ),
+            ],
           ),
         ),
       );
@@ -153,6 +177,20 @@ class _GamesListBodyState extends State<GamesListBody> {
     messenger?.showSnackBar(SnackBar(
       content: Text('Imported $games · $puzzles'
           '${summary.skipped > 0 ? ' · ${summary.skipped} skipped' : ''}'),
+    ));
+  }
+
+  Future<void> _importFromChesscom(BuildContext context) async {
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    final summary = await showChesscomImport(context, api: widget.chesscomApi);
+    if (summary == null) return; // cancelled with nothing saved, or its own error
+    final games = '${summary.games} game${summary.games == 1 ? '' : 's'}';
+    // No practice count: a chess.com import arrives ungraded, so it seeds
+    // nothing here — the games are analysed in the background afterwards.
+    messenger?.showSnackBar(SnackBar(
+      content: Text('Imported $games from chess.com'
+          '${summary.skipped > 0 ? ' · ${summary.skipped} skipped' : ''}'
+          '${summary.cancelled ? ' · stopped early' : ''}'),
     ));
   }
 
