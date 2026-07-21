@@ -12,6 +12,7 @@ import 'package:dartchess/dartchess.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../brain/grading_api.dart';
 import '../stores/pgn_import.dart';
 import '../stores/review_controller.dart';
 import '../stores/settings_store.dart';
@@ -33,6 +34,10 @@ class ReviewBody extends StatelessWidget {
     final youAreWhite =
         game[kImportedKey] == true || (game['botColor'] as String?) == 'b';
     final m = review.currentMove;
+    // The brain's ranking, not one written out here — the grade strip and the
+    // brain both order by LABEL_ORDER, and a second list would drift from it.
+    final summary =
+        _summary(game, table, context.read<GradingApi>().labelOrder());
 
     return SafeArea(
         bottom: false,
@@ -60,7 +65,7 @@ class ReviewBody extends StatelessWidget {
                 children: [
                   Center(child: board(size)),
                   _verdictStrip(m, table),
-                  Expanded(child: _moveList(review, table)),
+                  Expanded(child: _moveList(review, table, summary)),
                   _scrubBar(review, context),
                 ],
               );
@@ -75,7 +80,7 @@ class ReviewBody extends StatelessWidget {
                   child: Column(
                     children: [
                       _verdictStrip(m, table),
-                      Expanded(child: _moveList(review, table)),
+                      Expanded(child: _moveList(review, table, summary)),
                       _scrubBar(review, context),
                     ],
                   ),
@@ -160,11 +165,128 @@ class ReviewBody extends StatelessWidget {
     );
   }
 
-  Widget _moveList(ReviewController review, ClassTable table) {
+  /// The whole-game summary: both sides' accuracy, and how many of their moves
+  /// fell into each label. Everything here was computed at save time and is
+  /// stored on the record (game_controller's save path) — nothing is
+  /// recalculated, and nothing crosses the engine.
+  ///
+  /// [order] is the brain's LABEL_ORDER. Rows are dropped when neither side
+  /// has any, so a clean game is a short grid rather than seven zeroes.
+  Widget _summary(
+      Map<String, dynamic> game, ClassTable table, List<String> order) {
+    final counts = game['labelCounts'] as Map?;
+    final w = counts?['w'] as Map?;
+    final b = counts?['b'] as Map?;
+    int n(Map? side, String label) => (side?[label] as num?)?.toInt() ?? 0;
+    final wAcc = game['whiteAccuracy'] as num?;
+    final bAcc = game['blackAccuracy'] as num?;
+    final rows = order.where((l) => n(w, l) + n(b, l) > 0).toList();
+
+    // An import was never analysed — no labels and no accuracy, says
+    // pgn_import — and records written before accuracy existed have neither
+    // either. A grid of dashes would say nothing, so say nothing.
+    if (wAcc == null && bAcc == null && rows.isEmpty) return const SizedBox();
+
+    // botColor names the side the player did NOT take. It is absent from
+    // imports and from analysis games, where there is no "you" to point at.
+    final botColor = game['botColor'] as String?;
+    String who(String side) {
+      final colour = side == 'w' ? 'White' : 'Black';
+      if (botColor == null) return colour;
+      return '$colour (${botColor == side ? 'bot' : 'you'})';
+    }
+
+    // Two fixed columns with the label taking what is left: the label
+    // ellipsises rather than pushing the numbers off a phone.
+    const double kCol = 74;
+    Widget accuracyCell(String side, num? acc) => SizedBox(
+          width: kCol,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(who(side),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style:
+                      const TextStyle(color: Colors.white38, fontSize: 11)),
+              Text(acc == null ? '—' : '${acc.toStringAsFixed(0)}%',
+                  style: const TextStyle(
+                      fontWeight: FontWeight.w700, fontSize: 15)),
+            ],
+          ),
+        );
+
+    Widget countCell(int v) => SizedBox(
+          width: kCol,
+          child: Text('$v',
+              textAlign: TextAlign.end,
+              style: TextStyle(
+                  fontSize: 12.5,
+                  color: v == 0 ? Colors.white24 : Colors.white70)),
+        );
+
+    return Container(
+      color: const Color(0xFF1f1e1b),
+      padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              const Expanded(
+                  child: Text('Accuracy',
+                      style: TextStyle(color: Colors.white54, fontSize: 12.5))),
+              accuracyCell('w', wAcc),
+              accuracyCell('b', bAcc),
+            ],
+          ),
+          if (rows.isNotEmpty) const SizedBox(height: 8),
+          for (final label in rows)
+            Padding(
+              padding: const EdgeInsets.only(top: 3),
+              child: Row(children: [
+                Expanded(
+                  child: Row(children: [
+                    Text.rich(table.glyphSpan(label, size: 12),
+                        style: TextStyle(
+                            color: table.color(label), fontSize: 12)),
+                    const SizedBox(width: 6),
+                    Flexible(
+                      child: Text(_capitalised(label),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                              color: Colors.white70, fontSize: 12.5)),
+                    ),
+                  ]),
+                ),
+                countCell(n(w, label)),
+                countCell(n(b, label)),
+              ]),
+            ),
+        ],
+      ),
+    );
+  }
+
+  static String _capitalised(String s) =>
+      s.isEmpty ? s : s[0].toUpperCase() + s.substring(1);
+
+  /// The move list, with [summary] as its first row.
+  ///
+  /// The summary rides INSIDE the scrollable rather than above it: Review's
+  /// board is sized against `kReviewFixed` (layout.dart), so anything added to
+  /// that column has to be paid for out of the board — and this is read once
+  /// on opening a game, not while scrubbing through it.
+  Widget _moveList(
+      ReviewController review, ClassTable table, Widget summary) {
     final moves = review.moves;
     return ListView.builder(
-      itemCount: (moves.length + 1) ~/ 2,
-      itemBuilder: (context, i) {
+      itemCount: (moves.length + 1) ~/ 2 + 1,
+      itemBuilder: (context, index) {
+        if (index == 0) return summary;
+        final i = index - 1;
         final white = moves[i * 2];
         final black = i * 2 + 1 < moves.length ? moves[i * 2 + 1] : null;
         Widget cell(Map<String, dynamic>? m, int ply) {
