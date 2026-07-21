@@ -71,6 +71,14 @@ class PracticeApi {
   String puzzleDifficulty(Map<String, dynamic> item) =>
       _bridge.call('puzzleDifficulty', args: [item]) as String;
 
+  /// {mastered, learning, fresh, total} over a collection — the brain's own
+  /// classification (box ≥3 mastered, attempted-but-not-there learning, never
+  /// attempted fresh), not a Dart copy of it that can drift from the boxes the
+  /// scheduler actually promotes through.
+  Map<String, int> masteryStats(List<Map<String, dynamic>> items) =>
+      (_bridge.call('masteryStats', args: [items]) as Map)
+          .map((k, v) => MapEntry(k as String, (v as num).toInt()));
+
   List<Map<String, dynamic>> _castItems(dynamic r) => (r as List)
       .map((i) => (i as Map).cast<String, dynamic>())
       .toList();

@@ -2,6 +2,15 @@
 // board. The attempt lands on the board immediately (optimistic) while the
 // depth-14 check runs; hints escalate (text → origin square → reveal);
 // pass/fail records into the Leitner schedule.
+//
+// Plus the collection browser (#137/#125/#49): the whole queue as a list, so
+// the schedule you are being asked to trust is visible, and so you can throw
+// items out of it. That second job is the load-bearing one. A blunder you took
+// back stays collected (decided on #137 — you played it, and a takeback is a
+// courtesy for the game, not a claim about your understanding), which makes
+// delete the only way anything ever leaves. So the list is built for judgement
+// over your own queue, not for inspection: every collected item is reachable
+// here, including the ones the threshold will never serve.
 
 import 'package:chessground/chessground.dart';
 import 'package:dartchess/dartchess.dart';
@@ -23,6 +32,11 @@ class PracticeTab extends StatefulWidget {
 class _PracticeTabState extends State<PracticeTab> {
   ChessboardController? _controller;
   String _boardSig = '';
+
+  /// Showing the collection instead of the drill. Pure view state: the served
+  /// puzzle is untouched underneath, so closing the list puts you back on the
+  /// board you left, mid-attempt if that is where you were.
+  bool _browsing = false;
 
   @override
   void dispose() {
@@ -57,16 +71,25 @@ class _PracticeTabState extends State<PracticeTab> {
     final practice = context.watch<PracticeController>();
     final item = practice.current;
 
-    if (item == null) return _empty(practice);
+    // Nothing collected at all is the only state with nothing to browse.
+    if (practice.items.isEmpty) return _empty(practice);
+    // Nothing SERVABLE is not that state, and used to be told it was: items
+    // below the collect threshold (everything ≥5% is collected, the setting
+    // filters at serve time) left the tab saying "No puzzles yet" over a
+    // collection that had plenty. The browser is the honest idle view — it
+    // shows them, says why they are not being served, and lets you delete them.
+    if (_browsing || item == null) return _collection(context, practice);
     return _puzzle(context, practice, item);
   }
 
-  /// Nothing to serve.
+  /// Nothing COLLECTED — the one state with no list to show. Anything else
+  /// goes to the browser, which explains itself.
   ///
-  /// The motif picker lives in the action row, which is only drawn with a
-  /// puzzle on screen — so a filter that empties the queue would otherwise be
-  /// unclearable, and the tab would blame the collection for the filter's
-  /// doing. Say which filter, and offer the way out.
+  /// The filtered branch survives because deleting the last item while a motif
+  /// filter is on lands here with that filter still set, and the picker is
+  /// drawn in the drill's action row and the browser's header, neither of
+  /// which is on screen. Without the way out the tab would blame the
+  /// collection for the filter's doing, and stay that way for the session.
   Widget _empty(PracticeController practice) {
     final motif = practice.motifFilter;
     if (motif == null) {
@@ -97,6 +120,378 @@ class _PracticeTabState extends State<PracticeTab> {
               onPressed: () => practice.setMotifFilter(null),
               child: const Text('Show all puzzles',
                   style: TextStyle(color: Colors.white70)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ---- the collection browser ----
+
+  /// Everything collected, due first, narrowed by the active motif filter.
+  ///
+  /// Deliberately NOT `servable`: the sub-threshold items are exactly the ones
+  /// a player wants to throw out, and delete is the only exit there is. Hiding
+  /// them would make the list a view of the queue rather than of the
+  /// collection, and leave the junk permanently unreachable.
+  List<Map<String, dynamic>> _rows(PracticeController practice) {
+    final motif = practice.motifFilter;
+    final rows = practice.items
+        .where((i) =>
+            motif == null ||
+            ((i['motifs'] as List?)?.cast<String>() ?? const [])
+                .contains(motif))
+        .toList();
+    rows.sort((a, b) => _dueAt(a).compareTo(_dueAt(b)));
+    return rows;
+  }
+
+  DateTime _dueAt(Map<String, dynamic> item) =>
+      DateTime.tryParse(item['dueAt'] as String? ?? '') ??
+      DateTime.fromMillisecondsSinceEpoch(0);
+
+  Widget _collection(BuildContext context, PracticeController practice) {
+    final settings = context.watch<SettingsStore>();
+    final rows = _rows(practice);
+    return Column(
+      children: [
+        _collectionHeader(context, practice),
+        if (practice.current == null) _idleBanner(practice),
+        // ListView.builder rather than a Column in a scroll view: it builds
+        // only the rows in view. Every row carries a board, and a collection
+        // has no upper bound — the position thumbnails are the expensive part,
+        // which is why chessground's StaticChessboard defers its piece images
+        // under a Scrollable in the first place.
+        Expanded(
+          child: ListView.builder(
+            itemCount: rows.length,
+            itemBuilder: (context, i) =>
+                _collectionRow(context, practice, rows[i], settings),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _collectionHeader(BuildContext context, PracticeController practice) {
+    final total = practice.items.length;
+    final servable = practice.servable.length;
+    final summary = total == servable
+        ? '$total position${total == 1 ? '' : 's'} · ${practice.due} due'
+        : '$total collected · $servable in the queue · ${practice.due} due';
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(14, 8, 6, 10),
+      color: const Color(0xFF262421),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(summary,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                        fontWeight: FontWeight.w600, fontSize: 14)),
+              ),
+              _motifMenu(practice),
+              // Only when there is a drill to go back to. With nothing
+              // servable the list IS the tab, and a close button would put you
+              // on the empty state you just came from.
+              if (practice.current != null)
+                IconButton(
+                  // arrow_back, not close: Icons.close is the failed-attempt
+                  // mark in the rows below, and one glyph meaning both "your
+                  // last try was wrong" and "leave this screen" in the same
+                  // view is a misread waiting to happen.
+                  tooltip: 'Back to the puzzle',
+                  icon: const Icon(Icons.arrow_back,
+                      size: 20, color: Colors.white70),
+                  padding: EdgeInsets.zero,
+                  constraints:
+                      const BoxConstraints(minWidth: 36, minHeight: 36),
+                  onPressed: () => setState(() => _browsing = false),
+                ),
+            ],
+          ),
+          _masteryBar(practice),
+        ],
+      ),
+    );
+  }
+
+  /// mastered / learning / fresh as one bar. Three segments sized by count,
+  /// with the numbers written out underneath — the bar carries the shape of
+  /// the collection at a glance, the label carries the fact.
+  Widget _masteryBar(PracticeController practice) {
+    final m = practice.mastery;
+    final mastered = m['mastered'] ?? 0;
+    final learning = m['learning'] ?? 0;
+    final fresh = m['fresh'] ?? 0;
+    if (mastered + learning + fresh == 0) return const SizedBox.shrink();
+    // An empty band is omitted rather than handed flex: 0. Measured: flex: 0
+    // does not assert and draws nothing either — this is for the reader, so
+    // the widget tree says what the collection contains.
+    Widget seg(int n, Color c) => n == 0
+        ? const SizedBox.shrink()
+        : Expanded(flex: n, child: ColoredBox(color: c));
+    return Padding(
+      padding: const EdgeInsets.only(top: 8, right: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(3),
+            child: SizedBox(
+              height: 6,
+              child: Row(children: [
+                seg(mastered, const Color(0xFF81B64C)),
+                seg(learning, const Color(0xFFF0C15C)),
+                seg(fresh, const Color(0xFF3E3C38)),
+              ]),
+            ),
+          ),
+          const SizedBox(height: 5),
+          Text(
+            '$mastered mastered · $learning learning · $fresh new',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(color: Colors.white38, fontSize: 11),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Why the list is all you are getting: something is collected, but nothing
+  /// can be served. Names the cause, and offers the way out of the one cause
+  /// the player can undo in a tap.
+  Widget _idleBanner(PracticeController practice) {
+    final motif = practice.motifFilter;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(14, 8, 14, 8),
+      color: const Color(0xFF1f1e1b),
+      child: motif != null
+          ? Row(
+              children: [
+                Expanded(
+                  child: Text('Nothing to practise tagged $motif.',
+                      style: const TextStyle(
+                          color: Colors.white38, fontSize: 12)),
+                ),
+                TextButton(
+                  onPressed: () => practice.setMotifFilter(null),
+                  style: TextButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      minimumSize: const Size(0, 32)),
+                  child: const Text('Show all puzzles',
+                      style: TextStyle(color: Colors.white70, fontSize: 12)),
+                ),
+              ],
+            )
+          : Text(
+              'Nothing to practise — everything collected is below the '
+              '${practice.threshold}% drop you set for the queue. Lower it in '
+              'Settings, or tap a position below to drill it anyway.',
+              style: const TextStyle(color: Colors.white38, fontSize: 12),
+            ),
+    );
+  }
+
+  static const _kDifficultyColors = {
+    'easy': Color(0xFF81B64C),
+    'medium': Color(0xFFD09A3C),
+    'hard': Color(0xFFCA3431),
+  };
+
+  Widget _difficultyChip(String difficulty) {
+    final color = _kDifficultyColors[difficulty] ?? Colors.white38;
+    return Container(
+      margin: const EdgeInsets.only(left: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.15),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Text(difficulty,
+          style: TextStyle(color: color, fontSize: 10, height: 1.4)),
+    );
+  }
+
+  /// When this item comes up, in the terms a queue is actually read in.
+  ///
+  /// Signed both ways: a date makes you do the arithmetic, and "overdue by 3
+  /// days" is the fact that decides whether the schedule is working. Under an
+  /// hour either side is "due now" — box 0 is a ten-minute interval, so a
+  /// minute-accurate countdown there is noise.
+  String _dueLabel(DateTime due) {
+    final mins = due.difference(DateTime.now()).inMinutes;
+    if (mins.abs() < 60) return 'due now';
+    final span = _span(mins.abs());
+    return mins < 0 ? 'overdue by $span' : 'due in $span';
+  }
+
+  /// Rounded, and the unit chosen from the ROUNDED hours: truncating turns six
+  /// hours into "5 hours" the instant the clock has moved a second past the
+  /// timestamp, and switching on the raw minutes leaves a "48 hours" band just
+  /// under two days.
+  String _span(int minutes) {
+    final hours = (minutes / 60).round();
+    return hours < 48
+        ? _plural(hours, 'hour')
+        : _plural((minutes / 1440).round(), 'day');
+  }
+
+  String _plural(int n, String unit) => '$n $unit${n == 1 ? '' : 's'}';
+
+  /// The attempt record (#49), drawn as what is actually stored.
+  ///
+  /// A sparkline was the original suggestion, and it cannot be honest: the
+  /// brain keeps `attempts`, `correct` and a `lastResult` that `recordResult`
+  /// OVERWRITES (brain/practice.ts) — there is no per-attempt trail, so any
+  /// sequence of pips would be inventing an order the app does not know. What
+  /// is known is the ratio and the most recent verdict, so that is what this
+  /// draws: a proportion bar plus the last result. A real trail is a schema
+  /// change, not a rendering.
+  Widget _attemptRecord(int attempts, int correct, String? last) {
+    if (attempts == 0) return const SizedBox.shrink();
+    final wrong = attempts - correct;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        ClipRRect(
+          borderRadius: BorderRadius.circular(2),
+          child: SizedBox(
+            width: 26,
+            height: 4,
+            child: Row(children: [
+              if (correct > 0)
+                Expanded(
+                    flex: correct,
+                    child: const ColoredBox(color: Color(0xFF81B64C))),
+              if (wrong > 0)
+                Expanded(
+                    flex: wrong,
+                    child: const ColoredBox(color: Color(0xFFCA3431))),
+            ]),
+          ),
+        ),
+        if (last != null)
+          Padding(
+            padding: const EdgeInsets.only(left: 4),
+            child: Icon(
+              last == 'pass' ? Icons.check : Icons.close,
+              size: 12,
+              color: last == 'pass'
+                  ? const Color(0xFF81B64C)
+                  : const Color(0xFFCA3431),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _collectionRow(BuildContext context, PracticeController practice,
+      Map<String, dynamic> item, SettingsStore settings) {
+    final id = item['id'] as String;
+    final fen = item['fen'] as String;
+    final whiteToMove = fen.split(' ')[1] == 'w';
+    final drop = (item['drop'] as num?)?.toDouble() ?? 0;
+    final attempts = (item['attempts'] as num?)?.toInt() ?? 0;
+    final correct = (item['correct'] as num?)?.toInt() ?? 0;
+    final motifs = (item['motifs'] as List?)?.cast<String>() ?? const [];
+    final queued = drop >= practice.threshold;
+
+    final detail = StringBuffer('played ${item['playedSan']}')
+      ..write(' · best ${item['bestSan']}');
+    if (motifs.isNotEmpty) detail.write(' · ${motifs.join(', ')}');
+
+    final status = queued
+        ? _dueLabel(_dueAt(item))
+        : 'not queued — under ${practice.threshold}%';
+    final tried = attempts == 0
+        ? 'never tried'
+        : '$correct of $attempts correct';
+
+    return InkWell(
+      // Straight into the drill for the one you picked, closing the list —
+      // browsing is how you find the position you actually wanted to work on.
+      onTap: () {
+        practice.serveItem(id);
+        setState(() => _browsing = false);
+      },
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 8, 4, 8),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            StaticChessboard(
+              size: 56,
+              fen: fen,
+              orientation: whiteToMove ? Side.white : Side.black,
+              settings: staticBoardSettingsFor(settings),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          '${whiteToMove ? 'White' : 'Black'} to move — '
+                          'lost ${drop.round()}%',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                              fontSize: 13, fontWeight: FontWeight.w600),
+                        ),
+                      ),
+                      _difficultyChip(practice.difficultyOf(item)),
+                    ],
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    detail.toString(),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style:
+                        const TextStyle(color: Colors.white38, fontSize: 12),
+                  ),
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          '$status · $tried',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                              color: queued
+                                  ? Colors.white38
+                                  : const Color(0xFF7A6A4A),
+                              fontSize: 11),
+                        ),
+                      ),
+                      _attemptRecord(
+                          attempts, correct, item['lastResult'] as String?),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            IconButton(
+              tooltip: 'Delete this puzzle',
+              icon: const Icon(Icons.delete_outline,
+                  size: 18, color: Colors.white38),
+              padding: EdgeInsets.zero,
+              constraints:
+                  const BoxConstraints(minWidth: 36, minHeight: 36),
+              onPressed: () => _confirmDelete(context, practice, id),
             ),
           ],
         ),
@@ -384,6 +779,14 @@ class _PracticeTabState extends State<PracticeTab> {
                   ),
               ]),
             ),
+          ),
+          IconButton(
+            tooltip: 'Browse your collection',
+            icon: const Icon(Icons.format_list_bulleted,
+                size: 20, color: Colors.white70),
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+            onPressed: () => setState(() => _browsing = true),
           ),
           _motifMenu(practice),
           if (current != null)
