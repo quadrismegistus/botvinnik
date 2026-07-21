@@ -44,12 +44,32 @@ repository as the rest of the source.
 | Lichess open database (used to bake the offline opening book) | CC0 |
 | lichess-org/chess-openings (opening names) | CC0 |
 | Maia weights (CSSLab; via shermansiu/maia-\*) — the neural nets for the "Maia" bots, **fetched at runtime from HuggingFace and never redistributed with this app** | GPL-3.0 |
-| Dala / lc0 weights — the neural nets for the desktop-only "Dala" bots, **fetched to disk at runtime, never bundled** | GPL-3.0 |
 
-The two neural-net sets are data, not code, and are downloaded on first use
-rather than shipped in any build — so this app never redistributes them, and
-the obligation to provide *their* source stays with their upstreams. They are
+The Maia weights are data, not code, and are downloaded on first use rather
+than shipped in any build — so this app never redistributes them, and the
+obligation to provide *their* source stays with their upstream. They are
 listed here as attribution.
+
+### The Dala nets are not used, and are not licensed
+
+The roster data names three "Dala" personas, and earlier versions of this file
+listed their weights as GPL-3.0. **That was wrong on both counts and has been
+corrected.**
+
+`hrschubert/dala-training` states no licence at all — no `LICENSE` file, and
+no licence reported by GitHub — so no permission to use or redistribute those
+weights has been granted, and none has been sought. The GPL-3.0 claim appears
+to have come from conflating them with **lc0**, the engine that would run them,
+which *is* GPL-3.0.
+
+Nothing in this app touches either. The Dala family is not offered by the
+roster picker on any platform, there is no lc0 binary in any build, and no
+Dala weights are ever fetched — the only build that could run them was the
+Tauri desktop shell, retired 2026-07-20. The personas exist as three rows of
+roster data and nothing else.
+
+If Dala is ever implemented, the licence has to be settled with the author
+first. That is tracked in issue #47.
 
 ## What the GPL asks of you
 
