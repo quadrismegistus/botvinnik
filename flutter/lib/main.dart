@@ -569,10 +569,17 @@ class _AppShellState extends State<AppShell> {
               // meaning, deliberately left alone.
               const ImageIcon(AssetImage('assets/roboknight.png'),
                   size: 20, color: Color(0xFF81B64C)),
-              const SizedBox(width: 8),
-              const Text('botvinnik',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+              // The wordmark is dropped on a phone: the mark alone is identity
+              // enough, and the row shares the bar with resign/undo/redo/blind,
+              // which overran the title on a narrow screen.
               if (_wideShell(context)) ...[
+                const SizedBox(width: 8),
+                const Text('botvinnik',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                const SizedBox(width: 18),
+                _menuBar(context),
+              ] else if (MediaQuery.sizeOf(context).width >=
+                  _PlayTabState._wideBreakpoint) ...[
                 const SizedBox(width: 18),
                 _menuBar(context),
               ],

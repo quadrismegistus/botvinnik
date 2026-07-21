@@ -1037,11 +1037,27 @@ class GameController extends ChangeNotifier {
           maiaProgress = p;
           notifyListeners();
         });
-        final uci = await _maia!.move(
-          _fenHistory(),
-          band: band,
-          temperature: p.maiaTemp ?? 0,
-        );
+        // Retry before substituting. The one common reason move() returns null
+        // is the first call timing out mid-download — 3.5MB of weights plus
+        // ~13MB of WebAssembly, which a slow phone can push past the 90s cap.
+        // By the time it times out the download has almost always finished, so
+        // a second call answers with a real Maia move. Substituting on the
+        // first null made a slow connection show a Stockfish stand-in for a
+        // game that was actually Maia from move two on — and the badge is
+        // sticky per game, so it never cleared. A stand-in should mean the
+        // net genuinely will not run here, not that it was still arriving.
+        String? uci;
+        final startGen = _gen;
+        for (var attempt = 0; attempt < 2 && uci == null; attempt++) {
+          // Do not retry into a game that moved on under us (a new game, an
+          // undo) or a disposed engine.
+          if (attempt > 0 && (startGen != _gen || _maia == null)) break;
+          uci = await _maia!.move(
+            _fenHistory(),
+            band: band,
+            temperature: p.maiaTemp ?? 0,
+          );
+        }
         if (maiaProgress != null) {
           maiaProgress = null;
           notifyListeners();
@@ -1050,7 +1066,7 @@ class GameController extends ChangeNotifier {
           return (uci: _bot.avoidRepetition(uci, _fenHistory(), currentLines), standIn: false);
         }
       }
-      debugPrint('[bot] maia had no move; falling back to the engine');
+      debugPrint('[bot] maia had no move after a retry; falling back');
     }
     // Stockfish, and the fallback for anything that could not answer for
     // itself. internalElo rather than numericElo: only stockfish carries
