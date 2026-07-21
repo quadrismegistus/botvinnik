@@ -93,6 +93,41 @@ class PlayerPlate extends StatelessWidget {
             const SizedBox(width: 5),
             Text('${persona.elo}',
                 style: const TextStyle(fontSize: 11, color: Colors.white30)),
+            // The name and elo to the left are a claim about who is playing,
+            // and when the persona's engine could not answer they are false —
+            // Stockfish moved instead. This is the correction, and it belongs
+            // here rather than in a toast because the claim it corrects is
+            // still on screen. Sticky for the game, like the flag.
+            //
+            // Icon, not the ⚠ glyph: this file already learned that lesson for
+            // the captured pieces. U+26A0 is in no bundled face, so a Text
+            // would fetch Noto from fonts.gstatic.com on web. Material icons
+            // ship with the app.
+            if (game.botFallback) ...[
+              const SizedBox(width: 6),
+              Tooltip(
+                message:
+                    "${persona.name}'s engine could not answer, so Stockfish "
+                    'moved instead. This game will not count toward your '
+                    'rating.',
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                  decoration: BoxDecoration(
+                    color: const Color(0x33E8A33D),
+                    borderRadius: BorderRadius.circular(3),
+                  ),
+                  child: const Row(mainAxisSize: MainAxisSize.min, children: [
+                    Icon(Icons.warning_amber_rounded,
+                        size: 11, color: Color(0xFFE8A33D)),
+                    SizedBox(width: 3),
+                    Text('stand-in',
+                        style: TextStyle(
+                            fontSize: 10, color: Color(0xFFE8A33D))),
+                  ]),
+                ),
+              ),
+            ],
           ],
           if (pieces.isNotEmpty) ...[
             const SizedBox(width: 8),

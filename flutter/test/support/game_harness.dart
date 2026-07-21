@@ -35,14 +35,27 @@ const kFakeLines = [
 /// than running down the unstubbed shapedMove/botSpec path.
 class FakeArbiter implements SearchArbiter {
   final List<EngineMove>? analysisLines;
-  FakeArbiter({this.analysisLines});
+
+  /// Push [analysisLines] through `onUpdate` as well as returning them, which
+  /// fills the controller's `_partials`.
+  ///
+  /// Off by default because it changes grading inputs (`_partials` is one of
+  /// the places `_storedMoveOf` looks for pre/post lines). It exists for tests
+  /// that must get PAST the bot turn's opening wait: that loop spins until the
+  /// analysis reaches depth 10 *or* 1500ms of `DateTime.now()` elapse — and
+  /// `tester.pump` advances fake timers, not the wall clock, so the timeout
+  /// never fires under a widget test. Depth-10 partials are the only exit.
+  final bool streamPartials;
+  FakeArbiter({this.analysisLines, this.streamPartials = false});
 
   @override
   Future<List<EngineMove>?> analysis(String fen,
-          {void Function(List<EngineMove>)? onUpdate}) =>
-      analysisLines == null
-          ? Completer<List<EngineMove>?>().future
-          : Future<List<EngineMove>?>.value(analysisLines);
+      {void Function(List<EngineMove>)? onUpdate}) {
+    final lines = analysisLines;
+    if (lines == null) return Completer<List<EngineMove>?>().future;
+    if (streamPartials) onUpdate?.call(lines);
+    return Future<List<EngineMove>?>.value(lines);
+  }
 
   @override
   Future<List<EngineMove>?> search({
@@ -78,6 +91,34 @@ const testBotPersona = Persona({
   'elo': 1500,
   'family': 'square',
   'blurb': '',
+});
+
+/// A persona whose family has no branch in `_pickBotMove` at all, so a bot turn
+/// falls straight through to the Stockfish stand-in. `dala` is the real such
+/// family (#45: never implemented), which makes it the honest fixture for the
+/// substitution path — no engine has to be stubbed to reach it.
+const kFallbackBotId = 'fallbackbot';
+const fallbackBotPersona = Persona({
+  'id': kFallbackBotId,
+  'name': 'Fallback Bot',
+  'elo': 1500,
+  'family': 'dala',
+  'blurb': '',
+});
+
+/// A fish persona, which reaches the same final block as [fallbackBotPersona]
+/// — but legitimately, because that block IS the fish engine. It is the only
+/// family that arrives there having played itself, which makes it the one
+/// fixture that can tell a real substitution from the normal case.
+/// `numericElo` is display elo + SCALE_OFFSET, as `fish()` builds it.
+const kFishBotId = 'fish-1500';
+const fishBotPersona = Persona({
+  'id': kFishBotId,
+  'name': 'Fish 1500',
+  'elo': 1500,
+  'family': 'fish',
+  'blurb': '',
+  'numericElo': 1740,
 });
 
 class FakeBot implements BotApi {
