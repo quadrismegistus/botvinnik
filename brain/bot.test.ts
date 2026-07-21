@@ -203,8 +203,8 @@ describe('shapedLabelFor per substrate', () => {
 		const { setBotSubstrate } = await import('./engine/botRecipe');
 		try {
 			setBotSubstrate('native');
-			expect(shapedLabelFor(753)).toBe(600); // native scan knot (the default)
-			expect(shapedLabelFor(1900)).toBe(1500);
+			expect(shapedLabelFor(814)).toBe(600); // native scan knot (the default)
+			expect(shapedLabelFor(2220)).toBe(1500);
 			// same target maps to different labels per substrate near the seams
 			setBotSubstrate('wasm');
 			expect(shapedLabelFor(2400)).toBe(1500); // clamped above wasm scan ceiling 2319
@@ -434,8 +434,12 @@ describe('shapedLabelFor scan-model knots', () => {
 		// label is lower still (punish-rate premium — see hangs.mts findings)
 		expect(shapedLabelFor(1140, 'wasm', 'scan')).toBe(849);
 	});
-	it('native scan: same display target needs a slightly lower label', () => {
-		expect(shapedLabelFor(1140, 'native', 'scan')).toBe(985);
+	it('native scan: the same display target needs a lower label', () => {
+		// Remeasured 2026-07-21 against the bundled macOS Stockfish 18. The
+		// gap to wasm's 849 narrowed sharply when the stale v4.0 native table
+		// went: the substrates now differ by ~76 label points here rather than
+		// ~136, which is the choice layer dominating the backbone as it should.
+		expect(shapedLabelFor(1140, 'native', 'scan')).toBe(925);
 	});
 	it('the default model is the shipped one (scan since 2026-07-16)', () => {
 		expect(shapedLabelFor(1140, 'wasm')).toBe(shapedLabelFor(1140, 'wasm', 'scan'));
