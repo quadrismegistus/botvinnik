@@ -10,6 +10,43 @@ import '../stores/pgn_import.dart';
 import '../stores/review_controller.dart';
 import 'review_screen.dart';
 
+/// A human win over a bot, and how it was won. [clean] draws the solid crown;
+/// otherwise it is the outline and [detail] names the help.
+typedef WinCrown = ({bool clean, String detail});
+
+/// The crowns distinction, ported from the Svelte archive: a result alone
+/// teaches you to farm easy wins, so the row says HOW the game was won.
+///
+/// Clean means all three: no takebacks, no engine stand-in, and the hint
+/// overlays off. Anything else is a win with help, itemised — the honest
+/// counterpart to the stand-in badge, which already admits when the opponent
+/// was not the one on the card.
+///
+/// An ABSENT `botHintsUsed` is "hints unknown", NOT clean. Every game archived
+/// before the field started being written lacks it, and awarding those the
+/// solid crown would credit them with a discipline nobody recorded. `false` —
+/// which the save path now writes explicitly for every bot game — is the only
+/// thing that means "known clean". Issue #144.
+WinCrown? winCrown(Map<String, dynamic> g) {
+  if (g[kImportedKey] == true) return null; // no "you" in an imported game
+  final botColor = g['botColor'] as String?;
+  if (g['botElo'] == null || botColor == null) return null; // solo analysis
+  final humanWon = g['result'] == (botColor == 'b' ? '1-0' : '0-1');
+  if (!humanWon) return null;
+
+  final help = <String>[];
+  final undos = (g['botUndos'] as num?)?.toInt() ?? 0;
+  if (undos > 0) help.add('$undos takeback${undos == 1 ? '' : 's'}');
+  if (g['botFallback'] == true) help.add('engine stand-in');
+  final hints = g['botHintsUsed'];
+  if (hints == true) help.add('hint overlays');
+  if (hints == null) help.add('hints unknown (pre-tracking)');
+
+  return help.isEmpty
+      ? (clean: true, detail: 'Won clean — blind, no takebacks')
+      : (clean: false, detail: 'Won with help — ${help.join(', ')}');
+}
+
 class GamesListBody extends StatefulWidget {
   const GamesListBody({super.key});
 
@@ -78,14 +115,28 @@ class _GamesListBodyState extends State<GamesListBody> {
     // An import has no "you" in it, so Won/Lost and "vs <bot>" are both
     // meaningless — show the raw result and whoever the PGN said was playing.
     final imported = g[kImportedKey] == true;
+    final crown = winCrown(g);
 
     return ListTile(
       dense: true,
+      // Material's three-line spacing for the row that now has three lines.
+      // Not load-bearing — a ListTile grows to fit its subtitle either way
+      // (measured at 375px: 68px tall without this, 76 with) — so it is the
+      // padding convention, not a fix for a spill.
+      isThreeLine: crown != null,
       title: Row(children: [
         Text(imported ? result : verdict,
             style: TextStyle(
                 color: imported ? Colors.white54 : color,
                 fontWeight: FontWeight.w700)),
+        if (crown != null) ...[
+          const SizedBox(width: 5),
+          // an Icon, not a glyph: U+265B is in no bundled font, so a Text of it
+          // is a webfont FETCH on the web build (and tofu with no network)
+          Icon(crown.clean ? Icons.emoji_events : Icons.emoji_events_outlined,
+              size: 15,
+              color: crown.clean ? const Color(0xFFD4A017) : Colors.white38),
+        ],
         const SizedBox(width: 8),
         Expanded(
           child: Text(imported ? importedTitle(g) : 'vs $personaId',
@@ -97,11 +148,27 @@ class _GamesListBodyState extends State<GamesListBody> {
           Text('${(youAcc as num).toStringAsFixed(0)}%',
               style: const TextStyle(color: Colors.white54, fontSize: 13)),
       ]),
-      subtitle: Text(
-        '$when · ${g['moveCount']} moves'
-        '${blunders > 0 ? ' · $blunders ??' : ''}'
-        '${mistakes > 0 ? ' · $mistakes ?' : ''}',
-        style: const TextStyle(fontSize: 11.5, color: Colors.white38),
+      subtitle: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            '$when · ${g['moveCount']} moves'
+            '${blunders > 0 ? ' · $blunders ??' : ''}'
+            '${mistakes > 0 ? ' · $mistakes ?' : ''}',
+            style: const TextStyle(fontSize: 11.5, color: Colors.white38),
+          ),
+          // spelled out rather than left to a tooltip: the crown is the
+          // scannable mark, this is what it MEANS, and on a phone a tooltip is
+          // a long-press — the gesture this row already spends on delete
+          if (crown != null)
+            Text(crown.detail,
+                style: TextStyle(
+                    fontSize: 11,
+                    color: crown.clean
+                        ? const Color(0xFFD4A017)
+                        : Colors.white38)),
+        ],
       ),
       // opens in place, inside this tab — pushing a route would cover the
       // shell and take the bottom tabs with it
