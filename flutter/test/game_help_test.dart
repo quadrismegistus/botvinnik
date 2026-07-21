@@ -48,21 +48,6 @@ class ParkingPractice implements PracticeController {
   dynamic noSuchMethod(Invocation invocation) => null;
 }
 
-/// The harness's [FakeGrading] answers the whole-game calls out of
-/// `noSuchMethod`, i.e. with null, which a non-nullable `labelCounts` rejects
-/// — so it cannot reach the end of a save. These two are the difference
-/// between a test that archives a game and one that dies in the accountancy.
-class SavingGrading extends FakeGrading {
-  @override
-  double? gameAccuracy(List<Map<String, dynamic>> storedMoves, String color) =>
-      null;
-
-  @override
-  Map<String, dynamic> labelCounts(
-          List<Map<String, dynamic>> storedMoves, String color) =>
-      const {'blunder': 0, 'mistake': 0, 'inaccuracy': 0};
-}
-
 /// A bot game with the human on White, starting from [_mateIn1].
 ///
 /// [arbiter] and [practice] default to the never-resolving fakes, which keep
