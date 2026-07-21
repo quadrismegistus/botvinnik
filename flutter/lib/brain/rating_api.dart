@@ -10,8 +10,11 @@
 // happens on the far side of this call:
 //
 //   - no persona on the record (analysis and imported games)
+//   - `rated` absent — the player did not start it as a rated game (#168),
+//     which is most of them: rated is a mode, not the default
 //   - `botFallback` — the opponent was the Stockfish stand-in, not the persona
 //   - `botUndos > 0` — the human took the result back at least once
+//   - `botHintsUsed` — hint overlays were on the board for a human move
 //   - `botBothSides` — two bots played each other; there is no human result
 //   - an undecided result ('*')
 //
