@@ -8621,17 +8621,31 @@ var brain = (() => {
       { label: 1350, strength: 1904 },
       { label: 1500, strength: 2319 }
     ],
-    // STALE (v4.0): the native grid predates the saturated-loss fix; desktop
-    // Squares will play above label until the native re-grid runs. Web ships
-    // from the wasm table; re-measure before any Tauri release.
+    // Remeasured 2026-07-21 against the Stockfish 18 the macOS app BUNDLES
+    // (flutter/macos/Runner/Resources/stockfish → Contents/MacOS), n=100/pair,
+    // same grid as the wasm run above. The v4.0 table it replaces predated the
+    // saturated-loss fix and read 53-320 points low, so a native Square picked
+    // a label that played ABOVE it — the direction the fix predicted.
+    //
+    // Remeasuring also RE-CONVERGED the two substrates: the gap to wasm fell
+    // from a mean of ~200 to ~93, which restores the v3-era finding that the
+    // choice layer dominates so completely that backbone quality barely moves
+    // strength. A large substrate gap was evidence of a stale table, not of a
+    // real difference.
+    //
+    // iOS is not separately measured and does not need to be: package:stockfish
+    // vendors the same Stockfish 18 with the same two nets, and the shaped
+    // search is DEPTH-bounded (game_controller passes depth, no movetime), so
+    // it visits the same nodes on any hardware. The Fish family's UCI_Elo band
+    // is movetime-bounded and remains hardware-sensitive everywhere, as always.
     native: [
-      { label: 600, strength: 753 },
-      { label: 750, strength: 844 },
-      { label: 900, strength: 1024 },
-      { label: 1050, strength: 1229 },
-      { label: 1200, strength: 1417 },
-      { label: 1350, strength: 1650 },
-      { label: 1500, strength: 1900 }
+      { label: 600, strength: 814 },
+      { label: 750, strength: 897 },
+      { label: 900, strength: 1105 },
+      { label: 1050, strength: 1314 },
+      { label: 1200, strength: 1453 },
+      { label: 1350, strength: 1749 },
+      { label: 1500, strength: 2220 }
     ]
   };
   var BOT_MODEL = "scan";
