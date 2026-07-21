@@ -9593,6 +9593,8 @@ var brain = (() => {
       if (g.botFallback) continue;
       if ((g.botUndos ?? 0) > 0) continue;
       if (g.botBothSides) continue;
+      if (g.rated !== true) continue;
+      if (g.botHintsUsed) continue;
       const score = playerScore(g);
       if (score === null) continue;
       outcomes.push({ opp: p.elo, score });

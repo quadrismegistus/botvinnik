@@ -29,6 +29,12 @@ import 'support/node_brain.dart';
 /// flags are OMITTED rather than written false, exactly as the save path does
 /// ("absent and false mean the same thing" — see the comments there), so a
 /// clean game here is byte-for-byte the clean game the app archives.
+///
+/// [rated] defaults TRUE because since #168 nothing else fits at all: rated is
+/// the gate, and a fixture without it would make every test below assert the
+/// absence of a rating rather than the exclusion it is named for. The gate
+/// itself is proved in `brain/playerElo.test.ts`, over source rather than the
+/// bundle — see the note in the rated-mode group at the bottom of this file.
 Map<String, dynamic> _game({
   required String id,
   required String result,
@@ -37,6 +43,8 @@ Map<String, dynamic> _game({
   bool fallback = false,
   int undos = 0,
   bool bothSides = false,
+  bool rated = true,
+  bool hints = false,
   String endedAt = '2026-07-20T10:00:00.000',
 }) =>
     {
@@ -48,7 +56,8 @@ Map<String, dynamic> _game({
       'botPersona': ?persona,
       if (fallback) 'botFallback': true,
       if (undos > 0) 'botUndos': undos,
-      if (persona != null) 'botHintsUsed': false,
+      if (persona != null) 'botHintsUsed': hints,
+      if (persona != null && rated) 'rated': true,
       if (bothSides) 'botBothSides': true,
       'botColor': persona == null ? null : botColor,
       'moveCount': 2,
@@ -152,6 +161,13 @@ void main() {
     final sent = bridge.exprs.first;
     expect(sent, contains('"botFallback":true'));
     expect(sent, contains('"botUndos":2'));
+    // The newest of them, and the one a silent drop would be worst for: lose
+    // `rated` in transit and NO game rates, ever, with no error anywhere. The
+    // rule that reads it lives in the bundle and is proved over source in
+    // brain/playerElo.test.ts; what has to be proved HERE is that the field
+    // survives the store's projection and the marshalling.
+    expect(sent, contains('"rated":true'));
+    expect(sent, contains('"botHintsUsed":false'));
     // The reason the flags are worth asserting on the wire: the store trims
     // the record, and a trim that listed what to KEEP is how they would go
     // missing. This one lists what to drop.

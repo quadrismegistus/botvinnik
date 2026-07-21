@@ -88,9 +88,15 @@ class _PlayerRatingCardState extends State<PlayerRatingCard> {
         Text('No rated games yet',
             style: TextStyle(fontSize: 14, color: Colors.white70)),
         SizedBox(height: 2),
+        // Names the MODE, because since #168 nothing else can be the reason
+        // this is empty: a player who has finished twenty clean games against
+        // the roster still has no rating until they tick Rated game, and copy
+        // that only listed the exclusions would leave them looking for a fault
+        // in games that never had one.
         Text(
-            'Finish a game against a bot from the roster. Games with takebacks '
-            'and games where the opponent had to be substituted are not rated.',
+            'Tick Rated game in the New game sheet and finish one against a '
+            'bot from the roster. Rated games are played blind, and a takeback '
+            'or a substituted opponent still takes one off the rating.',
             style: TextStyle(fontSize: 11, color: Colors.white38)),
       ];
     }

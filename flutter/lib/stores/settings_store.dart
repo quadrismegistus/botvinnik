@@ -437,6 +437,11 @@ class SettingsStore extends ChangeNotifier {
   }
 
   /// Assign each side: null = the human, otherwise a bot persona id.
+  ///
+  /// This does NOT start a new game — the caller does, because only the caller
+  /// knows whether a FEN is involved. GameController's settings listener used
+  /// to reset as well, which meant every opponent change reset twice.
+  /// new_game_sheet is the one call site and calls newGame(fromFen:) itself.
   void setPlayers({required String? white, required String? black}) {
     if (white == _whitePersonaId && black == _blackPersonaId) return;
     _whitePersonaId = white;

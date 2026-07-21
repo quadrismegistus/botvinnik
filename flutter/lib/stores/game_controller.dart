@@ -155,18 +155,56 @@ class GameController extends ChangeNotifier {
   bool _botHintsUsed = false;
   bool get botHintsUsed => _botHintsUsed;
 
+  /// This game was started as a RATED game — the New Game sheet's mode that
+  /// puts the result on the record: blind, hint overlays off, and the ordinary
+  /// exclusions still apply on top.
+  ///
+  /// A recorded INTENT rather than something re-derived at save time from the
+  /// four switches. Every one of those defaults to help ON (see
+  /// SettingsStore.load), so "was this game unassisted?" answered from them
+  /// rates no game a default install plays; and it re-decides what "assisted"
+  /// means on every read. The argument in full is beside the exclusion in
+  /// `brain/playerElo.ts`, which is the only thing that acts on this.
+  ///
+  /// Sticky for the game and reset by [newGame], and deliberately NOT cleared
+  /// when a switch is flipped mid-game: turning arrows back on sets
+  /// [_botHintsUsed], and that is what takes the game off the ruler. The
+  /// record then states both true things — the player meant to be on the
+  /// record, and then took help — rather than silently forgetting the intent.
+  ///
+  /// A takeback needs nothing here either: `botUndos > 0` already excludes,
+  /// and it excludes for the same reason in a rated game as in a casual one.
+  bool _rated = false;
+  bool get rated => _rated;
+
   /// What the board is drawing right now, from the player's side: the three
   /// engine overlays, with blind mode suppressing all of them. Kept in step
   /// with [engineArrowUcis], [threat] and [controlMap] — each gates on exactly
   /// this pair of conditions.
-  bool get _hintsOnBoard =>
-      !blind &&
-      (_settings.showArrows || _settings.showThreats || _settings.showControl);
+  /// Was the engine legible to the player on this move?
+  ///
+  /// Just `!blind`, and the overlay switches deliberately do NOT appear.
+  /// `blind` already gates every one of them — engineArrowUcis, threat and
+  /// controlMap each check it — AND the Lines pane, the Book and the tree,
+  /// which show the engine's principal variations in text.
+  ///
+  /// It used to read `!blind && (any overlay switch)`, which is the predicate
+  /// for the BOARD overlays, and the two are not the same set. With every
+  /// overlay off — exactly what the rated preset does — that form was
+  /// insensitive to blind: start a rated game, press `b`, read the best line
+  /// off the Lines pane, play it by hand, and the record archived clean and
+  /// counted toward the rating.
+  ///
+  /// Blind off does not prove the player LOOKED — they may have closed every
+  /// panel. It proves the engine was available, which is the most that can
+  /// honestly be claimed, and the conservative direction to be wrong in.
+  bool get _assisted => !blind;
 
   GameController(this._arbiter, this._bot, this._grading, this._settings,
       [this._db, this._practice, ChessApi? chessApi]) {
     _chess = chessApi;
     if (chessApi != null) linesTree = LinesTreeModel(chessApi);
+    _lastSettingsSig = _settingsSig(); // see the field: NOT a late initializer
     _syncRetro();
     _settings.addListener(_onSettings);
     _analysisFor(position.fen);
@@ -332,7 +370,19 @@ class GameController extends ChangeNotifier {
 
   String _settingsSig() =>
       '${_settings.whitePersonaId}|${_settings.blackPersonaId}';
-  late String _lastSettingsSig = _settingsSig();
+
+  /// Assigned in the CONSTRUCTOR, not by a `late` field initializer.
+  ///
+  /// A late initializer runs on first READ, and the only read is the
+  /// comparison in [_onSettings] — so it used to compute itself from the
+  /// settings as they already were AFTER the change, find them equal, and skip
+  /// the restart. Measured: the first opponent change of a session left the
+  /// game running (moves intact, new persona on move); every later one worked,
+  /// which is why it survived. It matters here because [_rated] is cleared by
+  /// [newGame]: a rated game whose opponent was swapped part-way would
+  /// otherwise archive as a rated result against a bot that only played half
+  /// of it.
+  late String _lastSettingsSig;
 
   void _onSettings() {
     final sig = _settingsSig();
@@ -350,7 +400,18 @@ class GameController extends ChangeNotifier {
     }
     _lastSettingsSig = sig;
     _syncRetro();
-    newGame();
+    // NOT newGame(). The only caller that changes players is the New Game
+    // sheet, and its very next line calls newGame(fromFen:) itself — with the
+    // FEN, which this cannot know. Resetting here too meant every opponent
+    // change bumped the generation twice, started two analyses, and wiped to
+    // the standard start before the sheet immediately redid it with the FEN.
+    //
+    // Measured through the sheet's real sequence: 2 resets per change before
+    // this, 1 after. Making _lastSettingsSig eager (an earlier attempt at the
+    // same issue) went the other way — it took the FIRST change from 1 to 2.
+    //
+    // The contract this creates: changing players is not itself a new game;
+    // the caller starts one. setPlayers says so.
   }
 
   /// Keep at most one retro worker alive, matching the active persona.
@@ -394,7 +455,15 @@ class GameController extends ChangeNotifier {
   /// Start a fresh game. [fromFen] drops onto an arbitrary position instead of
   /// the standard start (an analysis board when both sides are the human) —
   /// the caller must have validated it with [isPlayableFen].
-  void newGame({String? fromFen}) {
+  ///
+  /// [rated] marks the game as one that counts (see [_rated]). It records the
+  /// choice only: turning blind on and the overlays off is the SHEET's job,
+  /// because those are the player's persistent settings and this class does
+  /// not own them. Defaulting to false is what makes every other caller —
+  /// the settings listener no longer restarts on an opponent change; the
+    // New Game sheet does that itself —
+  /// start a casual game, which is the right answer for all of them.
+  void newGame({String? fromFen, bool rated = false}) {
     _browsePly = null;
     _redoStack.clear();
     _gen++;
@@ -421,6 +490,7 @@ class GameController extends ChangeNotifier {
     _standInPersonas.clear();
     _botUndos = 0;
     _botHintsUsed = false;
+    _rated = rated;
     _undoWasCounted.clear();
     _saved = false;
     gameSeed = _newSeed();
@@ -551,7 +621,7 @@ class GameController extends ChangeNotifier {
     // the sample point: what the board was showing at the moment a human move
     // was committed (see [_botHintsUsed]). Bot replies come through _apply
     // directly, so only human moves are sampled.
-    if (botEnabled && _hintsOnBoard) _botHintsUsed = true;
+    if (botEnabled && _assisted) _botHintsUsed = true;
     _apply(move, san);
     _maybeBotTurn();
   }
@@ -563,7 +633,7 @@ class GameController extends ChangeNotifier {
     if (!position.isLegal(move)) return;
     // Both callers are a machine handing you a move to play — the engine's
     // lines in the tree pane, and the opening book. Taking one is help whatever
-    // the overlay switches say, so this does not go through [_hintsOnBoard].
+    // the overlay switches say, so this does not go through [_assisted].
     // Set after the legality check: a tap that plays nothing is not help taken.
     if (botEnabled) _botHintsUsed = true;
     final (_, san) = position.makeSan(move);
@@ -666,6 +736,14 @@ class GameController extends ChangeNotifier {
         _settings.blackPersonaId != null;
     final undos = wasBotGame ? _botUndos : 0;
     final hintsUsed = wasBotGame && _botHintsUsed;
+    // Snapshotted here for the same reason as the two above, and it is the one
+    // that would be hardest to notice going wrong: a player who mates and then
+    // starts a casual game during the grade wait would otherwise archive the
+    // rated game they just won as unrated, and the rating would simply never
+    // move. Bot-vs-bot and the analysis board can never be rated — the sheet
+    // does not offer it — but `wasBotGame` is asserted here anyway, because
+    // this record is what the rating trusts.
+    final rated = wasBotGame && _rated;
 
     // let in-flight grading land so the archive gets labels (bounded — the
     // terminal move's backfill may never come: a mate position has no lines)
@@ -697,6 +775,10 @@ class GameController extends ChangeNotifier {
       // crown rather than crediting them with a discipline nobody recorded.
       // An explicit false is the only way to say "known clean".
       if (wasBotGame) 'botHintsUsed': hintsUsed,
+      // Omitted rather than false, like botFallback: `playerElo` gates on
+      // `g.rated !== true`, so absent and false already mean the same thing —
+      // and absent is what every game archived before rated mode existed says.
+      if (rated) 'rated': true,
       if (bothBots) 'botBothSides': true,
       // the snapshot, not a fresh read of playerColor: the crown asks which
       // side the human was on, and this is the one line below the wait that
