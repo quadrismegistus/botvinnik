@@ -106,6 +106,21 @@ class GameController extends ChangeNotifier {
   /// exactly why the first Maia move looked like a hang.
   MaiaProgress? maiaProgress;
 
+  /// At least one move this game came from the Stockfish stand-in rather than
+  /// the persona's own engine — see the fallback at the end of [_pickBotMove].
+  ///
+  /// Sticky for the game, because that is the unit the fact applies to: one
+  /// substituted move means the opponent you played was not the one on the
+  /// card, and no later success un-plays it. Reset by [newGame].
+  ///
+  /// This is the only trace the substitution leaves. Nothing about the fallback
+  /// fails — no crash, no error, no missing move — so without the flag the
+  /// player, the saved game, and `estimatePlayerElo` all believe the persona
+  /// played. `estimatePlayerElo` already drops games carrying `botFallback`
+  /// ("opponent wasn't really the persona — off the ruler"); until this was
+  /// recorded it never saw one. Issue #117.
+  bool botFallback = false;
+
   GameController(this._arbiter, this._bot, this._grading, this._settings,
       [this._db, this._practice, ChessApi? chessApi]) {
     _chess = chessApi;
@@ -275,6 +290,7 @@ class GameController extends ChangeNotifier {
     // it straight back.
     maiaProgress = null;
     _maia?.cancelPending();
+    botFallback = false;
     _saved = false;
     gameSeed = _newSeed();
     _analysis.clear();
@@ -462,6 +478,10 @@ class GameController extends ChangeNotifier {
       'pgn': _pgn(played, result, botName, youAreWhite),
       'botElo': p == null ? null : p.elo + 240, // internal scale (SCALE_OFFSET)
       if (p != null) 'botPersona': p.id,
+      // omitted rather than false when clean: the schema field is optional and
+      // estimatePlayerElo tests it for truthiness, so absent and false mean the
+      // same thing — and every game saved before this existed is absent.
+      if (botFallback) 'botFallback': true,
       'botColor': p == null ? null : (playerColor == 'w' ? 'b' : 'w'),
       'moveCount': played.length,
       'whiteAccuracy': _bridgeAccuracy(stored, 'w'),
@@ -659,10 +679,23 @@ class GameController extends ChangeNotifier {
     // web, where the roster is larger. A stand-in beats the alternative here,
     // which used to be `p.numericElo!` throwing and wedging the bot's turn.
     //
-    // It is not free, though: on the web the substitution is surfaced, because
-    // grading a game against the rating you THINK you played corrupts the
-    // player-rating fit. Flutter does not fit a rating yet; when it does, this
-    // is the branch that has to tell it.
+    // It is not free, though: grading a game against the rating you THINK you
+    // played corrupts the player-rating fit, so the substitution is recorded.
+    //
+    // Tested here rather than at each `falling back to the engine` log above
+    // because this is the one place that cannot drift: every family that gets
+    // its own branch reaches this line only by failing, and a family that never
+    // gets a branch at all (dala, #45) reaches it without one. Marking at the
+    // log sites would silently miss the second kind, and would need a new call
+    // adding every time a family is added.
+    //
+    // `fish` is the exception because this block IS its engine — it is the only
+    // family that arrives here having played itself. Flagging it too would put
+    // the mark on every fish game and leave the flag meaning nothing.
+    if (p.family != 'fish' && !botFallback) {
+      botFallback = true;
+      notifyListeners();
+    }
     final internalElo = p.numericElo ?? _bot.internalElo(p);
     final spec = _bot.botSpec(internalElo);
     switch (spec['kind'] as String) {

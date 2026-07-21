@@ -7,7 +7,9 @@
 
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:botvinnik_mobile/brain/types.dart';
 import 'package:botvinnik_mobile/stores/game_controller.dart';
+import 'package:botvinnik_mobile/stores/settings_store.dart';
 
 import 'support/game_harness.dart';
 
@@ -204,6 +206,91 @@ void main() {
       // wind the bot down so no timer outlives the test
       settings.setPlayers(white: null, black: null);
       game.newGame();
+      await tester.pump(const Duration(milliseconds: 120));
+    });
+  });
+
+  group('the Stockfish stand-in is recorded', () {
+    // When a persona's own engine cannot answer, the move comes from Stockfish
+    // instead — the same board, the same name on the card, a different
+    // opponent. Nothing about that fails, so nothing surfaces it; the flag is
+    // the only way the UI, the saved game, and estimatePlayerElo can know.
+    // Issue #117.
+    // The controller starts a bot turn in its constructor, so the settings have
+    // to come back out with it — winding the bot down at the end of each test
+    // is what stops a timer outliving it.
+    Future<(GameController, SettingsStore)> botTurn(
+        {required Persona persona, required String id}) async {
+      final settings = await loadSettings(white: id);
+      final game = GameController(
+          FakeArbiter(analysisLines: kFakeLines, streamPartials: true),
+          FakeBot({id: persona}),
+          FakeGrading(),
+          settings);
+      return (game, settings);
+    }
+
+    Future<void> windDown(
+        WidgetTester tester, GameController game, SettingsStore s) async {
+      s.setPlayers(white: null, black: null);
+      game.newGame();
+      await tester.pump(const Duration(milliseconds: 120));
+    }
+
+    testWidgets('a family with no engine of its own sets the flag',
+        (tester) async {
+      final (game, s) =
+          await botTurn(persona: fallbackBotPersona, id: kFallbackBotId);
+      await tester.pump(const Duration(seconds: 2));
+      expect(game.botFallback, isTrue,
+          reason: 'the move came from Stockfish, not the persona');
+
+      await windDown(tester, game, s);
+    });
+
+    testWidgets('a fish bot reaches the same block and sets nothing',
+        (tester) async {
+      // The load-bearing half of the guard. Fish arrives at the very same line
+      // as the dala persona above — the difference is that for fish this block
+      // IS its engine, so it played itself and nothing was substituted.
+      //
+      // Without the family check, marking on arrival would flag every fish
+      // game, estimatePlayerElo would drop them all, and the flag would mean
+      // nothing. This is the test that fails if the guard is dropped; the
+      // square case below only proves square never gets here at all.
+      final (game, s) = await botTurn(persona: fishBotPersona, id: kFishBotId);
+      await tester.pump(const Duration(seconds: 2));
+      expect(game.botFallback, isFalse,
+          reason: 'fish played itself — nothing stood in for it');
+
+      await windDown(tester, game, s);
+    });
+
+    testWidgets('a square bot never reaches the fallback at all',
+        (tester) async {
+      final (game, s) = await botTurn(persona: testBotPersona, id: kTestBotId);
+      await tester.pump(const Duration(seconds: 2));
+      expect(game.botFallback, isFalse);
+
+      await windDown(tester, game, s);
+    });
+
+    testWidgets('a new game clears it', (tester) async {
+      // Sticky for the GAME, not the session: a later game against a persona
+      // whose engine works must not inherit this one's substitution.
+      //
+      // The players are cleared BEFORE newGame so the fresh game starts no bot
+      // turn of its own — otherwise the same broken persona would substitute
+      // again immediately (correctly), and the reset would be untestable
+      // because the flag would never be observably false.
+      final (game, s) =
+          await botTurn(persona: fallbackBotPersona, id: kFallbackBotId);
+      await tester.pump(const Duration(seconds: 2));
+      expect(game.botFallback, isTrue);
+
+      s.setPlayers(white: null, black: null);
+      game.newGame();
+      expect(game.botFallback, isFalse);
       await tester.pump(const Duration(milliseconds: 120));
     });
   });
