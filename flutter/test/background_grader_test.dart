@@ -15,6 +15,8 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:botvinnik_mobile/brain/types.dart';
+import 'package:botvinnik_mobile/engine/arbiter.dart';
 import 'package:botvinnik_mobile/stores/background_grader.dart';
 import 'package:botvinnik_mobile/stores/practice_controller.dart';
 
@@ -247,6 +249,147 @@ void main() {
     expect(db.writes, ['g1', 'g2']);
     expect((db.games['g2']!['moves'] as List).first['label'], 'blunder');
   });
+
+  test('a game ending in board mate is graded, and the sweep advances past it',
+      () async {
+    // The last move creates a terminal position; a real Stockfish emits no lines
+    // there ('bestmove (none)'), which the arbiter completes as an EMPTY list —
+    // NOT null. The old code coerced that empty list to null, read it as an
+    // abandoned search, and bailed the whole game — so _runPass stopped at the
+    // first mate game and _pump re-pumped onto it forever, never advancing. Both
+    // games here "end in mate" (their last fenAfter is the terminal one); g2 only
+    // gets graded if the sweep gets PAST g1.
+    final db = MemoryDb([_ungraded('g1'), _ungraded('g2')]);
+    final practice = RecordingPractice();
+    final live = ValueNotifier(false);
+    final grader = BackgroundGrader(
+      _TerminalArbiter(terminalFen: _afterE5), // g1/g2's last fenAfter
+      db,
+      SavingGrading(),
+      practice,
+      live,
+      () => live.value,
+    );
+    addTearDown(grader.dispose); // bound the re-pump if this ever regresses
+
+    grader.start();
+    await grader.pass;
+
+    // g1 graded despite the terminal last move — not skipped, not half-written…
+    expect(db.writes, contains('g1'));
+    expect((db.games['g1']!['moves'] as List).first['label'], 'blunder');
+    // …and the sweep reached g2 rather than wedging on g1.
+    expect(db.writes, contains('g2'));
+  });
+
+  test('a game that grades to no labels at all is retired, not re-swept forever',
+      () async {
+    // The pathological tail: a one-move game whose only move ends in mate. That
+    // move has nothing to backfill from, so it never gets a label — and
+    // _needsGrading keys on "no move labelled", so without a guard the game reads
+    // as ungraded on EVERY sweep and grades forever. It genuinely cannot be
+    // labelled, so it is graded once and retired.
+    final oneMove = _ungraded('m')..['moveCount'] = 1;
+    (oneMove['moves'] as List).removeAt(1); // keep only e4; _afterE4 is terminal
+    final db = MemoryDb([oneMove]);
+    final practice = RecordingPractice();
+    final live = ValueNotifier(false);
+    final grader = BackgroundGrader(
+      _TerminalArbiter(terminalFen: _afterE4),
+      db,
+      _UnlabelledGrading(), // mirrors the real grader: no label without a child
+      practice,
+      live,
+      () => live.value,
+    );
+    addTearDown(grader.dispose);
+
+    grader.start();
+    await grader.pass;
+
+    // graded once (written), though nothing could be labelled
+    expect(db.writes, ['m']);
+    expect((db.games['m']!['moves'] as List).first['label'], isNull);
+
+    // a second sweep must NOT touch it again — retired, not re-graded forever
+    db.writes.clear();
+    live.value = true; // pause…
+    live.value = false; // …then resume, which kicks a fresh pass
+    await grader.pass;
+    expect(db.writes, isEmpty,
+        reason: 'an ungradeable game is retired for the session, not re-swept');
+  });
+}
+
+/// A [FakeArbiter] that answers one FEN as a terminal position — a COMPLETED
+/// search with no legal moves (empty list), the way the real arbiter reports a
+/// checkmate/stalemate — and everything else with the usual lines.
+class _TerminalArbiter extends FakeArbiter {
+  final String terminalFen;
+  _TerminalArbiter({required this.terminalFen}) : super(searchLines: kFakeLines);
+
+  @override
+  Future<List<EngineMove>?> search({
+    required String fen,
+    String? ownerFen,
+    required int depth,
+    required int multiPv,
+    int? movetimeMs,
+    List<List<String>> extraOptions = const [],
+    required SearchPriority priority,
+    void Function(List<EngineMove>)? onUpdate,
+  }) {
+    if (fen == terminalFen) {
+      return Future<List<EngineMove>?>.value(const <EngineMove>[]);
+    }
+    return super.search(
+      fen: fen,
+      ownerFen: ownerFen,
+      depth: depth,
+      multiPv: multiPv,
+      movetimeMs: movetimeMs,
+      extraOptions: extraOptions,
+      priority: priority,
+      onUpdate: onUpdate,
+    );
+  }
+}
+
+/// Grading that mirrors the REAL contract the fake elides: gradeMove assigns no
+/// label (only backfillGrade does), and backfillGrade over an EMPTY child (a
+/// terminal position) returns the grade unchanged — so a move into mate stays
+/// unlabelled, which is the whole reason the retire-guard exists.
+class _UnlabelledGrading extends SavingGrading {
+  @override
+  MoveGrade gradeMove({
+    required int ply,
+    required String fenBefore,
+    required String san,
+    required String uci,
+    required String color,
+    required List<EngineMove> preLines,
+  }) =>
+      MoveGrade({
+        'ply': ply,
+        'fenBefore': fenBefore,
+        'san': san,
+        'uci': uci,
+        'color': color,
+        'depth': 15,
+        'isBest': false,
+        'bestSan': 'd4',
+        'bestUci': 'd2d4',
+        'bestEval': 0.0,
+        'bestPv': const ['d2d4'],
+        'backfilled': false,
+        // deliberately no 'label' — as the real gradeMove leaves it
+      });
+
+  @override
+  MoveGrade backfillGrade(MoveGrade grade, List<EngineMove> childLines) =>
+      childLines.isEmpty
+          ? grade // nothing to backfill from: stays unlabelled
+          : MoveGrade({...grade.raw, 'label': 'best', 'backfilled': true});
 }
 
 /// A MemoryDb that fires [onFirstWrite] exactly once, on the first saveGame —

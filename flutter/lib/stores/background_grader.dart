@@ -215,7 +215,10 @@ class BackgroundGrader {
     // ONCE and reused as both — ~one search per ply, the ~15s/game #170
     // measured — rather than twice.
     var pre = await _search(rawMoves.first['fenBefore'] as String);
-    if (pre == null) return false;
+    // Abandoned (null), or — impossibly, since move 1 was played from it — a
+    // terminal first position (empty): either way there are no pre-move lines to
+    // grade the opening move against, so leave the game for a later sweep.
+    if (pre == null || pre.isEmpty) return false;
 
     final human = _humanColor(game);
     final graded = <Map<String, dynamic>>[];
@@ -225,6 +228,12 @@ class BackgroundGrader {
       if (_paused || _disposed) return false;
       final m = rawMoves[i];
       final child = await _search(m['fenAfter'] as String);
+      // null is an ABANDONED search (cancelled/stale/no engine): stop and let the
+      // next sweep restart this game from scratch. An EMPTY child is different —
+      // the move created a terminal position (mate/stalemate), nothing to search
+      // — and backfillGrade below returns the pre-move grade unchanged for it
+      // (that one move stays unlabelled, which _needsGrading tolerates). The game
+      // is still graded and written, rather than the sweep wedging on it forever.
       if (child == null) return false;
 
       final grade = _grading.backfillGrade(
@@ -256,8 +265,19 @@ class BackgroundGrader {
         ));
       }
 
-      pre = child; // chain into the next ply
+      // A terminal position has no lines to chain into, and no legal move can
+      // follow it; keep the last real pre so a (malformed) move after a mate can
+      // never hand gradeMove an empty list.
+      if (child.isNotEmpty) pre = child; // chain into the next ply
     }
+
+    // backfillGrade is what assigns a label, and it has none to assign for a
+    // move into a terminal position. A normal game still ends up labelled (only
+    // its last move is terminal), but a whole game that grades to zero labels —
+    // e.g. a one-move mate imported from a custom start — would read as ungraded
+    // to _needsGrading and be re-graded on every sweep. It genuinely cannot be
+    // labelled, so retire it rather than spin on it.
+    if (!graded.any((m) => m['label'] != null)) _ungradeable.add(id);
 
     final updated = <String, dynamic>{
       ...game,
@@ -281,10 +301,16 @@ class BackgroundGrader {
     return true;
   }
 
-  /// One background-priority search, or null when it must be abandoned: the
-  /// sweep was paused/disposed (its in-flight search cancelled), or the arbiter
-  /// went stale (a new game bumped the generation), or the engine never booted.
-  /// A completed search is trusted at whatever depth it reached — a
+  /// One background-priority search. Returns null when it must be ABANDONED —
+  /// the sweep was paused/disposed (its in-flight search cancelled), the arbiter
+  /// went stale (a new game bumped the generation), or the engine never booted —
+  /// and an EMPTY list when the search COMPLETED over a position with no legal
+  /// moves (the checkmate or stalemate the last move just created). The two must
+  /// not be conflated: null means "come back and retry this game", `[]` means
+  /// "there was genuinely nothing to search here" — and only the caller knows a
+  /// terminal position ENDS a game rather than interrupting it. Collapsing `[]`
+  /// into null wedged the sweep on every game that ended in board mate (#170
+  /// review). A completed search is trusted at whatever depth it reached — a
   /// [kBgGradeMovetimeMs] backstop caps the rare position rather than stalling.
   Future<List<EngineMove>?> _search(String fen) async {
     final lines = await _arbiter.search(
@@ -294,9 +320,11 @@ class BackgroundGrader {
       movetimeMs: kBgGradeMovetimeMs,
       priority: SearchPriority.backgroundGrade,
     );
+    // A cancelled search resolves with its partials, which may be empty — the
+    // pause/dispose flag (always set BEFORE cancelBackgroundGrades) is what marks
+    // it dead, not the empty list, so this check has to come first.
     if (_paused || _disposed) return null; // our in-flight search was cancelled
-    if (lines == null || lines.isEmpty) return null; // stale, or no engine
-    return lines;
+    return lines; // null → stale / no engine (abandon); [] → a terminal position
   }
 
   /// Fold a fresh [g] into the stored move, matching
