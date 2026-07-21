@@ -48,6 +48,22 @@ dependencies:
   path_provider: ^2.1.5
   ffi: ^2.1.4
   onnxruntime: ^1.4.1
+  # Getting data OUT (#138). No single package covers all three targets, so
+  # lib/stores/file_out.dart picks per platform and these are what it picks
+  # BETWEEN — see that file's header for why each branch is the one it is.
+  #   file_selector — reading a backup back in, on all three; and the native
+  #     save panel on macOS. flutter.dev's own package; openFile is the only
+  #     API implemented everywhere including web, where it is an <input>.
+  #   share_plus — iOS has no save panel, so the share sheet ("Save to
+  #     Files…") is the system's file-out. Not used on web: its web branch is
+  #     navigator.share, which Firefox desktop does not implement at all.
+  #   web — the web branch writes its own Blob + <a download>, the same two
+  #     lines the Svelte app used, because that is the only thing that works
+  #     in every browser. package:web rather than dart:html so the wasm
+  #     build keeps compiling.
+  file_selector: ^1.1.0
+  share_plus: ^13.2.1
+  web: ^1.1.1
 
 dev_dependencies:
   flutter_test:

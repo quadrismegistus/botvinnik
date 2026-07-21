@@ -5,6 +5,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../stores/backup.dart';
+import '../stores/files.dart';
 import '../stores/game_controller.dart';
 import '../stores/pgn_import.dart';
 import '../stores/review_controller.dart';
@@ -52,7 +54,12 @@ WinCrown? winCrown(Map<String, dynamic> g) {
 }
 
 class GamesListBody extends StatefulWidget {
-  const GamesListBody({super.key});
+  /// How a PGN leaves the app. Defaults to the real platform write; a test
+  /// hands in a recorder, which is what makes the filename and the exported
+  /// bytes assertable at all.
+  final TextFileSaver saveFile;
+
+  const GamesListBody({super.key, this.saveFile = saveTextFile});
 
   @override
   State<GamesListBody> createState() => _GamesListBodyState();
@@ -83,6 +90,52 @@ class _GamesListBodyState extends State<GamesListBody> {
           const Divider(height: 1, color: Color(0xFF2c2a26)),
       itemBuilder: (context, i) => _row(context, review, review.games[i]),
     );
+  }
+
+  /// Hand one game's PGN to the platform.
+  ///
+  /// The string is not built here — game_controller has written a full PGN
+  /// onto every record since the archive existed. All this decides is the
+  /// filename, and the names in it are the ones the row shows: an imported
+  /// game keeps the players its own headers named, and a played one is
+  /// You-vs-the-persona, with the persona's CURRENT name for the same reason
+  /// the row uses it rather than the stored id.
+  Future<void> _exportPgn(
+    BuildContext context,
+    Map<String, dynamic> g, {
+    required String pgn,
+    required bool imported,
+    required String personaName,
+    required bool youAreWhite,
+  }) async {
+    final filename = pgnFilename(
+      white: imported
+          ? g['white'] as String?
+          : (youAreWhite ? 'You' : personaName),
+      black: imported
+          ? g['black'] as String?
+          : (youAreWhite ? personaName : 'You'),
+      endedAt: g['endedAt'] as String? ?? '',
+    );
+    // Captured before the await — the row can be gone by the time a share
+    // sheet closes, and a dead context cannot find a messenger.
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    final origin = tapOrigin(context);
+    try {
+      final saved = await widget.saveFile(
+        filename: filename,
+        text: pgn,
+        mimeType: 'application/x-chess-pgn',
+        origin: origin,
+      );
+      // Silence on false is deliberate: the user cancelled, and telling them
+      // so is telling them what they just did.
+      if (saved) {
+        messenger?.showSnackBar(SnackBar(content: Text('Saved $filename')));
+      }
+    } catch (e) {
+      messenger?.showSnackBar(SnackBar(content: Text('Could not export: $e')));
+    }
   }
 
   Widget _row(BuildContext context, ReviewController review,
@@ -120,6 +173,11 @@ class _GamesListBodyState extends State<GamesListBody> {
     // meaningless — show the raw result and whoever the PGN said was playing.
     final imported = g[kImportedKey] == true;
     final crown = winCrown(g);
+    // Every archived record has carried a full PGN since the save path was
+    // written; until now it had no way out of the app (#138). Games saved by
+    // a build older than that field have none, and the button is simply not
+    // drawn for them rather than exporting an empty file.
+    final pgn = g['pgn'] as String?;
 
     return ListTile(
       dense: true,
@@ -174,6 +232,33 @@ class _GamesListBodyState extends State<GamesListBody> {
                         : Colors.white38)),
         ],
       ),
+      // The download button the Svelte archive had on every row, as a
+      // Material icon rather than that version's glyph. Sized
+      // and padded down to 40x40 rather than the stock 48: the whole row is
+      // itself a tap target that opens the review, so the two want a visible
+      // gap, and a taller trailing would grow the row it sits in.
+      trailing: pgn == null || pgn.isEmpty
+          ? null
+          // A Builder so the share sheet's popover anchors to the BUTTON
+          // rather than to whatever render object sits above the row.
+          : Builder(
+              builder: (btnContext) => IconButton(
+                icon: const Icon(Icons.file_download_outlined, size: 19),
+                color: Colors.white38,
+                padding: EdgeInsets.zero,
+                constraints:
+                    const BoxConstraints.tightFor(width: 40, height: 40),
+                tooltip: 'Export PGN',
+                onPressed: () => _exportPgn(
+                  btnContext,
+                  g,
+                  pgn: pgn,
+                  imported: imported,
+                  personaName: personaId,
+                  youAreWhite: youAreWhite,
+                ),
+              ),
+            ),
       // opens in place, inside this tab — pushing a route would cover the
       // shell and take the bottom tabs with it
       onTap: () => review.open(g),
