@@ -186,8 +186,15 @@ class _FamilyPickerState extends State<_FamilyPicker> {
             icon: const Icon(Icons.arrow_back, size: 20),
             onPressed: () => setState(() => _sub = null),
           ),
-          Text(title,
-              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+          // Expanded + ellipsis: a custom engine's name is free text with no
+          // length limit, and a long one otherwise overflows the sheet width.
+          Expanded(
+            child: Text(title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                    fontSize: 16, fontWeight: FontWeight.w700)),
+          ),
         ],
       );
 

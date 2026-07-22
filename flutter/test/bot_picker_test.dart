@@ -141,4 +141,24 @@ void main() {
     expect(engines.byPersonaId('custom-v')!.limitElo, isTrue,
         reason: 'the cap was persisted');
   });
+
+  testWidgets('a long custom engine name does not overflow the cap page',
+      (tester) async {
+    tester.view.physicalSize = const Size(400, 800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+    final db = MemoryDb([]);
+    final engines = await _loaded(db);
+    await engines.upsert(const CustomEngine(
+        id: 'v',
+        name: 'Stockfish 17 Development Build NNUE big-net long name',
+        path: '/v',
+        elo: 3000));
+    await _open(tester, engines: engines);
+
+    await tester.tap(find.textContaining('Stockfish 17 Development'));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull,
+        reason: 'the cap-page back bar must ellipsize a long name, not overflow');
+  });
 }

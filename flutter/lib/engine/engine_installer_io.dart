@@ -88,11 +88,18 @@ class EngineInstaller {
     part.renameSync(dest);
 
     if (Platform.isMacOS || Platform.isLinux) {
-      await Process.run('chmod', ['+x', dest]);
+      // Checked: a chmod that failed would leave a non-executable binary the
+      // caller would then mark "Installed" while it silently stands in. Better
+      // to fail the install and surface it.
+      final chmod = await Process.run('chmod', ['+x', dest]);
+      if (chmod.exitCode != 0) {
+        throw StateError('could not make the engine executable: ${chmod.stderr}');
+      }
     }
     if (Platform.isMacOS) {
       // Harmless if the attribute is absent; the point is that when it is
-      // present, Gatekeeper would otherwise refuse to launch the engine.
+      // present, Gatekeeper would otherwise refuse to launch the engine. Not
+      // checked for that reason.
       await Process.run('xattr', ['-d', 'com.apple.quarantine', dest]);
     }
     return dest;

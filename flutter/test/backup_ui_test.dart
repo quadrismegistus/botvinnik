@@ -29,7 +29,6 @@ import 'package:provider/provider.dart';
 import 'package:botvinnik_mobile/brain/practice_api.dart';
 import 'package:botvinnik_mobile/brain/types.dart';
 import 'package:botvinnik_mobile/stores/backup.dart';
-import 'package:botvinnik_mobile/stores/custom_engine.dart';
 import 'package:botvinnik_mobile/stores/game_controller.dart';
 import 'package:botvinnik_mobile/stores/pgn_import.dart';
 import 'package:botvinnik_mobile/stores/practice_controller.dart';
@@ -184,10 +183,6 @@ Future<({PracticeController practice, ReviewController review, MemoryDb db})>
       ChangeNotifierProvider<SettingsStore>.value(value: settings),
       ChangeNotifierProvider<PracticeController>.value(value: practice),
       ChangeNotifierProvider<ReviewController>.value(value: review),
-      // The Custom-engines section (desktop only) reads this; on the desktop
-      // test host it renders, so it must be provided like any other dependency.
-      ChangeNotifierProvider<CustomEngineStore>.value(
-          value: CustomEngineStore(store)),
     ],
     child: MaterialApp(
       home: Scaffold(
