@@ -1,40 +1,43 @@
-// The "Pick a bot" modal, family-first.
+// The "Pick a bot" modal, family-first, three shapes of second page.
 //
-// Page one is a short list of opponents with a line of description each:
-//  - families that are a smooth ELO ladder (Squarefish/Stockfish/Horizon —
-//    whose persona name is literally "<family> <elo>") collapse to ONE row that
-//    opens a strength slider;
-//  - families that are DISTINCT opponents rather than a dial (Maia's nets,
-//    Retro's 1948–78 engines), plus single bots and each custom engine, are
-//    listed directly — you pick the one you want.
+// Page one lists opponents with a line of description each. Tapping one goes to:
+//  - a STRENGTH SLIDER, for a family that is a smooth ELO ladder — Squarefish,
+//    Stockfish, Horizon, and Maia (its nets, ordered by rating);
+//  - a SECOND-PAGE LIST, for a family whose members are distinct opponents, not
+//    a dial — Retro's 1948-78 engines;
+//  - a CAP SLIDER, for a custom engine (Viridithas): send UCI_Elo to dial it
+//    down; an engine that does not support it simply ignores it and plays full.
+// A single bot with nothing to choose is picked straight from page one.
 //
-// Every choice resolves to the SAME persona id the roster always used, so
-// calibration, the per-bot W-L-D records (#142) and crowns are untouched. The
-// flat list with those records is still one tap away via "Browse all".
+// Every path returns the roster's own persona id, so calibration, the per-bot
+// W-L-D records (#142) and crowns are untouched. "Browse all" drops to the flat
+// roster (with those records), unchanged.
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../brain/types.dart';
+import '../stores/custom_engine.dart';
 import '../stores/game_controller.dart';
 import 'roster_picker.dart' show pickBot;
 
-/// Families that are a set of distinct opponents, never a strength slider.
-const _variant = {'maia', 'retro'};
+/// Families whose members are distinct opponents shown on a second page, never
+/// dialled — Maia is deliberately NOT here now (it is an ELO slider).
+const _listFamilies = {'retro'};
 const _accent = Color(0xFF81B64C);
 
-/// Short, family-level copy for the slider families; a listed member uses its
-/// own blurb instead.
+/// Short, family-level copy for the slider families; a listed member or a
+/// custom engine uses its own blurb.
 const _familyDesc = <String, String>{
   'squarefish':
       'Sound but tactically fallible — set the rating and it misses more, or less.',
   'stockfish':
       'Stockfish with the strength limiter on — cold and accurate at whatever rating you pick.',
   'horizon': 'A shallow-searching engine — a couple of strengths.',
+  'maia': 'Neural nets that move like real humans of a given rating — slide to pick one.',
   'dala': 'A neural net dialled to a rating band.',
 };
 
-/// Pick an opponent, family-first. Returns the chosen persona id, or null.
 Future<String?> pickBotFamily(BuildContext context, {String? current}) {
   final game = context.read<GameController>();
   return showModalBottomSheet<String>(
@@ -44,6 +47,8 @@ Future<String?> pickBotFamily(BuildContext context, {String? current}) {
     builder: (_) => _FamilyPicker(game: game, current: current),
   );
 }
+
+enum _SubKind { slider, list, custom }
 
 class _FamilyPicker extends StatefulWidget {
   final GameController game;
@@ -55,20 +60,31 @@ class _FamilyPicker extends StatefulWidget {
 }
 
 class _FamilyPickerState extends State<_FamilyPicker> {
-  /// Null = the list; a family key = its strength sub-page.
-  String? _sliderFamily;
+  /// Null = the list. Otherwise the second page: (kind, family-or-personaId).
+  (_SubKind, String)? _sub;
+
+  // Custom-engine cap page state, seeded when it is opened.
+  bool _capOn = false;
+  int _capElo = 1500;
 
   @override
   Widget build(BuildContext context) {
+    final sub = _sub;
     return SafeArea(
       child: Padding(
         padding: const EdgeInsets.fromLTRB(8, 8, 8, 16),
-        child: _sliderFamily == null ? _list() : _slider(_sliderFamily!),
+        child: sub == null
+            ? _list()
+            : switch (sub.$1) {
+                _SubKind.slider => _sliderPage(sub.$2),
+                _SubKind.list => _listPage(sub.$2),
+                _SubKind.custom => _customPage(sub.$2),
+              },
       ),
     );
   }
 
-  // ---- page one: the opponent list ----------------------------------------
+  // ---- page one ------------------------------------------------------------
 
   Widget _list() {
     final entries = _entries();
@@ -85,26 +101,7 @@ class _FamilyPickerState extends State<_FamilyPicker> {
           child: ListView(
             shrinkWrap: true,
             children: [
-              for (final e in entries)
-                if (e.members != null)
-                  _row(
-                    icon: _familyIcon(e.family),
-                    color: _familyColor(e.family),
-                    title: _familyLabel(e.family),
-                    subtitle: _familyDesc[e.family] ??
-                        e.members![e.members!.length ~/ 2].blurb,
-                    trailing: const Icon(Icons.chevron_right,
-                        size: 20, color: Colors.white38),
-                    onTap: () => setState(() => _sliderFamily = e.family),
-                  )
-                else
-                  _row(
-                    icon: _familyIcon(e.persona!.family),
-                    color: _familyColor(e.persona!.family),
-                    title: '${e.persona!.name}  ·  ${e.persona!.elo}',
-                    subtitle: e.persona!.blurb,
-                    onTap: () => Navigator.pop(context, e.persona!.id),
-                  ),
+              for (final e in entries) _entryRow(e),
               const Divider(height: 12, color: Color(0xFF3a3733)),
               ListTile(
                 dense: true,
@@ -121,22 +118,59 @@ class _FamilyPickerState extends State<_FamilyPicker> {
     );
   }
 
+  Widget _entryRow(_Entry e) {
+    final chevron =
+        const Icon(Icons.chevron_right, size: 20, color: Colors.white38);
+    switch (e.kind) {
+      case _Kind.slider:
+        return _row(e.family,
+            title: _familyLabel(e.family),
+            subtitle: _familyDesc[e.family] ??
+                e.members[e.members.length ~/ 2].blurb,
+            trailing: chevron,
+            onTap: () => setState(() => _sub = (_SubKind.slider, e.family)));
+      case _Kind.list:
+        return _row(e.family,
+            title: _familyLabel(e.family),
+            subtitle: _familyDesc[e.family] ?? e.members.first.blurb,
+            trailing: chevron,
+            onTap: () => setState(() => _sub = (_SubKind.list, e.family)));
+      case _Kind.custom:
+        final p = e.persona!;
+        return _row(p.family,
+            title: p.name,
+            subtitle: p.blurb,
+            trailing: chevron,
+            onTap: () {
+              final cfg = context.read<CustomEngineStore>().byPersonaId(p.id);
+              setState(() {
+                _capOn = cfg?.limitElo ?? false;
+                _capElo = cfg?.elo ?? p.elo;
+                _sub = (_SubKind.custom, p.id);
+              });
+            });
+      case _Kind.direct:
+        final p = e.persona!;
+        return _row(p.family,
+            title: '${p.name}  ·  ${p.elo}',
+            subtitle: p.blurb,
+            onTap: () => Navigator.pop(context, p.id));
+    }
+  }
+
   Future<void> _browseAll() async {
     final id = await pickBot(context, current: widget.current);
     if (id != null && mounted) Navigator.pop(context, id);
   }
 
-  Widget _row({
-    required IconData icon,
-    required Color color,
-    required String title,
-    required String subtitle,
-    Widget? trailing,
-    required VoidCallback onTap,
-  }) =>
+  Widget _row(String family,
+          {required String title,
+          required String subtitle,
+          Widget? trailing,
+          required VoidCallback onTap}) =>
       ListTile(
         dense: true,
-        leading: Icon(icon, size: 22, color: color),
+        leading: Icon(_familyIcon(family), size: 22, color: _familyColor(family)),
         title: Text(title, style: const TextStyle(fontSize: 14)),
         subtitle: Text(subtitle,
             maxLines: 2,
@@ -146,11 +180,21 @@ class _FamilyPickerState extends State<_FamilyPicker> {
         onTap: onTap,
       );
 
-  // ---- page two: the strength slider --------------------------------------
+  Widget _backBar(String title) => Row(
+        children: [
+          IconButton(
+            icon: const Icon(Icons.arrow_back, size: 20),
+            onPressed: () => setState(() => _sub = null),
+          ),
+          Text(title,
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+        ],
+      );
 
-  Widget _slider(String family) {
+  // ---- second page: strength slider (ELO families) -------------------------
+
+  Widget _sliderPage(String family) {
     final members = _membersOf(family);
-    // Default to the current pick if it is in this family, else the median.
     var i = members.indexWhere((m) => m.id == widget.current);
     if (i < 0) i = members.length ~/ 2;
 
@@ -161,14 +205,7 @@ class _FamilyPickerState extends State<_FamilyPicker> {
         children: [
           Row(
             children: [
-              IconButton(
-                icon: const Icon(Icons.arrow_back, size: 20),
-                onPressed: () => setState(() => _sliderFamily = null),
-              ),
-              Text(_familyLabel(family),
-                  style: const TextStyle(
-                      fontSize: 16, fontWeight: FontWeight.w700)),
-              const Spacer(),
+              Expanded(child: _backBar(_familyLabel(family))),
               Text('${members[i].elo}',
                   style: const TextStyle(
                       fontSize: 20,
@@ -178,7 +215,7 @@ class _FamilyPickerState extends State<_FamilyPicker> {
             ],
           ),
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 12),
             child: Text(members[i].blurb,
                 style: const TextStyle(fontSize: 12, color: Colors.white54)),
           ),
@@ -191,23 +228,108 @@ class _FamilyPickerState extends State<_FamilyPicker> {
             activeColor: _accent,
             onChanged: (v) => setInner(() => i = v.round()),
           ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 4, 12, 4),
-            child: FilledButton(
-              onPressed: () => Navigator.pop(context, members[i].id),
-              style: FilledButton.styleFrom(
-                backgroundColor: _accent,
-                foregroundColor: const Color(0xFF161512),
-                padding: const EdgeInsets.symmetric(vertical: 12),
-              ),
-              child: Text('Play ${members[i].name}',
-                  style: const TextStyle(fontWeight: FontWeight.w700)),
-            ),
-          ),
+          _playButton(members[i].name, () => Navigator.pop(context, members[i].id)),
         ],
       ),
     );
   }
+
+  // ---- second page: a list of distinct members (Retro) ---------------------
+
+  Widget _listPage(String family) {
+    final members = _membersOf(family);
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _backBar(_familyLabel(family)),
+        Flexible(
+          child: ListView(
+            shrinkWrap: true,
+            children: [
+              for (final m in members)
+                _row(family,
+                    title: '${m.name}  ·  ${m.elo}',
+                    subtitle: m.blurb,
+                    onTap: () => Navigator.pop(context, m.id)),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ---- second page: a custom engine's UCI_Elo cap --------------------------
+
+  Widget _customPage(String personaId) {
+    final store = context.read<CustomEngineStore>();
+    final cfg = store.byPersonaId(personaId);
+    if (cfg == null) return _list(); // removed under us
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _backBar(cfg.name),
+        SwitchListTile(
+          dense: true,
+          title: const Text('Cap strength', style: TextStyle(fontSize: 14)),
+          subtitle: const Text(
+            'Sends UCI_Elo. An engine that supports it plays down to the rating; '
+            'one that does not just plays full strength.',
+            style: TextStyle(fontSize: 11, color: Colors.white38),
+          ),
+          activeThumbColor: _accent,
+          value: _capOn,
+          onChanged: (v) => setState(() => _capOn = v),
+        ),
+        if (_capOn)
+          Row(
+            children: [
+              Expanded(
+                child: Slider(
+                  value: _capElo.toDouble().clamp(600, 3200),
+                  min: 600,
+                  max: 3200,
+                  divisions: 26,
+                  label: '$_capElo',
+                  activeColor: _accent,
+                  onChanged: (v) => setState(() => _capElo = v.round()),
+                ),
+              ),
+              SizedBox(
+                width: 52,
+                child: Text('$_capElo',
+                    textAlign: TextAlign.right,
+                    style: const TextStyle(
+                        fontSize: 14,
+                        color: _accent,
+                        fontFeatures: [FontFeature.tabularFigures()])),
+              ),
+              const SizedBox(width: 12),
+            ],
+          ),
+        _playButton(cfg.name, () async {
+          await store.upsert(cfg.copyWith(limitElo: _capOn, elo: _capElo));
+          if (mounted) Navigator.pop(context, personaId);
+        }),
+      ],
+    );
+  }
+
+  Widget _playButton(String name, VoidCallback onTap) => Padding(
+        padding: const EdgeInsets.fromLTRB(12, 6, 12, 4),
+        child: FilledButton(
+          onPressed: onTap,
+          style: FilledButton.styleFrom(
+            backgroundColor: _accent,
+            foregroundColor: const Color(0xFF161512),
+            padding: const EdgeInsets.symmetric(vertical: 12),
+          ),
+          child: Text('Play $name',
+              style: const TextStyle(fontWeight: FontWeight.w700)),
+        ),
+      );
 
   // ---- grouping ------------------------------------------------------------
 
@@ -219,17 +341,20 @@ class _FamilyPickerState extends State<_FamilyPicker> {
     final out = <_Entry>[];
     byFamily.forEach((family, members) {
       members.sort((a, b) => a.elo.compareTo(b.elo));
-      // A slider only for a real ELO ladder: several members, one engine, not a
-      // set of distinct opponents.
-      if (members.length >= 2 && !_variant.contains(family) && family != 'custom') {
-        out.add(_Entry.family(family, members));
+      if (family == 'custom') {
+        for (final p in members) {
+          out.add(_Entry(_Kind.custom, family, const [], p));
+        }
+      } else if (_listFamilies.contains(family)) {
+        out.add(_Entry(_Kind.list, family, members, null));
+      } else if (members.length >= 2) {
+        out.add(_Entry(_Kind.slider, family, members, null));
       } else {
         for (final p in members) {
-          out.add(_Entry.persona(p));
+          out.add(_Entry(_Kind.direct, family, const [], p));
         }
       }
     });
-    // Gentlest first, like the roster.
     out.sort((a, b) => a.sortElo.compareTo(b.sortElo));
     return out;
   }
@@ -243,27 +368,18 @@ class _FamilyPickerState extends State<_FamilyPicker> {
       f.isEmpty ? f : f[0].toUpperCase() + f.substring(1);
 }
 
+enum _Kind { slider, list, custom, direct }
+
 class _Entry {
+  final _Kind kind;
   final String family;
+  final List<Persona> members; // slider / list
+  final Persona? persona; // custom / direct
+  const _Entry(this.kind, this.family, this.members, this.persona);
 
-  /// Non-null for a slider family (its members); null for a direct pick.
-  final List<Persona>? members;
-
-  /// Non-null for a direct pick.
-  final Persona? persona;
-
-  _Entry.family(this.family, this.members) : persona = null;
-  _Entry.persona(Persona p)
-      : persona = p,
-        family = p.family,
-        members = null;
-
-  /// Sort key: a family by its median strength, a direct pick by its own.
-  int get sortElo =>
-      members != null ? members![members!.length ~/ 2].elo : persona!.elo;
+  int get sortElo => persona?.elo ?? members[members.length ~/ 2].elo;
 }
 
-// The family's glyph + colour, matching the roster headings.
 IconData _familyIcon(String family) => switch (family) {
       'squarefish' => Icons.grid_view,
       'stockfish' => Icons.diamond_outlined,
