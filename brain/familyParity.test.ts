@@ -25,7 +25,7 @@ const realFamilies = new Set(PERSONAS.map((p) => p.family));
 /** Families that exist only at RUNTIME on the Dart side (user-added engines,
  * #183), never in the brain PERSONAS. They still need a `_familyMark` glyph,
  * but by definition no persona here carries them. */
-const dynamicFamilies = new Set(['custom', 'rodent']);
+const dynamicFamilies = new Set(['custom', 'rodent', 'brainlearn']);
 
 /** Single-quoted strings inside a named Dart block, brace-matched. */
 function dartStringsIn(source: string, marker: string): string[] {

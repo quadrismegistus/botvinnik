@@ -23,6 +23,14 @@ class EngineInstaller {
   }) async =>
       throw UnsupportedError('engine download is desktop only');
 
+  static Future<void> installDataFile(
+    String catalogId,
+    String name,
+    EngineBuild build, {
+    void Function(int received, int total)? onProgress,
+  }) async =>
+      throw UnsupportedError('engine download is desktop only');
+
   static Future<void> writeStyleFiles(
           String catalogId, Map<String, List<int>> files) async =>
       throw UnsupportedError('engine download is desktop only');

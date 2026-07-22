@@ -42,9 +42,10 @@ final _playableFamilies = {
   if (GarboEngine.supported) 'garbo',
   if (MaiaEngine.supported) 'maia',
   if (CustomEngineRunner.supported) 'custom',
-  // Rodent's styles are a `custom`-store family too, offered where a process
-  // engine can run.
+  // Styled engines (Rodent, BrainLearn) are `custom`-store families too,
+  // offered where a process engine can run.
   if (CustomEngineRunner.supported) 'rodent',
+  if (CustomEngineRunner.supported) 'brainlearn',
 };
 
 /// One family's personas, as a group renders: members ascending by elo, and
@@ -460,6 +461,8 @@ class _RosterSheetState extends State<RosterSheet> {
       'custom' => (Icons.terminal, const Color(0xFF7d8fa0)),
       // masks — one engine, many playing characters
       'rodent' => (Icons.theater_comedy_outlined, const Color(0xFFc98a52)),
+      // a search tree — its two modes are alpha-beta vs Monte-Carlo
+      'brainlearn' => (Icons.account_tree_outlined, const Color(0xFF6a8caf)),
       _ => (Icons.circle, Colors.white38),
     };
     return CircleAvatar(

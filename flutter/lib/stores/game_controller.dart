@@ -1167,9 +1167,9 @@ class GameController extends ChangeNotifier {
         final uci = await runner.move(fen,
             elo: cfg.limitElo ? cfg.elo : null,
             movetimeMs: cfg.movetimeMs,
-            // Which style, for an engine that loads them (Rodent). Null for a
-            // plain single-style engine.
-            personalityFile: _customEngines?.personalityFor(p.id));
+            // The style option, for an engine that has styles (Rodent's
+            // PersonalityFile, BrainLearn's MCTS). Null for a plain engine.
+            setoption: _customEngines?.styleOptionFor(p.id));
         if (uci != null) {
           return (
             uci: _bot.avoidRepetition(uci, _fenHistory(), currentLines),
