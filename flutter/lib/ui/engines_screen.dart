@@ -102,15 +102,42 @@ class _EnginesScreenState extends State<EnginesScreen> {
     final build = entry.buildFor(EngineInstaller.platformKey);
     if (build == null) return;
     final messenger = ScaffoldMessenger.of(context);
-    setState(() => _downloading[entry.id] = (0, build.sizeBytes));
+    // One progress bar over the binary plus any downloaded data files.
+    final grand = build.sizeBytes +
+        entry.dataFiles.values.fold<int>(0, (s, b) => s + b.sizeBytes);
+    var done = 0;
+    void progress(int r, int t) {
+      if (mounted) setState(() => _downloading[entry.id] = (done + r, grand));
+    }
+
+    setState(() => _downloading[entry.id] = (0, grand));
     try {
       final path = await EngineInstaller.install(
         entry.id,
         build,
-        onProgress: (r, t) {
-          if (mounted) setState(() => _downloading[entry.id] = (r, t));
-        },
+        ownDir: entry.ownDir,
+        onProgress: progress,
       );
+      done += build.sizeBytes;
+      // Bundled style files (Rodent) laid beside the binary. basic.ini marks the
+      // home dir; the rest are the styles the catalog offers. Only file-backed
+      // styles have files — BrainLearn's MCTS toggle has none.
+      final styleFiles =
+          entry.personalities.map((p) => p.file).whereType<String>().toList();
+      if (styleFiles.isNotEmpty) {
+        final files = <String, List<int>>{};
+        for (final n in ['basic.ini', ...styleFiles]) {
+          final d = await rootBundle.load('assets/${entry.id}/personalities/$n');
+          files[n] = d.buffer.asUint8List(d.offsetInBytes, d.lengthInBytes);
+        }
+        await EngineInstaller.writeStyleFiles(entry.id, files);
+      }
+      // Downloaded data files (Arasan's net) beside the binary.
+      for (final data in entry.dataFiles.entries) {
+        await EngineInstaller.installDataFile(entry.id, data.key, data.value,
+            onProgress: progress);
+        done += data.value.sizeBytes;
+      }
       await store.upsert(CustomEngine(
         id: entry.id,
         name: entry.name,
@@ -129,7 +156,7 @@ class _EnginesScreenState extends State<EnginesScreen> {
   Future<void> _remove(
       CustomEngineStore store, EngineCatalogEntry entry) async {
     await store.remove(entry.id);
-    await EngineInstaller.uninstall(entry.id);
+    await EngineInstaller.uninstall(entry.id, ownDir: entry.ownDir);
   }
 
   Future<void> _addOrEdit(

@@ -71,6 +71,8 @@ class _FamilyPickerState extends State<_FamilyPicker> {
   // Custom-engine cap page state, seeded when it is opened.
   bool _capOn = false;
   int _capElo = 1500;
+  // Which family list the cap page was opened from, so Back returns there.
+  String _capBackFamily = 'custom';
 
   @override
   Widget build(BuildContext context) {
@@ -84,7 +86,7 @@ class _FamilyPickerState extends State<_FamilyPicker> {
                 _SubKind.slider => _sliderPage(sub.$2),
                 _SubKind.list => _listPage(sub.$2),
                 _SubKind.custom => _customPage(sub.$2),
-                _SubKind.moreEngines => _moreEnginesPage(),
+                _SubKind.moreEngines => _engineListPage(sub.$2),
               },
       ),
     );
@@ -142,14 +144,20 @@ class _FamilyPickerState extends State<_FamilyPicker> {
             trailing: chevron,
             onTap: () => setState(() => _sub = (_SubKind.list, e.family)));
       case _Kind.moreEngines:
-        // All downloaded / hand-added engines behind one row, opened as a
-        // second-page list rather than one loose row each.
+        // A family whose engines share a second-page list rather than one loose
+        // row each: the downloaded/hand-added engines, and a styled engine's
+        // styles (Rodent, BrainLearn).
+        final style = catalogEntryById(e.family);
+        final isStyle = style != null && style.personalities.isNotEmpty;
         return _row(e.family,
-            title: 'More engines',
-            subtitle: 'Downloaded and custom UCI engines — '
-                '${e.members.length} available.',
+            title: isStyle ? style.name : 'More engines',
+            subtitle: isStyle
+                ? 'One engine, ${e.members.length} playing styles — each dialable.'
+                : 'Downloaded and custom UCI engines — '
+                    '${e.members.length} available.',
             trailing: chevron,
-            onTap: () => setState(() => _sub = (_SubKind.moreEngines, '')));
+            onTap: () =>
+                setState(() => _sub = (_SubKind.moreEngines, e.family)));
       case _Kind.direct:
         final p = e.persona!;
         return _row(p.family,
@@ -267,25 +275,28 @@ class _FamilyPickerState extends State<_FamilyPicker> {
     );
   }
 
-  // ---- second page: the downloaded / custom engines, weakest-first ---------
+  // ---- second page: a family's engines/styles, weakest reachable first ------
 
-  Widget _moreEnginesPage() {
+  Widget _engineListPage(String family) {
     // Lowest reachable rating first: an engine that dials down (Velvet) floats
-    // above the full-strength crushers, so what a human can actually play sits
-    // at the top.
-    final engines = _membersOf('custom')
+    // above the full-strength crushers. Rodent's styles all share one dial, so
+    // this keeps them in the catalog's curated order (famous players first).
+    final members = _membersOf(family)
       ..sort((a, b) => _lowestElo(a).compareTo(_lowestElo(b)));
+    final style = catalogEntryById(family);
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _backBar('More engines'),
+        _backBar(style != null && style.personalities.isNotEmpty
+            ? style.name
+            : 'More engines'),
         Flexible(
           child: ListView(
             shrinkWrap: true,
             children: [
-              for (final p in engines)
-                _row('custom',
+              for (final p in members)
+                _row(family,
                     title: p.name,
                     subtitle: _engineStrengthLine(p),
                     trailing: const Icon(Icons.chevron_right,
@@ -305,6 +316,7 @@ class _FamilyPickerState extends State<_FamilyPicker> {
     final entry = catalogEntryById(cfg?.id);
     final seed = cfg?.elo ?? p.elo;
     setState(() {
+      _capBackFamily = p.family; // Back returns to the list it came from.
       _capOn = cfg?.limitElo ?? false;
       _capElo = entry != null && entry.capsElo
           ? seed.clamp(entry.eloMin, entry.eloMax).toInt()
@@ -320,8 +332,10 @@ class _FamilyPickerState extends State<_FamilyPicker> {
     return entry != null && entry.capsElo ? entry.eloMin : p.elo;
   }
 
-  /// The one-line strength summary under an engine on the More-engines list.
+  /// The one-line summary under a list row: a style persona shows its character,
+  /// an ordinary engine its strength.
   String _engineStrengthLine(Persona p) {
+    if (styleFamilies.contains(p.family)) return p.blurb; // the style
     final entry = catalogEntryById(_engineId(p));
     if (entry == null) return p.blurb; // hand-added: capability unknown
     return entry.capsElo
@@ -329,11 +343,14 @@ class _FamilyPickerState extends State<_FamilyPicker> {
         : 'Full strength · ${p.elo}';
   }
 
-  /// The catalog id behind a custom persona (`custom-velvet` → `velvet`).
+  /// The catalog id behind a custom persona: `custom-velvet` → `velvet`, and a
+  /// Rodent style `custom-rodent~tal` → `rodent` (styles share the entry).
   static String _engineId(Persona p) =>
-      p.id.startsWith(CustomEngine.personaPrefix)
-          ? p.id.substring(CustomEngine.personaPrefix.length)
-          : p.id;
+      (p.id.startsWith(CustomEngine.personaPrefix)
+              ? p.id.substring(CustomEngine.personaPrefix.length)
+              : p.id)
+          .split('~')
+          .first;
 
   // ---- second page: a custom engine's UCI_Elo cap --------------------------
 
@@ -341,6 +358,18 @@ class _FamilyPickerState extends State<_FamilyPicker> {
     final store = context.read<CustomEngineStore>();
     final cfg = store.byPersonaId(personaId);
     if (cfg == null) return _list(); // removed under us
+
+    // The persona's own name — a Rodent style is "Tal", not "Rodent IV"; a plain
+    // custom engine's persona name equals the engine name.
+    var name = cfg.name;
+    for (final p in widget.game.rosterPersonas) {
+      if (p.id == personaId) {
+        name = p.name;
+        break;
+      }
+    }
+    void back() =>
+        setState(() => _sub = (_SubKind.moreEngines, _capBackFamily));
 
     final entry = catalogEntryById(cfg.id);
 
@@ -352,17 +381,16 @@ class _FamilyPickerState extends State<_FamilyPicker> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _backBar(cfg.name,
-              onBack: () => setState(() => _sub = (_SubKind.moreEngines, ''))),
+          _backBar(name, onBack: back),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
             child: Text(
-              '${cfg.name} has no rating limiter, so it always plays at full '
+              '$name has no rating limiter, so it always plays at full '
               'strength (about ${cfg.elo}). There is nothing to dial down.',
               style: const TextStyle(fontSize: 12.5, color: Colors.white54),
             ),
           ),
-          _playButton(cfg.name, () async {
+          _playButton(name, () async {
             if (cfg.limitElo) await store.upsert(cfg.copyWith(limitElo: false));
             if (mounted) Navigator.pop(context, personaId);
           }),
@@ -375,7 +403,7 @@ class _FamilyPickerState extends State<_FamilyPicker> {
     final caps = entry != null && entry.capsElo;
     final (capMin, capMax) = caps ? (entry.eloMin, entry.eloMax) : (600, 3200);
     final capSubtitle = caps
-        ? 'Dials ${cfg.name} between $capMin and $capMax via UCI_Elo.'
+        ? 'Dials $name between $capMin and $capMax via UCI_Elo.'
         : 'Sends UCI_Elo. Works only if this engine supports it — full strength '
             'otherwise.';
 
@@ -383,7 +411,7 @@ class _FamilyPickerState extends State<_FamilyPicker> {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _backBar(cfg.name),
+        _backBar(name, onBack: back),
         SwitchListTile(
           dense: true,
           title: const Text('Cap strength', style: TextStyle(fontSize: 14)),
@@ -423,7 +451,7 @@ class _FamilyPickerState extends State<_FamilyPicker> {
               const SizedBox(width: 12),
             ],
           ),
-        _playButton(cfg.name, () async {
+        _playButton(name, () async {
           // Only write the rating when the cap is ON — otherwise toggling the
           // cap off would rewrite the saved rating with a slider value that was
           // never applied, so the Engines screen would show a strength the
@@ -460,8 +488,9 @@ class _FamilyPickerState extends State<_FamilyPicker> {
     final out = <_Entry>[];
     byFamily.forEach((family, members) {
       members.sort((a, b) => a.elo.compareTo(b.elo));
-      if (family == 'custom') {
-        // One "More engines" row; the engines themselves live on its sub-page.
+      if (family == 'custom' || styleFamilies.contains(family)) {
+        // One row → a sub-page list: "More engines" for downloaded/custom
+        // engines, or a styled engine (Rodent, BrainLearn) for its styles.
         out.add(_Entry(_Kind.moreEngines, family, members, null));
       } else if (_listFamilies.contains(family)) {
         out.add(_Entry(_Kind.list, family, members, null));
@@ -506,6 +535,8 @@ IconData _familyIcon(String family) => switch (family) {
       'garbo' => Icons.data_object,
       'maia' => Icons.psychology_outlined,
       'custom' => Icons.terminal,
+      'rodent' => Icons.theater_comedy_outlined,
+      'brainlearn' => Icons.account_tree_outlined,
       _ => Icons.smart_toy_outlined,
     };
 
@@ -517,5 +548,7 @@ Color _familyColor(String family) => switch (family) {
       'garbo' => const Color(0xFF6f9e8a),
       'maia' => const Color(0xFFb06f8a),
       'custom' => const Color(0xFF7d8fa0),
+      'rodent' => const Color(0xFFc98a52),
+      'brainlearn' => const Color(0xFF6a8caf),
       _ => Colors.white38,
     };

@@ -6,6 +6,8 @@
 //
 //   cd flutter && flutter test test/engine_catalog_test.dart
 
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
@@ -82,8 +84,8 @@ void main() {
   test('capsElo is verified per engine: only Velvet dials, over a real range',
       () {
     // Ground truth from each engine's source (a wrong value ships a lying UI):
-    // Velvet and Patricia implement UCI_LimitStrength/UCI_Elo; the rest do not.
-    const cappers = {'velvet', 'patricia'};
+    // these implement UCI_LimitStrength/UCI_Elo.
+    const cappers = {'velvet', 'patricia', 'rodent', 'arasan', 'brainlearn'};
     for (final e in kEngineCatalog) {
       if (cappers.contains(e.id)) {
         expect(e.capsElo, isTrue, reason: '${e.id} should cap');
@@ -99,6 +101,51 @@ void main() {
     expect((velvet.eloMin, velvet.eloMax), (1225, 3000));
     final patricia = kEngineCatalog.firstWhere((e) => e.id == 'patricia');
     expect((patricia.eloMin, patricia.eloMax), (500, 3001));
+    final rodent = kEngineCatalog.firstWhere((e) => e.id == 'rodent');
+    expect((rodent.eloMin, rodent.eloMax), (800, 2800));
+    final arasan = kEngineCatalog.firstWhere((e) => e.id == 'arasan');
+    expect((arasan.eloMin, arasan.eloMax), (1000, 3450));
+    final bl = kEngineCatalog.firstWhere((e) => e.id == 'brainlearn');
+    expect((bl.eloMin, bl.eloMax), (1320, 3190));
+  });
+
+  test('BrainLearn styles are option toggles; Arasan hosts a downloaded net',
+      () {
+    final bl = kEngineCatalog.firstWhere((e) => e.id == 'brainlearn');
+    // Two option-styles (Classic/MCTS) that send a UCI option, not a file, so
+    // no bundled data and a flat (non-own-dir) install.
+    expect(bl.personalities.map((p) => p.key).toList(), ['classic', 'mcts']);
+    expect(bl.personalities.every((p) => p.file == null), isTrue);
+    expect(bl.personalities.map((p) => p.setoption).toList(),
+        ['MCTS value false', 'MCTS value true']);
+    expect(bl.ownDir, isFalse, reason: 'a toggle needs no dir beside it');
+
+    final arasan = kEngineCatalog.firstWhere((e) => e.id == 'arasan');
+    // A downloaded net, keyed by the exact name Arasan loads beside itself.
+    expect(arasan.dataFiles.keys, contains('arasanv8-20260622.nnue'));
+    expect(arasan.personalities, isEmpty);
+    expect(arasan.ownDir, isTrue, reason: 'the net must sit beside the binary');
+    // Rodent's file styles also own a dir; a plain engine does not.
+    expect(kEngineCatalog.firstWhere((e) => e.id == 'rodent').ownDir, isTrue);
+    expect(kEngineCatalog.firstWhere((e) => e.id == 'velvet').ownDir, isFalse);
+  });
+
+  test('Rodent declares many styles; every style file is a bundled asset', () {
+    final rodent = kEngineCatalog.firstWhere((e) => e.id == 'rodent');
+    expect(rodent.personalities.length, greaterThanOrEqualTo(30));
+    // ids must be unique, and every referenced style file must actually ship —
+    // a typo would install an engine that loads nothing for that style.
+    final keys = rodent.personalities.map((p) => p.key).toList();
+    expect(keys.toSet().length, keys.length, reason: 'style keys are unique');
+    for (final p in rodent.personalities) {
+      expect(File('assets/rodent/personalities/${p.file}').existsSync(), isTrue,
+          reason: '${p.file} is referenced but not bundled');
+    }
+    // the marker file the engine needs to find its home dir
+    expect(File('assets/rodent/personalities/basic.ini').existsSync(), isTrue);
+    // an ordinary engine declares no styles
+    expect(kEngineCatalog.firstWhere((e) => e.id == 'velvet').personalities,
+        isEmpty);
   });
 
   test('catalogEntryById matches a catalog id, and only that', () {

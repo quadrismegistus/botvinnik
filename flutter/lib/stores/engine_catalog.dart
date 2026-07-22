@@ -29,6 +29,55 @@ class EngineBuild {
   });
 }
 
+/// One selectable playing style of an engine, chosen per game by sending a UCI
+/// option before the search. The engine binary is shared across styles;
+/// strength stays a separate UCI_Elo dial, so every style shares the engine's
+/// [EngineCatalogEntry.elo] and dials over the same range. Two shapes:
+///  - a STYLE FILE the engine loads (Rodent's `PersonalityFile value tal.txt`),
+///    which also ships as a bundled [file] laid beside the binary on install;
+///  - a plain OPTION toggle (BrainLearn's `MCTS value true`), no data file.
+@immutable
+class EnginePersonality {
+  /// Display name of the style (e.g. `Tal`, `MCTS`).
+  final String name;
+
+  /// One-line description of how it plays, for the roster.
+  final String blurb;
+
+  /// A bundled data file to install beside the binary (Rodent's style file), or
+  /// null for a style selected by a plain option (BrainLearn's MCTS toggle).
+  final String? file;
+
+  final String? _optionName;
+  final String? _optionValue;
+  final String? _key;
+
+  /// A style backed by a loadable FILE (Rodent): `PersonalityFile value <file>`,
+  /// with [file] bundled and copied beside the binary on install.
+  const EnginePersonality.file(this.file, this.name, this.blurb)
+      : _optionName = null,
+        _optionValue = null,
+        _key = null;
+
+  /// A style selected by a plain UCI option (BrainLearn's `MCTS` toggle).
+  const EnginePersonality.option(
+      String key, this.name, this.blurb, String option, String value)
+      : _key = key,
+        _optionName = option,
+        _optionValue = value,
+        file = null;
+
+  /// The persona-id suffix after `custom-<engine>~` (e.g. `tal`, `mcts`).
+  String get key =>
+      _key ??
+      (file!.endsWith('.txt') ? file!.substring(0, file!.length - 4) : file!);
+
+  /// The UCI option to send before each search, WITHOUT the leading
+  /// `setoption name ` — e.g. `PersonalityFile value tal.txt` or `MCTS value true`.
+  String get setoption =>
+      file != null ? 'PersonalityFile value $file' : '$_optionName value $_optionValue';
+}
+
 @immutable
 class EngineCatalogEntry {
   final String id;
@@ -64,6 +113,18 @@ class EngineCatalogEntry {
   /// published for that platform (so it is offered nowhere it cannot run).
   final Map<String, EngineBuild> builds;
 
+  /// Named playing styles, when the engine is one that loads them (Rodent IV).
+  /// Empty for an ordinary single-style engine. When present, one install of
+  /// the shared binary becomes this many browsable opponents, each a style over
+  /// the same strength dial. File-backed styles are bundled and laid out beside
+  /// the binary on install (Rodent finds them relative to itself).
+  final List<EnginePersonality> personalities;
+
+  /// Extra files downloaded and placed beside the binary on install, keyed by
+  /// the exact filename the engine expects (Arasan's NNUE net, which it loads
+  /// from beside itself at runtime). Non-empty implies an own-dir install.
+  final Map<String, EngineBuild> dataFiles;
+
   const EngineCatalogEntry({
     required this.id,
     required this.name,
@@ -77,11 +138,26 @@ class EngineCatalogEntry {
     this.capsElo = false,
     this.eloMin = 0,
     this.eloMax = 0,
+    this.personalities = const [],
+    this.dataFiles = const {},
   });
+
+  /// This engine installs into its own directory (binary + data beside it) when
+  /// something must sit next to the binary — downloaded data files (Arasan's
+  /// net) or file-backed styles (Rodent). A plain-option style engine
+  /// (BrainLearn's MCTS toggle) needs no dir and installs flat.
+  bool get ownDir =>
+      dataFiles.isNotEmpty || personalities.any((p) => p.file != null);
 
   EngineBuild? buildFor(String? platformKey) =>
       platformKey == null ? null : builds[platformKey];
 }
+
+/// The families whose members are an engine's named styles (one binary, many
+/// browsable personas) — Rodent, BrainLearn. Each equals the engine's catalog
+/// id. Used by the pickers to group them like the retro sub-list.
+Set<String> get styleFamilies =>
+    {for (final e in kEngineCatalog) if (e.personalities.isNotEmpty) e.id};
 
 /// The catalog entry an installed engine came from, matched by id, or null for
 /// a hand-added binary (whose id is a timestamp, never a catalog slug). This is
@@ -357,5 +433,144 @@ const List<EngineCatalogEntry> kEngineCatalog = [
         sizeBytes: 4162560,
       ),
     },
+  ),
+  EngineCatalogEntry(
+    id: 'rodent',
+    name: 'Rodent IV',
+    description:
+        'A characterful engine by Pawel Koziol that plays in 36 named styles — '
+        "from Tal's sacrifices to Petrosian's restraint — each dialable "
+        'from 800 to 2800.',
+    author: 'Pawel Koziol',
+    license: 'GPL-3.0',
+    sourceUrl: 'https://github.com/nescitus/rodent-iv',
+    // Rodent IV is ~2600 at full strength; every style shares that and dials
+    // down over the same UCI_Elo range — the style is character, not strength.
+    elo: 2600,
+    version: 'iv-0.33',
+    capsElo: true,
+    eloMin: 800,
+    eloMax: 2800,
+    builds: {
+      // No upstream binaries at all; we host a CI-compiled, ad-hoc-signed arm64
+      // build on botvinnik-engines. The style files ship bundled (see pubspec).
+      'macos-arm64': EngineBuild(
+        url:
+            'https://github.com/quadrismegistus/botvinnik-engines/releases/download/rodent-iv-0.33-ge8d84c8c8c18/rodent-iv-0.33-ge8d84c8c8c18-macos-arm64',
+        sha256:
+            'fb843ab6d0ccace7a49873fc44c6126f9e40b1611dc770d7260c4f924a79e6d5',
+        sizeBytes: 280416,
+      ),
+    },
+    personalities: [
+      EnginePersonality.file('tal.txt', 'Tal', 'The Magician of Riga — relentless sacrifices and chaos.'),
+      EnginePersonality.file('petrosian.txt', 'Petrosian', 'Defensive artistry; closed positions and exchange sacs.'),
+      EnginePersonality.file('botvinnik.txt', 'Botvinnik', 'Balanced and structural; cares for the pawns.'),
+      EnginePersonality.file('fischer.txt', 'Fischer', 'Attacking and uncompromising; raises mobility for both sides.'),
+      EnginePersonality.file('kasparov.txt', 'Kasparov', 'Dynamic aggression and attacking initiative.'),
+      EnginePersonality.file('karpov.txt', 'Karpov', 'Positional restraint and the slow squeeze.'),
+      EnginePersonality.file('morphy.txt', 'Morphy', 'Rapid development and open-game attacks.'),
+      EnginePersonality.file('anderssen.txt', 'Anderssen', 'Romantic-era attacker who sacrifices for the initiative.'),
+      EnginePersonality.file('alekhine.txt', 'Alekhine', 'Aggressive and active, in love with the bishops.'),
+      EnginePersonality.file('nimzowitsch.txt', 'Nimzowitsch', 'Hypermodern: blockade, overprotection, restraint.'),
+      EnginePersonality.file('lasker.txt', 'Lasker', 'A practical fighter who plays the position, not the book.'),
+      EnginePersonality.file('steinitz.txt', 'Steinitz', 'Accepts cramped positions and sacrifices; solid with pawns.'),
+      EnginePersonality.file('tarrasch.txt', 'Tarrasch', 'Classical: mobility, bishops, the open game.'),
+      EnginePersonality.file('reti.txt', 'Réti', 'Hypermodern; disregards classical placement, solid pawns.'),
+      EnginePersonality.file('rubinstein.txt', 'Rubinstein', 'Classical technique with an endgame lean.'),
+      EnginePersonality.file('spassky.txt', 'Spassky', 'Universal and defensive; grabs space and guards pawns.'),
+      EnginePersonality.file('kortchnoi.txt', 'Kortchnoi', 'Combative — grabs material and defends it.'),
+      EnginePersonality.file('larsen.txt', 'Larsen', 'Tricky and provocative, after Nimzowitsch.'),
+      EnginePersonality.file('marshall.txt', 'Marshall', 'Swindles and attacking gambits — after Frank Marshall.'),
+      EnginePersonality.file('anand.txt', 'Anand', 'Quick and universal — a homage to Vishy Anand.'),
+      EnginePersonality.file('topalov.txt', 'Topalov', 'Sharp and forcing, with active pieces.'),
+      EnginePersonality.file('bosboom.txt', 'Bosboom', "Wild and inventive, a blitz attacker's spirit."),
+      EnginePersonality.file('pawnsacker.txt', 'Pawnsacker', 'Holds pawns lightly — gives them up for play.'),
+      EnginePersonality.file('spitfire.txt', 'Spitfire', 'Fast and fierce — attack at all costs.'),
+      EnginePersonality.file('strangler.txt', 'Strangler', 'Squeezes the life out of the position.'),
+      EnginePersonality.file('swapper.txt', 'Swapper', 'Trades pieces and heads for a draw.'),
+      EnginePersonality.file('defender.txt', 'Defender', 'Solid and defensive above all.'),
+      EnginePersonality.file('partisan.txt', 'Partisan', 'Stealthy openings, then a sudden attack.'),
+      EnginePersonality.file('dynamic.txt', 'Dynamic', 'An attacker with the bishops, willing to sacrifice.'),
+      EnginePersonality.file('preston.txt', 'Preston', 'A materialistic, moderate attacker.'),
+      EnginePersonality.file('cloe.txt', 'Cloe', 'Likes closed positions.'),
+      EnginePersonality.file('deborah.txt', 'Deborah', 'Defensive, and fond of the bishops.'),
+      EnginePersonality.file('pedrita.txt', 'Pedrita', 'Pawns, defence, restraint.'),
+      EnginePersonality.file('amanda.txt', 'Amanda', 'Attacker first, mobility second.'),
+      EnginePersonality.file('grumpy.txt', 'Grumpy', 'Contrary and hard to please.'),
+      EnginePersonality.file('ampere.txt', 'Ampère', 'Brisk and energetic, always for activity.'),
+    ],
+  ),
+  EngineCatalogEntry(
+    id: 'arasan',
+    name: 'Arasan',
+    description:
+        'An independent engine by Jon Dart, developed since 1994 — its own '
+        'evaluation, not a Stockfish derivative, so it plays with a different '
+        'grain. Dials from 1000 to 3450.',
+    author: 'Jon Dart',
+    license: 'MIT',
+    sourceUrl: 'https://github.com/jdart1/arasan-chess',
+    elo: 3450,
+    version: 'gc7d86c8',
+    capsElo: true,
+    eloMin: 1000,
+    eloMax: 3450,
+    builds: {
+      // No upstream macOS build (distributed off-GitHub); we host a CI-signed
+      // arm64 build. Arasan loads its net from beside the binary at runtime.
+      'macos-arm64': EngineBuild(
+        url:
+            'https://github.com/quadrismegistus/botvinnik-engines/releases/download/arasan-gc7d86c8/arasan-gc7d86c8-macos-arm64',
+        sha256:
+            '65999e8ccae8e3f1cb596f007e33b519c8c1622150431580305033ad0fe85c84',
+        sizeBytes: 856384,
+      ),
+    },
+    dataFiles: {
+      // The NNUE net, laid beside the binary under the exact name the build
+      // compiled in (it loads `arasanv8-20260622.nnue` from its own dir).
+      'arasanv8-20260622.nnue': EngineBuild(
+        url:
+            'https://github.com/quadrismegistus/botvinnik-engines/releases/download/arasan-gc7d86c8/arasanv8-20260622.nnue',
+        sha256:
+            'b42f9e13a37debb4af425d2ca74b5edff1d8034a616806bccdb67b79530201ac',
+        sizeBytes: 25024576,
+      ),
+    },
+  ),
+  EngineCatalogEntry(
+    id: 'brainlearn',
+    name: 'BrainLearn',
+    description:
+        'A Stockfish fork by amchess with a toggleable Monte-Carlo search — '
+        'play it in the classic alpha-beta style, or in a more exploratory '
+        'MCTS mode. Dials from 1320 to 3190.',
+    author: 'amchess',
+    license: 'GPL-3.0',
+    sourceUrl: 'https://github.com/amchess/BrainLearn',
+    elo: 3400,
+    version: 'gc9fe18fc',
+    capsElo: true,
+    eloMin: 1320,
+    eloMax: 3190,
+    builds: {
+      'macos-arm64': EngineBuild(
+        url:
+            'https://github.com/quadrismegistus/botvinnik-engines/releases/download/brainlearn-gc9fe18fc/brainlearn-gc9fe18fc-macos-arm64',
+        sha256:
+            'd90bfb25440770a5b0ace1671514691f9c68dceee17776454e3aa3046af5c3b4',
+        sizeBytes: 79443376,
+      ),
+    },
+    // Two "styles" that flip its search mode — no data file, just a UCI option.
+    personalities: [
+      EnginePersonality.option('classic', 'Classic',
+          'Alpha-beta search — cold, exact, Stockfish-style calculation.',
+          'MCTS', 'false'),
+      EnginePersonality.option('mcts', 'MCTS',
+          'Monte-Carlo tree search — a more exploratory, AlphaZero-ish feel.',
+          'MCTS', 'true'),
+    ],
   ),
 ];

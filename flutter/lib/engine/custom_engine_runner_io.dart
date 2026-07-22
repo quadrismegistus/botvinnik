@@ -42,9 +42,17 @@ class CustomEngineRunner {
   /// [elo], when set, dials the engine down via `UCI_LimitStrength` + `UCI_Elo`
   /// (ignored by an engine that does not advertise them). [movetimeMs] is the
   /// thinking budget.
-  Future<String?> move(String fen, {int? elo, int movetimeMs = 1000}) async {
+  Future<String?> move(String fen,
+      {int? elo, int movetimeMs = 1000, String? setoption}) async {
     try {
       _engine ??= await ProcessEngine.spawn(path);
+      if (setoption != null) {
+        // Select the style before searching (Rodent's PersonalityFile,
+        // BrainLearn's MCTS toggle). Sent directly rather than via the search's
+        // extraOptions, whose stale-option reset would clobber it; re-sending
+        // each move is correct even after another style ran on this process.
+        _engine!.send('setoption name $setoption');
+      }
       final extra = elo != null
           ? [
               ['UCI_LimitStrength', 'true'],

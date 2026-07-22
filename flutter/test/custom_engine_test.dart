@@ -10,6 +10,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:botvinnik_mobile/engine/custom_engine_runner_io.dart';
 import 'package:botvinnik_mobile/stores/custom_engine.dart';
+import 'package:botvinnik_mobile/stores/engine_catalog.dart';
 import 'package:botvinnik_mobile/stores/game_controller.dart';
 
 import 'support/game_harness.dart';
@@ -141,6 +142,51 @@ void main() {
 
     test('a malformed FEN with too few fields is passed through unchanged', () {
       expect(CustomEngineRunner.historylessFen('8/8/8 w'), '8/8/8 w');
+    });
+  });
+
+  group('Rodent styles: one engine record becomes many style personas', () {
+    Future<CustomEngineStore> withRodent(
+        {int elo = 2600, bool limit = false}) async {
+      final store = await loaded(MemoryDb([]));
+      await store.upsert(CustomEngine(
+          id: 'rodent',
+          name: 'Rodent IV',
+          path: '/r',
+          elo: elo,
+          limitElo: limit));
+      return store;
+    }
+
+    test('one rodent record expands into one persona per catalog style',
+        () async {
+      final store = await withRodent();
+      final styles = catalogEntryById('rodent')!.personalities;
+      expect(store.personas.length, styles.length);
+      expect(store.personas.every((p) => p.family == 'rodent'), isTrue);
+      expect(
+          store.personas
+              .any((p) => p.name == 'Tal' && p.id == 'custom-rodent~tal'),
+          isTrue);
+    });
+
+    test('a style persona resolves to the shared engine and its style option',
+        () async {
+      final store = await withRodent();
+      expect(store.byPersonaId('custom-rodent~tal')?.id, 'rodent');
+      expect(store.styleOptionFor('custom-rodent~tal'),
+          'PersonalityFile value tal.txt');
+      // a plain engine persona has no style; an unknown style key resolves to
+      // nothing rather than a wrong option
+      expect(store.styleOptionFor('custom-v'), isNull);
+      expect(store.styleOptionFor('custom-rodent~nope'), isNull);
+    });
+
+    test('the shared strength cap labels every style with that rating',
+        () async {
+      final store = await withRodent(elo: 1400, limit: true);
+      expect(store.personas.every((p) => p.elo == 1400), isTrue,
+          reason: 'strength is one engine-wide dial across the styles');
     });
   });
 
