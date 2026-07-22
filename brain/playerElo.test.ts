@@ -52,6 +52,34 @@ describe('estimatePlayerElo', () => {
 		expect(legacy).toEqual(renamed);
 	});
 
+	it('counts rated games against downloaded (custom-) engines', () => {
+		// A custom engine's id is `custom-<slug>[~style]`, not in bots.ts; its
+		// display elo is recorded on the game (botElo is the internal scale =
+		// display + SCALE_OFFSET). Three even-ish results vs a 1500-labelled Velvet
+		// fit near 1500 -- they now count, where before they were silently dropped.
+		const velvet = (result: string): StoredGame => ({
+			...game('custom-velvet', result, 'b'),
+			botElo: 1500 + 240
+		});
+		const est = estimatePlayerElo([velvet('1-0'), velvet('0-1'), velvet('1/2-1/2')])!;
+		expect(est.games).toBe(3);
+		expect(est.elo).toBeGreaterThan(1300);
+		expect(est.elo).toBeLessThan(1700);
+
+		// a Rodent STYLE persona (custom-rodent~tal) counts the same way
+		const styled = estimatePlayerElo([
+			{ ...game('custom-rodent~tal', '1-0', 'b'), botElo: 1200 + 240 }
+		]);
+		expect(styled?.games).toBe(1);
+
+		// the usual exclusions still apply: a substituted opponent doesn't count
+		expect(estimatePlayerElo([{ ...velvet('1-0'), botFallback: true }])).toBeNull();
+		// and a legacy slider game (no persona id) still doesn't
+		expect(
+			estimatePlayerElo([{ ...velvet('1-0'), botPersona: undefined }])
+		).toBeNull();
+	});
+
 	it('a win over 1000 and a loss to 1500 lands in between', () => {
 		const est = estimatePlayerElo([
 			game('squarefish-1000', '0-1', 'w'), // bot is white, black won ⇒ player win
