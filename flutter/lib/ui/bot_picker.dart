@@ -317,7 +317,12 @@ class _FamilyPickerState extends State<_FamilyPicker> {
             ],
           ),
         _playButton(cfg.name, () async {
-          await store.upsert(cfg.copyWith(limitElo: _capOn, elo: _capElo));
+          // Only write the rating when the cap is ON — otherwise toggling the
+          // cap off would rewrite the saved rating with a slider value that was
+          // never applied, so the Engines screen would show a strength the
+          // engine never played at.
+          await store.upsert(cfg.copyWith(
+              limitElo: _capOn, elo: _capOn ? _capElo : cfg.elo));
           if (mounted) Navigator.pop(context, personaId);
         }),
       ],
