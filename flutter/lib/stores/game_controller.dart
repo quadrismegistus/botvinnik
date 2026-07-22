@@ -20,10 +20,12 @@ import '../brain/grading_api.dart';
 import '../brain/types.dart';
 import '../db/app_db.dart';
 import '../engine/arbiter.dart';
+import '../engine/custom_engine_runner.dart';
 import '../engine/garbo_engine.dart';
 import '../engine/maia_engine.dart';
 import '../engine/maia_progress.dart';
 import '../engine/retro_engine.dart';
+import 'custom_engine.dart';
 import 'lines_tree_model.dart';
 import 'maia_status.dart';
 import 'practice_controller.dart';
@@ -67,6 +69,15 @@ class GameController extends ChangeNotifier {
   final AppDb? _db;
   final PracticeController? _practice;
   ChessApi? _chess;
+
+  /// Player-added UCI engines (null in tests and where the feature is off). The
+  /// config source; the running processes are [_customRunners] below.
+  final CustomEngineStore? _customEngines;
+
+  /// One live engine process per custom persona actually played this session,
+  /// built on first use and disposed with the controller — the same lifecycle
+  /// as [_maia] / [_garbo], never the arbiter's queue.
+  final Map<String, CustomEngineRunner> _customRunners = {};
 
   Position position = Chess.initial;
   /// The position the game began from — the standard start, or a FEN handed to
@@ -257,7 +268,7 @@ class GameController extends ChangeNotifier {
   bool get _assisted => !blind;
 
   GameController(this._arbiter, this._bot, this._grading, this._settings,
-      [this._db, this._practice, ChessApi? chessApi]) {
+      [this._db, this._practice, ChessApi? chessApi, this._customEngines]) {
     _chess = chessApi;
     if (chessApi != null) linesTree = LinesTreeModel(chessApi);
     _lastSettingsSig = _settingsSig(); // see the field: NOT a late initializer
@@ -271,7 +282,15 @@ class GameController extends ChangeNotifier {
 
   String get playerColor => _settings.playerColor;
   bool get botEnabled => _settings.botEnabled;
-  List<Persona> get rosterPersonas => _bot.personas();
+
+  /// The brain's built-in roster, plus any custom engines the player added —
+  /// but only where they can actually run (native desktop), so the picker never
+  /// offers one it would have to stand in for.
+  List<Persona> get rosterPersonas => [
+        ..._bot.personas(),
+        if (_customEngines != null && CustomEngineRunner.supported)
+          ..._customEngines.personas,
+      ];
 
   // Each side is a bot (a persona) or the human (null). The source of truth is
   // the settings; these resolve the ids to personas.
@@ -290,9 +309,14 @@ class GameController extends ChangeNotifier {
   /// Memoised because it crosses the JS bridge — the archive would otherwise
   /// make one call per row per rebuild.
   final Map<String, Persona?> _personaCache = {};
-  Persona? personaFor(String? id) => id == null
-      ? null
-      : _personaCache.putIfAbsent(id, () => _bot.personaById(id));
+  Persona? personaFor(String? id) {
+    if (id == null) return null;
+    // Custom engines resolve fresh (an edit changes the persona), never cached;
+    // the brain's immutable personas are cached.
+    final custom = _customEngines?.byPersonaId(id);
+    if (custom != null) return custom.toPersona();
+    return _personaCache.putIfAbsent(id, () => _bot.personaById(id));
+  }
 
   /// The persona of the side to move, or null if the human is on the move.
   Persona? get personaToMove =>
@@ -322,7 +346,21 @@ class GameController extends ChangeNotifier {
   bool _resigned = false;
   bool get resigned => _resigned;
 
-  bool get gameOver => position.isGameOver || _resigned || _flagged != null;
+  // The rule-forced draw dartchess's stateless Position cannot see (#186),
+  // cached by (generation, ply) so it recomputes after any move / undo / redo /
+  // new game but not on every gameOver read.
+  int? _drawCacheGen;
+  int? _drawCachePly;
+  String? _drawCache;
+  String? get _drawByRule {
+    if (_drawCacheGen == _gen && _drawCachePly == moves.length) return _drawCache;
+    _drawCacheGen = _gen;
+    _drawCachePly = moves.length;
+    return _drawCache = _ruleDrawReason();
+  }
+
+  bool get gameOver =>
+      position.isGameOver || _resigned || _flagged != null || _drawByRule != null;
   /// Whose colour sits at the bottom of the board (follows orientation).
   bool get whiteAtBottom => (playerColor == 'w') != flipped;
   /// The position actually on screen: a browsed ply, a hover preview, or live.
@@ -344,6 +382,7 @@ class GameController extends ChangeNotifier {
       final winner = position.turn == Side.white ? 'Black' : 'White';
       return 'Checkmate — $winner wins';
     }
+    if (_drawByRule != null) return _drawByRule!;
     if (position.isStalemate) return 'Stalemate';
     if (position.isInsufficientMaterial) return 'Draw — insufficient material';
     if (!botEnabled) {
@@ -812,6 +851,7 @@ class GameController extends ChangeNotifier {
     if (position.isCheckmate) {
       return position.turn == Side.white ? '0-1' : '1-0';
     }
+    if (_drawByRule != null) return '1/2-1/2';
     if (position.isGameOver) return '1/2-1/2';
     return '*';
   }
@@ -1106,6 +1146,34 @@ class GameController extends ChangeNotifier {
         }
       }
       debugPrint('[bot] maia had no move after a retry; falling back');
+    }
+    if (p.family == 'custom') {
+      // A player-added UCI engine, in its own process — never the arbiter's
+      // queue, like retro/garbo. Its config (path, movetime, whether to cap its
+      // strength) comes from the store; the process is built on first use and
+      // reused. Any failure — a binary that will not start, a dead search —
+      // falls through to the Stockfish stand-in below, the same safety net
+      // every other opponent family has.
+      final cfg = _customEngines?.byPersonaId(p.id);
+      if (cfg != null && CustomEngineRunner.supported) {
+        // Rebuild if the player edited the binary path since we spawned it —
+        // otherwise the running process is the old engine.
+        var runner = _customRunners[cfg.id];
+        if (runner != null && runner.path != cfg.path) {
+          runner.dispose();
+          runner = null;
+        }
+        runner ??= _customRunners[cfg.id] = CustomEngineRunner(cfg.path);
+        final uci = await runner.move(fen,
+            elo: cfg.limitElo ? cfg.elo : null, movetimeMs: cfg.movetimeMs);
+        if (uci != null) {
+          return (
+            uci: _bot.avoidRepetition(uci, _fenHistory(), currentLines),
+            standIn: false
+          );
+        }
+      }
+      debugPrint('[bot] custom engine had no move; falling back to the engine');
     }
     // Stockfish, and the fallback for anything that could not answer for
     // itself. internalElo rather than numericElo: only stockfish carries
@@ -1583,6 +1651,36 @@ class GameController extends ChangeNotifier {
   List<String> _fenHistory() =>
       [_startFen, ...moves.map((m) => m.fenAfter)];
 
+  /// A draw the RULES force but a stateless [Position] cannot see (#186):
+  /// threefold repetition or the 50-move rule. Null when neither holds.
+  ///
+  /// Auto-enforced rather than offered as a claim: nobody claims a draw in a
+  /// bot game, so a repeating line has to end itself — which is the bug this
+  /// fixes, two bots shuffling forever.
+  String? _ruleDrawReason() {
+    // 50-move rule: 100 half-moves since the last pawn move or capture, read
+    // from the FEN's halfmove clock (dartchess maintains it).
+    final fields = position.fen.split(' ');
+    final halfmoves = fields.length >= 5 ? int.tryParse(fields[4]) ?? 0 : 0;
+    if (halfmoves >= 100) return 'Draw — 50-move rule';
+    // Threefold repetition over the line actually played (the current position
+    // is the last entry of the history, so three occurrences includes it).
+    final key = _repetitionKey(position.fen);
+    var seen = 0;
+    for (final fen in _fenHistory()) {
+      if (_repetitionKey(fen) == key && ++seen >= 3) return 'Draw by repetition';
+    }
+    return null;
+  }
+
+  /// A FEN reduced to what makes two positions "the same" for repetition: the
+  /// board, side to move, castling rights and en-passant square — the move
+  /// counters dropped.
+  static String _repetitionKey(String fen) {
+    final f = fen.split(' ');
+    return f.length >= 4 ? '${f[0]} ${f[1]} ${f[2]} ${f[3]}' : fen;
+  }
+
   String _sanOf(Position pos, Move move) {
     final (_, san) = pos.makeSan(move);
     return san;
@@ -1594,6 +1692,9 @@ class GameController extends ChangeNotifier {
     _retro?.dispose();
     _garbo?.dispose();
     _maia?.dispose();
+    for (final r in _customRunners.values) {
+      r.dispose();
+    }
     maiaStatus.dispose();
     // Its ticker is a live Timer: left running it outlives the tree, which
     // flutter_test reports as a pending timer and a device reports as a clock

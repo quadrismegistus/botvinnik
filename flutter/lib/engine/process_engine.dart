@@ -56,9 +56,21 @@ class ProcessEngine extends UciProtocol {
         'bundle it in the app Resources, or set BOTVINNIK_STOCKFISH to its path.',
       );
     }
-    final proc = await Process.start(path, const []);
+    return spawn(path);
+  }
+
+  /// Spawn the UCI engine binary at [path] and complete its `uci` / `isready`
+  /// handshake. Used both for the arbiter's own Stockfish (via [start]) and for
+  /// a custom opponent a player added — any binary that speaks UCI. Throws if
+  /// [path] is not an executable this process may launch, which the caller
+  /// turns into a fallback rather than a crash.
+  static Future<ProcessEngine> spawn(String path,
+      {List<String> args = const []}) async {
+    final proc = await Process.start(path, args);
     final engine = ProcessEngine._(proc);
     engine.send('uci');
+    // Threads 1 matches the built-in bots: a custom engine let loose on all
+    // cores would play far above whatever rating it is labelled with.
     engine.send('setoption name Threads value 1');
     engine.send('isready');
     return engine;

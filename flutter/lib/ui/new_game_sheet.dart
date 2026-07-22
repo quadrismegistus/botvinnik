@@ -18,8 +18,8 @@ import 'package:provider/provider.dart';
 import '../stores/chess_clock.dart';
 import '../stores/game_controller.dart';
 import '../stores/settings_store.dart';
+import 'bot_picker.dart';
 import 'maia_status_line.dart';
-import 'roster_picker.dart';
 
 void showNewGameSheet(BuildContext context) {
   final game = context.read<GameController>();
@@ -89,8 +89,8 @@ class _NewGameSheetState extends State<_NewGameSheet> {
 
   Future<void> _pickBotFor(bool white) async {
     final current = white ? _white : _black;
-    final id =
-        await pickBot(context, current: current ?? widget.settings.personaId);
+    final id = await pickBotFamily(context,
+        current: current ?? widget.settings.personaId);
     if (id == null || !mounted) return; // dismissed
     setState(() => white ? _white = id : _black = id);
     // Start the load NOW, on selection, so a phone is not still pulling 3.5MB
