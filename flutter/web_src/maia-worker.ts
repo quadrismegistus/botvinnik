@@ -45,10 +45,17 @@ ort.env.wasm.wasmPaths = './';
 // cross-origin-isolation headers to arrange
 ort.env.wasm.numThreads = 1;
 
-// 30s matches the Svelte client. It was 60s here, which doubled the cost of
-// the stalled-network case for no benefit: a 3.5MB fetch that has not landed
-// in 30 seconds is not about to.
-const LOAD_TIMEOUT_MS = 30_000;
+// A 3.5MB fetch that has not landed in 30s is stalled, not slow — abort it and
+// (only this one) latch the band. This is the sole timeout worth giving up a
+// band for a session over.
+const FETCH_TIMEOUT_MS = 30_000;
+// ORT compiles ~13MB of WebAssembly into a session here. That is LOCAL work
+// that will finish, just slowly on a weak phone, so it gets its own far more
+// generous cap. A short shared timeout used to fire on a perfectly good —
+// often already-cached — band mid-compile and strand it as Stockfish for the
+// rest of the page session, which is the "downloaded but still a stand-in"
+// complaint this whole change answers.
+const INIT_TIMEOUT_MS = 90_000;
 const RUN_TIMEOUT_MS = 15_000;
 
 function withTimeout<T>(p: Promise<T>, ms: number, what: string): Promise<T> {
@@ -119,11 +126,11 @@ interface Loaded {
 
 const loads = new Map<number, Promise<Loaded>>();
 
-/// Bands whose weights TIMED OUT loading. Those are not retried this session.
+/// Bands whose network FETCH timed out this session. Those are not re-fetched.
 ///
 /// The point is to kill a retry storm that can never be cheap: a network that
 /// ACCEPTS and never answers — captive portal, stalled hotspot — costs a full
-/// LOAD_TIMEOUT_MS on every move, forever, because each move re-enters a
+/// FETCH_TIMEOUT_MS on every move, forever, because each move re-enters a
 /// deleted `loads` entry. Measured before this existed: three moves, three
 /// attempts, 60s each.
 ///
@@ -133,12 +140,15 @@ const loads = new Map<number, Promise<Loaded>>();
 ///
 ///   * **Per band, not global.** A 401 on one band used to kill a DIFFERENT
 ///     band that had a live in-memory session and cached weights.
-///   * **Checked only on a cache MISS**, so a band already loaded keeps
-///     working no matter what happened to any other.
-///   * **Timeouts only.** A fast failure — 404, a corrupt cached model, an
-///     ort init error — costs nothing to retry, so latching on it buys
-///     nothing and silently substitutes Stockfish for the rest of the
-///     session. That is precisely the "different opponent wearing the
+///   * **Checked only on a cache MISS**, so a band whose 3.5MB already
+///     downloaded keeps working no matter what the network did afterwards. This
+///     gate now sits INSIDE `load`, after the cache read, precisely so — it
+///     used to sit ahead of it and strand a fully-downloaded band as Stockfish.
+///   * **Network-fetch timeouts only.** A fast failure (404, a corrupt cached
+///     model, an ort init error) and a SLOW LOCAL COMPILE both cost nothing to
+///     give up on: the first is cheap to retry, the second will finish given
+///     time. Latching either buys nothing and silently substitutes Stockfish
+///     for the rest of the session — the "different opponent wearing the
 ///     persona's name" the roster picker exists to prevent.
 const timedOutBands = new Set<number>();
 
@@ -190,10 +200,15 @@ async function readWithProgress(
 	return out.buffer;
 }
 
-/** A stall, as opposed to a failure that answered quickly. */
-function isTimeout(e: unknown): boolean {
-	if (e instanceof DOMException && e.name === 'TimeoutError') return true; // AbortSignal.timeout
-	return e instanceof Error && e.message.includes('timed out'); // withTimeout
+/**
+ * A stalled network FETCH specifically (AbortSignal.timeout), as opposed to a
+ * slow local compile or inference. Only the fetch is worth latching a band for:
+ * a compile and a cached band both finish given time, so retrying them is cheap
+ * and right, whereas a network that accepts and never answers costs its full
+ * timeout on every attempt forever.
+ */
+function isFetchTimeout(e: unknown): boolean {
+	return e instanceof DOMException && e.name === 'TimeoutError';
 }
 
 /** Whether this band's weights are already on disk — decides the UI message. */
@@ -204,16 +219,23 @@ async function isCached(band: number): Promise<boolean> {
 function load(band: number, report: (p: Progress) => void): Promise<Loaded> {
 	let p = loads.get(band);
 	if (!p) {
-		// only here — a band already loaded is never affected
-		if (timedOutBands.has(band)) {
-			return Promise.reject(new Error(`maia-${band} timed out earlier this session`));
-		}
 		p = (async () => {
 			const key = `maia-${band}`;
+			// The cache FIRST, ahead of any give-up gate: a band whose weights are
+			// already on disk must always load, whatever a slow first attempt did
+			// to the network latch. The gate used to sit in front of this, so once
+			// a band timed out it stayed Stockfish for the session even after its
+			// 3.5MB had finished downloading and been cached — the exact
+			// "downloaded but still a stand-in" bug.
 			let bytes = await getCached(key);
 			if (!bytes) {
+				// Only a real network fetch is gated, and only here — a cache hit
+				// never reaches this line.
+				if (timedOutBands.has(band)) {
+					throw new Error(`maia-${band} network timed out earlier this session`);
+				}
 				const res = await fetch(modelUrl(band), {
-					signal: AbortSignal.timeout(LOAD_TIMEOUT_MS)
+					signal: AbortSignal.timeout(FETCH_TIMEOUT_MS)
 				});
 				if (!res.ok) throw new Error(`maia-${band} fetch failed: ${res.status}`);
 				bytes = await readWithProgress(res, report);
@@ -228,7 +250,7 @@ function load(band: number, report: (p: Progress) => void): Promise<Loaded> {
 			report({ phase: 'starting' });
 			const session = await withTimeout(
 				ort.InferenceSession.create(new Uint8Array(bytes), { executionProviders: ['wasm'] }),
-				LOAD_TIMEOUT_MS,
+				INIT_TIMEOUT_MS,
 				'ort init'
 			);
 			const inputName = session.inputNames[0];
@@ -240,7 +262,11 @@ function load(band: number, report: (p: Progress) => void): Promise<Loaded> {
 		loads.set(band, p);
 		p.catch((e) => {
 			loads.delete(band);
-			if (isTimeout(e)) timedOutBands.add(band);
+			// Latch ONLY a stalled network fetch. A slow local compile and a
+			// cached band both finish given time, so a warm-up or the next move
+			// retries them cheaply; latching them is what turned one slow first
+			// move on a phone into Stockfish for the whole session.
+			if (isFetchTimeout(e)) timedOutBands.add(band);
 		});
 	}
 	return p;
@@ -284,9 +310,10 @@ let chain: Promise<unknown> = Promise.resolve();
 self.onmessage = (e: MessageEvent) => {
 	const req = e.data as {
 		id: number;
-		fenHistory: string[];
+		fenHistory?: string[];
 		band: number;
 		temperature?: number;
+		preload?: boolean;
 	};
 	if (!req || typeof req.id !== 'number') return;
 	chain = chain.then(() => handle(req)).catch(() => {});
@@ -294,12 +321,24 @@ self.onmessage = (e: MessageEvent) => {
 
 async function handle(req: {
 	id: number;
-	fenHistory: string[];
+	fenHistory?: string[];
 	band: number;
 	temperature?: number;
+	preload?: boolean;
 }): Promise<void> {
 	try {
-		const uci = await move(req.fenHistory, req.band, req.temperature ?? 0, (p) =>
+		// A preload warms a band's weights and session the moment it is CHOSEN,
+		// off any move's clock, so a later move for it answers at once instead of
+		// standing in while a phone pulls 3.5MB and compiles the runtime. No move
+		// runs and none is expected back; the same load()/progress path a move
+		// uses does the work, and a move that arrives mid-warm-up joins it via
+		// the per-band `loads` cache rather than starting a second download.
+		if (req.preload) {
+			await load(req.band, (p) => self.postMessage({ id: req.id, ...p, status: p.phase }));
+			self.postMessage({ id: req.id, ready: true });
+			return;
+		}
+		const uci = await move(req.fenHistory ?? [], req.band, req.temperature ?? 0, (p) =>
 			self.postMessage({ id: req.id, ...p, status: p.phase })
 		);
 		self.postMessage({ id: req.id, move: uci });

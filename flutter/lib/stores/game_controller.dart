@@ -97,6 +97,30 @@ class GameController extends ChangeNotifier {
   // engine serves all six personas without reloading between them
   MaiaEngine? _maia;
 
+  /// The one place the Maia engine is built, so a move and a warm-up share the
+  /// same instance and the same progress wiring. Lazy: nothing pays for a Maia
+  /// worker until a Maia is actually picked or played.
+  MaiaEngine _ensureMaia() => _maia ??= MaiaEngine(onProgress: (p) {
+        maiaProgress = p;
+        notifyListeners();
+      });
+
+  /// Warm a Maia opponent's weights and session the moment it is chosen, not on
+  /// its first move. On a phone the 3.5MB download plus the WebAssembly compile
+  /// can outrun a move's patience and leave a Stockfish stand-in for the whole
+  /// game (the badge is sticky per game); loading during the New-Game sheet's
+  /// setup-to-first-move window is what avoids that. A no-op for a non-Maia
+  /// persona or a platform without Maia, and fire-and-forget — a failure just
+  /// means the first move falls back exactly as it would have.
+  void warmUpMaia(String? personaId) {
+    if (!MaiaEngine.supported) return;
+    final p = personaFor(personaId);
+    if (p == null || p.family != 'maia') return;
+    final band = p.maiaBand;
+    if (band == null) return;
+    _ensureMaia().warmUp(band);
+  }
+
   /// Non-null while a Maia move is waiting on its weights or on the runtime
   /// rather than on inference, with enough detail to show a real bar.
   ///
@@ -1033,10 +1057,7 @@ class GameController extends ChangeNotifier {
       // which is the order the net expects.
       final band = p.maiaBand;
       if (MaiaEngine.supported && band != null) {
-        _maia ??= MaiaEngine(onProgress: (p) {
-          maiaProgress = p;
-          notifyListeners();
-        });
+        _ensureMaia();
         // Retry before substituting. The one common reason move() returns null
         // is the first call timing out mid-download — 3.5MB of weights plus
         // ~13MB of WebAssembly, which a slow phone can push past the 90s cap.

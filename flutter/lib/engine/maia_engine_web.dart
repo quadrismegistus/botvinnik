@@ -151,6 +151,28 @@ class MaiaEngine {
     );
   }
 
+  /// Start this band's download and session build in the background, off any
+  /// move's clock, so a later move for it answers at once instead of standing
+  /// in while a phone pulls 3.5MB of weights and compiles ~13MB of WebAssembly.
+  ///
+  /// Called when a Maia opponent is CHOSEN — the New Game sheet — rather than
+  /// on its first move, which is the whole point: the setup-to-first-move
+  /// window is where the load should happen. Fire-and-forget; a failure just
+  /// means the first move falls back exactly as before. Idempotent per band in
+  /// the worker, so a second warm-up, or a move that arrives mid-load, joins
+  /// the same download rather than starting another.
+  ///
+  /// Deliberately NOT tracked in [_pending]: its only job is to warm the cache
+  /// and session, so its progress and its (empty) answer are both irrelevant —
+  /// a real move narrates itself if it arrives before this finishes.
+  void warmUp(int band) {
+    if (_disposed) return;
+    if (_worker == null) _spawn();
+    final worker = _worker;
+    if (worker == null) return;
+    worker.postMessage({'id': _nextId++, 'band': band, 'preload': true}.jsify());
+  }
+
   /// Abandon every outstanding request without tearing the worker down.
   ///
   /// Called when the game they belonged to is gone. Without it the ids stay

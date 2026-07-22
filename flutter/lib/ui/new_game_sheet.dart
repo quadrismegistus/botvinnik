@@ -92,6 +92,10 @@ class _NewGameSheetState extends State<_NewGameSheet> {
         await pickBot(context, current: current ?? widget.settings.personaId);
     if (id == null || !mounted) return; // dismissed
     setState(() => white ? _white = id : _black = id);
+    // Start the load NOW, on selection, so a phone is not still pulling 3.5MB
+    // of Maia weights (plus the WASM compile) when the first move is due. A
+    // no-op for anything that is not a Maia.
+    widget.game.warmUpMaia(id);
   }
 
   Widget _chip(String text, bool selected, VoidCallback onTap,
