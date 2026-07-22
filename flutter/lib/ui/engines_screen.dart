@@ -44,10 +44,11 @@ class _EnginesScreenState extends State<EnginesScreen> {
           const _Label('Download an engine'),
           for (final entry in kEngineCatalog) _CatalogTile(
             entry: entry,
-            installed: store.engines.any((e) => e.id == entry.id),
+            installedEngine: _installed(store, entry.id),
             progress: _downloading[entry.id],
             onDownload: () => _download(store, entry),
             onRemove: () => _remove(store, entry),
+            onEdit: (e) => _addOrEdit(store, e),
           ),
           const _Label('Your engines'),
           if (yours.isEmpty)
@@ -87,6 +88,13 @@ class _EnginesScreenState extends State<EnginesScreen> {
         ],
       ),
     );
+  }
+
+  CustomEngine? _installed(CustomEngineStore store, String catalogId) {
+    for (final e in store.engines) {
+      if (e.id == catalogId) return e;
+    }
+    return null;
   }
 
   Future<void> _download(
@@ -136,32 +144,50 @@ class _EnginesScreenState extends State<EnginesScreen> {
 
 class _CatalogTile extends StatelessWidget {
   final EngineCatalogEntry entry;
-  final bool installed;
+
+  /// The store entry once downloaded, or null. Non-null means installed, and
+  /// carries the editable strength (rating / UCI_Elo cap / move time).
+  final CustomEngine? installedEngine;
   final (int, int)? progress;
   final VoidCallback onDownload;
   final VoidCallback onRemove;
+  final void Function(CustomEngine) onEdit;
 
   const _CatalogTile({
     required this.entry,
-    required this.installed,
+    required this.installedEngine,
     required this.progress,
     required this.onDownload,
     required this.onRemove,
+    required this.onEdit,
   });
 
   @override
   Widget build(BuildContext context) {
     final build = entry.buildFor(EngineInstaller.platformKey);
+    final installed = installedEngine;
     return ListTile(
       dense: true,
       leading: const Icon(Icons.terminal, size: 20),
       title: Text('${entry.name}  ·  ${entry.elo}'),
       isThreeLine: true,
+      // Once installed, the row opens the strength editor — the one place to
+      // cap a superhuman engine's Elo or change its move time.
+      onTap: installed == null ? null : () => onEdit(installed),
       subtitle: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(entry.description,
               style: const TextStyle(fontSize: 11.5, color: Colors.white54)),
+          if (installed != null) ...[
+            const SizedBox(height: 3),
+            Text(
+              installed.limitElo
+                  ? 'Playing at ${installed.elo} — tap to change'
+                  : 'Full strength — tap to cap its rating',
+              style: const TextStyle(fontSize: 11, color: Color(0xFF81B64C)),
+            ),
+          ],
           const SizedBox(height: 3),
           // Licence + a link to source: citizenship for the local install, and
           // the anchor AGPL §13 will need for the Phase 2 server.
@@ -215,7 +241,7 @@ class _CatalogTile extends StatelessWidget {
         ),
       );
     }
-    if (installed) {
+    if (installedEngine != null) {
       return Row(
         mainAxisSize: MainAxisSize.min,
         children: [
