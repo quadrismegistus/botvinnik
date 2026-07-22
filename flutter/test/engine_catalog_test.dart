@@ -84,8 +84,8 @@ void main() {
   test('capsElo is verified per engine: only Velvet dials, over a real range',
       () {
     // Ground truth from each engine's source (a wrong value ships a lying UI):
-    // Velvet, Patricia and Rodent implement UCI_LimitStrength/UCI_Elo.
-    const cappers = {'velvet', 'patricia', 'rodent'};
+    // these implement UCI_LimitStrength/UCI_Elo.
+    const cappers = {'velvet', 'patricia', 'rodent', 'arasan', 'brainlearn'};
     for (final e in kEngineCatalog) {
       if (cappers.contains(e.id)) {
         expect(e.capsElo, isTrue, reason: '${e.id} should cap');
@@ -103,6 +103,31 @@ void main() {
     expect((patricia.eloMin, patricia.eloMax), (500, 3001));
     final rodent = kEngineCatalog.firstWhere((e) => e.id == 'rodent');
     expect((rodent.eloMin, rodent.eloMax), (800, 2800));
+    final arasan = kEngineCatalog.firstWhere((e) => e.id == 'arasan');
+    expect((arasan.eloMin, arasan.eloMax), (1000, 3450));
+    final bl = kEngineCatalog.firstWhere((e) => e.id == 'brainlearn');
+    expect((bl.eloMin, bl.eloMax), (1320, 3190));
+  });
+
+  test('BrainLearn styles are option toggles; Arasan hosts a downloaded net',
+      () {
+    final bl = kEngineCatalog.firstWhere((e) => e.id == 'brainlearn');
+    // Two option-styles (Classic/MCTS) that send a UCI option, not a file, so
+    // no bundled data and a flat (non-own-dir) install.
+    expect(bl.personalities.map((p) => p.key).toList(), ['classic', 'mcts']);
+    expect(bl.personalities.every((p) => p.file == null), isTrue);
+    expect(bl.personalities.map((p) => p.setoption).toList(),
+        ['MCTS value false', 'MCTS value true']);
+    expect(bl.ownDir, isFalse, reason: 'a toggle needs no dir beside it');
+
+    final arasan = kEngineCatalog.firstWhere((e) => e.id == 'arasan');
+    // A downloaded net, keyed by the exact name Arasan loads beside itself.
+    expect(arasan.dataFiles.keys, contains('arasanv8-20260622.nnue'));
+    expect(arasan.personalities, isEmpty);
+    expect(arasan.ownDir, isTrue, reason: 'the net must sit beside the binary');
+    // Rodent's file styles also own a dir; a plain engine does not.
+    expect(kEngineCatalog.firstWhere((e) => e.id == 'rodent').ownDir, isTrue);
+    expect(kEngineCatalog.firstWhere((e) => e.id == 'velvet').ownDir, isFalse);
   });
 
   test('Rodent declares many styles; every style file is a bundled asset', () {

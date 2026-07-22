@@ -259,6 +259,36 @@ void main() {
         reason: 'the chosen style persona, not the base engine');
   });
 
+  testWidgets('BrainLearn is a two-style family (Classic / MCTS), dialable',
+      (tester) async {
+    final db = MemoryDb([]);
+    final engines = await _loaded(db);
+    await engines.upsert(
+        const CustomEngine(id: 'brainlearn', name: 'BrainLearn', path: '/b'));
+    final result = await _open(tester, engines: engines);
+
+    expect(find.text('BrainLearn'), findsOneWidget); // one row
+    expect(find.text('MCTS'), findsNothing);
+
+    await tester.tap(find.text('BrainLearn'));
+    await tester.pumpAndSettle();
+    expect(find.text('Classic'), findsOneWidget);
+    expect(find.text('MCTS'), findsOneWidget);
+
+    await tester.tap(find.text('MCTS'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Cap strength'));
+    await tester.pumpAndSettle();
+    final slider = tester.widget<Slider>(find.byType(Slider));
+    expect((slider.min, slider.max), (1320.0, 3190.0));
+
+    await tester.tap(find.text('Play MCTS'));
+    await tester.pumpAndSettle();
+    expect(result(), 'custom-brainlearn~mcts');
+    // the style sends a plain UCI option, not a file
+    expect(engines.styleOptionFor('custom-brainlearn~mcts'), 'MCTS value true');
+  });
+
   testWidgets('a long custom engine name does not overflow the cap page',
       (tester) async {
     tester.view.physicalSize = const Size(400, 800);

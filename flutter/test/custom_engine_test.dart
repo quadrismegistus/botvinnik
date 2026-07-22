@@ -170,15 +170,16 @@ void main() {
           isTrue);
     });
 
-    test('a style persona resolves to the shared engine and its style file',
+    test('a style persona resolves to the shared engine and its style option',
         () async {
       final store = await withRodent();
       expect(store.byPersonaId('custom-rodent~tal')?.id, 'rodent');
-      expect(store.personalityFor('custom-rodent~tal'), 'tal.txt');
+      expect(store.styleOptionFor('custom-rodent~tal'),
+          'PersonalityFile value tal.txt');
       // a plain engine persona has no style; an unknown style key resolves to
-      // nothing rather than a wrong file
-      expect(store.personalityFor('custom-v'), isNull);
-      expect(store.personalityFor('custom-rodent~nope'), isNull);
+      // nothing rather than a wrong option
+      expect(store.styleOptionFor('custom-v'), isNull);
+      expect(store.styleOptionFor('custom-rodent~nope'), isNull);
     });
 
     test('the shared strength cap labels every style with that rating',

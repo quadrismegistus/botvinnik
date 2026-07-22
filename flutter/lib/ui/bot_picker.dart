@@ -145,13 +145,14 @@ class _FamilyPickerState extends State<_FamilyPicker> {
             onTap: () => setState(() => _sub = (_SubKind.list, e.family)));
       case _Kind.moreEngines:
         // A family whose engines share a second-page list rather than one loose
-        // row each: the downloaded/hand-added engines, and Rodent's styles.
-        final isRodent = e.family == 'rodent';
+        // row each: the downloaded/hand-added engines, and a styled engine's
+        // styles (Rodent, BrainLearn).
+        final style = catalogEntryById(e.family);
+        final isStyle = style != null && style.personalities.isNotEmpty;
         return _row(e.family,
-            title: isRodent ? 'Rodent IV' : 'More engines',
-            subtitle: isRodent
-                ? 'One engine, ${e.members.length} playing styles — Tal, '
-                    'Botvinnik, Fischer… each dialable.'
+            title: isStyle ? style.name : 'More engines',
+            subtitle: isStyle
+                ? 'One engine, ${e.members.length} playing styles — each dialable.'
                 : 'Downloaded and custom UCI engines — '
                     '${e.members.length} available.',
             trailing: chevron,
@@ -282,11 +283,14 @@ class _FamilyPickerState extends State<_FamilyPicker> {
     // this keeps them in the catalog's curated order (famous players first).
     final members = _membersOf(family)
       ..sort((a, b) => _lowestElo(a).compareTo(_lowestElo(b)));
+    final style = catalogEntryById(family);
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _backBar(family == 'rodent' ? 'Rodent IV' : 'More engines'),
+        _backBar(style != null && style.personalities.isNotEmpty
+            ? style.name
+            : 'More engines'),
         Flexible(
           child: ListView(
             shrinkWrap: true,
@@ -328,10 +332,10 @@ class _FamilyPickerState extends State<_FamilyPicker> {
     return entry != null && entry.capsElo ? entry.eloMin : p.elo;
   }
 
-  /// The one-line summary under a list row: a Rodent style shows its character,
+  /// The one-line summary under a list row: a style persona shows its character,
   /// an ordinary engine its strength.
   String _engineStrengthLine(Persona p) {
-    if (p.family == 'rodent') return p.blurb; // the style description
+    if (styleFamilies.contains(p.family)) return p.blurb; // the style
     final entry = catalogEntryById(_engineId(p));
     if (entry == null) return p.blurb; // hand-added: capability unknown
     return entry.capsElo
@@ -484,9 +488,9 @@ class _FamilyPickerState extends State<_FamilyPicker> {
     final out = <_Entry>[];
     byFamily.forEach((family, members) {
       members.sort((a, b) => a.elo.compareTo(b.elo));
-      if (family == 'custom' || family == 'rodent') {
+      if (family == 'custom' || styleFamilies.contains(family)) {
         // One row → a sub-page list: "More engines" for downloaded/custom
-        // engines, "Rodent IV" for its styles.
+        // engines, or a styled engine (Rodent, BrainLearn) for its styles.
         out.add(_Entry(_Kind.moreEngines, family, members, null));
       } else if (_listFamilies.contains(family)) {
         out.add(_Entry(_Kind.list, family, members, null));
@@ -532,6 +536,7 @@ IconData _familyIcon(String family) => switch (family) {
       'maia' => Icons.psychology_outlined,
       'custom' => Icons.terminal,
       'rodent' => Icons.theater_comedy_outlined,
+      'brainlearn' => Icons.account_tree_outlined,
       _ => Icons.smart_toy_outlined,
     };
 
@@ -544,5 +549,6 @@ Color _familyColor(String family) => switch (family) {
       'maia' => const Color(0xFFb06f8a),
       'custom' => const Color(0xFF7d8fa0),
       'rodent' => const Color(0xFFc98a52),
+      'brainlearn' => const Color(0xFF6a8caf),
       _ => Colors.white38,
     };

@@ -10,7 +10,7 @@ class CustomEngineRunner {
   CustomEngineRunner(this.path);
 
   Future<String?> move(String fen,
-          {int? elo, int movetimeMs = 1000, String? personalityFile}) async =>
+          {int? elo, int movetimeMs = 1000, String? setoption}) async =>
       null;
 
   void dispose() {}

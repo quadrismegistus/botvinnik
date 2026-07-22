@@ -121,26 +121,29 @@ class CustomEngineStore extends ChangeNotifier {
   List<CustomEngine> get engines => List.unmodifiable(_engines);
 
   /// One persona per engine — EXCEPT an engine whose catalog entry declares
-  /// named styles (Rodent IV), which becomes one persona per style, all sharing
-  /// the one binary. A style persona's id is `custom-<engine>~<styleKey>`.
+  /// named styles (Rodent, BrainLearn), which becomes one persona per style,
+  /// all sharing the one binary. A style persona's id is
+  /// `custom-<engine>~<styleKey>`, and its family is the engine's own id.
   List<Persona> get personas => _engines.expand((e) {
         final entry = catalogEntryById(e.id);
         if (entry != null && entry.personalities.isNotEmpty) {
-          return entry.personalities
-              .map((p) => _stylePersona(e, p, entry.elo));
+          return entry.personalities.map((p) => _stylePersona(e, p, entry));
         }
         return [e.toPersona()];
       }).toList(growable: false);
 
-  Persona _stylePersona(CustomEngine e, EnginePersonality p, int fullElo) =>
+  Persona _stylePersona(
+          CustomEngine e, EnginePersonality p, EngineCatalogEntry entry) =>
       Persona({
         'id': '${e.personaId}~${p.key}',
         'name': p.name,
         // Strength is one engine-wide dial shared by every style: when the
-        // player has capped Rodent, all its styles show that rating; otherwise
-        // the catalog's full-strength figure.
-        'elo': e.limitElo ? e.elo : fullElo,
-        'family': 'rodent',
+        // player has capped the engine, all its styles show that rating;
+        // otherwise the catalog's full-strength figure.
+        'elo': e.limitElo ? e.elo : entry.elo,
+        // Its own family (the engine id), so the picker groups Rodent's styles
+        // apart from BrainLearn's.
+        'family': entry.id,
         'blurb': p.blurb,
       });
 
@@ -163,10 +166,12 @@ class CustomEngineStore extends ChangeNotifier {
     return null;
   }
 
-  /// The style file a persona plays (`custom-rodent~tal` -> `tal.txt`), or null
-  /// for a plain single-style engine. Resolved from the catalog, so it survives
-  /// a persona id that outlived a since-removed style.
-  String? personalityFor(String? personaId) {
+  /// The UCI option a style persona sends before each search
+  /// (`custom-rodent~tal` -> `PersonalityFile value tal.txt`,
+  /// `custom-brainlearn~mcts` -> `MCTS value true`), or null for a plain
+  /// single-style engine. Resolved from the catalog, so it survives a persona id
+  /// that outlived a since-removed style.
+  String? styleOptionFor(String? personaId) {
     if (personaId == null ||
         !personaId.startsWith(CustomEngine.personaPrefix)) {
       return null;
@@ -178,7 +183,7 @@ class CustomEngineStore extends ChangeNotifier {
     if (entry == null) return null;
     final key = rest.substring(tilde + 1);
     for (final p in entry.personalities) {
-      if (p.key == key) return p.file;
+      if (p.key == key) return p.setoption;
     }
     return null;
   }

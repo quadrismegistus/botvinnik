@@ -133,6 +133,51 @@ class EngineInstaller {
     return dest;
   }
 
+  /// Download a data file (verified by SHA-256) beside an own-dir engine's
+  /// binary under [name] — the exact filename the engine loads it by (Arasan's
+  /// net). A mismatch deletes the partial and throws, like the binary install.
+  static Future<void> installDataFile(
+    String catalogId,
+    String name,
+    EngineBuild build, {
+    void Function(int received, int total)? onProgress,
+  }) async {
+    final dir = Directory(await homeDir(catalogId));
+    if (!dir.existsSync()) dir.createSync(recursive: true);
+    final dest = '${dir.path}/$name';
+    final part = File('$dest.part');
+    final client = HttpClient();
+    try {
+      final req = await client.getUrl(Uri.parse(build.url));
+      final resp = await req.close();
+      if (resp.statusCode != 200) {
+        throw StateError('download failed: HTTP ${resp.statusCode}');
+      }
+      final total =
+          resp.contentLength >= 0 ? resp.contentLength : build.sizeBytes;
+      final out = part.openWrite();
+      var received = 0;
+      onProgress?.call(0, total);
+      await resp.forEach((chunk) {
+        out.add(chunk);
+        received += chunk.length;
+        onProgress?.call(received, total);
+      });
+      await out.close();
+    } finally {
+      client.close();
+    }
+    final digest = sha256.convert(await part.readAsBytes()).toString();
+    if (digest != build.sha256) {
+      if (part.existsSync()) part.deleteSync();
+      throw StateError(
+          'checksum mismatch for $name (expected ${build.sha256}, got $digest)');
+    }
+    final f = File(dest);
+    if (f.existsSync()) f.deleteSync();
+    part.renameSync(dest);
+  }
+
   /// Write an own-dir engine's data files into `<home>/personalities/`, beside
   /// its binary, so the engine (Rodent) finds them relative to itself. The
   /// bytes are read from bundled assets by the caller (cross-platform) and
