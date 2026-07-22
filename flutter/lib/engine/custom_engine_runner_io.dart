@@ -19,6 +19,22 @@ class CustomEngineRunner {
 
   CustomEngineRunner(this.path);
 
+  /// We hand the engine a bare `position fen` with no `moves` list, so it has
+  /// no position history for this search. The FEN's halfmove clock, though,
+  /// asserts a reversible-move run the engine cannot see — and an engine that
+  /// reconstructs repetition history from that clock can index an empty history
+  /// and crash: Velvet's `pos_history.rs` does `positions.last().unwrap()` once
+  /// the clock reaches 3, which panics on the empty vector and takes the whole
+  /// engine process down mid-game. Resetting the clock to 0 keeps the position
+  /// command self-consistent and costs an opponent nothing — botvinnik arbitrates
+  /// the 50-move and repetition draws itself. A malformed FEN is left untouched.
+  static String historylessFen(String fen) {
+    final fields = fen.split(' ');
+    if (fields.length < 6) return fen;
+    fields[4] = '0';
+    return fields.join(' ');
+  }
+
   /// The engine's move for [fen], or null on any failure — a binary that will
   /// not start, a search that dies, or a position with no move — which the
   /// caller turns into a Stockfish stand-in.
@@ -36,7 +52,7 @@ class CustomEngineRunner {
             ]
           : const <List<String>>[];
       final lines = await _engine!.search(
-        fen,
+        historylessFen(fen),
         go: 'movetime $movetimeMs',
         multiPv: 1,
         extraOptions: extra,
