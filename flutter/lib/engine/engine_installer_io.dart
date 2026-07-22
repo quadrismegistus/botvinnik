@@ -97,6 +97,17 @@ class EngineInstaller {
       }
     }
     if (Platform.isMacOS) {
+      // Apple Silicon refuses to launch an unsigned arm64 binary, and a
+      // downloaded engine arrives unsigned — so ad-hoc sign it in place
+      // (`codesign --sign -`). Re-signing an already-signed binary this way is
+      // fine for local, non-notarized use. Checked like the chmod above: a mac
+      // binary that cannot be signed will not run, so surface the failure
+      // rather than let it silently stand in.
+      final sign =
+          await Process.run('codesign', ['--force', '--sign', '-', dest]);
+      if (sign.exitCode != 0) {
+        throw StateError('could not ad-hoc sign the engine: ${sign.stderr}');
+      }
       // Harmless if the attribute is absent; the point is that when it is
       // present, Gatekeeper would otherwise refuse to launch the engine. Not
       // checked for that reason.
