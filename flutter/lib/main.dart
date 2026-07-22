@@ -16,6 +16,7 @@ import 'package:provider/provider.dart';
 
 import 'brain/bot_api.dart';
 import 'brain/chess_api.dart';
+import 'brain/chesscom_import_api.dart';
 import 'brain/lichess_import_api.dart';
 import 'brain/explorer_api.dart';
 import 'brain/grading_api.dart';
@@ -28,7 +29,9 @@ import 'engine/arbiter.dart';
 import 'engine/maia_engine.dart';
 import 'engine/maia_weights.dart';
 import 'engine/engine_factory.dart';
+import 'stores/background_grader.dart';
 import 'stores/book_store.dart';
+import 'stores/bot_record_store.dart';
 import 'stores/game_controller.dart';
 import 'stores/pgn_import.dart';
 import 'stores/player_rating_store.dart';
@@ -213,10 +216,41 @@ class _BootGateState extends State<BootGate> {
               create: (_) =>
                   PlayerRatingStore(booted.db, RatingApi(booted.bridge)),
             ),
+            // Read by the roster picker (pickBot), refit from the archive each
+            // time the sheet opens. Nothing watches it in the tree, so
+            // provider_parity_test (which scans for *Api reads) cannot guard
+            // it — bot_record_test.dart does, over the source.
+            ChangeNotifierProvider(create: (_) => BotRecordStore(booted.db)),
             ChangeNotifierProvider(create: (_) => BookStore()),
             Provider(create: (_) => ChessApi(booted.bridge)),
             Provider(create: (_) => LichessImportApi(booted.bridge)),
+            Provider(create: (_) => ChesscomImportApi(booted.bridge)),
             Provider(create: (_) => ExplorerApi(booted.bridge)),
+            // Grades ungraded archived games in the background and seeds
+            // practice from the blunders (#170), below analysis so it never
+            // spoils live play. Eager (lazy: false) because nothing reads it
+            // from the tree — it has to start itself — and it reads the
+            // GameController declared above only to pause while a game is on the
+            // board (botThinking, or a bot game with moves that is not over).
+            Provider<BackgroundGrader>(
+              lazy: false,
+              create: (ctx) {
+                final game = ctx.read<GameController>();
+                return BackgroundGrader(
+                  booted.arbiter,
+                  booted.db,
+                  GradingApi(booted.bridge),
+                  booted.practice,
+                  game, // the live game to watch
+                  () =>
+                      game.botThinking ||
+                      (game.botEnabled &&
+                          !game.gameOver &&
+                          game.moves.isNotEmpty), // …is it being played now?
+                )..start();
+              },
+              dispose: (_, g) => g.dispose(),
+            ),
           ],
           child: MaterialApp(
             title: 'botvinnik',

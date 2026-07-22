@@ -5,6 +5,7 @@
 import { Chess, type Square } from 'chess.js';
 import type { UciEval } from './engine/types';
 import type { LichessEval, LichessGame } from './lichessImport';
+import { gameAccuracy, labelCounts, type StoredGame, type StoredMove } from './gameStore';
 
 export interface CcGame {
 	uuid: string;
@@ -14,6 +15,100 @@ export interface CcGame {
 	end_time: number;
 	white: { username: string; rating: number; result: string };
 	black: { username: string; rating: number; result: string };
+}
+
+// chess.com game -> the SAME stored-game document the archive saves, but
+// UNGRADED. This is the mapper the in-app importer crosses the bridge for,
+// and it is a different job from `ccGameToAnalysed` below.
+//
+// chess.com serves no per-move evals (a lichess "analysed" game carries the
+// server's; a chess.com archive carries none), and the engine cannot run
+// synchronously across the JavaScriptCore bridge — so, unlike lichess, the
+// import cannot arrive graded. It arrives as an archive: the movetext parsed
+// with the SAME chess.js the grader uses, so every `fenBefore` is byte-for-byte
+// what a later grade will re-derive from, and every eval/label field left null.
+// Grading and practice-seeding are a background job's work afterwards (#170);
+// on its own an import seeds nothing, and that is expected.
+//
+// Returns null for a non-standard variant, a missing/corrupt PGN, or a game
+// with no legal moves — the same three refusals `gameFromPgn` makes on paste.
+export function ccGameToStored(
+	cc: CcGame,
+	username: string
+): { stored: StoredGame; humanColor: 'w' | 'b' | null } | null {
+	if (cc.rules !== 'chess' || !cc.pgn) return null;
+	// A well-formed archive always carries these, but the chess.com API shape is
+	// not ours to trust: a drifted or partial record must be SKIPPED like any
+	// other bad game, never throw. The importer's walk makes one bridge call per
+	// game and does not catch, so a single thrown game would abort the entire
+	// import (up to 300 games, across many months). white/black feed the
+	// human-colour match below; end_time stamps endedAt.
+	if (!cc.white?.username || !cc.black?.username || typeof cc.end_time !== 'number') {
+		return null;
+	}
+	const c = new Chess();
+	try {
+		c.loadPgn(cc.pgn);
+	} catch {
+		return null;
+	}
+	// verbose history carries the before/after FEN and the long-algebraic move
+	// (from+to+promotion), so this honours a custom starting position too and
+	// never re-derives a FEN by hand.
+	const history = c.history({ verbose: true });
+	if (history.length === 0) return null;
+
+	const moves: StoredMove[] = history.map((m, i) => ({
+		ply: i + 1,
+		san: m.san,
+		uci: m.from + m.to + (m.promotion ?? ''),
+		color: m.color as 'w' | 'b',
+		fenBefore: m.before,
+		fenAfter: m.after,
+		evalPawns: null,
+		mate: null,
+		pctBest: null,
+		wcDrop: 0 // ungraded: nothing was lost because nothing was measured
+	}));
+
+	const lower = username.toLowerCase();
+	const humanColor: 'w' | 'b' | null =
+		cc.white.username.toLowerCase() === lower
+			? 'w'
+			: cc.black.username.toLowerCase() === lower
+				? 'b'
+				: null;
+
+	// Only one side ever carries 'win'; the loser carries the reason it lost
+	// ('resigned', 'checkmated', 'timeout', …) and both sides carry a draw-type
+	// result ('agreed', 'stalemate', 'repetition', …) when it was drawn.
+	const result =
+		cc.white.result === 'win' ? '1-0' : cc.black.result === 'win' ? '0-1' : '1/2-1/2';
+
+	const stored: StoredGame = {
+		id: `chesscom-${cc.uuid}`,
+		endedAt: new Date(cc.end_time * 1000).toISOString(),
+		result,
+		pgn: cc.pgn,
+		botElo: null,
+		// the side the human did NOT play, so Review orients the board and a
+		// later grade knows whose mistakes to mine — exactly as the lichess
+		// mapper encodes it. null when the named player is in neither seat.
+		botColor: humanColor === 'w' ? 'b' : humanColor === 'b' ? 'w' : null,
+		moveCount: moves.length,
+		// both null / both empty until a grade fills them in: gameAccuracy needs
+		// a labelled move and labelCounts counts labelled moves, and there are
+		// none. Review already reads every one of these as nullable/empty.
+		whiteAccuracy: gameAccuracy(moves, 'w'),
+		blackAccuracy: gameAccuracy(moves, 'b'),
+		labelCounts: { w: labelCounts(moves, 'w'), b: labelCounts(moves, 'b') },
+		moves,
+		white: cc.white.username,
+		black: cc.black.username,
+		source: 'chesscom'
+	};
+
+	return { stored, humanColor };
 }
 
 function toWhitePov(r: UciEval, whiteToMove: boolean): LichessEval {

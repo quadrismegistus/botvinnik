@@ -19,7 +19,9 @@ import '../engine/garbo_engine.dart';
 import '../engine/maia_engine.dart';
 import '../engine/maia_weights.dart';
 import '../engine/retro_engine.dart';
+import '../stores/bot_record_store.dart';
 import '../stores/game_controller.dart';
+import '../stores/player_rating_store.dart';
 
 // Three families are platform-conditional rather than simply present, and each
 // answers for ITSELF — the platforms are not enumerated here on purpose,
@@ -106,13 +108,32 @@ List<RosterGroup> groupRoster(Iterable<Persona> personas,
 /// Pick a bot. Returns the chosen persona id, or null if dismissed — it no
 /// longer mutates global state, because "who plays this side" is now a choice
 /// the New Game sheet assembles, not a persistent setting the picker commits.
-Future<String?> pickBot(BuildContext context, {String? current}) {
+///
+/// The records are read from disk BEFORE the sheet is shown rather than watched
+/// from inside it: the archive is small (app_db.dart) and awaiting one read
+/// keeps the sheet a pure function of its inputs, so the widget tests can pump
+/// it with a records map directly instead of standing up a store. The player's
+/// own rating is read as-is, NOT refreshed — the game-over recap refits it, and
+/// that is the flow right before this one (finish a game, open New Game, pick),
+/// so it is warm exactly when the "near your level" marker matters; when it is
+/// null (fewer than the estimator's minimum rated games) the marker stays off,
+/// which is honest rather than guessed.
+Future<String?> pickBot(BuildContext context, {String? current}) async {
   final game = context.read<GameController>();
+  final store = context.read<BotRecordStore>();
+  final playerElo = context.read<PlayerRatingStore>().rating?.elo;
+  await store.refresh(game.personaFor);
+  if (!context.mounted) return null;
   return showModalBottomSheet<String>(
     context: context,
     backgroundColor: const Color(0xFF262421),
     isScrollControlled: true,
-    builder: (_) => RosterSheet(game: game, current: current),
+    builder: (_) => RosterSheet(
+      game: game,
+      current: current,
+      records: store.records,
+      playerElo: playerElo,
+    ),
   );
 }
 
@@ -127,11 +148,24 @@ class RosterSheet extends StatefulWidget {
   /// host's answer would assert nothing there and say so nowhere.
   final Set<String>? playable;
 
+  /// Per-persona human W-L-D from the archive, keyed by resolved persona id
+  /// (see [BotRecordStore]). Passed in rather than watched so the sheet stays a
+  /// pure function of its inputs; empty means "no record line", which is what
+  /// the existing tests that omit it get.
+  final Map<String, BotRecord> records;
+
+  /// The player's own estimated rating, or null when the archive has not fit
+  /// one yet. A persona within [_nearYouElo] of it is marked as being around
+  /// the player's level.
+  final int? playerElo;
+
   const RosterSheet({
     super.key,
     required this.game,
     this.current,
     this.playable,
+    this.records = const {},
+    this.playerElo,
   });
 
   @override
@@ -143,6 +177,12 @@ class _RosterSheetState extends State<RosterSheet> {
   /// label rather than under the heading's mark: 16 padding + a 32-wide
   /// CircleAvatar + the 12 gap.
   static const double _memberIndent = 60;
+
+  /// How close a persona's elo has to be to the player's for the row to read as
+  /// being around their level. The Svelte version's "≈ you" badge; ~100 is a
+  /// little under half the gap between adjacent squarefish rungs, so it marks a
+  /// small handful rather than a whole family.
+  static const int _nearYouElo = 100;
 
   @override
   void initState() {
@@ -202,6 +242,7 @@ class _RosterSheetState extends State<RosterSheet> {
           if (row is RosterGroup) return _heading(row, first: i == 0);
           final p = row as Persona;
           final selected = p.id == currentId;
+          final recordNote = _recordNote(p);
           return ListTile(
             dense: true,
             selected: selected,
@@ -218,6 +259,10 @@ class _RosterSheetState extends State<RosterSheet> {
             subtitle: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                // The actionable new line first: on a 32-bot roster, "you are
+                // 3W 1L 0D here" is what tells a player where to go next, so it
+                // reads above the blurb rather than below it.
+                ?recordNote,
                 Text(p.blurb,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
@@ -229,6 +274,36 @@ class _RosterSheetState extends State<RosterSheet> {
             onTap: () => Navigator.pop(context, p.id),
           );
         },
+      ),
+    );
+  }
+
+  /// The player's line against this persona: their W-L-D record, and whether
+  /// the bot is around their own strength. Null when there is neither — a
+  /// persona the player has never finished a game against, and not near their
+  /// level, adds no line.
+  ///
+  /// The two facts share one line because they answer the same question — "is
+  /// this a good next opponent" — and a dense sheet cannot afford a row each.
+  /// The separator is a middle dot `·`, and the marker is the plain words "near
+  /// your level": an "≈" is in none of the three bundled Roboto faces, so a
+  /// Text carrying one makes Flutter web fetch a font from fonts.gstatic.com.
+  Widget? _recordNote(Persona p) {
+    final rec = widget.records[p.id] ?? const BotRecord();
+    final nearYou = widget.playerElo != null &&
+        (p.elo - widget.playerElo!).abs() <= _nearYouElo;
+    if (rec.played == 0 && !nearYou) return null;
+    final parts = <String>[
+      if (rec.played > 0) '${rec.won}W ${rec.lost}L ${rec.drawn}D',
+      if (nearYou) 'near your level',
+    ];
+    return Padding(
+      padding: const EdgeInsets.only(top: 2, bottom: 1),
+      child: Text(
+        parts.join('  ·  '),
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: const TextStyle(fontSize: 11, color: Color(0xFFbfae7a)),
       ),
     );
   }

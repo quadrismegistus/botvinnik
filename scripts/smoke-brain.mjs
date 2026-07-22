@@ -123,6 +123,32 @@ if (imported.stored.moves.length !== 5) fail(`lichessGameToStored moves ${import
 if (!imported.practice.some((p) => p.drop > 20)) fail('lichessGameToStored practice candidates');
 if (typeof brain.analysedGameToStored !== 'function') fail('analysedGameToStored export');
 
+// chess.com import — the mapper only, called by name from
+// flutter/lib/brain/chesscom_import_api.dart (#166). Dart does the month-walk;
+// this is the whole brain surface it stands on. Unlike lichess, chess.com
+// ships no evals, so the mapper cannot grade — it archives the game UNGRADED
+// and a background job grades it later. Drop the export and the chess.com
+// import throws on a device while tsc, vitest and the bundle diff stay green.
+const cc = brain.ccGameToStored(
+	{
+		uuid: 'smoke-uuid-0001',
+		rules: 'chess',
+		time_class: 'blitz',
+		end_time: 1710095400,
+		white: { username: 'Smoke', rating: 1200, result: 'win' },
+		black: { username: 'Test', rating: 1210, result: 'checkmated' },
+		pgn: '1. e4 e5 2. Qh5 Nc6 3. Bc4 Nf6 4. Qxf7# 1-0'
+	},
+	'Smoke'
+);
+if (cc?.stored.id !== 'chesscom-smoke-uuid-0001' || cc.stored.source !== 'chesscom')
+	fail(`ccGameToStored stored ${JSON.stringify(cc?.stored?.id)}`);
+if (cc.stored.moves.length !== 7) fail(`ccGameToStored moves ${cc.stored.moves.length}`);
+// UNGRADED is the whole point: a chess.com import must NOT arrive with grades
+if (cc.stored.whiteAccuracy !== null || cc.stored.moves[0].label !== undefined)
+	fail('ccGameToStored must be ungraded');
+if (cc.humanColor !== 'w' || cc.stored.botColor !== 'b') fail('ccGameToStored humanColor');
+
 // stored-game math
 if (brain.moveAccuracy(0) < 99) fail('moveAccuracy(0)');
 if (brain.gameAccuracy([], 'w') !== null) fail('gameAccuracy empty');

@@ -97,6 +97,15 @@ export {
 // lichess's own stored evals — which is what makes an import seed the practice
 // queue with real blunders where a pasted PGN carries no grades at all.
 export { lichessGameToStored, analysedGameToStored } from './lichessImport';
+// chess.com is the other half (#166): archive-per-month, and — unlike a lichess
+// analysed game — no stored evals, so the mapper cannot grade. `ccGameToStored`
+// maps one archived game to an UNGRADED StoredGame (source 'chesscom', real
+// names, null grades); a background job grades it later. `ccGameToAnalysed`,
+// `fetchChesscomArchives` and `fetchChesscomMonth` stay OUT: the first is async
+// and needs an engine, and the last two call `fetch`. Dart owns the month-walk
+// (lib/brain/chesscom_import_api.dart); the brain owns only this mapping.
+export { ccGameToStored } from './chesscomCore';
+export type { CcGame } from './chesscomCore';
 
 // ---- stored-game math (pure parts of gameStore) ----
 export { moveAccuracy, gameAccuracy, labelCounts, LABEL_VERSION } from './gameStore';

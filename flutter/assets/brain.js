@@ -3906,6 +3906,7 @@ var brain = (() => {
     botEloMin: () => botEloMin,
     botRecipe: () => botRecipe,
     botSpec: () => botSpec,
+    ccGameToStored: () => ccGameToStored,
     confidences: () => confidences,
     controlSquares: () => controlSquares,
     dueCount: () => dueCount,
@@ -9573,6 +9574,61 @@ var brain = (() => {
   }
   function lichessGameToStored(game2, username) {
     return analysedGameToStored(game2, username, "lichess");
+  }
+
+  // brain/chesscomCore.ts
+  function ccGameToStored(cc, username) {
+    if (cc.rules !== "chess" || !cc.pgn) return null;
+    if (!cc.white?.username || !cc.black?.username || typeof cc.end_time !== "number") {
+      return null;
+    }
+    const c = new Chess();
+    try {
+      c.loadPgn(cc.pgn);
+    } catch {
+      return null;
+    }
+    const history = c.history({ verbose: true });
+    if (history.length === 0) return null;
+    const moves = history.map((m, i) => ({
+      ply: i + 1,
+      san: m.san,
+      uci: m.from + m.to + (m.promotion ?? ""),
+      color: m.color,
+      fenBefore: m.before,
+      fenAfter: m.after,
+      evalPawns: null,
+      mate: null,
+      pctBest: null,
+      wcDrop: 0
+      // ungraded: nothing was lost because nothing was measured
+    }));
+    const lower = username.toLowerCase();
+    const humanColor = cc.white.username.toLowerCase() === lower ? "w" : cc.black.username.toLowerCase() === lower ? "b" : null;
+    const result = cc.white.result === "win" ? "1-0" : cc.black.result === "win" ? "0-1" : "1/2-1/2";
+    const stored = {
+      id: `chesscom-${cc.uuid}`,
+      endedAt: new Date(cc.end_time * 1e3).toISOString(),
+      result,
+      pgn: cc.pgn,
+      botElo: null,
+      // the side the human did NOT play, so Review orients the board and a
+      // later grade knows whose mistakes to mine — exactly as the lichess
+      // mapper encodes it. null when the named player is in neither seat.
+      botColor: humanColor === "w" ? "b" : humanColor === "b" ? "w" : null,
+      moveCount: moves.length,
+      // both null / both empty until a grade fills them in: gameAccuracy needs
+      // a labelled move and labelCounts counts labelled moves, and there are
+      // none. Review already reads every one of these as nullable/empty.
+      whiteAccuracy: gameAccuracy(moves, "w"),
+      blackAccuracy: gameAccuracy(moves, "b"),
+      labelCounts: { w: labelCounts(moves, "w"), b: labelCounts(moves, "b") },
+      moves,
+      white: cc.white.username,
+      black: cc.black.username,
+      source: "chesscom"
+    };
+    return { stored, humanColor };
   }
 
   // brain/playerElo.ts
