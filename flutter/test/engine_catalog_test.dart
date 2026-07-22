@@ -82,8 +82,8 @@ void main() {
   test('capsElo is verified per engine: only Velvet dials, over a real range',
       () {
     // Ground truth from each engine's source (a wrong value ships a lying UI):
-    // only Velvet implements UCI_LimitStrength/UCI_Elo.
-    const cappers = {'velvet'};
+    // Velvet and Patricia implement UCI_LimitStrength/UCI_Elo; the rest do not.
+    const cappers = {'velvet', 'patricia'};
     for (final e in kEngineCatalog) {
       if (cappers.contains(e.id)) {
         expect(e.capsElo, isTrue, reason: '${e.id} should cap');
@@ -97,6 +97,8 @@ void main() {
     }
     final velvet = kEngineCatalog.firstWhere((e) => e.id == 'velvet');
     expect((velvet.eloMin, velvet.eloMax), (1225, 3000));
+    final patricia = kEngineCatalog.firstWhere((e) => e.id == 'patricia');
+    expect((patricia.eloMin, patricia.eloMax), (500, 3001));
   });
 
   test('catalogEntryById matches a catalog id, and only that', () {

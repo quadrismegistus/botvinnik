@@ -1,11 +1,13 @@
 // A curated catalog of downloadable UCI engines (issue #183).
 //
-// Each entry points at an engine's OWN official release assets — we link and
-// install, we do not host or redistribute the binary — with a pinned SHA-256
-// per platform so the installer can refuse anything that does not match what
-// was vetted. Every entry carries its licence and source URL: good citizenship
-// for the local download here, and exactly what AGPL §13 will require for any
-// engine offered from the Phase 2 server.
+// Most entries point at an engine's OWN official release assets — we link and
+// install, we do not host. The exception is an engine that ships no macOS build
+// of its own (Patricia): for those we host a CI-compiled, ad-hoc-signed binary
+// on the botvinnik-engines repo, still pinned by SHA-256, with sourceUrl kept on
+// the upstream repo so the licence's source obligation stays satisfied there.
+// Every build carries a pinned SHA-256 so the installer can refuse anything that
+// does not match, and every entry its licence and source URL: good citizenship
+// for the download, and what AGPL §13 will require for the Phase 2 server.
 
 import 'package:flutter/foundation.dart';
 
@@ -312,6 +314,47 @@ const List<EngineCatalogEntry> kEngineCatalog = [
         sha256:
             'b74ead5648cfa7a7a9f51d04566cf00f56dcf90dacd1252990906223bf1891b8',
         sizeBytes: 64664576,
+      ),
+    },
+  ),
+  EngineCatalogEntry(
+    id: 'patricia',
+    name: 'Patricia',
+    description:
+        'A deliberately aggressive open-source engine by Adam Kulju — it seeks '
+        'sacrifices and attacks, and it dials all the way down from 3001 to 500.',
+    author: 'Adam Kulju',
+    license: 'MIT',
+    sourceUrl: 'https://github.com/Adam-Kulju/Patricia',
+    elo: 3400,
+    version: '5',
+    capsElo: true,
+    eloMin: 500,
+    eloMax: 3001,
+    builds: {
+      // No upstream macOS build, so we host a CI-compiled, ad-hoc-signed arm64
+      // binary on botvinnik-engines (source of truth stays the upstream repo).
+      'macos-arm64': EngineBuild(
+        url:
+            'https://github.com/quadrismegistus/botvinnik-engines/releases/download/patricia-5/patricia-5-macos-arm64',
+        sha256:
+            'e48fbe22905ecc7fe4f0dd599ba842127f481ddeaf13c99a01d5b1689df7c5d9',
+        sizeBytes: 3832992,
+      ),
+      // Linux/Windows: upstream's own x86-64-v3 builds, linked directly.
+      'linux-x64': EngineBuild(
+        url:
+            'https://github.com/Adam-Kulju/Patricia/releases/download/5/patricia_v3',
+        sha256:
+            '29c382e24ff1310bdc8e16321d721ed62b1b8f247b016d7a14e24b2608fc936f',
+        sizeBytes: 3825840,
+      ),
+      'windows-x64': EngineBuild(
+        url:
+            'https://github.com/Adam-Kulju/Patricia/releases/download/5/patricia_v3.exe',
+        sha256:
+            'd2d72fdee011781a9af3efe7bf5c0f71512257e7d4c93d85d391c1afcc2cf32c',
+        sizeBytes: 4162560,
       ),
     },
   ),
