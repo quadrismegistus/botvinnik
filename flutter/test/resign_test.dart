@@ -102,4 +102,26 @@ void main() {
     expect(g.resigned, isFalse);
     expect(db.saved, isEmpty);
   });
+
+  testWidgets('the finished game is exposed for review (#198)', (tester) async {
+    // The game-over recap opens the just-archived record straight into review,
+    // so the controller has to hand it back — and it must be the SAME record
+    // that landed in the archive, not a fresh read.
+    final (g, db) = await game();
+    g.playUci('e2e4');
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(g.lastSavedGame, isNull, reason: 'nothing archived until it ends');
+
+    g.resign();
+    await tester.pump(const Duration(seconds: 1));
+
+    expect(g.lastSavedGame, isNotNull);
+    expect(g.lastSavedGame!['id'], db.saved.single['id']);
+    expect(g.lastSavedGame!['result'], '0-1');
+
+    // A new game clears it, so a stale record can't be reopened as "this game".
+    g.newGame();
+    expect(g.lastSavedGame, isNull);
+    await tester.pump(const Duration(milliseconds: 200));
+  });
 }

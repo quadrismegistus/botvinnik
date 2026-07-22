@@ -91,6 +91,13 @@ class GameController extends ChangeNotifier {
   String gameSeed = _newSeed();
   bool _saved = false;
 
+  /// The record [_saveGame] just wrote — the exact StoredGame map — held so the
+  /// game-over recap can open it in review straight away, without a round-trip
+  /// through the archive. Null until a game is archived, and cleared the moment
+  /// a new or re-opened game makes it stale.
+  Map<String, dynamic>? _lastSavedGame;
+  Map<String, dynamic>? get lastSavedGame => _lastSavedGame;
+
   // analysis cache: fen → future of its MultiPV-5 deep lines
   final Map<String, Future<List<EngineMove>?>> _analysis = {};
   // the deepest streamed snapshot per fen — grading falls back to these when
@@ -616,6 +623,7 @@ class GameController extends ChangeNotifier {
         : null;
     _undoWasCounted.clear();
     _saved = false;
+    _lastSavedGame = null;
     gameSeed = _newSeed();
     _analysis.clear();
     _partials.clear();
@@ -711,6 +719,7 @@ class GameController extends ChangeNotifier {
     lastMove =
         moves.isEmpty ? null : NormalMove.fromUci(moves.last.uci);
     _saved = false; // a re-finished game is a new game to archive
+    _lastSavedGame = null; // the old record no longer matches the live game
     _threat = null;
     _analysisFor(position.fen);
     _syncTree();
@@ -949,6 +958,10 @@ class GameController extends ChangeNotifier {
       'moves': stored,
     };
     await db.saveGame(record);
+    // Hold the record and announce it: the game-over recap watches this
+    // controller, so setting it here is what lights up "Review this game".
+    _lastSavedGame = record;
+    notifyListeners();
   }
 
   double? _bridgeAccuracy(List<Map<String, dynamic>> stored, String color) =>
