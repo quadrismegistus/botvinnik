@@ -8,6 +8,7 @@
 
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:botvinnik_mobile/engine/custom_engine_runner_io.dart';
 import 'package:botvinnik_mobile/stores/custom_engine.dart';
 import 'package:botvinnik_mobile/stores/game_controller.dart';
 
@@ -111,6 +112,36 @@ void main() {
     final store = await loaded(db);
     expect(store.engines, isEmpty);
     expect(store.isLoaded, isTrue);
+  });
+
+  group('historylessFen — the fix for the Velvet endgame panic', () {
+    test('resets the halfmove clock to 0, since we send no move history', () {
+      // A shuffling endgame with a high halfmove clock is exactly what tripped
+      // velvet-chess pos_history.rs:65 (`positions.last().unwrap()` on an empty
+      // history once the clock reached 3).
+      const fen = '8/4k3/8/8/8/8/R7/1K6 b - - 41 44';
+      expect(CustomEngineRunner.historylessFen(fen),
+          '8/4k3/8/8/8/8/R7/1K6 b - - 0 44');
+    });
+
+    test('leaves the board, side, castling and fullmove number untouched', () {
+      const fen = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 7 12';
+      final out = CustomEngineRunner.historylessFen(fen).split(' ');
+      expect(out[0], 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR');
+      expect(out[1], 'w');
+      expect(out[2], 'KQkq');
+      expect(out[4], '0', reason: 'the halfmove clock is zeroed');
+      expect(out[5], '12', reason: 'the fullmove number is preserved');
+    });
+
+    test('a clock already under the panic threshold is still normalised', () {
+      expect(CustomEngineRunner.historylessFen('8/8/8/8/8/8/8/K1k5 w - - 2 3'),
+          '8/8/8/8/8/8/8/K1k5 w - - 0 3');
+    });
+
+    test('a malformed FEN with too few fields is passed through unchanged', () {
+      expect(CustomEngineRunner.historylessFen('8/8/8 w'), '8/8/8 w');
+    });
   });
 
   testWidgets('a custom engine merges into the roster and resolves as a persona',
