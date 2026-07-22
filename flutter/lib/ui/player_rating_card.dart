@@ -84,6 +84,12 @@ class _PlayerRatingCardState extends State<PlayerRatingCard> {
   List<Widget> _body(PlayerRatingStore store) {
     final rating = store.rating;
     if (rating == null) {
+      // A game is still being scored: we do not yet know whether it is about to
+      // become the first rated game, so hold the empty-state CTA rather than
+      // asserting "no rated games" over the top of the "Adding this game..."
+      // line below. After a checkmate the archive write waits ~16s, long enough
+      // for the CTA to read as a false verdict on the game just finished.
+      if (store.scoring) return const [];
       return const [
         Text('No rated games yet',
             style: TextStyle(fontSize: 14, color: Colors.white70)),

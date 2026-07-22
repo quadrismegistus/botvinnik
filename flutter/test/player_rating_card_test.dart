@@ -216,6 +216,45 @@ void main() {
         reason: 'the game the recap is about is now in the fit');
   });
 
+  testWidgets('a first rated game being scored does not claim "no rated games"',
+      (tester) async {
+    tester.view.physicalSize = _phone;
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    // Empty archive: this IS the player's first rated game, still being scored.
+    // After a checkmate that window is ~16s, so the empty-state CTA must not
+    // assert "you have none" over the top of "Adding this game...".
+    final db = FakeDb([]);
+    final store = PlayerRatingStore(db, RatingApi(NodeBrainBridge()),
+        pollInterval: const Duration(milliseconds: 20),
+        pollDeadline: const Duration(milliseconds: 400));
+    await tester.pumpWidget(MaterialApp(
+      theme: ThemeData(brightness: Brightness.dark, fontFamily: 'Roboto'),
+      home: Scaffold(
+        body: ChangeNotifierProvider<PlayerRatingStore>.value(
+          value: store,
+          child: const PlayerRatingCard(afterGame: true),
+        ),
+      ),
+    ));
+
+    await tester.pump();
+    await tester.pump();
+    expect(_text(tester), contains('Adding this game...'));
+    expect(_text(tester), isNot(contains('No rated games yet')),
+        reason: 'the how-to-get-a-rating CTA must not verdict "none" on a game '
+            'that is still being scored');
+
+    await db.saveGame(_game(id: 'first', result: '1-0'));
+    await tester.pump(const Duration(milliseconds: 40));
+    await tester.pumpAndSettle();
+
+    expect(_text(tester), isNot(contains('Adding this game...')));
+    expect(_text(tester), contains('1 game counts so far'),
+        reason: 'the first rated game landed and counts');
+  });
+
   test('main.dart wires the card up', () {
     // The card reads its store from the tree in initState, so a missing
     // provider is a crash at game over and nothing else — no analyzer
