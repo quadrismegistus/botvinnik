@@ -53,6 +53,19 @@ class MaiaStatusLine extends StatelessWidget {
         );
 
       case MaiaPhase.failed:
+        final raw = (state.error ?? '').toLowerCase();
+        // The one failure with a real explanation and no fix on this device:
+        // mobile Safari's WebAssembly memory ceiling, which ort-web hits as
+        // "out of memory" / "no available backend". Say what it means and where
+        // Maia does run, rather than dumping the raw error at a player.
+        final outOfMemory = raw.contains('out of memory') ||
+            raw.contains('no available backend');
+        final text = outOfMemory
+            ? 'This browser ran out of memory for $name’s neural net — mobile '
+                'Safari caps it. Playing as a Stockfish stand-in; the desktop '
+                'site runs the real Maia.'
+            : 'Couldn’t load $name’s neural net — playing as a Stockfish '
+                'stand-in.\n${state.error}';
         return Padding(
           padding: const EdgeInsets.fromLTRB(58, 4, 8, 2),
           child: Row(
@@ -63,14 +76,8 @@ class MaiaStatusLine extends StatelessWidget {
                 child: Icon(Icons.error_outline, size: 13, color: _amber),
               ),
               Expanded(
-                child: Text(
-                  // Honest about the fallback, and specific about why — the
-                  // worker's own reason, so a stand-in is diagnosable from the
-                  // phone it happened on.
-                  'Couldn’t load $name’s neural net — playing as a Stockfish '
-                  'stand-in.\n${state.error}',
-                  style: const TextStyle(fontSize: 11.5, color: _amber),
-                ),
+                child: Text(text,
+                    style: const TextStyle(fontSize: 11.5, color: _amber)),
               ),
             ],
           ),
