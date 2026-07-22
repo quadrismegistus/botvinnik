@@ -20,14 +20,29 @@ Future<void> _pump(WidgetTester tester, MaiaBandState state) => tester.pumpWidge
     );
 
 void main() {
-  testWidgets('a failed band states the reason, not a silent stand-in',
-      (tester) async {
+  testWidgets('an unrecognised failure shows the verbatim reason', (tester) async {
     await _pump(tester, MaiaBandState.failed('fetch failed: 403'));
 
-    // The verbatim worker reason — the whole point on a phone with no console.
+    // The raw worker reason — the whole point on a phone with no console.
     expect(find.textContaining('403'), findsOneWidget);
     // And it is honest that the game continues, as Stockfish.
     expect(find.textContaining('Stockfish'), findsOneWidget);
+  });
+
+  testWidgets('the out-of-memory failure is explained, not dumped',
+      (tester) async {
+    // iOS Safari's WASM ceiling, as ort-web reports it. A player should get an
+    // explanation and a way out, not "no available backend found".
+    await _pump(
+      tester,
+      MaiaBandState.failed(
+          'no available backend found. ERR: [wasm] RangeError: Out of memory'),
+    );
+
+    expect(find.textContaining('ran out of memory'), findsOneWidget);
+    expect(find.textContaining('desktop'), findsOneWidget);
+    // The raw ort jargon is not shown to the player in this case.
+    expect(find.textContaining('backend'), findsNothing);
   });
 
   testWidgets('a downloading band shows a bar and the bytes', (tester) async {

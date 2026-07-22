@@ -152,6 +152,16 @@ const loads = new Map<number, Promise<Loaded>>();
 ///     persona's name" the roster picker exists to prevent.
 const timedOutBands = new Set<number>();
 
+/// Bands whose weights are cached but whose SESSION would not start — the
+/// runtime failed hard, not slowly. On a phone that is mobile Safari's
+/// WebAssembly memory ceiling: ort-web cannot instantiate its ~13MB runtime
+/// alongside Flutter's, and throws `RangeError: Out of memory` / `no available
+/// backend`. It fails identically every time, so once is enough: retire the
+/// band for the session and fall back to Stockfish cleanly, rather than paying
+/// (and re-OOMing on) the instantiation on every single move. A page reload
+/// clears it, so a genuinely one-off failure gets one fresh try per visit.
+const deadBands = new Set<number>();
+
 /** What the UI is told while a move waits on something other than inference. */
 type Progress = { phase: 'fetching' | 'starting'; received?: number; total?: number };
 
@@ -211,6 +221,13 @@ function isFetchTimeout(e: unknown): boolean {
 	return e instanceof DOMException && e.name === 'TimeoutError';
 }
 
+/** The ORT compile timing out (a slow phone), as opposed to a hard start
+ * failure (out of memory, no backend) — a timeout can succeed on a retry, so it
+ * must not retire the band the way a hard failure does. */
+function isInitTimeout(e: unknown): boolean {
+	return e instanceof Error && e.message.includes('ort init timed out');
+}
+
 /** Whether this band's weights are already on disk — decides the UI message. */
 async function isCached(band: number): Promise<boolean> {
 	return (await getCached(`maia-${band}`)) !== null;
@@ -241,6 +258,13 @@ function load(band: number, report: (p: Progress) => void): Promise<Loaded> {
 				bytes = await readWithProgress(res, report);
 				await putCached(key, bytes);
 			}
+			// The weights are in hand; from here a failure is the RUNTIME failing,
+			// not the download. A band that already died that way this session
+			// (mobile Safari's memory ceiling) will die identically — skip the
+			// ~13MB instantiation and let it fall back to Stockfish.
+			if (deadBands.has(band)) {
+				throw new Error(`maia-${band} could not start earlier this session`);
+			}
 			// ORT fetches and compiles ~13MB of WebAssembly here, on the first
 			// session of the page. It reports nothing and there is no total to
 			// divide by, so this phase gets a NAME rather than a bar. Without
@@ -248,11 +272,31 @@ function load(band: number, report: (p: Progress) => void): Promise<Loaded> {
 			// through the longest part of the wait, which reads as a hang —
 			// which is the whole complaint this is answering.
 			report({ phase: 'starting' });
-			const session = await withTimeout(
-				ort.InferenceSession.create(new Uint8Array(bytes), { executionProviders: ['wasm'] }),
-				INIT_TIMEOUT_MS,
-				'ort init'
-			);
+			let session: ort.InferenceSession;
+			try {
+				session = await withTimeout(
+					ort.InferenceSession.create(new Uint8Array(bytes), {
+						executionProviders: ['wasm'],
+						// Trim ORT's memory. On a policy net this small the optimiser
+						// and the memory arena buy nothing measurable, and mobile
+						// Safari's WASM ceiling is exactly what turns "load Maia" into
+						// RangeError: Out of memory. A long shot against a runtime
+						// that is itself ~13MB, but free to try and harmless.
+						graphOptimizationLevel: 'basic',
+						enableCpuMemArena: false,
+						enableMemPattern: false
+					}),
+					INIT_TIMEOUT_MS,
+					'ort init'
+				);
+			} catch (e) {
+				// A compile TIMEOUT can succeed on a retry (a slow phone), so it does
+				// not retire the band. A hard start failure — the memory ceiling, no
+				// backend — will recur, so retire it for the session: the next move
+				// falls back to Stockfish at once instead of re-OOMing.
+				if (!isInitTimeout(e)) deadBands.add(band);
+				throw e;
+			}
 			const inputName = session.inputNames[0];
 			const policyName =
 				session.outputNames.find((n) => n.toLowerCase().includes('policy')) ??

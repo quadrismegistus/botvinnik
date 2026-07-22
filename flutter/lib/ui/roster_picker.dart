@@ -341,11 +341,15 @@ class _RosterSheetState extends State<RosterSheet> {
   Widget _maiaNoteRow(MaiaBandState live, int band, Set<int>? cached) {
     final ready = cached?.contains(band);
     final (IconData icon, String text, Color color) = switch (live.phase) {
-      // The reason a stand-in happened, verbatim from the worker — the whole
-      // point of this line on a phone, where there is no console to read.
+      // The reason a stand-in happened. Mobile Safari's memory ceiling gets a
+      // plain-English line and a way out; anything else shows the worker's
+      // verbatim reason, since on a phone there is no console to read it from.
       MaiaPhase.failed => (
           Icons.error_outline,
-          'couldn’t load — plays as a Stockfish stand-in · ${live.error}',
+          (live.error ?? '').toLowerCase().contains('out of memory') ||
+                  (live.error ?? '').toLowerCase().contains('no available backend')
+              ? 'out of memory in this browser — plays as Stockfish; the desktop site runs Maia'
+              : 'couldn’t load — plays as a Stockfish stand-in · ${live.error}',
           const Color(0xFFE0A030),
         ),
       MaiaPhase.ready => (
