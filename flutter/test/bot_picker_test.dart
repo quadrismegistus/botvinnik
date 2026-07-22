@@ -182,26 +182,30 @@ void main() {
 
     await tester.tap(find.text('More engines'));
     await tester.pumpAndSettle();
-    // On the list, the engine advertises its dial range.
-    expect(find.textContaining('Dials 1225'), findsOneWidget);
+    // On the list, the engine advertises its dial range — rounded to hundreds.
+    expect(find.textContaining('Dials 1200'), findsOneWidget);
     await tester.tap(find.text('Velvet'));
     await tester.pumpAndSettle();
-    // Honest copy names the actual range, not a generic "may be ignored" hedge.
-    expect(find.textContaining('between 1225 and 3000'), findsOneWidget);
+    // Honest copy names the range (rounded), not a generic "may be ignored".
+    expect(find.textContaining('between 1200 and 3000'), findsOneWidget);
 
     await tester.tap(find.text('Cap strength')); // turn the cap on
     await tester.pumpAndSettle();
     final slider = tester.widget<Slider>(find.byType(Slider));
-    expect(slider.min, 1225.0, reason: 'the slider spans the advertised floor');
-    expect(slider.max, 3000.0, reason: 'and ceiling — not a fictional 600');
+    // Whole-hundred bounds (1225 floor shows as 1200); steps of 100.
+    expect(slider.min, 1200.0);
+    expect(slider.max, 3000.0);
+    expect(slider.divisions, ((3000 - 1200) / 100).round());
 
     await tester.tap(find.text('Play Velvet'));
     await tester.pumpAndSettle();
     expect(result(), 'custom-velvet');
     final saved = engines.byPersonaId('custom-velvet')!;
     expect(saved.limitElo, isTrue);
-    expect(saved.elo, inInclusiveRange(1225, 3000),
-        reason: 'the seeded cap is clamped into the engine range');
+    // stored on the whole-hundred label; the engine's real floor is applied at
+    // play time by clampElo, not here.
+    expect(saved.elo % 100, 0, reason: 'the stored cap is a round hundred');
+    expect(saved.elo, inInclusiveRange(1200, 3000));
   });
 
   testWidgets('a catalogued full-strength engine offers no cap, just the fact',
@@ -280,7 +284,7 @@ void main() {
     await tester.tap(find.text('Cap strength'));
     await tester.pumpAndSettle();
     final slider = tester.widget<Slider>(find.byType(Slider));
-    expect((slider.min, slider.max), (1320.0, 3190.0));
+    expect((slider.min, slider.max), (1300.0, 3200.0)); // rounded to hundreds
 
     await tester.tap(find.text('Play MCTS'));
     await tester.pumpAndSettle();
