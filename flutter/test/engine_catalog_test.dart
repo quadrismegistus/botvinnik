@@ -52,6 +52,12 @@ void main() {
 
   testWidgets('the Engines screen shows an entry, its licence, and a way in',
       (tester) async {
+    // Tall enough that the whole catalog + the add-by-path row lay out; a lazy
+    // ListView would not build the bottom row on the default 600px viewport now
+    // that several engines precede it.
+    tester.view.physicalSize = const Size(800, 1600);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
     final store = CustomEngineStore(MemoryDb([]));
     await tester.pumpWidget(
       MaterialApp(
@@ -65,9 +71,40 @@ void main() {
 
     expect(find.text('Engines'), findsOneWidget); // the app bar
     expect(find.textContaining('Viridithas'), findsWidgets);
-    expect(find.textContaining('AGPL-3.0'), findsOneWidget);
-    expect(find.text('source'), findsOneWidget);
+    // Several entries are AGPL now (Viridithas, Reckless), each with a source
+    // link — so these are no longer one-of-a-kind.
+    expect(find.textContaining('AGPL-3.0'), findsWidgets);
+    expect(find.text('source'), findsWidgets);
     // the escape hatch for anything not in the catalog
     expect(find.text('Add an engine by path…'), findsOneWidget);
+  });
+
+  test('capsElo is verified per engine: only Velvet dials, over a real range',
+      () {
+    // Ground truth from each engine's source (a wrong value ships a lying UI):
+    // Velvet and Patricia implement UCI_LimitStrength/UCI_Elo; the rest do not.
+    const cappers = {'velvet', 'patricia'};
+    for (final e in kEngineCatalog) {
+      if (cappers.contains(e.id)) {
+        expect(e.capsElo, isTrue, reason: '${e.id} should cap');
+        expect(e.eloMin, lessThan(e.eloMax),
+            reason: '${e.id} needs a real spin range');
+        expect(e.eloMin, greaterThan(0));
+      } else {
+        expect(e.capsElo, isFalse,
+            reason: '${e.id} has no UCI_Elo — must not offer a cap');
+      }
+    }
+    final velvet = kEngineCatalog.firstWhere((e) => e.id == 'velvet');
+    expect((velvet.eloMin, velvet.eloMax), (1225, 3000));
+    final patricia = kEngineCatalog.firstWhere((e) => e.id == 'patricia');
+    expect((patricia.eloMin, patricia.eloMax), (500, 3001));
+  });
+
+  test('catalogEntryById matches a catalog id, and only that', () {
+    expect(catalogEntryById('velvet')?.id, 'velvet');
+    // a hand-added engine's id is a timestamp, never a catalog slug
+    expect(catalogEntryById('1a2b3c'), isNull);
+    expect(catalogEntryById(null), isNull);
   });
 }

@@ -126,6 +126,8 @@ void main() {
         id: 'v', name: 'Viridithas', path: '/v', elo: 3000));
     final result = await _open(tester, engines: engines);
 
+    await tester.tap(find.text('More engines'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Viridithas'));
     await tester.pumpAndSettle();
     expect(find.text('Cap strength'), findsOneWidget);
@@ -142,6 +144,90 @@ void main() {
         reason: 'the cap was persisted');
   });
 
+  testWidgets('page one collapses engines into "More engines", weakest-first',
+      (tester) async {
+    final db = MemoryDb([]);
+    final engines = await _loaded(db);
+    await engines.upsert(const CustomEngine(
+        id: 'stormphrax', name: 'Stormphrax', path: '/s', elo: 3600));
+    await engines.upsert(const CustomEngine(
+        id: 'velvet', name: 'Velvet', path: '/v', elo: 3450));
+    await _open(tester, engines: engines);
+
+    // page one shows one row, not a loose row per engine
+    expect(find.text('More engines'), findsOneWidget);
+    expect(find.text('Velvet'), findsNothing);
+    expect(find.text('Stormphrax'), findsNothing);
+
+    await tester.tap(find.text('More engines'));
+    await tester.pumpAndSettle();
+
+    // both here now, and Velvet (dials to 1225) sits above Stormphrax (fixed
+    // 3600) because it can be played weaker.
+    expect(find.text('Velvet'), findsOneWidget);
+    expect(find.text('Stormphrax'), findsOneWidget);
+    expect(tester.getTopLeft(find.text('Velvet')).dy,
+        lessThan(tester.getTopLeft(find.text('Stormphrax')).dy),
+        reason: 'lowest reachable rating first');
+  });
+
+  testWidgets('a catalogued capping engine (Velvet) dials over its real range',
+      (tester) async {
+    final db = MemoryDb([]);
+    final engines = await _loaded(db);
+    // id 'velvet' matches the catalog entry, which caps 1225–3000.
+    await engines.upsert(const CustomEngine(
+        id: 'velvet', name: 'Velvet', path: '/velvet', elo: 3450));
+    final result = await _open(tester, engines: engines);
+
+    await tester.tap(find.text('More engines'));
+    await tester.pumpAndSettle();
+    // On the list, the engine advertises its dial range.
+    expect(find.textContaining('Dials 1225'), findsOneWidget);
+    await tester.tap(find.text('Velvet'));
+    await tester.pumpAndSettle();
+    // Honest copy names the actual range, not a generic "may be ignored" hedge.
+    expect(find.textContaining('between 1225 and 3000'), findsOneWidget);
+
+    await tester.tap(find.text('Cap strength')); // turn the cap on
+    await tester.pumpAndSettle();
+    final slider = tester.widget<Slider>(find.byType(Slider));
+    expect(slider.min, 1225.0, reason: 'the slider spans the advertised floor');
+    expect(slider.max, 3000.0, reason: 'and ceiling — not a fictional 600');
+
+    await tester.tap(find.text('Play Velvet'));
+    await tester.pumpAndSettle();
+    expect(result(), 'custom-velvet');
+    final saved = engines.byPersonaId('custom-velvet')!;
+    expect(saved.limitElo, isTrue);
+    expect(saved.elo, inInclusiveRange(1225, 3000),
+        reason: 'the seeded cap is clamped into the engine range');
+  });
+
+  testWidgets('a catalogued full-strength engine offers no cap, just the fact',
+      (tester) async {
+    final db = MemoryDb([]);
+    final engines = await _loaded(db);
+    // id 'viridithas' matches the catalog entry, which has NO UCI_Elo.
+    await engines.upsert(const CustomEngine(
+        id: 'viridithas', name: 'Viridithas', path: '/v', elo: 3500));
+    final result = await _open(tester, engines: engines);
+
+    await tester.tap(find.text('More engines'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Viridithas'));
+    await tester.pumpAndSettle();
+    // No lying slider, no toggle — an honest note instead.
+    expect(find.text('Cap strength'), findsNothing);
+    expect(find.byType(Slider), findsNothing);
+    expect(find.textContaining('no rating limiter'), findsOneWidget);
+
+    await tester.tap(find.text('Play Viridithas'));
+    await tester.pumpAndSettle();
+    expect(result(), 'custom-viridithas');
+    expect(engines.byPersonaId('custom-viridithas')!.limitElo, isFalse);
+  });
+
   testWidgets('a long custom engine name does not overflow the cap page',
       (tester) async {
     tester.view.physicalSize = const Size(400, 800);
@@ -156,6 +242,8 @@ void main() {
         elo: 3000));
     await _open(tester, engines: engines);
 
+    await tester.tap(find.text('More engines'));
+    await tester.pumpAndSettle();
     await tester.tap(find.textContaining('Stockfish 17 Development'));
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull,
