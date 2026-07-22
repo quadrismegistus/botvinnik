@@ -15,6 +15,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../brain/types.dart';
+import '../engine/custom_engine_runner.dart';
 import '../engine/garbo_engine.dart';
 import '../engine/maia_engine.dart';
 import '../engine/maia_weights.dart';
@@ -40,6 +41,7 @@ final _playableFamilies = {
   if (RetroEngine.supported) 'retro',
   if (GarboEngine.supported) 'garbo',
   if (MaiaEngine.supported) 'maia',
+  if (CustomEngineRunner.supported) 'custom',
 };
 
 /// One family's personas, as a group renders: members ascending by elo, and
@@ -452,6 +454,7 @@ class _RosterSheetState extends State<RosterSheet> {
       'garbo' => (Icons.data_object, const Color(0xFF6f9e8a)),
       // a net trained on people
       'maia' => (Icons.psychology_outlined, const Color(0xFFb06f8a)),
+      'custom' => (Icons.terminal, const Color(0xFF7d8fa0)),
       _ => (Icons.circle, Colors.white38),
     };
     return CircleAvatar(

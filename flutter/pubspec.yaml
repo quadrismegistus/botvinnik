@@ -46,6 +46,9 @@ dependencies:
   url_launcher: ^6.3.2
   package_info_plus: ^10.2.1
   path_provider: ^2.1.5
+  # SHA-256 verification of downloaded engine binaries (issue #183). Was already
+  # present transitively; a direct dep because we depend on it directly now.
+  crypto: ^3.0.6
   ffi: ^2.1.4
   onnxruntime: ^1.4.1
   # Getting data OUT (#138). No single package covers all three targets, so

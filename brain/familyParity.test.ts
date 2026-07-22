@@ -22,6 +22,11 @@ const ROSTER_PICKER = resolve(__dirname, '../flutter/lib/ui/roster_picker.dart')
 /** Every family the real roster actually emits. */
 const realFamilies = new Set(PERSONAS.map((p) => p.family));
 
+/** Families that exist only at RUNTIME on the Dart side (user-added engines,
+ * #183), never in the brain PERSONAS. They still need a `_familyMark` glyph,
+ * but by definition no persona here carries them. */
+const dynamicFamilies = new Set(['custom']);
+
 /** Single-quoted strings inside a named Dart block, brace-matched. */
 function dartStringsIn(source: string, marker: string): string[] {
 	// The marker must name the DEFINITION, not the symbol: each of these is
@@ -46,6 +51,7 @@ describe('Dart family literals match the roster', () => {
 		const named = dartStringsIn(src, 'final _playableFamilies');
 		expect(named.length).toBeGreaterThan(0);
 		for (const f of named) {
+			if (dynamicFamilies.has(f)) continue; // Dart-only; has no brain persona
 			expect(realFamilies, `roster_picker lists '${f}', which no persona has`).toContain(f);
 		}
 	});

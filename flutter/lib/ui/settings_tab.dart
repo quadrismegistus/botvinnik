@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_colorpicker/flutter_colorpicker.dart';
 import 'package:provider/provider.dart';
 
+import '../engine/custom_engine_runner.dart';
 import '../stores/backup.dart';
 import '../stores/files.dart';
 import '../stores/practice_controller.dart';
@@ -15,6 +16,7 @@ import '../stores/review_controller.dart';
 import '../stores/settings_store.dart';
 import 'about_section.dart';
 import 'board_theme.dart';
+import 'engines_screen.dart';
 
 class SettingsTab extends StatelessWidget {
   /// The file layer, injected so tests can drive a real backup through a
@@ -172,6 +174,22 @@ class SettingsTab extends StatelessWidget {
             onChanged: (v) => settings.botDelayMs = v.round(),
           ),
         ),
+        if (CustomEngineRunner.supported) ...[
+          const _SectionLabel('Engines'),
+          ListTile(
+            dense: true,
+            leading: const Icon(Icons.terminal, size: 20),
+            title: const Text('Custom engines'),
+            subtitle: const Text(
+              'Download a known engine, or add your own UCI binary — it joins '
+              'the roster as an opponent.',
+              style: TextStyle(fontSize: 11.5, color: Colors.white38),
+            ),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const EnginesScreen())),
+          ),
+        ],
         const _SectionLabel('Your data'),
         // A Builder so the iPad share sheet anchors to the row that was
         // tapped — the tab's own context is above the scroll view. Restore

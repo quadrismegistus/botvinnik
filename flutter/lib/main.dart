@@ -32,6 +32,7 @@ import 'engine/engine_factory.dart';
 import 'stores/background_grader.dart';
 import 'stores/book_store.dart';
 import 'stores/bot_record_store.dart';
+import 'stores/custom_engine.dart';
 import 'stores/game_controller.dart';
 import 'stores/pgn_import.dart';
 import 'stores/player_rating_store.dart';
@@ -97,8 +98,9 @@ class _Booted {
   final ClassTable classTable;
   final AppDb db;
   final PracticeController practice;
+  final CustomEngineStore customEngines;
   _Booted(this.bridge, this.arbiter, this.settings, this.classTable, this.db,
-      this.practice);
+      this.practice, this.customEngines);
 }
 
 class _BootGateState extends State<BootGate> {
@@ -158,7 +160,8 @@ class _BootGateState extends State<BootGate> {
       ..settings = settings;
     await practice.load();
     dismissSplash(); // web: hand over from the HTML splash (no-op elsewhere)
-    return _Booted(bridge, arbiter, settings, classTable, db, practice);
+    return _Booted(
+        bridge, arbiter, settings, classTable, db, practice, CustomEngineStore(db));
   }
 
   @override
@@ -204,6 +207,7 @@ class _BootGateState extends State<BootGate> {
                 booted.db,
                 booted.practice,
                 ChessApi(booted.bridge),
+                booted.customEngines,
               ),
             ),
             ChangeNotifierProvider(
@@ -221,6 +225,7 @@ class _BootGateState extends State<BootGate> {
             // provider_parity_test (which scans for *Api reads) cannot guard
             // it — bot_record_test.dart does, over the source.
             ChangeNotifierProvider(create: (_) => BotRecordStore(booted.db)),
+            ChangeNotifierProvider.value(value: booted.customEngines),
             ChangeNotifierProvider(create: (_) => BookStore()),
             Provider(create: (_) => ChessApi(booted.bridge)),
             Provider(create: (_) => LichessImportApi(booted.bridge)),
