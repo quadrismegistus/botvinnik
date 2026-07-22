@@ -5,8 +5,10 @@
 //    Stockfish, Horizon, and Maia (its nets, ordered by rating);
 //  - a SECOND-PAGE LIST, for a family whose members are distinct opponents, not
 //    a dial — Retro's 1948-78 engines;
-//  - a CAP SLIDER, for a custom engine (Viridithas): send UCI_Elo to dial it
-//    down; an engine that does not support it simply ignores it and plays full.
+//  - a CAP page, for a custom engine: a rating slider ONLY when the engine
+//    actually implements UCI_Elo (verified in the catalog — Velvet does), over
+//    exactly its advertised range; otherwise an honest "full strength, no cap"
+//    note rather than a slider the engine would silently ignore.
 // A single bot with nothing to choose is picked straight from page one.
 //
 // Every path returns the roster's own persona id, so calibration, the per-bot
@@ -18,6 +20,7 @@ import 'package:provider/provider.dart';
 
 import '../brain/types.dart';
 import '../stores/custom_engine.dart';
+import '../stores/engine_catalog.dart';
 import '../stores/game_controller.dart';
 import 'roster_picker.dart' show pickBot;
 
@@ -143,9 +146,15 @@ class _FamilyPickerState extends State<_FamilyPicker> {
             trailing: chevron,
             onTap: () {
               final cfg = context.read<CustomEngineStore>().byPersonaId(p.id);
+              final entry = catalogEntryById(cfg?.id);
+              final seed = cfg?.elo ?? p.elo;
               setState(() {
                 _capOn = cfg?.limitElo ?? false;
-                _capElo = cfg?.elo ?? p.elo;
+                // Seed the slider inside the engine's real range so it never
+                // opens showing a rating the engine could not actually play.
+                _capElo = entry != null && entry.capsElo
+                    ? seed.clamp(entry.eloMin, entry.eloMax).toInt()
+                    : seed.clamp(600, 3200).toInt();
                 _sub = (_SubKind.custom, p.id);
               });
             });
@@ -273,6 +282,42 @@ class _FamilyPickerState extends State<_FamilyPicker> {
     final cfg = store.byPersonaId(personaId);
     if (cfg == null) return _list(); // removed under us
 
+    final entry = catalogEntryById(cfg.id);
+
+    // A catalogued engine we KNOW cannot cap (verified against its source): no
+    // slider that would silently do nothing, just the fact. Saving forces the
+    // cap off so a stale saved rating can never reappear as a false label.
+    if (entry != null && !entry.capsElo) {
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _backBar(cfg.name),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+            child: Text(
+              '${cfg.name} has no rating limiter, so it always plays at full '
+              'strength (about ${cfg.elo}). There is nothing to dial down.',
+              style: const TextStyle(fontSize: 12.5, color: Colors.white54),
+            ),
+          ),
+          _playButton(cfg.name, () async {
+            if (cfg.limitElo) await store.upsert(cfg.copyWith(limitElo: false));
+            if (mounted) Navigator.pop(context, personaId);
+          }),
+        ],
+      );
+    }
+
+    // A capping engine dials over its ADVERTISED range; an unknown hand-added
+    // engine keeps the honest "may be ignored" hedge over a generic range.
+    final caps = entry != null && entry.capsElo;
+    final (capMin, capMax) = caps ? (entry.eloMin, entry.eloMax) : (600, 3200);
+    final capSubtitle = caps
+        ? 'Dials ${cfg.name} between $capMin and $capMax via UCI_Elo.'
+        : 'Sends UCI_Elo. Works only if this engine supports it — full strength '
+            'otherwise.';
+
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -281,10 +326,9 @@ class _FamilyPickerState extends State<_FamilyPicker> {
         SwitchListTile(
           dense: true,
           title: const Text('Cap strength', style: TextStyle(fontSize: 14)),
-          subtitle: const Text(
-            'Sends UCI_Elo. An engine that supports it plays down to the rating; '
-            'one that does not just plays full strength.',
-            style: TextStyle(fontSize: 11, color: Colors.white38),
+          subtitle: Text(
+            capSubtitle,
+            style: const TextStyle(fontSize: 11, color: Colors.white38),
           ),
           activeThumbColor: _accent,
           value: _capOn,
@@ -295,10 +339,12 @@ class _FamilyPickerState extends State<_FamilyPicker> {
             children: [
               Expanded(
                 child: Slider(
-                  value: _capElo.toDouble().clamp(600, 3200),
-                  min: 600,
-                  max: 3200,
-                  divisions: 26,
+                  value: _capElo
+                      .toDouble()
+                      .clamp(capMin.toDouble(), capMax.toDouble()),
+                  min: capMin.toDouble(),
+                  max: capMax.toDouble(),
+                  divisions: ((capMax - capMin) / 25).round(),
                   label: '$_capElo',
                   activeColor: _accent,
                   onChanged: (v) => setState(() => _capElo = v.round()),

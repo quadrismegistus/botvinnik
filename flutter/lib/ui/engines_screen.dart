@@ -182,9 +182,11 @@ class _CatalogTile extends StatelessWidget {
           if (installed != null) ...[
             const SizedBox(height: 3),
             Text(
-              installed.limitElo
-                  ? 'Playing at ${installed.elo} — tap to change'
-                  : 'Full strength — tap to cap its rating',
+              !entry.capsElo
+                  ? 'Installed · full strength (no rating cap)'
+                  : installed.limitElo
+                      ? 'Playing at ${installed.elo} — tap to change'
+                      : 'Full strength — tap to cap its rating',
               style: const TextStyle(fontSize: 11, color: Color(0xFF81B64C)),
             ),
           ],
@@ -316,20 +318,35 @@ class _EngineFormDialogState extends State<EngineFormDialog> {
   bool get _valid =>
       _name.text.trim().isNotEmpty && _path.text.trim().isNotEmpty;
 
-  void _save() => Navigator.pop(
-        context,
-        CustomEngine(
-          id: widget.existing?.id ?? CustomEngineStore.newId(),
-          name: _name.text.trim(),
-          path: _path.text.trim(),
-          elo: _elo,
-          movetimeMs: _movetime,
-          limitElo: _limitElo,
-        ),
-      );
+  void _save() {
+    // A catalogued engine verified NOT to support UCI_Elo can never be capped,
+    // whatever a stale saved flag says — force it off so the label can't lie.
+    final catalog = catalogEntryById(widget.existing?.id);
+    final canCap = catalog == null || catalog.capsElo;
+    Navigator.pop(
+      context,
+      CustomEngine(
+        id: widget.existing?.id ?? CustomEngineStore.newId(),
+        name: _name.text.trim(),
+        path: _path.text.trim(),
+        elo: _elo,
+        movetimeMs: _movetime,
+        limitElo: canCap && _limitElo,
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
+    // What the catalog knows about THIS engine's strength limiter, if it is a
+    // catalogued one. A hand-added binary (catalog == null) is an unknown, so
+    // it keeps the hedged toggle; a catalogued engine gets the verified truth.
+    final catalog = catalogEntryById(widget.existing?.id);
+    final knownNoCap = catalog != null && !catalog.capsElo;
+    final capsElo = catalog != null && catalog.capsElo;
+    final ratingMin = capsElo ? catalog.eloMin : 500;
+    final ratingMax = capsElo ? catalog.eloMax : 3500;
+
     return AlertDialog(
       backgroundColor: const Color(0xFF1f1e1b),
       title: Text(widget.existing == null ? 'Add engine' : 'Edit engine',
@@ -364,31 +381,50 @@ class _EngineFormDialogState extends State<EngineFormDialog> {
               children: [
                 const Text('Rating', style: TextStyle(color: Colors.white70)),
                 const Spacer(),
-                Text('$_elo',
+                Text(knownNoCap ? '$_elo · full strength' : '$_elo',
                     style: const TextStyle(color: Color(0xFF81B64C))),
               ],
             ),
-            Slider(
-              value: _elo.toDouble().clamp(500, 3500),
-              min: 500,
-              max: 3500,
-              divisions: 30,
-              label: '$_elo',
-              onChanged: (v) => setState(() => _elo = v.round()),
-            ),
-            SwitchListTile(
-              dense: true,
-              contentPadding: EdgeInsets.zero,
-              title: const Text('Cap strength to the rating',
-                  style: TextStyle(fontSize: 14)),
-              subtitle: const Text(
-                'Sends UCI_Elo. Only works if the engine supports it — full '
-                'strength otherwise.',
-                style: TextStyle(fontSize: 11, color: Colors.white38),
+            // A rating slider only where the rating means something: a fixed
+            // full-strength rating is not user-editable (editing it would just
+            // mislabel a superhuman engine), so it is shown read-only above.
+            if (!knownNoCap)
+              Slider(
+                value: _elo
+                    .toDouble()
+                    .clamp(ratingMin.toDouble(), ratingMax.toDouble()),
+                min: ratingMin.toDouble(),
+                max: ratingMax.toDouble(),
+                divisions: ((ratingMax - ratingMin) / 100).round(),
+                label: '$_elo',
+                onChanged: (v) => setState(() => _elo = v.round()),
               ),
-              value: _limitElo,
-              onChanged: (v) => setState(() => _limitElo = v),
-            ),
+            if (knownNoCap)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 8),
+                child: Text(
+                  'This engine has no rating limiter — it always plays at full '
+                  'strength.',
+                  style: TextStyle(fontSize: 11, color: Colors.white38),
+                ),
+              )
+            else
+              SwitchListTile(
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Cap strength to the rating',
+                    style: TextStyle(fontSize: 14)),
+                subtitle: Text(
+                  capsElo
+                      ? 'Sends UCI_Elo — this engine dials from $ratingMin to '
+                          '$ratingMax.'
+                      : 'Sends UCI_Elo. Only works if the engine supports it — '
+                          'full strength otherwise.',
+                  style: const TextStyle(fontSize: 11, color: Colors.white38),
+                ),
+                value: _limitElo,
+                onChanged: (v) => setState(() => _limitElo = v),
+              ),
             Row(
               children: [
                 const Text('Move time',

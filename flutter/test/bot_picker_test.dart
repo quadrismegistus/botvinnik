@@ -142,6 +142,57 @@ void main() {
         reason: 'the cap was persisted');
   });
 
+  testWidgets('a catalogued capping engine (Velvet) dials over its real range',
+      (tester) async {
+    final db = MemoryDb([]);
+    final engines = await _loaded(db);
+    // id 'velvet' matches the catalog entry, which caps 1225–3000.
+    await engines.upsert(const CustomEngine(
+        id: 'velvet', name: 'Velvet', path: '/velvet', elo: 3450));
+    final result = await _open(tester, engines: engines);
+
+    await tester.tap(find.text('Velvet'));
+    await tester.pumpAndSettle();
+    // Honest copy names the actual range, not a generic "may be ignored" hedge.
+    expect(find.textContaining('between 1225 and 3000'), findsOneWidget);
+
+    await tester.tap(find.text('Cap strength')); // turn the cap on
+    await tester.pumpAndSettle();
+    final slider = tester.widget<Slider>(find.byType(Slider));
+    expect(slider.min, 1225.0, reason: 'the slider spans the advertised floor');
+    expect(slider.max, 3000.0, reason: 'and ceiling — not a fictional 600');
+
+    await tester.tap(find.text('Play Velvet'));
+    await tester.pumpAndSettle();
+    expect(result(), 'custom-velvet');
+    final saved = engines.byPersonaId('custom-velvet')!;
+    expect(saved.limitElo, isTrue);
+    expect(saved.elo, inInclusiveRange(1225, 3000),
+        reason: 'the seeded cap is clamped into the engine range');
+  });
+
+  testWidgets('a catalogued full-strength engine offers no cap, just the fact',
+      (tester) async {
+    final db = MemoryDb([]);
+    final engines = await _loaded(db);
+    // id 'viridithas' matches the catalog entry, which has NO UCI_Elo.
+    await engines.upsert(const CustomEngine(
+        id: 'viridithas', name: 'Viridithas', path: '/v', elo: 3500));
+    final result = await _open(tester, engines: engines);
+
+    await tester.tap(find.text('Viridithas'));
+    await tester.pumpAndSettle();
+    // No lying slider, no toggle — an honest note instead.
+    expect(find.text('Cap strength'), findsNothing);
+    expect(find.byType(Slider), findsNothing);
+    expect(find.textContaining('no rating limiter'), findsOneWidget);
+
+    await tester.tap(find.text('Play Viridithas'));
+    await tester.pumpAndSettle();
+    expect(result(), 'custom-viridithas');
+    expect(engines.byPersonaId('custom-viridithas')!.limitElo, isFalse);
+  });
+
   testWidgets('a long custom engine name does not overflow the cap page',
       (tester) async {
     tester.view.physicalSize = const Size(400, 800);
