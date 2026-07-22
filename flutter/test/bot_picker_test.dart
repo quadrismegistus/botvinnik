@@ -1,12 +1,12 @@
-// The inline opponent picker: it must offer families, resolve a family tap to a
-// concrete persona (the calibrated median), give an ELO family a slider and a
-// variant family (Maia) a segmented pick — all without changing which persona
-// ids the roster produces.
+// The family-first "Pick a bot" modal: it lists ELO families as one row that
+// opens a strength slider, lists distinct opponents (Maia's nets) directly, and
+// whichever way you go it returns one of the roster's own persona ids.
 //
 //   cd flutter && flutter test test/bot_picker_test.dart
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:provider/provider.dart';
 
 import 'package:botvinnik_mobile/brain/types.dart';
 import 'package:botvinnik_mobile/stores/game_controller.dart';
@@ -14,13 +14,8 @@ import 'package:botvinnik_mobile/ui/bot_picker.dart';
 
 import 'support/game_harness.dart';
 
-Persona _p(String id, String name, int elo, String family) =>
-    Persona({'id': id, 'name': name, 'elo': elo, 'family': family, 'blurb': ''});
-
-Future<GameController> _game() async {
-  final settings = await loadSettings(); // both null → analysis, no bot turn
-  return GameController(FakeArbiter(), FakeBot(_roster), FakeGrading(), settings);
-}
+Persona _p(String id, String name, int elo, String family) => Persona(
+    {'id': id, 'name': name, 'elo': elo, 'family': family, 'blurb': 'blurb'});
 
 final _roster = <String, Persona>{
   'squarefish-1000': _p('squarefish-1000', 'Squarefish 1000', 1000, 'squarefish'),
@@ -31,68 +26,83 @@ final _roster = <String, Persona>{
   'maia-1900': _p('maia-1900', 'Maia IX', 1900, 'maia'),
 };
 
-/// Pumps the picker with a StatefulBuilder holding the selection, so a change
-/// reflects back the way the real sheet drives it.
-Future<ValueNotifier<String?>> _pump(
-    WidgetTester tester, GameController game,
-    {String? initial}) async {
-  final sel = ValueNotifier<String?>(initial);
+/// Pumps a launcher that opens the modal, and returns a getter for its result.
+Future<String? Function()> _open(WidgetTester tester, GameController game) async {
+  String? result;
+  var done = false;
   await tester.pumpWidget(MaterialApp(
-    home: Scaffold(
-      body: ValueListenableBuilder<String?>(
-        valueListenable: sel,
-        builder: (_, value, _) => BotPicker(
-          label: 'White',
-          game: game,
-          selectedId: value,
-          onChanged: (id) => sel.value = id,
-          onBrowseAll: () {},
+    home: ChangeNotifierProvider<GameController>.value(
+      value: game,
+      child: Scaffold(
+        body: Builder(
+          builder: (ctx) => Center(
+            child: ElevatedButton(
+              onPressed: () async {
+                result = await pickBotFamily(ctx);
+                done = true;
+              },
+              child: const Text('open'),
+            ),
+          ),
         ),
       ),
     ),
   ));
-  await tester.pump();
-  return sel;
+  await tester.tap(find.text('open'));
+  await tester.pumpAndSettle();
+  return () => done ? result : null;
 }
 
 void main() {
-  testWidgets('offers families and You, and a family tap lands on a persona',
+  testWidgets('lists ELO families as one row and variants directly',
       (tester) async {
-    final game = await _game();
+    final settings = await loadSettings();
+    final game =
+        GameController(FakeArbiter(), FakeBot(_roster), FakeGrading(), settings);
     addTearDown(game.dispose);
-    final sel = await _pump(tester, game);
+    await _open(tester, game);
 
-    expect(find.text('You'), findsOneWidget);
+    expect(find.text('Pick a bot'), findsOneWidget);
+    // the ELO family, one row
     expect(find.text('Squarefish'), findsOneWidget);
-    expect(find.text('Maia'), findsOneWidget);
+    // the nets, listed directly (title is "<name>  ·  <elo>")
+    expect(find.textContaining('Maia V'), findsOneWidget);
+    expect(find.textContaining('Maia IX'), findsOneWidget);
+    // and there is no bare "Maia" family row — Maia is not a slider
+    expect(find.text('Maia'), findsNothing);
+    expect(find.text('Browse all…'), findsOneWidget);
+  });
+
+  testWidgets('an ELO family opens a slider and returns the chosen persona',
+      (tester) async {
+    final settings = await loadSettings();
+    final game =
+        GameController(FakeArbiter(), FakeBot(_roster), FakeGrading(), settings);
+    addTearDown(game.dispose);
+    final result = await _open(tester, game);
 
     await tester.tap(find.text('Squarefish'));
-    await tester.pump();
-    // Median of the four squarefish steps (index 2): squarefish-1600.
-    expect(sel.value, 'squarefish-1600');
-  });
+    await tester.pumpAndSettle();
 
-  testWidgets('an ELO family gets a slider; moving nothing keeps the pick',
-      (tester) async {
-    final game = await _game();
-    addTearDown(game.dispose);
-    await _pump(tester, game, initial: 'squarefish-1300');
-
+    // the strength sub-page
     expect(find.byType(Slider), findsOneWidget);
-    final slider = tester.widget<Slider>(find.byType(Slider));
-    expect(slider.max, 3); // four steps → divisions 0..3
-    expect(slider.value, 1); // 1300 is index 1
+    // defaulted to the median step (index 2 of four): Squarefish 1600
+    expect(find.text('Play Squarefish 1600'), findsOneWidget);
+
+    await tester.tap(find.text('Play Squarefish 1600'));
+    await tester.pumpAndSettle();
+    expect(result(), 'squarefish-1600');
   });
 
-  testWidgets('a variant family (Maia) gets a segmented pick, not a slider',
-      (tester) async {
-    final game = await _game();
+  testWidgets('a variant row returns that persona directly', (tester) async {
+    final settings = await loadSettings();
+    final game =
+        GameController(FakeArbiter(), FakeBot(_roster), FakeGrading(), settings);
     addTearDown(game.dispose);
-    await _pump(tester, game, initial: 'maia-1500');
+    final result = await _open(tester, game);
 
-    expect(find.byType(Slider), findsNothing);
-    // the nets, by name, as segmented choices
-    expect(find.text('Maia V'), findsWidgets);
-    expect(find.text('Maia IX'), findsWidgets);
+    await tester.tap(find.textContaining('Maia IX'));
+    await tester.pumpAndSettle();
+    expect(result(), 'maia-1900');
   });
 }

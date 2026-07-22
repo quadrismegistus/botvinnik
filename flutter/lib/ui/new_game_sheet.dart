@@ -20,7 +20,6 @@ import '../stores/game_controller.dart';
 import '../stores/settings_store.dart';
 import 'bot_picker.dart';
 import 'maia_status_line.dart';
-import 'roster_picker.dart';
 
 void showNewGameSheet(BuildContext context) {
   final game = context.read<GameController>();
@@ -90,14 +89,66 @@ class _NewGameSheetState extends State<_NewGameSheet> {
 
   Future<void> _pickBotFor(bool white) async {
     final current = white ? _white : _black;
-    final id =
-        await pickBot(context, current: current ?? widget.settings.personaId);
+    final id = await pickBotFamily(context,
+        current: current ?? widget.settings.personaId);
     if (id == null || !mounted) return; // dismissed
     setState(() => white ? _white = id : _black = id);
     // Start the load NOW, on selection, so a phone is not still pulling 3.5MB
     // of Maia weights (plus the WASM compile) when the first move is due. A
     // no-op for anything that is not a Maia.
     widget.game.warmUpMaia(id);
+  }
+
+  Widget _chip(String text, bool selected, VoidCallback onTap,
+        ) =>
+      ChoiceChip(
+        label: Text(text,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+                fontSize: 13,
+                color: selected ? const Color(0xFF81B64C) : Colors.white54)),
+        selected: selected,
+        onSelected: (_) => onTap(),
+        backgroundColor: const Color(0xFF1f1e1b),
+        selectedColor: const Color(0xFF3a3733),
+        showCheckmark: false,
+      );
+
+  Widget _sideRow(String label, bool white) {
+    final id = white ? _white : _black;
+    final isYou = id == null;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              SizedBox(
+                  width: 52,
+                  child: Text(label,
+                      style:
+                          const TextStyle(fontSize: 14, color: Colors.white70))),
+              const SizedBox(width: 6),
+              _chip('You', isYou,
+                  () => setState(() => white ? _white = null : _black = null)),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: _chip(
+                    isYou ? 'Pick a bot…' : _nameOf(id),
+                    !isYou,
+                    () => _pickBotFor(white),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          _maiaStatusLine(id),
+        ],
+      ),
+    );
   }
 
   /// A Maia opponent's load state, live, under its row — a download bar while
@@ -222,28 +273,8 @@ class _NewGameSheetState extends State<_NewGameSheet> {
             const Text('New game',
                 style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
             const SizedBox(height: 12),
-            BotPicker(
-              label: 'White',
-              game: widget.game,
-              selectedId: _white,
-              onChanged: (id) {
-                setState(() => _white = id);
-                if (id != null) widget.game.warmUpMaia(id);
-              },
-              onBrowseAll: () => _pickBotFor(true),
-            ),
-            _maiaStatusLine(_white),
-            BotPicker(
-              label: 'Black',
-              game: widget.game,
-              selectedId: _black,
-              onChanged: (id) {
-                setState(() => _black = id);
-                if (id != null) widget.game.warmUpMaia(id);
-              },
-              onBrowseAll: () => _pickBotFor(false),
-            ),
-            _maiaStatusLine(_black),
+            _sideRow('White', true),
+            _sideRow('Black', false),
             const SizedBox(height: 8),
             Text(_summary,
                 style: const TextStyle(color: Colors.white38, fontSize: 12)),
