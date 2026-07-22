@@ -20,10 +20,12 @@ import '../brain/grading_api.dart';
 import '../brain/types.dart';
 import '../db/app_db.dart';
 import '../engine/arbiter.dart';
+import '../engine/custom_engine_runner.dart';
 import '../engine/garbo_engine.dart';
 import '../engine/maia_engine.dart';
 import '../engine/maia_progress.dart';
 import '../engine/retro_engine.dart';
+import 'custom_engine.dart';
 import 'lines_tree_model.dart';
 import 'maia_status.dart';
 import 'practice_controller.dart';
@@ -67,6 +69,15 @@ class GameController extends ChangeNotifier {
   final AppDb? _db;
   final PracticeController? _practice;
   ChessApi? _chess;
+
+  /// Player-added UCI engines (null in tests and where the feature is off). The
+  /// config source; the running processes are [_customRunners] below.
+  final CustomEngineStore? _customEngines;
+
+  /// One live engine process per custom persona actually played this session,
+  /// built on first use and disposed with the controller — the same lifecycle
+  /// as [_maia] / [_garbo], never the arbiter's queue.
+  final Map<String, CustomEngineRunner> _customRunners = {};
 
   Position position = Chess.initial;
   /// The position the game began from — the standard start, or a FEN handed to
@@ -257,7 +268,7 @@ class GameController extends ChangeNotifier {
   bool get _assisted => !blind;
 
   GameController(this._arbiter, this._bot, this._grading, this._settings,
-      [this._db, this._practice, ChessApi? chessApi]) {
+      [this._db, this._practice, ChessApi? chessApi, this._customEngines]) {
     _chess = chessApi;
     if (chessApi != null) linesTree = LinesTreeModel(chessApi);
     _lastSettingsSig = _settingsSig(); // see the field: NOT a late initializer
@@ -271,7 +282,15 @@ class GameController extends ChangeNotifier {
 
   String get playerColor => _settings.playerColor;
   bool get botEnabled => _settings.botEnabled;
-  List<Persona> get rosterPersonas => _bot.personas();
+
+  /// The brain's built-in roster, plus any custom engines the player added —
+  /// but only where they can actually run (native desktop), so the picker never
+  /// offers one it would have to stand in for.
+  List<Persona> get rosterPersonas => [
+        ..._bot.personas(),
+        if (_customEngines != null && CustomEngineRunner.supported)
+          ..._customEngines.personas,
+      ];
 
   // Each side is a bot (a persona) or the human (null). The source of truth is
   // the settings; these resolve the ids to personas.
@@ -290,9 +309,14 @@ class GameController extends ChangeNotifier {
   /// Memoised because it crosses the JS bridge — the archive would otherwise
   /// make one call per row per rebuild.
   final Map<String, Persona?> _personaCache = {};
-  Persona? personaFor(String? id) => id == null
-      ? null
-      : _personaCache.putIfAbsent(id, () => _bot.personaById(id));
+  Persona? personaFor(String? id) {
+    if (id == null) return null;
+    // Custom engines resolve fresh (an edit changes the persona), never cached;
+    // the brain's immutable personas are cached.
+    final custom = _customEngines?.byPersonaId(id);
+    if (custom != null) return custom.toPersona();
+    return _personaCache.putIfAbsent(id, () => _bot.personaById(id));
+  }
 
   /// The persona of the side to move, or null if the human is on the move.
   Persona? get personaToMove =>
@@ -1107,6 +1131,34 @@ class GameController extends ChangeNotifier {
       }
       debugPrint('[bot] maia had no move after a retry; falling back');
     }
+    if (p.family == 'custom') {
+      // A player-added UCI engine, in its own process — never the arbiter's
+      // queue, like retro/garbo. Its config (path, movetime, whether to cap its
+      // strength) comes from the store; the process is built on first use and
+      // reused. Any failure — a binary that will not start, a dead search —
+      // falls through to the Stockfish stand-in below, the same safety net
+      // every other opponent family has.
+      final cfg = _customEngines?.byPersonaId(p.id);
+      if (cfg != null && CustomEngineRunner.supported) {
+        // Rebuild if the player edited the binary path since we spawned it —
+        // otherwise the running process is the old engine.
+        var runner = _customRunners[cfg.id];
+        if (runner != null && runner.path != cfg.path) {
+          runner.dispose();
+          runner = null;
+        }
+        runner ??= _customRunners[cfg.id] = CustomEngineRunner(cfg.path);
+        final uci = await runner.move(fen,
+            elo: cfg.limitElo ? cfg.elo : null, movetimeMs: cfg.movetimeMs);
+        if (uci != null) {
+          return (
+            uci: _bot.avoidRepetition(uci, _fenHistory(), currentLines),
+            standIn: false
+          );
+        }
+      }
+      debugPrint('[bot] custom engine had no move; falling back to the engine');
+    }
     // Stockfish, and the fallback for anything that could not answer for
     // itself. internalElo rather than numericElo: only stockfish carries
     // numericElo, and a family without an implementation here should play at
@@ -1594,6 +1646,9 @@ class GameController extends ChangeNotifier {
     _retro?.dispose();
     _garbo?.dispose();
     _maia?.dispose();
+    for (final r in _customRunners.values) {
+      r.dispose();
+    }
     maiaStatus.dispose();
     // Its ticker is a live Timer: left running it outlives the tree, which
     // flutter_test reports as a pending timer and a device reports as a clock
