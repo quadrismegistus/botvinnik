@@ -21,6 +21,7 @@ import '../engine/maia_weights.dart';
 import '../engine/retro_engine.dart';
 import '../stores/bot_record_store.dart';
 import '../stores/game_controller.dart';
+import '../stores/maia_status.dart';
 import '../stores/player_rating_store.dart';
 
 // Three families are platform-conditional rather than simply present, and each
@@ -327,29 +328,52 @@ class _RosterSheetState extends State<RosterSheet> {
   /// Material [Icon]s, never a Unicode arrow or cloud: those live in no
   /// bundled font, so drawing one makes Flutter web fetch a font from
   /// fonts.gstatic.com — a third-party request the offline build cannot serve.
-  Widget _maiaNote(int band, Set<int>? cached) {
+  Widget _maiaNote(int band, Set<int>? cached) => AnimatedBuilder(
+        // The live per-band state (fed by the worker through the engine) is the
+        // only thing that knows, on the WEB, whether this band actually loaded
+        // or FELL BACK — the file-cache set above cannot see the worker's
+        // IndexedDB. Prefer it; drop to the static note only when idle.
+        animation: widget.game.maiaStatus,
+        builder: (context, _) =>
+            _maiaNoteRow(widget.game.maiaStatus.of(band), band, cached),
+      );
+
+  Widget _maiaNoteRow(MaiaBandState live, int band, Set<int>? cached) {
     final ready = cached?.contains(band);
-    final (IconData icon, String text, Color color) = switch (ready) {
-      true => (
+    final (IconData icon, String text, Color color) = switch (live.phase) {
+      // The reason a stand-in happened, verbatim from the worker — the whole
+      // point of this line on a phone, where there is no console to read.
+      MaiaPhase.failed => (
+          Icons.error_outline,
+          'couldn’t load — plays as a Stockfish stand-in · ${live.error}',
+          const Color(0xFFE0A030),
+        ),
+      MaiaPhase.ready => (
           Icons.offline_pin_outlined,
           'downloaded — plays offline',
           const Color(0xFF7f9a72),
         ),
-      false => (
-          Icons.file_download_outlined,
-          'needs a short download — then plays offline',
-          const Color(0xFF9a8f7a),
-        ),
-      // Not "a 3.5MB model, once": that is the weights alone and omits the
-      // ~3.3MB runtime, which a deploy re-fetches (see
-      // MaiaProgress.reassurance). "A short download" promises neither a size
-      // nor a frequency it cannot keep; "then plays offline" is the durable
-      // truth.
-      null => (
-          Icons.file_download_outlined,
-          'a short download the first time — then plays offline',
-          const Color(0xFF9a8f7a),
-        ),
+      // Idle / mid-load: the file-cache note, which already says the honest
+      // "a short download the first time". Not "a 3.5MB model, once": that is
+      // the weights alone and omits the ~3.3MB runtime a deploy re-fetches
+      // (see MaiaProgress.reassurance).
+      _ => switch (ready) {
+          true => (
+              Icons.offline_pin_outlined,
+              'downloaded — plays offline',
+              const Color(0xFF7f9a72),
+            ),
+          false => (
+              Icons.file_download_outlined,
+              'needs a short download — then plays offline',
+              const Color(0xFF9a8f7a),
+            ),
+          null => (
+              Icons.file_download_outlined,
+              'a short download the first time — then plays offline',
+              const Color(0xFF9a8f7a),
+            ),
+        },
     };
     return Padding(
       padding: const EdgeInsets.only(top: 3),

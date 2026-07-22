@@ -67,7 +67,13 @@ class _Net {
 class MaiaEngine {
   static const _asset = 'assets/maia-brain.js';
 
-  MaiaEngine({this.onProgress});
+  MaiaEngine({this.onProgress, this.onBandStatus});
+
+  /// Per-band lifecycle for the selection UI (see the web engine and
+  /// [MaiaStatus]). A [progress] while it loads, an [error] when the band is
+  /// given up on, and both-null when it is ready.
+  final void Function(int band, {MaiaProgress? progress, String? error})?
+      onBandStatus;
 
   /// macOS and iOS. Not Android: package:onnxruntime covers it, but the JS
   /// half would run under QuickJS rather than JavaScriptCore and nothing has
@@ -382,6 +388,7 @@ class MaiaEngine {
     // `loading` itself and sees the error there
     loading.then((_) {}, onError: (Object e) {
       _nets.remove(band);
+      onBandStatus?.call(band, error: '$e'); // surface the reason to the picker
       // A network that accepts and never answers costs a full 30s on every
       // move; nothing about that improves by trying again.
       // NOT a JoinedDownloadFailure: that timeout belonged to a download this
@@ -422,7 +429,9 @@ class MaiaEngine {
     // report announces is never actually painted.
     await Future<void>.delayed(const Duration(milliseconds: 16));
     try {
-      return _session(bytes);
+      final net = _session(bytes);
+      onBandStatus?.call(band); // weights and session up — ready
+      return net;
     } catch (e) {
       // A cached model that will not open would fail identically forever, so
       // it goes — but only one re-download is granted (see _net), because

@@ -25,6 +25,7 @@ import '../engine/maia_engine.dart';
 import '../engine/maia_progress.dart';
 import '../engine/retro_engine.dart';
 import 'lines_tree_model.dart';
+import 'maia_status.dart';
 import 'practice_controller.dart';
 import 'redo_stack.dart';
 import 'chess_clock.dart';
@@ -97,13 +98,30 @@ class GameController extends ChangeNotifier {
   // engine serves all six personas without reloading between them
   MaiaEngine? _maia;
 
+  /// Per-band Maia load state, watched by the roster picker and New Game sheet
+  /// so a download, a compile, and — the point — a FAILURE with its reason are
+  /// visible where the opponent is chosen, not just as a silent stand-in.
+  final MaiaStatus maiaStatus = MaiaStatus();
+
   /// The one place the Maia engine is built, so a move and a warm-up share the
   /// same instance and the same progress wiring. Lazy: nothing pays for a Maia
   /// worker until a Maia is actually picked or played.
-  MaiaEngine _ensureMaia() => _maia ??= MaiaEngine(onProgress: (p) {
-        maiaProgress = p;
-        notifyListeners();
-      });
+  MaiaEngine _ensureMaia() => _maia ??= MaiaEngine(
+        onProgress: (p) {
+          maiaProgress = p;
+          notifyListeners();
+        },
+        onBandStatus: (band, {progress, error}) {
+          maiaStatus.update(
+            band,
+            error != null
+                ? MaiaBandState.failed(error)
+                : progress != null
+                    ? MaiaBandState.loading(progress)
+                    : const MaiaBandState.ready(),
+          );
+        },
+      );
 
   /// Warm a Maia opponent's weights and session the moment it is chosen, not on
   /// its first move. On a phone the 3.5MB download plus the WebAssembly compile
@@ -1576,6 +1594,7 @@ class GameController extends ChangeNotifier {
     _retro?.dispose();
     _garbo?.dispose();
     _maia?.dispose();
+    maiaStatus.dispose();
     // Its ticker is a live Timer: left running it outlives the tree, which
     // flutter_test reports as a pending timer and a device reports as a clock
     // still counting down a game nobody is playing.
