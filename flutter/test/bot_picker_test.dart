@@ -126,6 +126,8 @@ void main() {
         id: 'v', name: 'Viridithas', path: '/v', elo: 3000));
     final result = await _open(tester, engines: engines);
 
+    await tester.tap(find.text('More engines'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Viridithas'));
     await tester.pumpAndSettle();
     expect(find.text('Cap strength'), findsOneWidget);
@@ -142,6 +144,33 @@ void main() {
         reason: 'the cap was persisted');
   });
 
+  testWidgets('page one collapses engines into "More engines", weakest-first',
+      (tester) async {
+    final db = MemoryDb([]);
+    final engines = await _loaded(db);
+    await engines.upsert(const CustomEngine(
+        id: 'stormphrax', name: 'Stormphrax', path: '/s', elo: 3600));
+    await engines.upsert(const CustomEngine(
+        id: 'velvet', name: 'Velvet', path: '/v', elo: 3450));
+    await _open(tester, engines: engines);
+
+    // page one shows one row, not a loose row per engine
+    expect(find.text('More engines'), findsOneWidget);
+    expect(find.text('Velvet'), findsNothing);
+    expect(find.text('Stormphrax'), findsNothing);
+
+    await tester.tap(find.text('More engines'));
+    await tester.pumpAndSettle();
+
+    // both here now, and Velvet (dials to 1225) sits above Stormphrax (fixed
+    // 3600) because it can be played weaker.
+    expect(find.text('Velvet'), findsOneWidget);
+    expect(find.text('Stormphrax'), findsOneWidget);
+    expect(tester.getTopLeft(find.text('Velvet')).dy,
+        lessThan(tester.getTopLeft(find.text('Stormphrax')).dy),
+        reason: 'lowest reachable rating first');
+  });
+
   testWidgets('a catalogued capping engine (Velvet) dials over its real range',
       (tester) async {
     final db = MemoryDb([]);
@@ -151,6 +180,10 @@ void main() {
         id: 'velvet', name: 'Velvet', path: '/velvet', elo: 3450));
     final result = await _open(tester, engines: engines);
 
+    await tester.tap(find.text('More engines'));
+    await tester.pumpAndSettle();
+    // On the list, the engine advertises its dial range.
+    expect(find.textContaining('Dials 1225'), findsOneWidget);
     await tester.tap(find.text('Velvet'));
     await tester.pumpAndSettle();
     // Honest copy names the actual range, not a generic "may be ignored" hedge.
@@ -180,6 +213,8 @@ void main() {
         id: 'viridithas', name: 'Viridithas', path: '/v', elo: 3500));
     final result = await _open(tester, engines: engines);
 
+    await tester.tap(find.text('More engines'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Viridithas'));
     await tester.pumpAndSettle();
     // No lying slider, no toggle — an honest note instead.
@@ -207,6 +242,8 @@ void main() {
         elo: 3000));
     await _open(tester, engines: engines);
 
+    await tester.tap(find.text('More engines'));
+    await tester.pumpAndSettle();
     await tester.tap(find.textContaining('Stockfish 17 Development'));
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull,

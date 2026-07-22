@@ -1,11 +1,13 @@
-// The "Pick a bot" modal, family-first, three shapes of second page.
+// The "Pick a bot" modal, family-first, several shapes of second page.
 //
 // Page one lists opponents with a line of description each. Tapping one goes to:
 //  - a STRENGTH SLIDER, for a family that is a smooth ELO ladder — Squarefish,
 //    Stockfish, Horizon, and Maia (its nets, ordered by rating);
 //  - a SECOND-PAGE LIST, for a family whose members are distinct opponents, not
 //    a dial — Retro's 1948-78 engines;
-//  - a CAP page, for a custom engine: a rating slider ONLY when the engine
+//  - "More engines", a SECOND-PAGE LIST of the downloaded / hand-added UCI
+//    engines (lowest reachable rating first), each opening its own cap page;
+//  - a CAP page, for one such engine: a rating slider ONLY when the engine
 //    actually implements UCI_Elo (verified in the catalog — Velvet does), over
 //    exactly its advertised range; otherwise an honest "full strength, no cap"
 //    note rather than a slider the engine would silently ignore.
@@ -51,7 +53,7 @@ Future<String?> pickBotFamily(BuildContext context, {String? current}) {
   );
 }
 
-enum _SubKind { slider, list, custom }
+enum _SubKind { slider, list, custom, moreEngines }
 
 class _FamilyPicker extends StatefulWidget {
   final GameController game;
@@ -82,6 +84,7 @@ class _FamilyPickerState extends State<_FamilyPicker> {
                 _SubKind.slider => _sliderPage(sub.$2),
                 _SubKind.list => _listPage(sub.$2),
                 _SubKind.custom => _customPage(sub.$2),
+                _SubKind.moreEngines => _moreEnginesPage(),
               },
       ),
     );
@@ -138,26 +141,15 @@ class _FamilyPickerState extends State<_FamilyPicker> {
             subtitle: _familyDesc[e.family] ?? e.members.first.blurb,
             trailing: chevron,
             onTap: () => setState(() => _sub = (_SubKind.list, e.family)));
-      case _Kind.custom:
-        final p = e.persona!;
-        return _row(p.family,
-            title: p.name,
-            subtitle: p.blurb,
+      case _Kind.moreEngines:
+        // All downloaded / hand-added engines behind one row, opened as a
+        // second-page list rather than one loose row each.
+        return _row(e.family,
+            title: 'More engines',
+            subtitle: 'Downloaded and custom UCI engines — '
+                '${e.members.length} available.',
             trailing: chevron,
-            onTap: () {
-              final cfg = context.read<CustomEngineStore>().byPersonaId(p.id);
-              final entry = catalogEntryById(cfg?.id);
-              final seed = cfg?.elo ?? p.elo;
-              setState(() {
-                _capOn = cfg?.limitElo ?? false;
-                // Seed the slider inside the engine's real range so it never
-                // opens showing a rating the engine could not actually play.
-                _capElo = entry != null && entry.capsElo
-                    ? seed.clamp(entry.eloMin, entry.eloMax).toInt()
-                    : seed.clamp(600, 3200).toInt();
-                _sub = (_SubKind.custom, p.id);
-              });
-            });
+            onTap: () => setState(() => _sub = (_SubKind.moreEngines, '')));
       case _Kind.direct:
         final p = e.persona!;
         return _row(p.family,
@@ -189,11 +181,11 @@ class _FamilyPickerState extends State<_FamilyPicker> {
         onTap: onTap,
       );
 
-  Widget _backBar(String title) => Row(
+  Widget _backBar(String title, {VoidCallback? onBack}) => Row(
         children: [
           IconButton(
             icon: const Icon(Icons.arrow_back, size: 20),
-            onPressed: () => setState(() => _sub = null),
+            onPressed: onBack ?? () => setState(() => _sub = null),
           ),
           // Expanded + ellipsis: a custom engine's name is free text with no
           // length limit, and a long one otherwise overflows the sheet width.
@@ -275,6 +267,74 @@ class _FamilyPickerState extends State<_FamilyPicker> {
     );
   }
 
+  // ---- second page: the downloaded / custom engines, weakest-first ---------
+
+  Widget _moreEnginesPage() {
+    // Lowest reachable rating first: an engine that dials down (Velvet) floats
+    // above the full-strength crushers, so what a human can actually play sits
+    // at the top.
+    final engines = _membersOf('custom')
+      ..sort((a, b) => _lowestElo(a).compareTo(_lowestElo(b)));
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _backBar('More engines'),
+        Flexible(
+          child: ListView(
+            shrinkWrap: true,
+            children: [
+              for (final p in engines)
+                _row('custom',
+                    title: p.name,
+                    subtitle: _engineStrengthLine(p),
+                    trailing: const Icon(Icons.chevron_right,
+                        size: 20, color: Colors.white38),
+                    onTap: () => _openCustom(p)),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// Seed the cap page for [p] and open it. The seed lands inside the engine's
+  /// real range so the slider never shows a rating it could not play.
+  void _openCustom(Persona p) {
+    final cfg = context.read<CustomEngineStore>().byPersonaId(p.id);
+    final entry = catalogEntryById(cfg?.id);
+    final seed = cfg?.elo ?? p.elo;
+    setState(() {
+      _capOn = cfg?.limitElo ?? false;
+      _capElo = entry != null && entry.capsElo
+          ? seed.clamp(entry.eloMin, entry.eloMax).toInt()
+          : seed.clamp(600, 3200).toInt();
+      _sub = (_SubKind.custom, p.id);
+    });
+  }
+
+  /// The lowest rating a custom engine can be played at: its cap floor if it
+  /// dials down, else its (fixed) full-strength rating.
+  int _lowestElo(Persona p) {
+    final entry = catalogEntryById(_engineId(p));
+    return entry != null && entry.capsElo ? entry.eloMin : p.elo;
+  }
+
+  /// The one-line strength summary under an engine on the More-engines list.
+  String _engineStrengthLine(Persona p) {
+    final entry = catalogEntryById(_engineId(p));
+    if (entry == null) return p.blurb; // hand-added: capability unknown
+    return entry.capsElo
+        ? 'Dials ${entry.eloMin}–${entry.eloMax}'
+        : 'Full strength · ${p.elo}';
+  }
+
+  /// The catalog id behind a custom persona (`custom-velvet` → `velvet`).
+  static String _engineId(Persona p) =>
+      p.id.startsWith(CustomEngine.personaPrefix)
+          ? p.id.substring(CustomEngine.personaPrefix.length)
+          : p.id;
+
   // ---- second page: a custom engine's UCI_Elo cap --------------------------
 
   Widget _customPage(String personaId) {
@@ -292,7 +352,8 @@ class _FamilyPickerState extends State<_FamilyPicker> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _backBar(cfg.name),
+          _backBar(cfg.name,
+              onBack: () => setState(() => _sub = (_SubKind.moreEngines, ''))),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
             child: Text(
@@ -400,9 +461,8 @@ class _FamilyPickerState extends State<_FamilyPicker> {
     byFamily.forEach((family, members) {
       members.sort((a, b) => a.elo.compareTo(b.elo));
       if (family == 'custom') {
-        for (final p in members) {
-          out.add(_Entry(_Kind.custom, family, const [], p));
-        }
+        // One "More engines" row; the engines themselves live on its sub-page.
+        out.add(_Entry(_Kind.moreEngines, family, members, null));
       } else if (_listFamilies.contains(family)) {
         out.add(_Entry(_Kind.list, family, members, null));
       } else if (members.length >= 2) {
@@ -426,7 +486,7 @@ class _FamilyPickerState extends State<_FamilyPicker> {
       f.isEmpty ? f : f[0].toUpperCase() + f.substring(1);
 }
 
-enum _Kind { slider, list, custom, direct }
+enum _Kind { slider, list, direct, moreEngines }
 
 class _Entry {
   final _Kind kind;
