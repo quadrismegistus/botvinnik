@@ -467,6 +467,18 @@ class MaiaEngine {
     onProgress?.call(progress);
   }
 
+  /// Pre-download and build this band's session off the move path, so the
+  /// first move does not pay the 3.5MB download and the graph build. Called
+  /// when a Maia opponent is CHOSEN rather than on its first move. Idempotent:
+  /// [_net] caches per band, so a move that arrives first simply awaits the
+  /// same future. Fire-and-forget — a warm-up failure is swallowed here (the
+  /// move path keeps its own handling), and a band this session already gave up
+  /// on is left alone.
+  void warmUp(int band) {
+    if (_disposed || _deadBands.contains(band)) return;
+    unawaited(_net(band).then((_) {}, onError: (_) {}));
+  }
+
   /// Abandon every outstanding request without tearing the sessions down.
   /// Called when the game they belonged to is gone.
   void cancelPending() => _gen++;
