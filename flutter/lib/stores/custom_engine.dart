@@ -12,6 +12,7 @@ import 'package:flutter/foundation.dart';
 
 import '../brain/types.dart';
 import '../db/app_db.dart';
+import 'engine_catalog.dart';
 
 @immutable
 class CustomEngine {
@@ -119,19 +120,65 @@ class CustomEngineStore extends ChangeNotifier {
 
   List<CustomEngine> get engines => List.unmodifiable(_engines);
 
-  List<Persona> get personas =>
-      _engines.map((e) => e.toPersona()).toList(growable: false);
+  /// One persona per engine — EXCEPT an engine whose catalog entry declares
+  /// named styles (Rodent IV), which becomes one persona per style, all sharing
+  /// the one binary. A style persona's id is `custom-<engine>~<styleKey>`.
+  List<Persona> get personas => _engines.expand((e) {
+        final entry = catalogEntryById(e.id);
+        if (entry != null && entry.personalities.isNotEmpty) {
+          return entry.personalities
+              .map((p) => _stylePersona(e, p, entry.elo));
+        }
+        return [e.toPersona()];
+      }).toList(growable: false);
+
+  Persona _stylePersona(CustomEngine e, EnginePersonality p, int fullElo) =>
+      Persona({
+        'id': '${e.personaId}~${p.key}',
+        'name': p.name,
+        // Strength is one engine-wide dial shared by every style: when the
+        // player has capped Rodent, all its styles show that rating; otherwise
+        // the catalog's full-strength figure.
+        'elo': e.limitElo ? e.elo : fullElo,
+        'family': 'rodent',
+        'blurb': p.blurb,
+      });
 
   /// The engine a `custom-…` persona id is backed by, or null — used by the
   /// controller to route a move, and to tell a stale saved id from a live one.
+  /// A style persona (`custom-rodent~tal`) resolves to its shared binary.
   CustomEngine? byPersonaId(String? personaId) {
     if (personaId == null ||
         !personaId.startsWith(CustomEngine.personaPrefix)) {
       return null;
     }
-    final id = personaId.substring(CustomEngine.personaPrefix.length);
+    // Drop any `~style` suffix: every style shares the one engine record.
+    final id = personaId
+        .substring(CustomEngine.personaPrefix.length)
+        .split('~')
+        .first;
     for (final e in _engines) {
       if (e.id == id) return e;
+    }
+    return null;
+  }
+
+  /// The style file a persona plays (`custom-rodent~tal` -> `tal.txt`), or null
+  /// for a plain single-style engine. Resolved from the catalog, so it survives
+  /// a persona id that outlived a since-removed style.
+  String? personalityFor(String? personaId) {
+    if (personaId == null ||
+        !personaId.startsWith(CustomEngine.personaPrefix)) {
+      return null;
+    }
+    final rest = personaId.substring(CustomEngine.personaPrefix.length);
+    final tilde = rest.indexOf('~');
+    if (tilde < 0) return null;
+    final entry = catalogEntryById(rest.substring(0, tilde));
+    if (entry == null) return null;
+    final key = rest.substring(tilde + 1);
+    for (final p in entry.personalities) {
+      if (p.key == key) return p.file;
     }
     return null;
   }

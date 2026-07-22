@@ -1165,7 +1165,11 @@ class GameController extends ChangeNotifier {
         }
         runner ??= _customRunners[cfg.id] = CustomEngineRunner(cfg.path);
         final uci = await runner.move(fen,
-            elo: cfg.limitElo ? cfg.elo : null, movetimeMs: cfg.movetimeMs);
+            elo: cfg.limitElo ? cfg.elo : null,
+            movetimeMs: cfg.movetimeMs,
+            // Which style, for an engine that loads them (Rodent). Null for a
+            // plain single-style engine.
+            personalityFile: _customEngines?.personalityFor(p.id));
         if (uci != null) {
           return (
             uci: _bot.avoidRepetition(uci, _fenHistory(), currentLines),

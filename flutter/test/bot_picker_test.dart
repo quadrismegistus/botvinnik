@@ -228,6 +228,37 @@ void main() {
     expect(engines.byPersonaId('custom-viridithas')!.limitElo, isFalse);
   });
 
+  testWidgets('Rodent is one browsable family of styles, each dialable',
+      (tester) async {
+    final db = MemoryDb([]);
+    final engines = await _loaded(db);
+    await engines.upsert(
+        const CustomEngine(id: 'rodent', name: 'Rodent IV', path: '/r'));
+    final result = await _open(tester, engines: engines);
+
+    // page one: one Rodent row, not dozens of loose styles.
+    expect(find.text('Rodent IV'), findsOneWidget);
+    expect(find.text('Tal'), findsNothing);
+
+    await tester.tap(find.text('Rodent IV'));
+    await tester.pumpAndSettle();
+    // the styles, each shown with its character.
+    expect(find.text('Tal'), findsOneWidget);
+    expect(find.text('Petrosian'), findsOneWidget);
+
+    await tester.tap(find.text('Tal'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Cap strength')); // dial the shared strength
+    await tester.pumpAndSettle();
+    final slider = tester.widget<Slider>(find.byType(Slider));
+    expect((slider.min, slider.max), (800.0, 2800.0));
+
+    await tester.tap(find.text('Play Tal'));
+    await tester.pumpAndSettle();
+    expect(result(), 'custom-rodent~tal',
+        reason: 'the chosen style persona, not the base engine');
+  });
+
   testWidgets('a long custom engine name does not overflow the cap page',
       (tester) async {
     tester.view.physicalSize = const Size(400, 800);

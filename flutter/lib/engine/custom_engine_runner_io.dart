@@ -42,9 +42,17 @@ class CustomEngineRunner {
   /// [elo], when set, dials the engine down via `UCI_LimitStrength` + `UCI_Elo`
   /// (ignored by an engine that does not advertise them). [movetimeMs] is the
   /// thinking budget.
-  Future<String?> move(String fen, {int? elo, int movetimeMs = 1000}) async {
+  Future<String?> move(String fen,
+      {int? elo, int movetimeMs = 1000, String? personalityFile}) async {
     try {
       _engine ??= await ProcessEngine.spawn(path);
+      if (personalityFile != null) {
+        // Load the style before searching. Sent directly rather than via the
+        // search's extraOptions, whose stale-option reset would clobber this
+        // string option: Rodent resets its weights and re-reads the file, so
+        // re-sending it each move is correct even after another style ran.
+        _engine!.send('setoption name PersonalityFile value $personalityFile');
+      }
       final extra = elo != null
           ? [
               ['UCI_LimitStrength', 'true'],

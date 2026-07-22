@@ -135,6 +135,13 @@ flutter:
     # other icon in the repo is generated from the same master and flattened —
     # `python3 scripts/make-icons.py`, which owns this file too.
     - assets/roboknight.png
+    # Rodent IV personality files (GPL-3.0, from nescitus/rodent-iv). Each is a
+    # list of eval-tuning `setoption` lines that define a playing STYLE (Tal,
+    # Botvinnik, Fischer, plus archetypes); strength is a separate UCI_Elo dial.
+    # Bundled so the desktop installer can lay a personalities/ dir beside the
+    # downloaded binary (Rodent loads them by name from there). Lazy-loaded, so
+    # they never reach the web bundle, where Rodent can't run anyway.
+    - assets/rodent/personalities/
 
   # Roboto, bundled rather than fetched. Flutter web otherwise downloads its
   # default font from fonts.gstatic.com at runtime — a third-party request on
