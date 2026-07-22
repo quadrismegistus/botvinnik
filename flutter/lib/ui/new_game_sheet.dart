@@ -18,6 +18,7 @@ import 'package:provider/provider.dart';
 import '../stores/chess_clock.dart';
 import '../stores/game_controller.dart';
 import '../stores/settings_store.dart';
+import 'maia_status_line.dart';
 import 'roster_picker.dart';
 
 void showNewGameSheet(BuildContext context) {
@@ -118,28 +119,51 @@ class _NewGameSheetState extends State<_NewGameSheet> {
     final isYou = id == null;
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 3),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SizedBox(
-              width: 52,
-              child: Text(label,
-                  style: const TextStyle(fontSize: 14, color: Colors.white70))),
-          const SizedBox(width: 6),
-          _chip('You', isYou,
-              () => setState(() => white ? _white = null : _black = null)),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: _chip(
-                isYou ? 'Pick a bot…' : _nameOf(id),
-                !isYou,
-                () => _pickBotFor(white),
+          Row(
+            children: [
+              SizedBox(
+                  width: 52,
+                  child: Text(label,
+                      style:
+                          const TextStyle(fontSize: 14, color: Colors.white70))),
+              const SizedBox(width: 6),
+              _chip('You', isYou,
+                  () => setState(() => white ? _white = null : _black = null)),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: _chip(
+                    isYou ? 'Pick a bot…' : _nameOf(id),
+                    !isYou,
+                    () => _pickBotFor(white),
+                  ),
+                ),
               ),
-            ),
+            ],
           ),
+          _maiaStatusLine(id),
         ],
       ),
+    );
+  }
+
+  /// A Maia opponent's load state, live, under its row — a download bar while
+  /// its weights arrive and its runtime compiles, and (the reason this is here)
+  /// the actual FAILURE when it cannot run, so an unexplained Stockfish stand-in
+  /// on a phone becomes a stated reason. Empty for a non-Maia, or a Maia that is
+  /// idle or already loaded and silent.
+  Widget _maiaStatusLine(String? id) {
+    final p = id == null ? null : widget.game.personaFor(id);
+    final band = p?.family == 'maia' ? p?.maiaBand : null;
+    if (band == null) return const SizedBox.shrink();
+    return AnimatedBuilder(
+      animation: widget.game.maiaStatus,
+      builder: (context, _) =>
+          MaiaStatusLine(state: widget.game.maiaStatus.of(band), name: p!.name),
     );
   }
 

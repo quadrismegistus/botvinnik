@@ -38,12 +38,23 @@ class MaiaEngine {
   /// arriving, then the runtime compiling. Null once it is genuinely thinking.
   final void Function(MaiaProgress?)? onProgress;
 
+  /// Per-band lifecycle, for the selection UI (see [MaiaStatus]). Fires for
+  /// moves AND warm-ups: a [progress] while it loads, an [error] when it gives
+  /// up (the worker's verbatim reason), and both-null when the band is ready.
+  /// Distinct from [onProgress], which is the in-GAME bar and only for moves.
+  final void Function(int band, {MaiaProgress? progress, String? error})?
+      onBandStatus;
+
   JsWorker? _worker;
   bool _disposed = false;
   int _nextId = 1;
   final Map<int, Completer<String?>> _pending = {};
 
-  MaiaEngine({this.onProgress}) {
+  /// The band each in-flight request (move or warm-up) is for, so a worker
+  /// reply — which carries only the request id — can be attributed to a band.
+  final Map<int, int> _bandOf = {};
+
+  MaiaEngine({this.onProgress, this.onBandStatus}) {
     _spawn();
   }
 
@@ -56,22 +67,33 @@ class MaiaEngine {
       if (data is! Map) return;
       final id = (data['id'] as num?)?.toInt();
       if (id == null) return;
+      final band = _bandOf[id];
       final status = data['status'];
       if (status == 'fetching' || status == 'starting') {
-        // Only for a request still wanted. The worker keeps working on a
-        // cancelled request, so without this an abandoned download could
-        // re-raise the progress line after a new game had cleared it.
-        if (_pending.containsKey(id)) {
-          onProgress?.call(MaiaProgress(
-            status as String,
-            received: (data['received'] as num?)?.toInt() ?? 0,
-            total: (data['total'] as num?)?.toInt() ?? 0,
-          ));
-        }
+        final progress = MaiaProgress(
+          status as String,
+          received: (data['received'] as num?)?.toInt() ?? 0,
+          total: (data['total'] as num?)?.toInt() ?? 0,
+        );
+        // The in-game bar, only for a move still wanted. The worker keeps
+        // working on a cancelled request, so without this an abandoned download
+        // could re-raise the progress line after a new game had cleared it.
+        if (_pending.containsKey(id)) onProgress?.call(progress);
+        // The selection-UI bar, for moves and warm-ups alike.
+        if (band != null) onBandStatus?.call(band, progress: progress);
         return;
       }
       final error = data['error'];
-      if (error != null) debugPrint('[maia] $error');
+      _bandOf.remove(id);
+      if (error != null) {
+        debugPrint('[maia] $error');
+        if (band != null) onBandStatus?.call(band, error: '$error');
+      } else if (band != null) {
+        // A move or a warm-up came back without an error: this band's weights
+        // and session are up. (A null move is "no legal moves", still a load
+        // that worked.)
+        onBandStatus?.call(band);
+      }
       // 'move' is present and null for a position with no legal moves, absent
       // on error — both mean the same thing to the caller, so both resolve.
       _resolve(id, error == null ? data['move'] as String? : null);
@@ -82,6 +104,14 @@ class MaiaEngine {
       // ort-web is unavailable in this browser, or the script is missing.
       // Fail everyone waiting and scrap the worker; the next move respawns
       // and, if it fails again, falls back again. Cheap either way.
+      //
+      // This is the likeliest hard failure on a phone (ort-web will not load),
+      // and the one that reads only as an unexplained stand-in — so every band
+      // waiting on this worker is reported failed with the reason.
+      for (final band in _bandOf.values.toSet()) {
+        onBandStatus?.call(band, error: 'engine failed to load: $detail');
+      }
+      _bandOf.clear();
       _worker = null;
       try {
         worker.terminate();
@@ -134,6 +164,7 @@ class MaiaEngine {
     final id = _nextId++;
     final pending = Completer<String?>();
     _pending[id] = pending;
+    _bandOf[id] = band;
     worker.postMessage({
       'id': id,
       'fenHistory': fenHistory,
@@ -170,7 +201,9 @@ class MaiaEngine {
     if (_worker == null) _spawn();
     final worker = _worker;
     if (worker == null) return;
-    worker.postMessage({'id': _nextId++, 'band': band, 'preload': true}.jsify());
+    final id = _nextId++;
+    _bandOf[id] = band;
+    worker.postMessage({'id': id, 'band': band, 'preload': true}.jsify());
   }
 
   /// Abandon every outstanding request without tearing the worker down.
