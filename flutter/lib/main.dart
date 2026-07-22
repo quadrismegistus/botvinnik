@@ -231,6 +231,10 @@ class _BootGateState extends State<BootGate> {
             Provider(create: (_) => LichessImportApi(booted.bridge)),
             Provider(create: (_) => ChesscomImportApi(booted.bridge)),
             Provider(create: (_) => ExplorerApi(booted.bridge)),
+            // Win chance for the review chart (#195): the stored evals turned
+            // into White-POV percentages by the brain's own curve, so review
+            // and live play draw the same line. Read by ReviewWinChart.
+            Provider(create: (_) => GradingApi(booted.bridge)),
             // Grades ungraded archived games in the background and seeds
             // practice from the blunders (#170), below analysis so it never
             // spoils live play. Eager (lazy: false) because nothing reads it
@@ -370,6 +374,19 @@ class _AppShellState extends State<AppShell> {
     if (i == 2) context.read<ReviewController>().loadGames();
   }
 
+  /// Open a just-finished game in the Review tab (#198). Handed the record
+  /// GameController archived, so the board lands on it at once; loadGames
+  /// refreshes the archive behind it so leaving review lists the new game.
+  void _openReview(Map<String, dynamic> game) {
+    final review = context.read<ReviewController>();
+    setState(() {
+      _tab = 2;
+      _visited.add(2);
+    });
+    review.open(game);
+    review.loadGames();
+  }
+
   /// The four tabs, defined once so the bottom bar and the side rail can't
   /// drift. Only Practice carries a badge — its due count.
   List<({Widget icon, Widget selectedIcon, String label})> _navItems(
@@ -406,7 +423,7 @@ class _AppShellState extends State<AppShell> {
   static const int kTabCount = 4;
 
   Widget _tabAt(int i) => switch (i) {
-        0 => const PlayTab(),
+        0 => PlayTab(onOpenReview: _openReview),
         1 => const PracticeTab(),
         2 => const GamesListBody(),
         3 => const SettingsTab(),
@@ -693,7 +710,10 @@ class _AppShellState extends State<AppShell> {
 const bool kSelfTest = false;
 
 class PlayTab extends StatefulWidget {
-  const PlayTab({super.key});
+  /// Open a finished game in review (#198). Held above PlayTab because the tab
+  /// switch and the ReviewController live in the shell, not here.
+  final void Function(Map<String, dynamic> game)? onOpenReview;
+  const PlayTab({super.key, this.onOpenReview});
 
   @override
   State<PlayTab> createState() => _PlayTabState();
@@ -1098,6 +1118,23 @@ class _PlayTabState extends State<PlayTab> {
                     color: Color(0xFF81B64C), fontWeight: FontWeight.w600)),
           ),
           const PlayerRatingCard(afterGame: true),
+          // A way straight from the result into studying it (#198). Enabled
+          // once _saveGame has archived the game — the record it hands back is
+          // opened as-is, no round-trip through the archive.
+          if (game.lastSavedGame != null && widget.onOpenReview != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(10, 2, 14, 8),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton.icon(
+                  onPressed: () => widget.onOpenReview!(game.lastSavedGame!),
+                  icon: const Icon(Icons.assessment_outlined, size: 18),
+                  label: const Text('Review this game'),
+                  style: TextButton.styleFrom(
+                      foregroundColor: const Color(0xFF81B64C)),
+                ),
+              ),
+            ),
         ],
       );
 
