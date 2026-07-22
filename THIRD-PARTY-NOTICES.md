@@ -15,6 +15,7 @@ which is how the GPL's requirement to provide corresponding source is met.
 | **Stockfish** | the chess engine, in every build: compiled in on iOS/Android, a bundled binary on macOS, WebAssembly on the web | <https://github.com/official-stockfish/Stockfish> |
 | **dartchess** (Lichess) | position, move generation and SAN in the Flutter app — vendored as a fork with web support, see `vendor/dartchess/FORK.md` | <https://github.com/lichess-org/dartchess> |
 | **chessground** (Lichess) | the board widget, both the Dart and the web versions | <https://github.com/lichess-org/flutter-chessground> · <https://github.com/lichess-org/chessground> |
+| **Rodent IV** (Pawel Koziol) | the "Rodent" bot personas — its playing-STYLE files (Tal, Botvinnik, Petrosian, …) are bundled under `flutter/assets/rodent/personalities/`; the engine binary itself is downloaded on demand, not shipped | <https://github.com/nescitus/rodent-iv> |
 
 Any modifications this project makes to these are published in the same
 repository as the rest of the source.

@@ -37,20 +37,37 @@ class EngineInstaller {
     return dir;
   }
 
-  /// Where a catalog engine's binary lives once installed.
-  static Future<String> installedPath(String catalogId) async =>
-      '${(await _enginesDir()).path}/$catalogId${Platform.isWindows ? '.exe' : ''}';
+  /// The directory an [ownDir] engine lives in — its binary plus any data files
+  /// (Rodent's `personalities/`), which it resolves relative to itself. For a
+  /// flat engine this is just the shared engines dir.
+  static Future<String> homeDir(String catalogId) async =>
+      '${(await _enginesDir()).path}/$catalogId';
+
+  /// Where a catalog engine's binary lives once installed. [ownDir] engines get
+  /// their own subdirectory so bundled data can sit beside the binary.
+  static Future<String> installedPath(String catalogId,
+      {bool ownDir = false}) async {
+    final base = (await _enginesDir()).path;
+    final ext = Platform.isWindows ? '.exe' : '';
+    return ownDir ? '$base/$catalogId/$catalogId$ext' : '$base/$catalogId$ext';
+  }
 
   /// Download [build], verify its SHA-256, install it executable, strip the
   /// macOS quarantine, and return the path. Throws on a non-200 response or a
   /// checksum mismatch — a corrupt or tampered binary is deleted, never left
-  /// where a game could launch it.
+  /// where a game could launch it. [ownDir] installs into a per-engine
+  /// subdirectory (for one that reads data files beside itself).
   static Future<String> install(
     String catalogId,
     EngineBuild build, {
     void Function(int received, int total)? onProgress,
+    bool ownDir = false,
   }) async {
-    final dest = await installedPath(catalogId);
+    final dest = await installedPath(catalogId, ownDir: ownDir);
+    if (ownDir) {
+      final d = File(dest).parent;
+      if (!d.existsSync()) d.createSync(recursive: true);
+    }
     final part = File('$dest.part');
 
     final client = HttpClient();
@@ -116,8 +133,27 @@ class EngineInstaller {
     return dest;
   }
 
-  /// Delete an installed binary. The store entry is removed separately.
-  static Future<void> uninstall(String catalogId) async {
+  /// Write an own-dir engine's data files into `<home>/personalities/`, beside
+  /// its binary, so the engine (Rodent) finds them relative to itself. The
+  /// bytes are read from bundled assets by the caller (cross-platform) and
+  /// written here (io only). Idempotent — overwrites on a reinstall.
+  static Future<void> writeStyleFiles(
+      String catalogId, Map<String, List<int>> files) async {
+    final dir = Directory('${await homeDir(catalogId)}/personalities');
+    if (!dir.existsSync()) dir.createSync(recursive: true);
+    for (final entry in files.entries) {
+      File('${dir.path}/${entry.key}').writeAsBytesSync(entry.value);
+    }
+  }
+
+  /// Delete an installed binary. The store entry is removed separately. For an
+  /// [ownDir] engine the whole subdirectory (binary + data files) is removed.
+  static Future<void> uninstall(String catalogId, {bool ownDir = false}) async {
+    if (ownDir) {
+      final d = Directory(await homeDir(catalogId));
+      if (d.existsSync()) d.deleteSync(recursive: true);
+      return;
+    }
     final f = File(await installedPath(catalogId));
     if (f.existsSync()) f.deleteSync();
   }

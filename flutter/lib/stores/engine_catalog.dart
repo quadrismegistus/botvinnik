@@ -29,6 +29,27 @@ class EngineBuild {
   });
 }
 
+/// One selectable playing style of an engine that loads named style files
+/// (Rodent IV). The engine binary is shared; the style is chosen per game by
+/// its [file]. Strength is a separate UCI_Elo dial, so every style shares the
+/// engine's [EngineCatalogEntry.elo] and dials over the same range.
+@immutable
+class EnginePersonality {
+  /// The style filename the engine loads (e.g. `tal.txt`).
+  final String file;
+
+  /// Display name of the style (e.g. `Tal`).
+  final String name;
+
+  /// One-line description of how it plays, for the roster.
+  final String blurb;
+
+  const EnginePersonality(this.file, this.name, this.blurb);
+
+  /// The persona-id suffix (`tal.txt` -> `tal`), used after `custom-<engine>~`.
+  String get key => file.endsWith('.txt') ? file.substring(0, file.length - 4) : file;
+}
+
 @immutable
 class EngineCatalogEntry {
   final String id;
@@ -64,6 +85,13 @@ class EngineCatalogEntry {
   /// published for that platform (so it is offered nowhere it cannot run).
   final Map<String, EngineBuild> builds;
 
+  /// Named playing styles, when the engine is one that loads them (Rodent IV).
+  /// Empty for an ordinary single-style engine. When present, one install of
+  /// the shared binary becomes this many browsable opponents, each a style over
+  /// the same strength dial. The style files are bundled and laid out beside the
+  /// binary on install (Rodent finds them relative to itself).
+  final List<EnginePersonality> personalities;
+
   const EngineCatalogEntry({
     required this.id,
     required this.name,
@@ -77,6 +105,7 @@ class EngineCatalogEntry {
     this.capsElo = false,
     this.eloMin = 0,
     this.eloMax = 0,
+    this.personalities = const [],
   });
 
   EngineBuild? buildFor(String? platformKey) =>
@@ -357,5 +386,72 @@ const List<EngineCatalogEntry> kEngineCatalog = [
         sizeBytes: 4162560,
       ),
     },
+  ),
+  EngineCatalogEntry(
+    id: 'rodent',
+    name: 'Rodent IV',
+    description:
+        'A characterful engine by Pawel Koziol that plays in 36 named styles — '
+        "from Tal's sacrifices to Petrosian's restraint — each dialable "
+        'from 800 to 2800.',
+    author: 'Pawel Koziol',
+    license: 'GPL-3.0',
+    sourceUrl: 'https://github.com/nescitus/rodent-iv',
+    // Rodent IV is ~2600 at full strength; every style shares that and dials
+    // down over the same UCI_Elo range — the style is character, not strength.
+    elo: 2600,
+    version: 'iv-0.33',
+    capsElo: true,
+    eloMin: 800,
+    eloMax: 2800,
+    builds: {
+      // No upstream binaries at all; we host a CI-compiled, ad-hoc-signed arm64
+      // build on botvinnik-engines. The style files ship bundled (see pubspec).
+      'macos-arm64': EngineBuild(
+        url:
+            'https://github.com/quadrismegistus/botvinnik-engines/releases/download/rodent-iv-0.33-ge8d84c8c8c18/rodent-iv-0.33-ge8d84c8c8c18-macos-arm64',
+        sha256:
+            'fb843ab6d0ccace7a49873fc44c6126f9e40b1611dc770d7260c4f924a79e6d5',
+        sizeBytes: 280416,
+      ),
+    },
+    personalities: [
+      EnginePersonality('tal.txt', 'Tal', 'The Magician of Riga — relentless sacrifices and chaos.'),
+      EnginePersonality('petrosian.txt', 'Petrosian', 'Defensive artistry; closed positions and exchange sacs.'),
+      EnginePersonality('botvinnik.txt', 'Botvinnik', 'Balanced and structural; cares for the pawns.'),
+      EnginePersonality('fischer.txt', 'Fischer', 'Attacking and uncompromising; raises mobility for both sides.'),
+      EnginePersonality('kasparov.txt', 'Kasparov', 'Dynamic aggression and attacking initiative.'),
+      EnginePersonality('karpov.txt', 'Karpov', 'Positional restraint and the slow squeeze.'),
+      EnginePersonality('morphy.txt', 'Morphy', 'Rapid development and open-game attacks.'),
+      EnginePersonality('anderssen.txt', 'Anderssen', 'Romantic-era attacker who sacrifices for the initiative.'),
+      EnginePersonality('alekhine.txt', 'Alekhine', 'Aggressive and active, in love with the bishops.'),
+      EnginePersonality('nimzowitsch.txt', 'Nimzowitsch', 'Hypermodern: blockade, overprotection, restraint.'),
+      EnginePersonality('lasker.txt', 'Lasker', 'A practical fighter who plays the position, not the book.'),
+      EnginePersonality('steinitz.txt', 'Steinitz', 'Accepts cramped positions and sacrifices; solid with pawns.'),
+      EnginePersonality('tarrasch.txt', 'Tarrasch', 'Classical: mobility, bishops, the open game.'),
+      EnginePersonality('reti.txt', 'Réti', 'Hypermodern; disregards classical placement, solid pawns.'),
+      EnginePersonality('rubinstein.txt', 'Rubinstein', 'Classical technique with an endgame lean.'),
+      EnginePersonality('spassky.txt', 'Spassky', 'Universal and defensive; grabs space and guards pawns.'),
+      EnginePersonality('kortchnoi.txt', 'Kortchnoi', 'Combative — grabs material and defends it.'),
+      EnginePersonality('larsen.txt', 'Larsen', 'Tricky and provocative, after Nimzowitsch.'),
+      EnginePersonality('marshall.txt', 'Marshall', 'Swindles and attacking gambits — after Frank Marshall.'),
+      EnginePersonality('anand.txt', 'Anand', 'Quick and universal — a homage to Vishy Anand.'),
+      EnginePersonality('topalov.txt', 'Topalov', 'Sharp and forcing, with active pieces.'),
+      EnginePersonality('bosboom.txt', 'Bosboom', "Wild and inventive, a blitz attacker's spirit."),
+      EnginePersonality('pawnsacker.txt', 'Pawnsacker', 'Holds pawns lightly — gives them up for play.'),
+      EnginePersonality('spitfire.txt', 'Spitfire', 'Fast and fierce — attack at all costs.'),
+      EnginePersonality('strangler.txt', 'Strangler', 'Squeezes the life out of the position.'),
+      EnginePersonality('swapper.txt', 'Swapper', 'Trades pieces and heads for a draw.'),
+      EnginePersonality('defender.txt', 'Defender', 'Solid and defensive above all.'),
+      EnginePersonality('partisan.txt', 'Partisan', 'Stealthy openings, then a sudden attack.'),
+      EnginePersonality('dynamic.txt', 'Dynamic', 'An attacker with the bishops, willing to sacrifice.'),
+      EnginePersonality('preston.txt', 'Preston', 'A materialistic, moderate attacker.'),
+      EnginePersonality('cloe.txt', 'Cloe', 'Likes closed positions.'),
+      EnginePersonality('deborah.txt', 'Deborah', 'Defensive, and fond of the bishops.'),
+      EnginePersonality('pedrita.txt', 'Pedrita', 'Pawns, defence, restraint.'),
+      EnginePersonality('amanda.txt', 'Amanda', 'Attacker first, mobility second.'),
+      EnginePersonality('grumpy.txt', 'Grumpy', 'Contrary and hard to please.'),
+      EnginePersonality('ampere.txt', 'Ampère', 'Brisk and energetic, always for activity.'),
+    ],
   ),
 ];

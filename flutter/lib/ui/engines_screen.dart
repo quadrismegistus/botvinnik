@@ -102,15 +102,30 @@ class _EnginesScreenState extends State<EnginesScreen> {
     final build = entry.buildFor(EngineInstaller.platformKey);
     if (build == null) return;
     final messenger = ScaffoldMessenger.of(context);
+    final hasStyles = entry.personalities.isNotEmpty;
     setState(() => _downloading[entry.id] = (0, build.sizeBytes));
     try {
       final path = await EngineInstaller.install(
         entry.id,
         build,
+        ownDir: hasStyles,
         onProgress: (r, t) {
           if (mounted) setState(() => _downloading[entry.id] = (r, t));
         },
       );
+      if (hasStyles) {
+        // Lay the bundled style files beside the binary (Rodent reads them
+        // relative to itself). basic.ini marks the home dir; the rest are the
+        // styles the catalog offers. Read here (cross-platform rootBundle),
+        // written by the io installer.
+        final names = ['basic.ini', for (final p in entry.personalities) p.file];
+        final files = <String, List<int>>{};
+        for (final n in names) {
+          final d = await rootBundle.load('assets/${entry.id}/personalities/$n');
+          files[n] = d.buffer.asUint8List(d.offsetInBytes, d.lengthInBytes);
+        }
+        await EngineInstaller.writeStyleFiles(entry.id, files);
+      }
       await store.upsert(CustomEngine(
         id: entry.id,
         name: entry.name,
@@ -129,7 +144,8 @@ class _EnginesScreenState extends State<EnginesScreen> {
   Future<void> _remove(
       CustomEngineStore store, EngineCatalogEntry entry) async {
     await store.remove(entry.id);
-    await EngineInstaller.uninstall(entry.id);
+    await EngineInstaller.uninstall(entry.id,
+        ownDir: entry.personalities.isNotEmpty);
   }
 
   Future<void> _addOrEdit(
