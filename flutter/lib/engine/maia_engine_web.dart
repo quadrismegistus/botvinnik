@@ -29,10 +29,20 @@ import 'maia_progress.dart';
 class MaiaEngine {
   static const _scriptUrl = 'maia/maia-worker.js';
 
-  /// ort-web runs anywhere a Worker and WebAssembly do, so on the web: always.
-  /// Whether the *weights* can be fetched is a per-move question, answered by
-  /// falling back rather than by refusing to offer the persona.
-  static bool get supported => true;
+  /// Everywhere a Worker and WebAssembly run — the web — EXCEPT iOS Safari.
+  ///
+  /// ort-web's ~13MB runtime cannot instantiate alongside Flutter's under
+  /// mobile Safari's per-tab memory ceiling: it throws `no available backend ·
+  /// RangeError: Out of memory`, every time, on any connection (confirmed on an
+  /// iPhone; desktop has the headroom and is fine). Since it can never run
+  /// there, we do not OFFER it there — a persona that is always a Stockfish
+  /// stand-in is worse than one that is simply absent — rather than falling back
+  /// per move. iOS gets the real Maia in the native app (package:onnxruntime
+  /// over FFI, no browser cap); the web on iOS does not.
+  ///
+  /// iPadOS Safari reports as macOS (desktop-class, far more memory), so it is
+  /// NOT excluded — it has the headroom an iPhone does not.
+  static bool get supported => defaultTargetPlatform != TargetPlatform.iOS;
 
   /// Called as a move waits on something other than inference: the weights
   /// arriving, then the runtime compiling. Null once it is genuinely thinking.
