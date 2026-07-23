@@ -62,12 +62,15 @@ class _PracticeTabState extends State<PracticeTab> {
     return pos;
   }
 
-  GameData _gameData(Position pos, String? appliedUci) => GameData(
+  GameData _gameData(Position pos, String? appliedUci, {bool locked = false}) =>
+      GameData(
         fen: pos.fen,
         lastMove: appliedUci == null ? null : NormalMove.fromUci(appliedUci),
-        playerSide: appliedUci == null
-            ? (pos.turn == Side.white ? PlayerSide.white : PlayerSide.black)
-            : PlayerSide.none,
+        // [locked] is the punishment preview (#215): the board is narrating a
+        // line, so no side is draggable until it stops.
+        playerSide: locked || appliedUci != null
+            ? PlayerSide.none
+            : (pos.turn == Side.white ? PlayerSide.white : PlayerSide.black),
         validMoves: makeLegalMoves(pos),
         sideToMove: pos.turn,
         kingSquareInCheck: pos.isCheck ? pos.board.kingOf(pos.turn) : null,
@@ -571,16 +574,27 @@ class _PracticeTabState extends State<PracticeTab> {
 
   Widget _puzzle(BuildContext context, PracticeController practice,
       Map<String, dynamic> item) {
-    final appliedUci = practice.attempt?.uci ?? practice.pendingUci;
-    final pos = _position(item, appliedUci);
+    // While "watch what it costs" plays, the board shows the punishment line
+    // (#215) instead of the attempt, and locks input until it stops.
+    final previewFen =
+        practice.refutePreviewing ? practice.refutePreviewFen : null;
+    final appliedUci =
+        previewFen != null ? null : (practice.attempt?.uci ?? practice.pendingUci);
+    final pos = previewFen != null
+        ? Chess.fromSetup(Setup.parseFen(previewFen))
+        : _position(item, appliedUci);
     final sideToMove =
         (item['fen'] as String).split(' ')[1] == 'w' ? 'White' : 'Black';
 
-    final sig = '${item['id']}-${appliedUci ?? ''}';
-    _controller ??= ChessboardController(game: _gameData(pos, appliedUci));
+    final sig = previewFen != null
+        ? 'preview:$previewFen'
+        : '${item['id']}-${appliedUci ?? ''}';
+    _controller ??=
+        ChessboardController(game: _gameData(pos, appliedUci, locked: previewFen != null));
     if (_boardSig != sig) {
       _boardSig = sig;
-      _controller!.updatePosition(_gameData(pos, appliedUci));
+      _controller!
+          .updatePosition(_gameData(pos, appliedUci, locked: previewFen != null));
     }
 
     final settings = context.watch<SettingsStore>();
@@ -598,15 +612,18 @@ class _PracticeTabState extends State<PracticeTab> {
                   ? Side.white
                   : Side.black,
               onMove: (move, {viaDragAndDrop}) {
-                // Locked while the engine plays a line continuation (#143), the
-                // same way an in-flight check locks it.
-                if (practice.continuing) return;
+                // Locked while the engine plays a line continuation (#143) or
+                // the punishment preview runs (#215), the same way an in-flight
+                // check locks it.
+                if (practice.continuing || practice.refutePreviewing) return;
                 if (move is! NormalMove || !pos.isLegal(move)) return;
                 final (_, san) = pos.makeSan(move);
                 final after = pos.playUnchecked(move);
                 practice.checkAttempt(move.uci, san, after.fen);
               },
-              shapes: _shapes(item, practice),
+              // The preview narrates the line on the board itself; the attempt's
+              // hint/refutation arrows would be drawn on the wrong position.
+              shapes: previewFen != null ? const <Shape>{} : _shapes(item, practice),
               settings: boardSettingsFor(settings),
             );
 
@@ -765,13 +782,28 @@ class _PracticeTabState extends State<PracticeTab> {
             color: Color(0xFF81B64C), fontWeight: FontWeight.w600),
       );
     } else {
-      content = _verdict(
-        Icons.cancel_outlined,
-        const Color(0xFFCA3431),
-        '${attempt.san} — drops ${attempt.drop.round()}% '
-        '${practice.revealBest ? '· best was ${item['bestSan']}' : ''}',
-        style: const TextStyle(
-            color: Color(0xFFCA3431), fontWeight: FontWeight.w600),
+      // The verdict, plus WHY it's bad when the refutation says it plainly
+      // (#215): a mate or the piece it wins, on its own line under the drop.
+      final punishment = attempt.punishment;
+      content = Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _verdict(
+            Icons.cancel_outlined,
+            const Color(0xFFCA3431),
+            '${attempt.san} — drops ${attempt.drop.round()}% '
+            '${practice.revealBest ? '· best was ${item['bestSan']}' : ''}',
+            style: const TextStyle(
+                color: Color(0xFFCA3431), fontWeight: FontWeight.w600),
+          ),
+          if (punishment != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 4, left: 21),
+              child: Text(punishment,
+                  style: const TextStyle(
+                      color: Color(0xFFE0908E), fontSize: 13, height: 1.3)),
+            ),
+        ],
       );
     }
     return Container(
@@ -901,6 +933,22 @@ class _PracticeTabState extends State<PracticeTab> {
                     onPressed: practice.reveal,
                     child: const Text('Show best',
                         style: TextStyle(color: Colors.white70)),
+                  ),
+                // Watch the mistake get punished (#215): play the opponent's
+                // refutation on the board. Off a FAIL with a line to show;
+                // never reveals the best MOVE, only what the wrong one costs.
+                if (attempt != null &&
+                    !attempt.pass &&
+                    attempt.refutationPv.isNotEmpty)
+                  TextButton(
+                    onPressed: practice.refutePreviewing
+                        ? practice.stopRefutationPreview
+                        : practice.startRefutationPreview,
+                    child: Text(
+                        practice.refutePreviewing
+                            ? 'Stop'
+                            : 'Watch what it costs',
+                        style: const TextStyle(color: Color(0xFFE0908E))),
                   ),
                 // Keep playing forward from a puzzle you passed (#143): the
                 // engine answers and the position one move later becomes the

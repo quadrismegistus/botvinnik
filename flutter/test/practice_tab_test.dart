@@ -270,4 +270,53 @@ void main() {
       expect(find.text("Practising this game's mistakes"), findsNothing);
     });
   });
+
+  group('why a move is bad (#215)', () {
+    testWidgets('a failed attempt names the punishment and offers to play it',
+        (tester) async {
+      final h = makePractice([practiceItem(_pinFen, bestUci: 'd2d4')]);
+      h.practice.startSession();
+      // The rendered state a failed attempt reaches — set directly, so the test
+      // stays away from the async search (which never resolves under fake time)
+      // and the preview timer. The controller path is covered in
+      // practice_why_bad_test.dart; this checks only that the card renders it.
+      h.practice.attempt = AttemptOutcome(
+        san: 'Qh5',
+        uci: 'd1h5',
+        pass: false,
+        drop: 40,
+        evalPawns: -5,
+        refutationUci: 'e8e1',
+        refutationPv: const ['e8e1'],
+        punishment: 'Re1 is checkmate.',
+      );
+      await _pumpTab(tester, h.practice);
+
+      expect(find.textContaining('checkmate'), findsOneWidget,
+          reason: 'the card should say WHY, not just the % drop');
+      expect(find.text('Watch what it costs'), findsOneWidget);
+    });
+
+    testWidgets('a subtler failure shows no punishment line but still plays',
+        (tester) async {
+      final h = makePractice([practiceItem(_pinFen, bestUci: 'd2d4')]);
+      h.practice.startSession();
+      h.practice.attempt = AttemptOutcome(
+        san: 'Nf3',
+        uci: 'g1f3',
+        pass: false,
+        drop: 18,
+        evalPawns: -1,
+        refutationUci: 'b8c6',
+        refutationPv: const ['b8c6'],
+        // no mate, no capture → punishment null; the % drop carries it
+      );
+      await _pumpTab(tester, h.practice);
+
+      // Still watchable (there's a line), but no "wins your …/checkmate" line.
+      expect(find.text('Watch what it costs'), findsOneWidget);
+      expect(find.textContaining('checkmate'), findsNothing);
+      expect(find.textContaining('wins your'), findsNothing);
+    });
+  });
 }
