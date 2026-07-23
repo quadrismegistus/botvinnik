@@ -8,5 +8,8 @@
 	     not the sandbox. -->
 	<key>com.apple.security.network.client</key>
 	<true/>
+	<!-- No keychain-access-groups: it requires a development signing cert this
+	     build does not have (#67). SecureSyncKeyStore degrades gracefully when
+	     the Keychain is unavailable. Add it back once macOS is signed. -->
 </dict>
 </plist>

@@ -37,6 +37,10 @@ repository as the rest of the source.
 | flutter_colorpicker | MIT |
 | sqflite | BSD-2-Clause |
 | chessboardjs-themes (Joshua Kunst) — board theme colours | MIT |
+| cryptography_plus (emz-hanauer.com; the maintained fork of Gohilla's `cryptography`) — the cross-device sync crypto (#203): PBKDF2 (phrase → key), HKDF (key split), AES-256-GCM (the blob cipher), run via WebCrypto on web | Apache-2.0 |
+| archive — gzip for the sync payload before it is encrypted; the cross-platform codec (incl. web) that `dart:io`'s GZipCodec is not | MIT |
+| flutter_secure_storage (German Saprykin) — device-local storage of the derived sync keys: Keychain / Keystore / WebCrypto-encrypted localStorage | BSD-3-Clause |
+| unorm_dart (Yasuhiro Shimizu) — Unicode NFC normalization of a sync phrase, so its NFD and NFC forms derive one key | MIT |
 
 ## Data
 
@@ -45,6 +49,7 @@ repository as the rest of the source.
 | Lichess open database (used to bake the offline opening book) | CC0 |
 | lichess-org/chess-openings (opening names) | CC0 |
 | Maia weights (CSSLab; via shermansiu/maia-\*) — the neural nets for the "Maia" bots, **fetched at runtime from HuggingFace and never redistributed with this app** | GPL-3.0 |
+| EFF "large" wordlist (Electronic Frontier Foundation) — the 7776 diceware words every generated sync phrase is drawn from, embedded verbatim in `flutter/lib/sync/eff_wordlist.dart` | CC BY 3.0 US |
 
 The Maia weights are data, not code, and are downloaded on first use rather
 than shipped in any build — so this app never redistributes them, and the

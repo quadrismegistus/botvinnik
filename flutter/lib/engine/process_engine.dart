@@ -17,11 +17,29 @@ import 'package:flutter/foundation.dart';
 import 'uci_protocol.dart';
 
 class ProcessEngine extends UciProtocol {
+  // Every engine subprocess currently alive. The exit/orphan guard
+  // (engine_reaper.dart) kills these when the app is stopping, so a search left
+  // running doesn't outlive the app and burn a core (as an orphaned velvet did
+  // for 23h — reparented to launchd after a `flutter run` was stopped).
+  static final Set<Process> _live = <Process>{};
+
+  /// Kill every live engine subprocess. Called from the exit guards; safe to
+  /// call more than once.
+  static void killAll() {
+    for (final p in _live.toList()) {
+      try {
+        p.kill(ProcessSignal.sigkill);
+      } catch (_) {}
+    }
+    _live.clear();
+  }
+
   final Process _proc;
 
   bool _alive = true;
 
   ProcessEngine._(this._proc) {
+    _live.add(_proc);
     _proc.stdout
         .transform(utf8.decoder)
         .transform(const LineSplitter())
@@ -34,7 +52,10 @@ class ProcessEngine extends UciProtocol {
         .transform(utf8.decoder)
         .transform(const LineSplitter())
         .listen((l) => debugPrint('[engine] $l'), onError: (_) {});
-    _proc.exitCode.then((code) => _died('engine exited ($code)'));
+    _proc.exitCode.then((code) {
+      _live.remove(_proc);
+      _died('engine exited ($code)');
+    });
     // writes fail asynchronously; without this a write to a dead engine
     // surfaces as an unhandled zone error
     _proc.stdin.done.catchError((Object _) => _proc.stdin);
@@ -111,6 +132,7 @@ class ProcessEngine extends UciProtocol {
   void dispose() {
     send('quit'); // no-op once _alive is false
     _alive = false;
+    _live.remove(_proc);
     _proc.kill();
   }
 }

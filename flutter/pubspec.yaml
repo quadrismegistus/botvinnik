@@ -74,6 +74,28 @@ dependencies:
   # import — http covers both branches with one API, and its MockClient is
   # the seam the import tests answer at instead of calling lichess.
   http: ^1.6.0
+  # End-to-end-encrypted cross-device sync (#203). PBKDF2-HMAC-SHA256 turns the
+  # sync phrase into a root key; HKDF splits that into the blobId (which the
+  # server sees) and the encKey (which never leaves the device); AES-256-GCM is
+  # the blob cipher. The maintained fork of `cryptography` — both PBKDF2 and
+  # AES-GCM are WebCrypto primitives, so on web crypto.subtle runs them (that's
+  # why PBKDF2, not Argon2id, which has no WebCrypto and was 31s on dart2js — see
+  # sync_crypto.dart and test/bench/).
+  cryptography_plus: ^3.0.0
+  # gzip for the backup JSON before it is encrypted (it compresses ~10x). This
+  # rather than dart:io's GZipCodec, which is native-only; `archive` is the one
+  # gzip that also compiles for web.
+  archive: ^4.0.0
+  # Device-local, non-synced secure storage for the sync session (#203 M4): the
+  # phrase and the derived keys, cached so PBKDF2 (~2.3s native) runs once per
+  # device, not per sync. Keychain/Keystore on native; WebCrypto-encrypted
+  # localStorage on web (HTTPS only, which botvinnik.app is).
+  flutter_secure_storage: ^10.3.1
+  # NFC-normalize a sync phrase before deriving keys (#203). Dart's String has no
+  # Unicode normalization, so the same non-ASCII phrase entered NFC on one device
+  # and NFD on another (macOS leans NFD) would derive DIFFERENT keys without this.
+  # Pure Dart; compiles for web.
+  unorm_dart: ^0.3.2
 
 dev_dependencies:
   flutter_test:

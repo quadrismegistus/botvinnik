@@ -1,0 +1,27 @@
+# botvinnik-sync — the E2EE blob store Worker (issue #203).
+# Deploy: `npm run deploy` from this dir (needs a Cloudflare account + `wrangler login`).
+# Local:  `npm run dev` starts workerd with a simulated R2 bucket — no account needed.
+
+name = "botvinnik-sync"
+main = "src/index.ts"
+compatibility_date = "2024-11-01"
+
+# One bucket holds every user's ciphertext, keyed by the unguessable blobId.
+# `bucket_name` must exist before the first deploy:
+#   npx wrangler r2 bucket create botvinnik-sync
+[[r2_buckets]]
+binding = "BUCKET"
+bucket_name = "botvinnik-sync"
+
+# Per-IP flood protection on the open endpoint (defence in depth — the
+# unguessable blobId is the real capability). 120 requests / 60s is generous for
+# one device syncing yet caps a flood. namespace_id is any unique-per-account id;
+# period must be 10 or 60.
+[[ratelimits]]
+name = "RATE_LIMITER"
+namespace_id = "1001"
+simple = { limit = 120, period = 60 }
+
+# Observability: keep it minimal — the whole point is the server learns nothing.
+[observability]
+enabled = true

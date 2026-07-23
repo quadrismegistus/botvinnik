@@ -1,0 +1,23 @@
+{
+  "name": "botvinnik-sync-worker",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "End-to-end-encrypted sync blob store on Cloudflare R2 (botvinnik issue #203)",
+  "license": "GPL-3.0-or-later",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260721.1",
+    "esbuild": "^0.28.1",
+    "miniflare": "^4.20260721.0",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.10",
+    "wrangler": "^4.113.0"
+  }
+}

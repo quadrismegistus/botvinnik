@@ -34,9 +34,11 @@ import 'package:botvinnik_mobile/stores/pgn_import.dart';
 import 'package:botvinnik_mobile/stores/practice_controller.dart';
 import 'package:botvinnik_mobile/stores/review_controller.dart';
 import 'package:botvinnik_mobile/stores/settings_store.dart';
+import 'package:botvinnik_mobile/sync/sync_controller.dart';
 import 'package:botvinnik_mobile/ui/games_list.dart';
 import 'package:botvinnik_mobile/ui/settings_tab.dart';
 
+import 'support/fake_sync_key_store.dart';
 import 'support/game_harness.dart';
 import 'support/memory_db.dart';
 import 'support/practice_harness.dart';
@@ -183,6 +185,10 @@ Future<({PracticeController practice, ReviewController review, MemoryDb db})>
       ChangeNotifierProvider<SettingsStore>.value(value: settings),
       ChangeNotifierProvider<PracticeController>.value(value: practice),
       ChangeNotifierProvider<ReviewController>.value(value: review),
+      // The Sync tile watches this; off by default (no cached session).
+      ChangeNotifierProvider<SyncController>(
+        create: (_) => SyncController(db: store, keyStore: FakeSyncKeyStore()),
+      ),
     ],
     child: MaterialApp(
       home: Scaffold(

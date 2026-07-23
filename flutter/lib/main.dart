@@ -26,6 +26,7 @@ import 'brain/rating_api.dart';
 import 'db/app_db.dart';
 import 'db/db_init.dart';
 import 'engine/arbiter.dart';
+import 'engine/engine_reaper.dart';
 import 'engine/maia_engine.dart';
 import 'engine/maia_weights.dart';
 import 'engine/engine_factory.dart';
@@ -39,6 +40,9 @@ import 'stores/player_rating_store.dart';
 import 'stores/practice_controller.dart';
 import 'stores/review_controller.dart';
 import 'stores/settings_store.dart';
+import 'sync/secure_sync_key_store.dart';
+import 'sync/sync_controller.dart';
+import 'sync/sync_triggers.dart';
 import 'ui/board_pane.dart';
 import 'ui/clock_display.dart';
 import 'stores/chess_clock.dart';
@@ -139,6 +143,13 @@ class _BootGateState extends State<BootGate> {
     // 4G and 46s on slow. The board does not need the engine to appear — the
     // arbiter queues searches until it answers — so the splash now lifts on
     // brain + settings + db, and the engine arrives behind it.
+    // Keep engine subprocesses from outliving the app: reap any a previous run
+    // left orphaned, and arm the exit hooks before we spawn our own. Desktop
+    // only; a no-op on web. (See #67 note — an orphaned velvet once burned a
+    // core for 23h after a stopped `flutter run`.)
+    installEngineExitGuards();
+    unawaited(reapOrphanedEngines());
+
     final arbiter = SearchArbiter(startEngine());
     final settings = await SettingsStore.load();
     final db = await AppDb.open();
@@ -213,6 +224,14 @@ class _BootGateState extends State<BootGate> {
             ChangeNotifierProvider(
               create: (_) => ReviewController(booted.db),
             ),
+            // Cross-device sync (#203). loadCached() reads the device-local
+            // secure store — no PBKDF2, no network — so an already-paired device
+            // comes up "on" instantly; a fresh one stays off until the user
+            // enters a phrase in Settings → Sync.
+            ChangeNotifierProvider(
+              create: (_) =>
+                  SyncController(db: booted.db, keyStore: SecureSyncKeyStore()),
+            ),
             // Not refreshed at boot: the fit reads the whole archive over the
             // bridge, and the only screen that shows it (the game-over recap)
             // asks for it when it mounts. Boot pays nothing.
@@ -260,14 +279,16 @@ class _BootGateState extends State<BootGate> {
           child: MaterialApp(
             title: 'botvinnik',
             theme: _theme(),
-            home: Builder(
-              builder: (context) => KeyboardControls(
-                game: context.read<GameController>(),
-                review: context.read<ReviewController>(),
-                practice: context.read<PracticeController>(),
-                settings: context.read<SettingsStore>(),
-                currentTab: () => _tab.value,
-                child: AppShell(tab: _tab),
+            home: SyncTriggers(
+              child: Builder(
+                builder: (context) => KeyboardControls(
+                  game: context.read<GameController>(),
+                  review: context.read<ReviewController>(),
+                  practice: context.read<PracticeController>(),
+                  settings: context.read<SettingsStore>(),
+                  currentTab: () => _tab.value,
+                  child: AppShell(tab: _tab),
+                ),
               ),
             ),
           ),
