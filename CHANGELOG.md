@@ -10,6 +10,32 @@ The full pre-2026-07-19 roadmap — with the complete calibration saga and every
 design note as it was written — is preserved in git history (it was this file's
 predecessor, `ROADMAP.md` before the 2026-07-19 trim).
 
+## 2026-07-23 — private cross-device sync
+
+- **#203** — **end-to-end-encrypted cross-device sync** (#210). The game archive
+  and practice collection now sync across web/macOS/iOS with no account and no
+  server that can read them — a device joins by entering the same phrase. The
+  phrase becomes keys by PBKDF2-HMAC-SHA256 → HKDF (PBKDF2 not Argon2id: dart2js
+  Argon2id benchmarked at 31s, so a WebCrypto primitive was the only viable KDF
+  across web and native); the blob is AES-256-GCM in a self-describing,
+  AAD-bound envelope, gzipped. The `blobId` is derived from the phrase too, so
+  the server can't even enumerate blobs. Transport is a dumb Cloudflare R2 store
+  behind a small Worker (`worker/`) with compare-and-swap over HTTP-native
+  conditional PUT and a per-IP rate limit. The merge is `BackupService`'s
+  convergent one (#138), so sync is transport + apply-on-read rather than a
+  distributed-systems problem — proven by a two-device convergence test. Turn it
+  on in Settings → Sync; it then syncs on launch, resume, after a game, while
+  you practise, and on leaving. Phrases are NFC-normalized so an NFD and NFC form
+  derive one key. Reviewed by four adversarial subagents — six findings fixed and
+  independently verified.
+
+- **engine orphan guard** (#210) — a UCI engine subprocess no longer outlives
+  the app. `dispose()` only covered a clean exit; a force-quit, hot-restart, or
+  crash left the child reparented to launchd and, if mid-search, burning a core
+  (an orphaned velvet was found at 100% for 23h). Now killed on SIGINT/SIGTERM
+  and app-detach, with a boot-time sweep reaping whatever a crash still leaked.
+  Desktop only.
+
 ## 2026-07-21 — the Squares play at their labels again
 
 The only change this month that alters how the app *plays*.
