@@ -152,6 +152,14 @@ class PracticeController extends ChangeNotifier {
   /// the tab pairs it with the way back to the full queue. Null otherwise.
   String? gameDoneNote;
 
+  /// How many collected mistakes the current game scope held at session start —
+  /// the number the Review button showed (`countForGame`). The completion note
+  /// reports THIS, not `gameScope.length`: the scope handed in is every one of
+  /// the game's move-before fens, and only the ones that intersect the
+  /// collection are ever drilled, so `gameScope.length` would miscount every
+  /// quiet position as a mistake.
+  int _gameScopeCount = 0;
+
   /// Bumped by [startGameSession]. The Practice tab watches it so "practise
   /// this game's mistakes" drops back to the drill view even if the tab was
   /// last left showing the collection browser (#197 nav).
@@ -343,6 +351,7 @@ class PracticeController extends ChangeNotifier {
     motifFilter = null;
     _gameServed.clear();
     gameDoneNote = null;
+    _gameScopeCount = countForGame(fens);
     gameSessionSerial++;
     sessionSolved = 0;
     sessionStreak = 0;
@@ -367,11 +376,13 @@ class PracticeController extends ChangeNotifier {
     if (next == null) {
       // Every scoped mistake has been served. End with a note rather than
       // cycling: current == null routes the tab to the browser, where the note
-      // and the "Practise all" way out are shown on the idle banner.
-      final n = scope.length;
+      // and the "Practise all" way out are shown on the idle banner. Set the
+      // note AFTER _serve (which clears any prior gameDoneNote), then notify.
+      final n = _gameScopeCount;
+      _serve(null);
       gameDoneNote =
           "You've been through all $n mistake${n == 1 ? '' : 's'} from this game.";
-      _serve(null);
+      notifyListeners();
       return;
     }
     _gameServed.add(next['id'] as String);
@@ -419,6 +430,12 @@ class PracticeController extends ChangeNotifier {
   void serveItem(String id) {
     for (final item in items) {
       if (item['id'] == id) {
+        // A hand-picked drill from the browser leaves any game walk behind:
+        // the item may not be one of the scoped game's mistakes, and keeping
+        // the scope would sit the "practising this game's mistakes" banner over
+        // a position that isn't one — and leave it outside the finite walk.
+        gameScope = null;
+        _gameServed.clear();
         _serve(item);
         return;
       }
@@ -449,6 +466,10 @@ class PracticeController extends ChangeNotifier {
     continuing = false;
     lineDepth = 0;
     lineNote = null;
+    // A finished game session's note is stale the moment any puzzle is served,
+    // by whatever route. _serveNextInGame sets its note AFTER calling _serve, so
+    // clearing here does not wipe the note it is about to show.
+    gameDoneNote = null;
     _fenAfterAttempt = null;
     notifyListeners();
   }

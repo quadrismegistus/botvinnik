@@ -135,6 +135,19 @@ void main() {
     expect(h.practice.gameDoneNote, isNot(contains('mistakes')));
   });
 
+  test('the done note counts collected mistakes, not every scoped ply', () {
+    // Production hands startGameSession EVERY move-before fen of the game (all
+    // ~30 plies), not just the collected mistakes — only fenA carries an item.
+    final h = makePractice([practiceItem(_fenA)]);
+
+    h.practice.startGameSession({_fenA, _fenB, _fenC});
+    h.practice.nextPuzzle(); // exhausts the one real mistake
+
+    expect(h.practice.gameDoneNote, contains('1 mistake'),
+        reason: 'a quiet scoped position must not be miscounted as a mistake');
+    expect(h.practice.gameDoneNote, isNot(contains('3')));
+  });
+
   test('exiting a finished game session clears the done note', () {
     final h = makePractice([practiceItem(_fenA), practiceItem(_fenB)]);
 
@@ -146,6 +159,21 @@ void main() {
     expect(h.practice.gameDoneNote, isNull);
     expect(h.practice.inGameSession, isFalse);
     expect(h.practice.current?['id'], anyOf(_fenA, _fenB));
+  });
+
+  test('picking a puzzle from the browser leaves the game session', () {
+    final h = makePractice([practiceItem(_fenA), practiceItem(_fenB)]);
+
+    h.practice.startGameSession({_fenA});
+    expect(h.practice.inGameSession, isTrue);
+
+    // The browser lists the whole collection, not just the scope; drilling an
+    // out-of-scope item must drop the scope so the "this game" banner doesn't
+    // sit over a puzzle that isn't one of the game's mistakes.
+    h.practice.serveItem(_fenB);
+    expect(h.practice.inGameSession, isFalse);
+    expect(h.practice.gameDoneNote, isNull);
+    expect(h.practice.current?['id'], _fenB);
   });
 
   test('each game session bumps the serial so the tab can drop the browser',
