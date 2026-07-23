@@ -8,5 +8,12 @@
 	     not the sandbox. -->
 	<key>com.apple.security.network.client</key>
 	<true/>
+	<!-- flutter_secure_storage (#203 sync) writes the sync session to the
+	     Keychain. Even un-sandboxed, macOS rejects Keychain access without this
+	     entitlement (errSecMissingEntitlement, -34018). -->
+	<key>keychain-access-groups</key>
+	<array>
+		<string>$(AppIdentifierPrefix)$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	</array>
 </dict>
 </plist>
