@@ -39,6 +39,8 @@ import 'stores/player_rating_store.dart';
 import 'stores/practice_controller.dart';
 import 'stores/review_controller.dart';
 import 'stores/settings_store.dart';
+import 'sync/secure_sync_key_store.dart';
+import 'sync/sync_controller.dart';
 import 'ui/board_pane.dart';
 import 'ui/clock_display.dart';
 import 'stores/chess_clock.dart';
@@ -212,6 +214,15 @@ class _BootGateState extends State<BootGate> {
             ),
             ChangeNotifierProvider(
               create: (_) => ReviewController(booted.db),
+            ),
+            // Cross-device sync (#203). loadCached() reads the device-local
+            // secure store — no PBKDF2, no network — so an already-paired device
+            // comes up "on" instantly; a fresh one stays off until the user
+            // enters a phrase in Settings → Sync.
+            ChangeNotifierProvider(
+              create: (_) =>
+                  SyncController(db: booted.db, keyStore: SecureSyncKeyStore())
+                    ..loadCached(),
             ),
             // Not refreshed at boot: the fit reads the whole archive over the
             // bridge, and the only screen that shows it (the game-over recap)

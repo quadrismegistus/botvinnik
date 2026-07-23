@@ -85,6 +85,11 @@ dependencies:
   # rather than dart:io's GZipCodec, which is native-only; `archive` is the one
   # gzip that also compiles for web.
   archive: ^4.0.0
+  # Device-local, non-synced secure storage for the sync session (#203 M4): the
+  # phrase and the derived keys, cached so PBKDF2 (~2.3s native) runs once per
+  # device, not per sync. Keychain/Keystore on native; WebCrypto-encrypted
+  # localStorage on web (HTTPS only, which botvinnik.app is).
+  flutter_secure_storage: ^10.3.1
 
 dev_dependencies:
   flutter_test:

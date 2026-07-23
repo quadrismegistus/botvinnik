@@ -14,7 +14,9 @@ import '../stores/files.dart';
 import '../stores/practice_controller.dart';
 import '../stores/review_controller.dart';
 import '../stores/settings_store.dart';
+import '../sync/sync_controller.dart';
 import 'about_section.dart';
+import 'sync_screen.dart';
 import 'board_theme.dart';
 import 'engines_screen.dart';
 
@@ -220,6 +222,25 @@ class SettingsTab extends StatelessWidget {
             style: TextStyle(fontSize: 11.5, color: Colors.white38),
           ),
           onTap: () => _import(context),
+        ),
+        Builder(
+          builder: (context) {
+            final on = context.watch<SyncController>().enabled;
+            return ListTile(
+              dense: true,
+              leading: const Icon(Icons.sync, size: 20),
+              title: const Text('Sync across devices'),
+              subtitle: Text(
+                on
+                    ? 'On. Games and practice sync privately to your other devices.'
+                    : 'Off. Turn on private, encrypted sync — no account needed.',
+                style: const TextStyle(fontSize: 11.5, color: Colors.white38),
+              ),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const SyncScreen())),
+            );
+          },
         ),
         const _SectionLabel('Board theme'),
         const _BoardColorSection(),
