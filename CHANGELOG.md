@@ -10,6 +10,26 @@ The full pre-2026-07-19 roadmap — with the complete calibration saga and every
 design note as it was written — is preserved in git history (it was this file's
 predecessor, `ROADMAP.md` before the 2026-07-19 trim).
 
+## 2026-07-23 — practice from your own games, deeper Insights
+
+A practice-focused batch: drill the mistakes from a game you just reviewed, keep
+playing a line past a puzzle you solved, and read the "why" on the Insights card.
+
+- **#197** — **practise this game's own mistakes from Review.** A game's blunder
+  positions are already collected as you play; the Review screen now scopes a
+  practice session to just that game's positions and jumps you to the drill. The
+  session is finite — it walks each mistake once and ends with the way back to
+  the full queue (an earlier build looped forever, or re-served a lone mistake
+  endlessly; fixed).
+- **#143 (part 2)** — **"continue the line" from a passed puzzle.** After you
+  find the strong move, the engine answers and the position one move later is
+  served as a fresh target, so a one-move puzzle becomes a drill of the line it
+  came from. Off a pass only; line continuations don't touch the schedule.
+- **#123** — the **Insights card states the practice verdict** (whether the move
+  was collected, and why) and **speaks the concrete threat** in words, not just
+  an arrow.
+- **#147** — blind mode no longer leaks hidden scores through a layout gap.
+
 ## 2026-07-23 — review mode, ratings, and a backlog sweep
 
 A batch of finished-but-unmerged work plus two waves of small fixes.
