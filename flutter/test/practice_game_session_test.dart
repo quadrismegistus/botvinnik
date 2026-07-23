@@ -78,7 +78,8 @@ void main() {
         reason: 'a position never blundered has no collected item');
   });
 
-  test('nextPuzzle stays inside the scope', () {
+  test('nextPuzzle stays inside the scope and never leaks a third position',
+      () {
     final h = makePractice([
       practiceItem(_fenA),
       practiceItem(_fenB),
@@ -86,10 +87,74 @@ void main() {
     ]);
 
     h.practice.startGameSession({_fenA, _fenB});
+    final first = h.practice.current?['id'];
     h.practice.nextPuzzle();
 
-    expect(lastPoolIds(h.bridge), {_fenA, _fenB},
+    expect(lastPoolIds(h.bridge), isNot(contains(_fenC)),
         reason: 'stepping through the session must not leak the third position');
+    expect(h.practice.current?['id'], anyOf(_fenA, _fenB));
+    expect(h.practice.current?['id'], isNot(first),
+        reason: 'a game session walks forward — Next serves a fresh mistake');
+  });
+
+  test('a game session is finite: it walks each mistake once, then ends', () {
+    final h = makePractice([
+      practiceItem(_fenA),
+      practiceItem(_fenB),
+      practiceItem(_fenC), // out of scope
+    ]);
+
+    h.practice.startGameSession({_fenA, _fenB});
+    final served = <String>{h.practice.current!['id'] as String};
+
+    h.practice.nextPuzzle();
+    served.add(h.practice.current!['id'] as String);
+    expect(served, {_fenA, _fenB},
+        reason: 'both scoped mistakes are served before the session ends');
+
+    // The third Next has nothing left in scope — the session ENDS rather than
+    // cycling back to the first (the forever-loop / loop-of-one bug).
+    h.practice.nextPuzzle();
+    expect(h.practice.current, isNull);
+    expect(h.practice.inGameSession, isTrue,
+        reason: 'still scoped — the banner and "Practise all" way out stay');
+    expect(h.practice.gameDoneNote, isNotNull);
+    expect(h.practice.gameDoneNote, contains('2 mistakes'));
+  });
+
+  test('a single-mistake session ends after one Next, never re-serving it', () {
+    final h = makePractice([practiceItem(_fenA)]);
+
+    h.practice.startGameSession({_fenA});
+    expect(h.practice.current?['id'], _fenA);
+
+    h.practice.nextPuzzle();
+    expect(h.practice.current, isNull,
+        reason: 'a lone mistake is not re-served forever');
+    expect(h.practice.gameDoneNote, contains('1 mistake'));
+    expect(h.practice.gameDoneNote, isNot(contains('mistakes')));
+  });
+
+  test('exiting a finished game session clears the done note', () {
+    final h = makePractice([practiceItem(_fenA), practiceItem(_fenB)]);
+
+    h.practice.startGameSession({_fenA});
+    h.practice.nextPuzzle(); // exhausts the single-item scope
+    expect(h.practice.gameDoneNote, isNotNull);
+
+    h.practice.exitGameSession();
+    expect(h.practice.gameDoneNote, isNull);
+    expect(h.practice.inGameSession, isFalse);
+    expect(h.practice.current?['id'], anyOf(_fenA, _fenB));
+  });
+
+  test('each game session bumps the serial so the tab can drop the browser',
+      () {
+    final h = makePractice([practiceItem(_fenA), practiceItem(_fenB)]);
+    final before = h.practice.gameSessionSerial;
+
+    h.practice.startGameSession({_fenA});
+    expect(h.practice.gameSessionSerial, greaterThan(before));
   });
 
   test('exiting the game session returns to the full queue', () {

@@ -38,6 +38,13 @@ class _PracticeTabState extends State<PracticeTab> {
   /// board you left, mid-attempt if that is where you were.
   bool _browsing = false;
 
+  /// The game-session serial this tab has reacted to. When the controller bumps
+  /// it (a new "practise this game's mistakes" session), we drop out of the
+  /// browser so the drill is what shows — the tab is a persistent IndexedStack
+  /// child, so `_browsing` left true from a previous visit would otherwise land
+  /// the session on the collection list (#197 nav).
+  int _seenGameSerial = 0;
+
   @override
   void dispose() {
     _controller?.dispose();
@@ -70,6 +77,13 @@ class _PracticeTabState extends State<PracticeTab> {
   Widget build(BuildContext context) {
     final practice = context.watch<PracticeController>();
     final item = practice.current;
+
+    // A new game session drops us back to the drill, wherever the tab was left.
+    // Set directly (not via setState): we are already building and use it below.
+    if (practice.gameSessionSerial != _seenGameSerial) {
+      _seenGameSerial = practice.gameSessionSerial;
+      _browsing = false;
+    }
 
     // Nothing collected at all is the only state with nothing to browse.
     if (practice.items.isEmpty) return _empty(practice);
@@ -270,6 +284,35 @@ class _PracticeTabState extends State<PracticeTab> {
   /// the player can undo in a tap.
   Widget _idleBanner(PracticeController practice) {
     final motif = practice.motifFilter;
+    // A finished game session (#197): every scoped mistake has been drilled.
+    // Say so, and offer the one way back to the full queue.
+    final gameDone = practice.gameDoneNote;
+    if (gameDone != null) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.fromLTRB(14, 8, 6, 8),
+        color: const Color(0xFF1f1e1b),
+        child: Row(
+          children: [
+            const Icon(Icons.check_circle_outline,
+                size: 15, color: Color(0xFF81B64C)),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(gameDone,
+                  style: const TextStyle(color: Colors.white54, fontSize: 12)),
+            ),
+            TextButton(
+              onPressed: practice.exitGameSession,
+              style: TextButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  minimumSize: const Size(0, 32)),
+              child: const Text('Practise all',
+                  style: TextStyle(color: Colors.white70, fontSize: 12)),
+            ),
+          ],
+        ),
+      );
+    }
     // A continued line that ran to its end (#143) leaves no puzzle on the board;
     // say why, then fall back to Next for the scheduler's next draw.
     final lineNote = practice.lineNote;

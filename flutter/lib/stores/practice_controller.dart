@@ -139,6 +139,24 @@ class PracticeController extends ChangeNotifier {
 
   bool get inGameSession => gameScope != null;
 
+  /// Ids already served in the CURRENT game session. A game is a finite set of
+  /// blunders, not an endless queue: a game session walks each scoped mistake
+  /// once and then ends, rather than cycling back to the first (or, with a
+  /// single mistake, re-serving the same one forever). Cleared whenever a game
+  /// session starts or is left.
+  final Set<String> _gameServed = {};
+
+  /// Set when a game session has served its last scoped mistake: the drill
+  /// stops with this note instead of looping. Distinct from [lineNote] (a
+  /// continued line's end) — this one belongs to a finished game session and
+  /// the tab pairs it with the way back to the full queue. Null otherwise.
+  String? gameDoneNote;
+
+  /// Bumped by [startGameSession]. The Practice tab watches it so "practise
+  /// this game's mistakes" drops back to the drill view even if the tab was
+  /// last left showing the collection browser (#197 nav).
+  int gameSessionSerial = 0;
+
   /// What a running session actually draws from. A game session serves EVERY
   /// collected mistake in scope, threshold or not — you picked the game
   /// deliberately, the way [serveItem] drills a hand-picked sub-threshold
@@ -302,6 +320,8 @@ class PracticeController extends ChangeNotifier {
     // scope set weeks ago would still be silently narrowing the queue the next
     // time the tab opened itself onto an empty board.
     gameScope = null;
+    _gameServed.clear();
+    gameDoneNote = null;
     sessionSolved = 0;
     sessionStreak = 0;
     _serve(_api.nextItem(_pool, motif: motifFilter, easyFirst: _easeIn));
@@ -321,9 +341,41 @@ class PracticeController extends ChangeNotifier {
     // could empty the pool and land the tab on "nothing tagged X" over a game
     // that has plenty.
     motifFilter = null;
+    _gameServed.clear();
+    gameDoneNote = null;
+    gameSessionSerial++;
     sessionSolved = 0;
     sessionStreak = 0;
-    _serve(_api.nextItem(_pool, easyFirst: _easeIn));
+    _serveNextInGame();
+  }
+
+  /// Serve the next unserved mistake in the game scope, or finish the session
+  /// with a note once they have all been drilled. A game session goes through
+  /// each scoped position ONCE: Retry still re-tries the puzzle in front of you,
+  /// but Skip/Next walks forward and stops at the end rather than looping — the
+  /// bug that made "practise this game's mistakes" run forever (and re-serve a
+  /// lone mistake endlessly).
+  void _serveNextInGame() {
+    final scope = gameScope;
+    if (scope == null) return;
+    final remaining = items
+        .where((i) =>
+            scope.contains(i['id'] as String) &&
+            !_gameServed.contains(i['id'] as String))
+        .toList();
+    final next = _api.nextItem(remaining, easyFirst: _easeIn);
+    if (next == null) {
+      // Every scoped mistake has been served. End with a note rather than
+      // cycling: current == null routes the tab to the browser, where the note
+      // and the "Practise all" way out are shown on the idle banner.
+      final n = scope.length;
+      gameDoneNote =
+          "You've been through all $n mistake${n == 1 ? '' : 's'} from this game.";
+      _serve(null);
+      return;
+    }
+    _gameServed.add(next['id'] as String);
+    _serve(next);
   }
 
   /// Leave the game scope and return to the full queue, serving the next
@@ -332,10 +384,17 @@ class PracticeController extends ChangeNotifier {
   void exitGameSession() {
     if (gameScope == null) return;
     gameScope = null;
+    _gameServed.clear();
+    gameDoneNote = null;
     _serve(_api.nextItem(_pool, motif: motifFilter, easyFirst: _easeIn));
   }
 
   void nextPuzzle() {
+    // A game session is finite — walk its scope once, then stop.
+    if (inGameSession) {
+      _serveNextInGame();
+      return;
+    }
     final id = current?['id'] as String?;
     // The exclusion means "don't hand me the same one twice running", not "run
     // out". Under a motif filter down to a single item, honouring it empties
@@ -674,7 +733,11 @@ class PracticeController extends ChangeNotifier {
   Future<void> remove(String id) async {
     items = _api.removeItem(items, id);
     if (current?['id'] == id) {
-      _serve(_api.nextItem(_pool, motif: motifFilter, easyFirst: _easeIn));
+      if (inGameSession) {
+        _serveNextInGame();
+      } else {
+        _serve(_api.nextItem(_pool, motif: motifFilter, easyFirst: _easeIn));
+      }
     }
     await _persist();
     notifyListeners();
