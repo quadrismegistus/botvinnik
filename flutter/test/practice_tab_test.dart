@@ -318,5 +318,50 @@ void main() {
       expect(find.textContaining('checkmate'), findsNothing);
       expect(find.textContaining('wins your'), findsNothing);
     });
+
+    testWidgets('a solved good-enough move shows your move against the best',
+        (tester) async {
+      await tester.binding.setSurfaceSize(const Size(1000, 700)); // wide layout
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      final h = makePractice([practiceItem(_forkFen, bestUci: 'd2d4', bestSan: 'd4')]);
+      h.practice.startSession();
+      // A pass that ISN'T the best move — the comparison board has something to
+      // say (found-the-best passes are filtered out by arrowsFor).
+      h.practice.attempt = const AttemptOutcome(
+        san: 'Nf3',
+        uci: 'g1f3',
+        pass: true,
+        drop: 2,
+        evalPawns: 0.3,
+      );
+      await _pumpTab(tester, h.practice);
+
+      expect(find.text('You played Nf3'), findsOneWidget);
+      expect(find.textContaining('Best was d4'), findsOneWidget);
+    });
+
+    testWidgets('an unsolved attempt does not reveal the best move board',
+        (tester) async {
+      await tester.binding.setSurfaceSize(const Size(1000, 700));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      final h = makePractice([practiceItem(_forkFen, bestUci: 'd2d4', bestSan: 'd4')]);
+      h.practice.startSession();
+      // Failed, best NOT revealed → the comparison must stay hidden (no spoiler).
+      h.practice.attempt = const AttemptOutcome(
+        san: 'Nf3',
+        uci: 'g1f3',
+        pass: false,
+        drop: 18,
+        evalPawns: -1,
+        refutationUci: 'b8c6',
+        refutationPv: ['b8c6'],
+      );
+      await _pumpTab(tester, h.practice);
+
+      expect(find.text('You played Nf3'), findsNothing);
+      expect(find.textContaining('Best was'), findsNothing);
+    });
   });
 }

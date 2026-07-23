@@ -21,6 +21,7 @@ import '../stores/practice_controller.dart';
 import '../stores/settings_store.dart';
 import 'board_theme.dart';
 import 'layout.dart';
+import 'move_preview.dart';
 
 class PracticeTab extends StatefulWidget {
   const PracticeTab({super.key});
@@ -654,6 +655,7 @@ class _PracticeTabState extends State<PracticeTab> {
                 children: [
                   _gameScopeBanner(practice),
                   _promptStrip(item, practice, sideToMove),
+                  _bestComparison(item, practice),
                   _actionRow(context, practice),
                 ],
               ),
@@ -811,6 +813,42 @@ class _PracticeTabState extends State<PracticeTab> {
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       color: const Color(0xFF262421),
       child: content,
+    );
+  }
+
+  /// Your move against the best one, as a board (#215) — the visual half of
+  /// "why", the same two-arrow picture the Insight card draws for a game move.
+  ///
+  /// Gated so it never spoils the drill: shown only once the puzzle is SOLVED
+  /// (a pass) or the best move has been REVEALED, and only when your move
+  /// actually differs from the best (a found-the-best pass has nothing to
+  /// compare). Hidden while the punishment preview is playing — the board below
+  /// is already narrating something. Wide layout only; the stacked phone view
+  /// stays compact and keeps the "best was …" sentence instead.
+  Widget _bestComparison(
+      Map<String, dynamic> item, PracticeController practice) {
+    final attempt = practice.attempt;
+    if (attempt == null || practice.refutePreviewing) {
+      return const SizedBox.shrink();
+    }
+    if (!attempt.pass && !practice.revealBest) return const SizedBox.shrink();
+    final bestUci = item['bestUci'] as String;
+    final arrows = MovePreview.arrowsFor(attempt.uci, bestUci);
+    if (arrows == null) return const SizedBox.shrink();
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(14, 8, 14, 8),
+      color: const Color(0xFF262421),
+      child: MovePreview(
+        fen: item['fen'] as String,
+        played: arrows.$1,
+        best: arrows.$2,
+        playedSan: attempt.san,
+        bestSan: item['bestSan'] as String,
+        playedLabel: 'You played',
+        orientation:
+            (item['fen'] as String).split(' ')[1] == 'w' ? Side.white : Side.black,
+      ),
     );
   }
 
