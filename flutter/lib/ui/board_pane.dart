@@ -4,7 +4,7 @@
 import 'dart:math' as math;
 
 import 'package:chessground/chessground.dart';
-import 'package:flutter/foundation.dart' show setEquals;
+import 'package:flutter/foundation.dart' show setEquals, visibleForTesting;
 import 'package:dartchess/dartchess.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -205,6 +205,14 @@ class _BoardPaneState extends State<BoardPane> {
 /// whole queen swings paints up toward full — so "how decisively" reads off
 /// the board, not just "who". The base for margin 0 matches the old flat
 /// look, so nothing dims; contested squares only get brighter.
+/// The exchange-margin → tint-intensity multiplier the control painter grades
+/// opacity by. Exposed for tests: canvas alpha can't be asserted through a
+/// widget test, but this pure mapping is the whole of the new intensity logic —
+/// margin 0 returns 1.0 (the old flat look, so nothing dims), a queen (9) returns
+/// 2.0, and anything beyond is clamped so a high base opacity still holds.
+@visibleForTesting
+double controlTintGrade(double margin) => 1 + (margin.clamp(0, 9) / 9);
+
 class _ControlPainter extends CustomPainter {
   final Map<String, ControlCell> control;
   final Side orientation;
@@ -216,7 +224,7 @@ class _ControlPainter extends CustomPainter {
       this.occupied, this.threatRinged);
 
   // margin 0 -> 1x, a queen (9) -> 2x; clamped so a base past 0.5 still holds.
-  static double _grade(double margin) => 1 + (margin.clamp(0, 9) / 9);
+  static double _grade(double margin) => controlTintGrade(margin);
 
   @override
   void paint(Canvas canvas, Size size) {
