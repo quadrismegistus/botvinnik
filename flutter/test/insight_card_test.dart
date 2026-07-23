@@ -236,6 +236,36 @@ void main() {
       expect(find.textContaining('70% to 50%'), findsOneWidget);
     });
 
+    testWidgets('a collected move says it was added to practice',
+        (tester) async {
+      // The verdict the win-chance number decides, stated the moment it
+      // happens: the SAME e2e4 run whose drop (20) clears the collect floor
+      // must show the card saying the move went to practice — the pairing is
+      // what makes the threshold legible instead of inferred.
+      final practice = FakePractice();
+      final game = await _controller(
+          black: kTestBotId, practice: practice, analysisLines: kFakeLines);
+      game.playUci('e2e4');
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(practice.collected, hasLength(1),
+          reason: 'the pipeline must have reached the collect guard');
+      await _pump(tester, game);
+      expect(find.textContaining('Win chance lost 20.0%'), findsOneWidget);
+      expect(find.text('Added to practice'), findsOneWidget,
+          reason: 'the drop cleared the floor, so the card must say so');
+    });
+
+    testWidgets('the analysis board never claims a practice collection',
+        (tester) async {
+      // No bot, no collection (see the guard in _gradeInBackground): the card
+      // must not say "Added to practice" for a move that was only analysed.
+      final game = await _withGrade(gradeRaw());
+      await _pump(tester, game);
+      expect(find.textContaining('Win chance lost 20.0%'), findsOneWidget);
+      expect(find.textContaining('practice'), findsNothing);
+    });
+
     testWidgets('nothing is claimed before the grade is backfilled',
         (tester) async {
       // `gradeMove` leaves evalPawns null for a move outside the pre-move

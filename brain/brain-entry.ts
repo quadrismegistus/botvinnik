@@ -60,7 +60,7 @@ export { unifyMoves, confidences } from './explorer';
 export { getSan, getSanLine, getNumberedSanLine, getFenAfter, isCapture } from './engine/chess';
 
 // ---- board overlays ----
-export { threatProbeFen, judgeThreat, judgeTacticalWin } from './engine/threats';
+export { threatProbeFen, judgeThreat, judgeTacticalWin, threatProse } from './engine/threats';
 import { computeControl } from './engine/control';
 /** computeControl returns a Map (JSON-hostile) — flatten for the bridge. */
 export function controlSquares(fen: string): Record<string, 'w' | 'b'> {

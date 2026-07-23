@@ -408,6 +408,19 @@ class _AppShellState extends State<AppShell> {
     review.loadGames();
   }
 
+  /// Practise the reviewed game's own mistakes (#197): scope a practice session
+  /// to [fens] — the open game's blunder positions — and jump to the Practice
+  /// tab to drill them. The controller filters these against the live
+  /// collection, so this reuses the real spaced-repetition schedule rather than
+  /// forking a throwaway one.
+  void _practiseGame(Set<String> fens) {
+    context.read<PracticeController>().startGameSession(fens);
+    setState(() {
+      _tab = 1;
+      _visited.add(1);
+    });
+  }
+
   /// The four tabs, defined once so the bottom bar and the side rail can't
   /// drift. Only Practice carries a badge — its due count.
   List<({Widget icon, Widget selectedIcon, String label})> _navItems(
@@ -446,7 +459,7 @@ class _AppShellState extends State<AppShell> {
   Widget _tabAt(int i) => switch (i) {
         0 => PlayTab(onOpenReview: _openReview),
         1 => const PracticeTab(),
-        2 => const GamesListBody(),
+        2 => GamesListBody(onPractiseGame: _practiseGame),
         3 => const SettingsTab(),
         _ => throw RangeError.index(i, null, 'tab'),
       };

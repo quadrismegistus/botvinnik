@@ -244,4 +244,30 @@ void main() {
       expect(tester.takeException(), isNull, reason: 'overflowed at $width');
     });
   }
+
+  group('game session banner (#197)', () {
+    testWidgets('a game session names its scope and offers the way out',
+        (tester) async {
+      final h = makePractice([practiceItem(_forkFen), practiceItem(_pinFen)]);
+      h.practice.startGameSession({_forkFen});
+      await _pumpTab(tester, h.practice);
+
+      expect(find.text("Practising this game's mistakes"), findsOneWidget,
+          reason: 'nothing else on the tab says the queue is narrowed');
+
+      // "Practise all" returns to the full queue; the banner goes with it.
+      await tester.tap(find.text('Practise all'));
+      await tester.pumpAndSettle();
+
+      expect(h.practice.inGameSession, isFalse);
+      expect(find.text("Practising this game's mistakes"), findsNothing);
+    });
+
+    testWidgets('a normal session shows no banner', (tester) async {
+      final h = makePractice([practiceItem(_forkFen)]);
+      h.practice.startSession();
+      await _pumpTab(tester, h.practice);
+      expect(find.text("Practising this game's mistakes"), findsNothing);
+    });
+  });
 }

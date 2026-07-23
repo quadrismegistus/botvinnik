@@ -6,6 +6,7 @@
 
 import 'dart:convert';
 
+import 'package:dartchess/dartchess.dart';
 import 'package:flutter/foundation.dart';
 
 import '../brain/grading_api.dart';
@@ -20,6 +21,24 @@ const double kPassDrop = 5; // ≤5% win-chance loss passes (web PASS_DROP)
 // serve time, so tightening or loosening it later applies retroactively
 // to the whole collection instead of only to future games.
 const double kCollectMin = 5;
+
+// The "continue the line" search budget. Deliberately the SAME depth/time as
+// the checkAttempt verdict search (see there): the opponent's reply and the
+// next target are found at the depth the puzzle itself is graded at, and the
+// full-NNUE native engine's slower per-node cost is the same argument for a
+// snappy 1.5s cap here as it is there.
+const int kLineSearchDepth = 12;
+const int kLineSearchMs = 1500;
+
+/// What [PracticeController.maybeCollect] did with a graded move, so the
+/// insight card can say it at the moment it happens (#123):
+/// - [added]       a new puzzle was collected — the move cleared the threshold
+///                 and its position was not already in the queue
+/// - [duplicate]   it cleared the threshold, but that position is already a
+///                 puzzle (a blunder repeated, or replayed from the archive)
+/// - [notEligible] it did not clear the threshold — too small a loss, or graded
+///                 too shallow to trust — so nothing was collected
+enum CollectOutcome { added, duplicate, notEligible }
 
 class AttemptOutcome {
   final String san;
@@ -59,6 +78,29 @@ class PracticeController extends ChangeNotifier {
   int sessionSolved = 0;
   int sessionStreak = 0;
 
+  /// "Continue the line" state (#143). After a PASSED puzzle the player can keep
+  /// playing forward: the engine answers, the position one move later is served
+  /// as a fresh target, and the drill walks the line the puzzle came from.
+  ///
+  /// [continuing] is true while the two back-to-back searches run — the reply
+  /// and the next target — and locks the board like an in-flight check does.
+  bool continuing = false;
+
+  /// How many "continue" steps past the stored puzzle we are. Zero is the
+  /// scheduler-served puzzle; anything above is an EPHEMERAL line continuation
+  /// that must not touch the Leitner schedule (guarded in [checkAttempt]) — you
+  /// are drilling a line, not re-answering the collected position.
+  int lineDepth = 0;
+
+  /// Set when a continued line runs to its end (checkmate/stalemate): there is
+  /// no next target, so the drill stops with a note instead of a puzzle.
+  String? lineNote;
+
+  /// The position AFTER the graded attempt, captured by [checkAttempt] so
+  /// [continueLine] knows where to play the opponent's reply from. Null unless
+  /// an attempt has just committed against the puzzle on screen.
+  String? _fenAfterAttempt;
+
   /// Bumped by every `_serve`, i.e. by anything that puts a different puzzle on
   /// screen — Skip/Next, the motif picker, a delete, a new session. An
   /// in-flight [checkAttempt] compares it across its await and drops the
@@ -86,6 +128,61 @@ class PracticeController extends ChangeNotifier {
   List<Map<String, dynamic>> get servable => items
       .where((i) => ((i['drop'] as num?)?.toDouble() ?? 0) >= threshold)
       .toList();
+
+  /// The positions (item ids / fens) one game's blunders map to, while a
+  /// "practise this game's mistakes" session (#197) is running; null the rest
+  /// of the time. Session-only, never persisted — the same discipline as
+  /// [motifFilter]: a scope is a property of the session you are sitting in,
+  /// not of the collection, and reopening the app onto three positions from a
+  /// game you reviewed weeks ago would read as the queue being broken.
+  Set<String>? gameScope;
+
+  bool get inGameSession => gameScope != null;
+
+  /// Ids already served in the CURRENT game session. A game is a finite set of
+  /// blunders, not an endless queue: a game session walks each scoped mistake
+  /// once and then ends, rather than cycling back to the first (or, with a
+  /// single mistake, re-serving the same one forever). Cleared whenever a game
+  /// session starts or is left.
+  final Set<String> _gameServed = {};
+
+  /// Set when a game session has served its last scoped mistake: the drill
+  /// stops with this note instead of looping. Distinct from [lineNote] (a
+  /// continued line's end) — this one belongs to a finished game session and
+  /// the tab pairs it with the way back to the full queue. Null otherwise.
+  String? gameDoneNote;
+
+  /// How many collected mistakes the current game scope held at session start —
+  /// the number the Review button showed (`countForGame`). The completion note
+  /// reports THIS, not `gameScope.length`: the scope handed in is every one of
+  /// the game's move-before fens, and only the ones that intersect the
+  /// collection are ever drilled, so `gameScope.length` would miscount every
+  /// quiet position as a mistake.
+  int _gameScopeCount = 0;
+
+  /// Bumped by [startGameSession]. The Practice tab watches it so "practise
+  /// this game's mistakes" drops back to the drill view even if the tab was
+  /// last left showing the collection browser (#197 nav).
+  int gameSessionSerial = 0;
+
+  /// What a running session actually draws from. A game session serves EVERY
+  /// collected mistake in scope, threshold or not — you picked the game
+  /// deliberately, the way [serveItem] drills a hand-picked sub-threshold
+  /// position — so it draws from the whole collection filtered to the scope,
+  /// not from the threshold-gated [servable]. A normal session draws
+  /// [servable].
+  List<Map<String, dynamic>> get _pool {
+    final scope = gameScope;
+    if (scope == null) return servable;
+    return items.where((i) => scope.contains(i['id'] as String)).toList();
+  }
+
+  /// How many collected puzzles fall on the positions [fens] (a reviewed
+  /// game's move-before fens) — what the Review affordance labels itself with
+  /// and gates on. Counted over the whole collection, matching [_pool]'s game
+  /// branch, so the number the button shows is the number the session serves.
+  int countForGame(Set<String> fens) =>
+      items.where((i) => fens.contains(i['id'] as String)).length;
 
   int get due => loaded ? _api.dueCount(servable) : 0;
 
@@ -172,19 +269,24 @@ class PracticeController extends ChangeNotifier {
   /// Auto-collection: called by GameController for every backfilled grade.
   /// [storedMove] is the web StoredMove shape; collects when the drop is big
   /// enough and the position isn't already a puzzle.
-  Future<void> maybeCollect(Map<String, dynamic> storedMove,
+  ///
+  /// Returns what it decided (see [CollectOutcome]) so the caller can say so at
+  /// the moment it happens — the collect threshold is only legible if the card
+  /// reports the verdict beside the win-chance loss it is judged on (#123).
+  Future<CollectOutcome> maybeCollect(Map<String, dynamic> storedMove,
       {String? setupUci, int minDepth = 8}) async {
     if (!loaded) await load();
     final drop = (storedMove['wcDrop'] as num?)?.toDouble() ?? 0;
     final depth = (storedMove['depth'] as num?)?.toInt() ?? 0;
-    if (drop < kCollectMin || depth < minDepth) return;
+    if (drop < kCollectMin || depth < minDepth) return CollectOutcome.notEligible;
     final data = _api.itemData(storedMove, setupUci);
-    if (data == null) return;
+    if (data == null) return CollectOutcome.notEligible;
     final next = _api.addItem(items, data);
-    if (next == null) return; // duplicate fen
+    if (next == null) return CollectOutcome.duplicate; // fen already a puzzle
     items = next;
     await _persist();
     notifyListeners();
+    return CollectOutcome.added;
   }
 
   /// Collect many at once — the import path.
@@ -222,20 +324,96 @@ class PracticeController extends ChangeNotifier {
   // ---- session ----
 
   void startSession() {
+    // A fresh general session leaves any game scope behind: without this, a
+    // scope set weeks ago would still be silently narrowing the queue the next
+    // time the tab opened itself onto an empty board.
+    gameScope = null;
+    _gameServed.clear();
+    gameDoneNote = null;
     sessionSolved = 0;
     sessionStreak = 0;
-    _serve(_api.nextItem(servable, motif: motifFilter, easyFirst: _easeIn));
+    _serve(_api.nextItem(_pool, motif: motifFilter, easyFirst: _easeIn));
+  }
+
+  /// Practise one reviewed game's own mistakes (#197): restrict the session to
+  /// [fens] — that game's blunder positions — and serve the first at once.
+  ///
+  /// A scope over the LIVE collection, not a snapshot copied out of it: the
+  /// items stay the real ones, so passing or failing them moves the real
+  /// Leitner boxes and the drill counts toward the same spaced-repetition
+  /// schedule as any other. It filters rather than forks — the whole point is
+  /// that these positions are already collected, so there is nothing to build.
+  void startGameSession(Set<String> fens) {
+    gameScope = fens;
+    // A game scope is its own filter; stacking a leftover motif on top of it
+    // could empty the pool and land the tab on "nothing tagged X" over a game
+    // that has plenty.
+    motifFilter = null;
+    _gameServed.clear();
+    gameDoneNote = null;
+    _gameScopeCount = countForGame(fens);
+    gameSessionSerial++;
+    sessionSolved = 0;
+    sessionStreak = 0;
+    _serveNextInGame();
+  }
+
+  /// Serve the next unserved mistake in the game scope, or finish the session
+  /// with a note once they have all been drilled. A game session goes through
+  /// each scoped position ONCE: Retry still re-tries the puzzle in front of you,
+  /// but Skip/Next walks forward and stops at the end rather than looping — the
+  /// bug that made "practise this game's mistakes" run forever (and re-serve a
+  /// lone mistake endlessly).
+  void _serveNextInGame() {
+    final scope = gameScope;
+    if (scope == null) return;
+    final remaining = items
+        .where((i) =>
+            scope.contains(i['id'] as String) &&
+            !_gameServed.contains(i['id'] as String))
+        .toList();
+    final next = _api.nextItem(remaining, easyFirst: _easeIn);
+    if (next == null) {
+      // Every scoped mistake has been served. End with a note rather than
+      // cycling: current == null routes the tab to the browser, where the note
+      // and the "Practise all" way out are shown on the idle banner. Set the
+      // note AFTER _serve (which clears any prior gameDoneNote), then notify.
+      final n = _gameScopeCount;
+      _serve(null);
+      gameDoneNote =
+          "You've been through all $n mistake${n == 1 ? '' : 's'} from this game.";
+      notifyListeners();
+      return;
+    }
+    _gameServed.add(next['id'] as String);
+    _serve(next);
+  }
+
+  /// Leave the game scope and return to the full queue, serving the next
+  /// general puzzle at once — the way out the Practice tab offers while a game
+  /// session is running. Counters carry over; it is the same sitting.
+  void exitGameSession() {
+    if (gameScope == null) return;
+    gameScope = null;
+    _gameServed.clear();
+    gameDoneNote = null;
+    _serve(_api.nextItem(_pool, motif: motifFilter, easyFirst: _easeIn));
   }
 
   void nextPuzzle() {
+    // A game session is finite — walk its scope once, then stop.
+    if (inGameSession) {
+      _serveNextInGame();
+      return;
+    }
     final id = current?['id'] as String?;
     // The exclusion means "don't hand me the same one twice running", not "run
     // out". Under a motif filter down to a single item, honouring it empties
     // the pool and the tab announces there is nothing to practise while
     // holding a puzzle — so fall back to the unexcluded draw.
-    final next = _api.nextItem(servable,
+    final next = _api.nextItem(_pool,
             excludeId: id, motif: motifFilter, easyFirst: _easeIn) ??
-        _api.nextItem(servable, motif: motifFilter, easyFirst: _easeIn);
+        _api.nextItem(_pool, motif: motifFilter, easyFirst: _easeIn);
     _serve(next);
   }
 
@@ -252,6 +430,12 @@ class PracticeController extends ChangeNotifier {
   void serveItem(String id) {
     for (final item in items) {
       if (item['id'] == id) {
+        // A hand-picked drill from the browser leaves any game walk behind:
+        // the item may not be one of the scoped game's mistakes, and keeping
+        // the scope would sit the "practising this game's mistakes" banner over
+        // a position that isn't one — and leave it outside the finite walk.
+        gameScope = null;
+        _gameServed.clear();
         _serve(item);
         return;
       }
@@ -263,7 +447,7 @@ class PracticeController extends ChangeNotifier {
   void setMotifFilter(String? motif) {
     if (motif == motifFilter) return;
     motifFilter = motif;
-    _serve(_api.nextItem(servable, motif: motif, easyFirst: _easeIn));
+    _serve(_api.nextItem(_pool, motif: motif, easyFirst: _easeIn));
   }
 
   void _serve(Map<String, dynamic>? item) {
@@ -275,6 +459,18 @@ class PracticeController extends ChangeNotifier {
     revealBest = false;
     _resultRecorded = false;
     checking = false;
+    // Serving a scheduler-drawn puzzle leaves any line behind — this is also
+    // the cleanup point for a [continueLine] abandoned mid-flight: it captures
+    // the generation and returns without touching state once _gen has moved, so
+    // continuing/lineDepth/lineNote/_fenAfterAttempt are reset HERE for it.
+    continuing = false;
+    lineDepth = 0;
+    lineNote = null;
+    // A finished game session's note is stale the moment any puzzle is served,
+    // by whatever route. _serveNextInGame sets its note AFTER calling _serve, so
+    // clearing here does not wipe the note it is about to show.
+    gameDoneNote = null;
+    _fenAfterAttempt = null;
     notifyListeners();
   }
 
@@ -282,6 +478,9 @@ class PracticeController extends ChangeNotifier {
     attempt = null;
     pendingUci = null;
     checking = false;
+    // A fresh attempt has not been graded yet, so the position it would
+    // continue from is stale — clear it until the next check commits.
+    _fenAfterAttempt = null;
     notifyListeners();
   }
 
@@ -364,8 +563,19 @@ class PracticeController extends ChangeNotifier {
       refutationUci: pass ? null : refutation,
     );
     checking = false;
+    // Where a passed attempt can be continued FROM (#143). Set for every graded
+    // move, on the puzzle now on screen — the gen guard above has already
+    // dropped a verdict that outlived its puzzle, so this only lands for the
+    // current one.
+    _fenAfterAttempt = fenAfter;
 
-    if (!_resultRecorded) {
+    // Line continuations (lineDepth > 0) are an ephemeral drill of the line, not
+    // the collected position — they must not move a Leitner box or count toward
+    // session progress. Only the stored puzzle (lineDepth 0) is spaced
+    // repetition. (A continuation's synthetic id is not in `items` anyway, so
+    // recordResult would no-op — but the session counters would not, so the
+    // guard is load-bearing, not belt-and-braces.)
+    if (!_resultRecorded && lineDepth == 0) {
       _resultRecorded = true;
       items = _api.recordResult(items, item['id'] as String, pass,
           hinted: hintTier > 0);
@@ -380,6 +590,159 @@ class PracticeController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Keep playing FORWARD from a puzzle you just passed (#143).
+  ///
+  /// Turns a one-move puzzle into a drill of the line it came from: play the
+  /// engine's reply to the move you found, then re-serve the position one move
+  /// later as a fresh target, and let you find the next move too. Was app-level
+  /// orchestration in the web's `+page.svelte`, never exported from the brain;
+  /// every primitive it needs is already here (the arbiter's depth-bounded
+  /// search, [GradingApi.winChance], dartchess SAN).
+  ///
+  /// Off a PASS only — continuing a line from a move that lost is not a drill of
+  /// the line, it is compounding the mistake. Two searches run back to back (the
+  /// reply, then the next best move), so this holds the SAME stale-verdict guard
+  /// [checkAttempt] does: the generation captured on entry is re-checked across
+  /// every await, and a Skip / delete / browser pick that serves a different
+  /// puzzle mid-flight makes this drop everything rather than land a target on
+  /// the wrong board. `_serve` has already reset the continue state for that
+  /// abandoned run, so the early return needs no cleanup of its own — exactly
+  /// like the checkAttempt guard.
+  Future<void> continueLine() async {
+    final att = attempt;
+    final fromFen = _fenAfterAttempt;
+    if (current == null ||
+        att == null ||
+        !att.pass ||
+        checking ||
+        continuing ||
+        fromFen == null) {
+      return;
+    }
+    final gen = _gen;
+    continuing = true;
+    lineNote = null;
+    notifyListeners();
+
+    Position afterAttempt;
+    try {
+      afterAttempt = Chess.fromSetup(Setup.parseFen(fromFen));
+    } catch (_) {
+      // A FEN we cannot parse is not a position to continue — bail cleanly.
+      if (gen == _gen) {
+        continuing = false;
+        notifyListeners();
+      }
+      return;
+    }
+
+    // 1. The opponent's reply to the move just played.
+    final replyLines = await _arbiter.search(
+      fen: fromFen,
+      depth: kLineSearchDepth,
+      multiPv: 1,
+      movetimeMs: kLineSearchMs,
+      priority: SearchPriority.practiceCheck,
+    );
+    if (gen != _gen) return; // a different puzzle was served mid-flight — drop
+    final replyUci = (replyLines != null &&
+            replyLines.isNotEmpty &&
+            replyLines.first.pv.isNotEmpty)
+        ? replyLines.first.pv.first
+        : null;
+    final replyMove = replyUci == null ? null : NormalMove.fromUci(replyUci);
+    if (replyMove == null || !afterAttempt.isLegal(replyMove)) {
+      continuing = false;
+      notifyListeners();
+      return;
+    }
+    final (_, replySan) = afterAttempt.makeSan(replyMove);
+    final afterReply = afterAttempt.playUnchecked(replyMove);
+
+    if (afterReply.isGameOver) {
+      // The line ran to its end — no next target to serve. End the drill with a
+      // note rather than a puzzle; the tab shows it on the idle banner.
+      lineDepth++;
+      continuing = false;
+      current = null;
+      attempt = null;
+      pendingUci = null;
+      _fenAfterAttempt = null;
+      lineNote = 'Line over after $replySan.';
+      notifyListeners();
+      return;
+    }
+
+    // 2. The next target: the best move in the position the reply leaves.
+    final targetFen = afterReply.fen;
+    final targetLines = await _arbiter.search(
+      fen: targetFen,
+      depth: kLineSearchDepth,
+      multiPv: 1,
+      movetimeMs: kLineSearchMs,
+      priority: SearchPriority.practiceCheck,
+    );
+    if (gen != _gen) return;
+    final best = (targetLines != null &&
+            targetLines.isNotEmpty &&
+            targetLines.first.pv.isNotEmpty)
+        ? targetLines.first
+        : null;
+    if (best == null) {
+      // The engine gave us nothing to aim at — stop rather than serve a puzzle
+      // with no best move.
+      continuing = false;
+      current = null;
+      attempt = null;
+      pendingUci = null;
+      _fenAfterAttempt = null;
+      lineNote = 'Line over after $replySan.';
+      notifyListeners();
+      return;
+    }
+    final bestUci = best.pv.first;
+    final (_, bestSan) = afterReply.makeSan(NormalMove.fromUci(bestUci));
+    // best.score is the side-to-move's perspective, and after the reply it is
+    // the player's move again — so it is already the player's eval, matching the
+    // `evalBestPawns` a stored item carries and what checkAttempt's best branch
+    // reads back. Feed winChance null pawns when it is a mate, as everywhere.
+    final wcBest =
+        _grading.winChance(best.mate == null ? best.score : null, best.mate);
+
+    // Install the ephemeral target. Bump the generation like [_serve] does so a
+    // check still in flight against the previous position is dropped, then swap
+    // the board over. The synthetic id is the fen — unique to the position and,
+    // not being in `items`, harmless if a stale recordResult ever reached it.
+    _gen++;
+    lineDepth++;
+    current = {
+      'id': targetFen,
+      'fen': targetFen,
+      'bestUci': bestUci,
+      'bestSan': bestSan,
+      'bestPv': best.pv,
+      'motifs': const <String>[],
+      'evalBestPawns': best.score,
+      'mateBest': best.mate,
+      'wcBest': wcBest,
+      'drop': 0,
+      'playedSan': replySan,
+      'lastResult': null,
+      'attempts': 0,
+      'correct': 0,
+    };
+    attempt = null;
+    pendingUci = null;
+    hintTier = 0;
+    revealBest = false;
+    _resultRecorded = false;
+    checking = false;
+    continuing = false;
+    lineNote = null;
+    _fenAfterAttempt = null;
+    notifyListeners();
+  }
+
   /// Drop a puzzle from the collection for good.
   ///
   /// The only escape hatch there is: nothing else removes an item, and #137
@@ -391,7 +754,11 @@ class PracticeController extends ChangeNotifier {
   Future<void> remove(String id) async {
     items = _api.removeItem(items, id);
     if (current?['id'] == id) {
-      _serve(_api.nextItem(servable, motif: motifFilter, easyFirst: _easeIn));
+      if (inGameSession) {
+        _serveNextInGame();
+      } else {
+        _serve(_api.nextItem(_pool, motif: motifFilter, easyFirst: _easeIn));
+      }
     }
     await _persist();
     notifyListeners();

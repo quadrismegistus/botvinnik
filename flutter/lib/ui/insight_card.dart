@@ -11,6 +11,7 @@ import 'package:provider/provider.dart';
 import '../brain/types.dart';
 import '../engine/maia_progress.dart';
 import '../stores/game_controller.dart';
+import '../stores/practice_controller.dart';
 import '../stores/settings_store.dart';
 import 'board_theme.dart';
 import 'grade_strip.dart';
@@ -127,6 +128,21 @@ class InsightCard extends StatelessWidget {
         padding: const EdgeInsets.only(top: 6),
         child: _winChanceLine(wc, label == null ? null : table.color(label)),
       ));
+    }
+
+    // Directly under that number, the verdict it decides: whether the move just
+    // became a practice puzzle. Pairing the two is what makes the collect
+    // threshold legible — you watch a loss cross it and the line appears,
+    // rather than discovering the puzzle later with no memory of the position.
+    final collected = game.lastGradeCollectOutcome;
+    if (collected != null) {
+      final line = _practiceLine(collected);
+      if (line != null) {
+        children.add(Padding(
+          padding: const EdgeInsets.only(top: 6),
+          child: line,
+        ));
+      }
     }
 
     if (!grade.isBest) {
@@ -256,6 +272,41 @@ class InsightCard extends StatelessWidget {
     );
   }
 
+  /// The practice verdict as one small line, carrying the Practice tab's own
+  /// glyph so the connection to where the puzzle went is visual, not just
+  /// worded. [CollectOutcome.notEligible] draws nothing — a move that gave away
+  /// too little to drill needs no note; its absence from the collection is the
+  /// default, and saying "not added" under every accurate move is noise.
+  Widget? _practiceLine(CollectOutcome outcome) {
+    switch (outcome) {
+      case CollectOutcome.added:
+        return _practiceRow(
+          'Added to practice',
+          const Color(0xFF8AA9C4), // a calm slate, not the engine/threat hues
+          Icons.fitness_center,
+        );
+      case CollectOutcome.duplicate:
+        return _practiceRow(
+          'Already in your practice queue',
+          Colors.white38,
+          Icons.fitness_center_outlined,
+        );
+      case CollectOutcome.notEligible:
+        return null;
+    }
+  }
+
+  Widget _practiceRow(String text, Color color, IconData icon) => Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: color),
+          const SizedBox(width: 7),
+          Text(text,
+              style: TextStyle(
+                  color: color, fontSize: 12, fontWeight: FontWeight.w600)),
+        ],
+      );
+
   /// The two moves as board arrows, or null when a board cannot show the
   /// difference between them.
   ///
@@ -294,11 +345,53 @@ class InsightCard extends StatelessWidget {
     if (game.previewing && game.previewTag != 'threat') return null;
     final san = game.threatSan;
     if (san == null) return null;
-    final gain = game.threatGain;
-    // null gain is mate: the brain reports Infinity, which JSON cannot carry
-    final cost = gain == null
-        ? 'mate'
-        : 'costs ${gain.abs().toStringAsFixed(gain.abs() >= 10 ? 0 : 1)}';
+    // Verbal first: the brain names what the free move DOES (a fork, a capture,
+    // a mate) by pointing the move explainers at the null-move probe. That
+    // sentence already carries the SAN and the point, so it replaces the bare
+    // "Threat: Be6 costs 1.0" outright rather than sitting beside it. Only a
+    // victimless gain, which names no piece, falls through to the number.
+    final prose = game.threatProse;
+    final Widget headline;
+    if (prose != null) {
+      headline = Expanded(
+        child: Text(prose,
+            style: const TextStyle(
+                color: Color(0xFFE0908E),
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                height: 1.3)),
+      );
+    } else {
+      final gain = game.threatGain;
+      // null gain is mate: the brain reports Infinity, which JSON cannot carry
+      final cost = gain == null
+          ? 'mate'
+          : 'costs ${gain.abs().toStringAsFixed(gain.abs() >= 10 ? 0 : 1)}';
+      headline = Expanded(
+        child: Row(
+          children: [
+            Flexible(
+              child: Text.rich(
+                TextSpan(children: [
+                  const TextSpan(text: 'Threat: '),
+                  TextSpan(
+                      text: san,
+                      style: const TextStyle(fontWeight: FontWeight.w700)),
+                ]),
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                    color: Color(0xFFE0908E),
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(cost,
+                style: const TextStyle(color: Colors.white38, fontSize: 12)),
+          ],
+        ),
+      );
+    }
     final line = game.threatLine;
     final base = game.threatProbeFen;
     return Container(
@@ -312,23 +405,9 @@ class InsightCard extends StatelessWidget {
           const Icon(Icons.warning_amber_rounded,
               size: 15, color: Color(0xFFE0908E)),
           const SizedBox(width: 8),
-          Text.rich(
-            TextSpan(children: [
-              const TextSpan(text: 'Threat: '),
-              TextSpan(
-                  text: san,
-                  style: const TextStyle(fontWeight: FontWeight.w700)),
-            ]),
-            style: const TextStyle(
-                color: Color(0xFFE0908E),
-                fontSize: 13,
-                fontWeight: FontWeight.w600),
-          ),
+          headline,
           const SizedBox(width: 8),
-          Text(cost,
-              style: const TextStyle(color: Colors.white38, fontSize: 12)),
-          const Spacer(),
-          // play the line the threat is judged on, so "costs 1.0" becomes
+          // play the line the threat is judged on, so the words become
           // something you can watch rather than a claim you have to take
           if (line.isNotEmpty && base != null)
             InkWell(

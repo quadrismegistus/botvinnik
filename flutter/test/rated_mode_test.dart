@@ -435,9 +435,9 @@ void main() {
 /// reason that has nothing to do with what was being checked.
 class _ParkingPractice implements PracticeController {
   @override
-  Future<void> maybeCollect(Map<String, dynamic> storedMove,
+  Future<CollectOutcome> maybeCollect(Map<String, dynamic> storedMove,
           {String? setupUci, int minDepth = 8}) =>
-      Completer<void>().future;
+      Completer<CollectOutcome>().future;
 
   @override
   dynamic noSuchMethod(Invocation invocation) => null;

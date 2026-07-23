@@ -40,9 +40,9 @@ const _mateIn1 = '6k1/5ppp/8/8/8/8/8/R3K3 w - - 0 1';
 /// that has nothing to do with what it was checking.
 class ParkingPractice implements PracticeController {
   @override
-  Future<void> maybeCollect(Map<String, dynamic> storedMove,
+  Future<CollectOutcome> maybeCollect(Map<String, dynamic> storedMove,
           {String? setupUci, int minDepth = 8}) =>
-      Completer<void>().future;
+      Completer<CollectOutcome>().future;
 
   @override
   dynamic noSuchMethod(Invocation invocation) => null;

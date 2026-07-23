@@ -13,6 +13,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../stores/pgn_import.dart';
+import '../stores/practice_controller.dart';
 import '../stores/review_controller.dart';
 import '../stores/settings_store.dart';
 import 'board_theme.dart';
@@ -21,7 +22,13 @@ import 'layout.dart';
 import 'review_win_chart.dart';
 
 class ReviewBody extends StatelessWidget {
-  const ReviewBody({super.key});
+  /// Switch to the Practice tab and drill the passed positions — this game's
+  /// blunder fens (#197). Null when there is nowhere to send them (a plain
+  /// game list with no shell around it, e.g. a widget test that only wants the
+  /// board), which hides the affordance.
+  final void Function(Set<String> fens)? onPractiseGame;
+
+  const ReviewBody({super.key, this.onPractiseGame});
 
   @override
   Widget build(BuildContext context) {
@@ -37,6 +44,10 @@ class ReviewBody extends StatelessWidget {
     // The brain's ranking, not one written out here — the grade strip and the
     // brain both order by LABEL_ORDER, and a second list would drift from it.
     final summary = _summary(game, table, table.labelOrder);
+    // Both ride in the move-list header (index 0) so they cost the board no
+    // height — Review's board is sized against kReviewFixed, and anything in
+    // the fixed column comes straight out of the board.
+    final practiseCta = _practiseCta(context, review);
 
     return SafeArea(
       bottom: false,
@@ -65,7 +76,7 @@ class ReviewBody extends StatelessWidget {
               children: [
                 Center(child: board(size)),
                 _verdictStrip(m, table),
-                Expanded(child: _moveList(review, table, summary)),
+                Expanded(child: _moveList(review, table, summary, practiseCta)),
                 _scrubBar(review, context),
               ],
             );
@@ -83,7 +94,7 @@ class ReviewBody extends StatelessWidget {
                 child: Column(
                   children: [
                     _verdictStrip(m, table),
-                    Expanded(child: _moveList(review, table, summary)),
+                    Expanded(child: _moveList(review, table, summary, practiseCta)),
                     _scrubBar(review, context),
                   ],
                 ),
@@ -320,6 +331,47 @@ class ReviewBody extends StatelessWidget {
   static String _capitalised(String s) =>
       s.isEmpty ? s : s[0].toUpperCase() + s.substring(1);
 
+  /// "Practise this game's mistakes" (#197): sends this game's collected
+  /// blunder positions to the Practice tab as a scoped drill.
+  ///
+  /// Drawn only when there is somewhere to send them AND something to send —
+  /// the count is the collection's own items that fall on this game's
+  /// move-before fens, so a game whose mistakes were never collected (an
+  /// ungraded import) or already curated away offers no button rather than a
+  /// dead one. The scope handed on is every move-before fen; the controller
+  /// intersects it with the collection, so what runs is exactly those [n].
+  Widget _practiseCta(BuildContext context, ReviewController review) {
+    final onPractise = onPractiseGame;
+    if (onPractise == null) return const SizedBox.shrink();
+    final practice = context.watch<PracticeController>();
+    if (!practice.loaded) return const SizedBox.shrink();
+    final fens = <String>{
+      for (final m in review.moves)
+        if (m['fenBefore'] is String) m['fenBefore'] as String,
+    };
+    final n = practice.countForGame(fens);
+    if (n == 0) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(14, 4, 14, 10),
+      child: SizedBox(
+        width: double.infinity,
+        child: FilledButton.icon(
+          onPressed: () => onPractise(fens),
+          icon: const Icon(Icons.fitness_center, size: 18),
+          label: Text(
+            n == 1
+                ? "Practise this game's mistake"
+                : "Practise this game's $n mistakes",
+          ),
+          style: FilledButton.styleFrom(
+            backgroundColor: const Color(0xFF81B64C),
+            foregroundColor: const Color(0xFF161512),
+          ),
+        ),
+      ),
+    );
+  }
+
   /// The move list, headed by the win-chance chart and the [summary].
   ///
   /// Both ride INSIDE the scrollable rather than above it: Review's board is
@@ -327,17 +379,21 @@ class ReviewBody extends StatelessWidget {
   /// column has to be paid for out of the board. The chart is scroll-away
   /// context, not a control — and both it and the summary are cheap to keep in
   /// the header, drawn from stored numbers rather than recomputed on a scrub.
-  Widget _moveList(ReviewController review, ClassTable table, Widget summary) {
+  Widget _moveList(ReviewController review, ClassTable table, Widget summary,
+      Widget practiseCta) {
     final moves = review.moves;
     return ListView.builder(
       itemCount: (moves.length + 1) ~/ 2 + 1,
       itemBuilder: (context, index) {
         if (index == 0) {
           // The chart hides itself on an ungraded game (fewer than two graded
-          // plies), so this header collapses to just the summary there.
+          // plies), so this header collapses to just the summary there. The
+          // practise CTA sits under the summary — a whole-game action beside
+          // the whole-game numbers — and hides itself when there is nothing to
+          // drill.
           return Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [const ReviewWinChart(), summary],
+            children: [const ReviewWinChart(), summary, practiseCta],
           );
         }
         final i = index - 1;

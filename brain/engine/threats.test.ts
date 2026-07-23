@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { findThreat, judgeTacticalWin } from './threats';
+import { findThreat, judgeTacticalWin, threatProse } from './threats';
 import type { EngineMove, EngineResult } from './types';
 
 // build a fake analyze() that returns a canned line, and records the fen it saw
@@ -314,5 +314,72 @@ describe('victim bookkeeping (via the judges)', () => {
 		expect(w).not.toBeNull();
 		expect(w!.gain).toBe(1);
 		expect(w!.targets).toEqual(['d5']); // the pawn, beside the landing square
+	});
+});
+
+// #123 item 4: the threat box in words. Every judged threat carries `prose`,
+// so the card can say what the opponent is threatening instead of printing a
+// raw cost. The prose reuses the move explainers pointed at the null-move probe.
+describe('threatProse', () => {
+	it('names the tactical motif the free move would exhibit (fork)', async () => {
+		// Black to move; White's free move Nc7+ forks the king on e8 and the
+		// rook on a8, then wins the rook. The fork detector, pointed at the
+		// null-move (White-to-move) probe, describes it exactly as it would a
+		// played move.
+		const fen = 'r3k3/8/8/1N6/8/8/8/4K3 b - - 0 1';
+		const t = await findThreat(fen, fakeAnalyze(['b5c7', 'e8e7', 'c7a8', 'e7e6']));
+		expect(t).not.toBeNull();
+		expect(t!.gain).toBe(5); // the rook
+		expect(t!.prose).toBe('Nc7+ forks the rook on a8 and the king on e8.');
+	});
+
+	it('names a free capture as a threat', async () => {
+		// White to move; Black's free move exd5 grabs the undefended knight.
+		const fen = '4k3/8/4p3/3N4/8/8/8/4K3 w - - 0 1';
+		const t = await findThreat(fen, fakeAnalyze(['e6d5', 'e1e2']));
+		expect(t).not.toBeNull();
+		expect(t!.prose).toBe("exd5 simply wins the knight — it's undefended.");
+	});
+
+	it('says a mate threat in words, never a material line', async () => {
+		const fen = '4k3/8/4p3/3N4/8/8/8/4K3 w - - 0 1';
+		const t = await findThreat(fen, fakeAnalyze(['e6d5'], { mate: 2 }));
+		expect(t!.gain).toBe(Infinity);
+		expect(t!.prose).toBe('exd5 threatens mate.');
+	});
+
+	it('falls back to naming the piece won when no single motif fires', async () => {
+		// Rxd5 grabs a queen the c6 pawn defends: not a "free capture" (it is
+		// guarded) and no fork/pin, but the line still wins the queen for the
+		// rook. No named motif — so the prose names the victim instead.
+		const fen = '4k3/8/2p5/3q4/8/8/3R4/4K3 b - - 0 1';
+		const t = await findThreat(fen, fakeAnalyze(['d2d5', 'c6d5', 'e1e2']));
+		expect(t).not.toBeNull();
+		expect(t!.gain).toBe(4); // queen (9) for rook (5)
+		expect(t!.prose).toBe('Rxd5 wins the queen on d5.');
+	});
+
+	it('names two victims when a fork wins both (motif detector declines)', async () => {
+		// Nxf7 forks the queen and rook, but the knight lands en prise to the
+		// king, so the fork detector (rightly) stays silent — the fall-back
+		// names the pieces that actually fall: the f7 pawn and the h8 rook.
+		const fen = '3qk2r/5p2/8/6N1/8/8/8/4K3 b k - 0 1';
+		const t = await findThreat(fen, fakeAnalyze(['g5f7', 'd8d5', 'f7h8', 'e8e7']));
+		expect(t!.targets).toEqual(['f7', 'h8']);
+		expect(t!.prose).toBe('Nxf7 wins the pawn and the rook.');
+	});
+
+	it('is undefined for a victimless gain — the numeric cost carries it there', () => {
+		// A quiet advance that wins material only deep in the line, naming no
+		// piece the card could point at: no motif, no victim, no prose.
+		expect(
+			threatProse({
+				fen: '4k3/8/8/8/8/8/P7/4K3 b - - 0 1',
+				uci: 'a2a4',
+				san: 'a4',
+				gain: 2,
+				targets: []
+			})
+		).toBeUndefined();
 	});
 });

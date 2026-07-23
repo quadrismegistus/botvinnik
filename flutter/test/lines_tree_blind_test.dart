@@ -74,7 +74,117 @@ LinesTreeModel _treeWithPastExploration() {
   return tree;
 }
 
+/// The layout leak (#147). After a takeback the tree carries a *ghost* — a
+/// visible node the game once explored — in the same depth column as the
+/// engine's new, hidden live hints. If the layout pass separates the whole
+/// column, a hidden node's score-derived y can push the visible ghost, so its
+/// position becomes a readout of an evaluation blind mode is withholding.
+///
+/// Sequence: play d2d4, play g8f6, analyse; then take back to d2d4 and analyse
+/// the new position. The first analysis' first moves survive as depth-3 ghosts
+/// (visible history); the new analysis' depth-3 nodes are hidden live hints in
+/// the same column. `secondLine` is the score of the hidden second line only.
+LinesTreeModel _treeAfterTakeback(double secondLine, {required bool blind}) {
+  final tree = LinesTreeModel(FakeChess());
+  tree.ingest(
+    lines: const [
+      EngineMove(pv: ['g8f6'], score: 0.3, mate: null, depth: 18, multipv: 1),
+    ],
+    fen: _fen,
+    playedSans: const ['d2d4'],
+    height: 300,
+    blind: blind,
+  );
+  // At the depth-2 position, two lines. h2h3 lands mid-column; both first moves
+  // survive the takeback as visible depth-3 ghosts.
+  tree.ingest(
+    lines: const [
+      EngineMove(pv: ['c2c4'], score: 0.6, mate: null, depth: 18, multipv: 1),
+      EngineMove(pv: ['h2h3'], score: -0.09, mate: null, depth: 18, multipv: 2),
+    ],
+    fen: _fen,
+    playedSans: const ['d2d4', 'g8f6'],
+    height: 300,
+    blind: blind,
+  );
+  // Take back to d2d4. The hidden second line's depth-3 node (3:c7c5) shares the
+  // column with the visible ghost 3:h2h3; only `secondLine` varies between runs.
+  tree.ingest(
+    lines: [
+      const EngineMove(
+          pv: ['b1c3', 'e7e6', 'f1c4'],
+          score: 0.6,
+          mate: null,
+          depth: 18,
+          multipv: 1),
+      EngineMove(
+          pv: const ['e2e4', 'c7c5', 'g1f3'],
+          score: secondLine,
+          mate: null,
+          depth: 18,
+          multipv: 2),
+    ],
+    fen: _fen,
+    playedSans: const ['d2d4'],
+    height: 300,
+    blind: blind,
+  );
+  return tree;
+}
+
 void main() {
+  test('blind: a hidden line\'s score does not move a visible ghost', () {
+    // #147. The ghost 3:h2h3 is drawn in blind mode (it is history). The hidden
+    // node 3:c7c5 is not. With the whole column laid out together, c7c5's
+    // score-derived y pushes the ghost: measured y=167.6 at a 0.0 second line
+    // vs 149.6 at 0.5 — a 30px readout of an eval the player may not see.
+    final strong = _treeAfterTakeback(0.5, blind: true);
+    final weak = _treeAfterTakeback(0.0, blind: true);
+
+    // Guard the fixture: the ghost is visible, the mover is hidden, and the two
+    // genuinely share the depth-3 column.
+    final vis = strong.visibleNodeIds(blind: true);
+    expect(vis, contains('3:h2h3'), reason: 'the ghost is history, drawn blind');
+    expect(vis, isNot(contains('3:c7c5')),
+        reason: 'the mover is a live hint, hidden blind');
+    expect(strong.nodes['3:h2h3']!.depth, equals(strong.nodes['3:c7c5']!.depth),
+        reason: 'ghost and mover share a column, else nothing could push');
+
+    // Prove the second line's score really drives that column: laid out SIGHTED
+    // (nothing hidden), the same score change moves the mover. This is exactly
+    // the displacement blind must not let reach the visible ghost.
+    expect(
+        _treeAfterTakeback(0.5, blind: false).nodes['3:c7c5']!.y,
+        isNot(equals(
+            _treeAfterTakeback(0.0, blind: false).nodes['3:c7c5']!.y)),
+        reason: 'the score genuinely drives this column');
+
+    expect(strong.nodes['3:h2h3']!.y, equals(weak.nodes['3:h2h3']!.y),
+        reason: 'the visible ghost must not encode the hidden score');
+  });
+
+  test('non-blind layout is unaffected by the blind flag', () {
+    // The regression guard: blind:false must be byte-identical to the old
+    // default-argument call. Same fixture, both flags, every y must match.
+    final a = LinesTreeModel(FakeChess());
+    final b = LinesTreeModel(FakeChess());
+    for (final tree in [a, b]) {
+      tree.ingest(
+        lines: const [
+          EngineMove(pv: ['g1f3', 'b8c6'], score: 0.4, mate: null, depth: 18, multipv: 1),
+          EngineMove(pv: ['e2e4', 'e7e5'], score: 0.2, mate: null, depth: 18, multipv: 2),
+        ],
+        fen: _fen,
+        playedSans: const ['d2d4'],
+        height: 300,
+        blind: false,
+      );
+    }
+    for (final id in a.nodes.keys) {
+      expect(a.nodes[id]!.y, equals(b.nodes[id]!.y));
+    }
+  });
+
   test('sighted: the engine lines are there to leak', () {
     // The control. If this ever stops holding, the blind assertions below stop
     // meaning anything — they would pass on a tree that simply has no hints.

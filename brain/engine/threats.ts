@@ -1,6 +1,6 @@
 import { Chess, type Color, type Square } from 'chess.js';
 import { getSan } from './chess';
-import { PIECE_VAL, quietMaterialOverLine } from './explain';
+import { PIECE_NAME, PIECE_VAL, quietMaterialOverLine, tacticalMotifPoint } from './explain';
 import type { EngineResult } from './types';
 
 // A "threat" is what the side NOT to move would do if handed a free move — the
@@ -22,6 +22,12 @@ export interface Threat {
 	// exactly the window `gain` counts; replaying further would show captures
 	// past the horizon that the gain never credited. Playable as a preview.
 	line: string[];
+	// the threat in words: what the opponent's free move would DO — "Nc6 forks
+	// the king and the rook", "Bxe6 wins the knight", "Qh7 threatens mate". The
+	// verbal face of `san`/`gain`/`line`, so the card can say the threat instead
+	// of printing a raw cost. Absent only when nothing nameable survives (a
+	// victimless gain with no named motif) — the numeric cost speaks there.
+	prose?: string;
 	// current squares of the pieces the line wins (the mated king for a mate).
 	// A pv is a fiction as a script but a proof as a bound: the defender's
 	// moves are best resistance, so it guarantees the VALUE, never the
@@ -116,7 +122,7 @@ export function judgeThreat(
 		if (best.mate <= 0) return null;
 		// the mated side is the side to move in the real position
 		const king = kingSquare(fen, new Chess(fen).turn());
-		return {
+		return withProse({
 			fen,
 			uci: best.pv[0],
 			san: getSan(nullFen, best.pv[0]) ?? best.pv[0],
@@ -124,7 +130,7 @@ export function judgeThreat(
 			// the whole mating line is the point, so it is all judged
 			line: best.pv.slice(0, MAX_JUDGE_PLIES),
 			targets: king ? [king] : []
-		};
+		});
 	}
 
 	// settle the exchange over the engine's line; net is from the mover's
@@ -149,7 +155,61 @@ export function judgeThreat(
 	// the settled window when there is one; otherwise only the first capture,
 	// which is all the static fallback actually judged
 	const line = quiet.plies > 0 ? pv.slice(0, quiet.plies) : [pv[0]];
-	return { fen, uci: pv[0], san: getSan(nullFen, pv[0]) ?? pv[0], gain: net, line, targets };
+	return withProse({ fen, uci: pv[0], san: getSan(nullFen, pv[0]) ?? pv[0], gain: net, line, targets });
+}
+
+/**
+ * The threat in words. Reuses the move explainers pointed at the null-move
+ * probe: the threat is a move the opponent WOULD play, and the same fork /
+ * capture / pin / discovery / trap detectors read it as truthfully as a move
+ * that was. Falls back to naming the piece the threat wins, then to nothing —
+ * a victimless gain has no noun, and the numeric cost carries it there.
+ *
+ * Pure; exported so it can be tested and reused. [judgeThreat] attaches its
+ * result to every threat it returns, so callers get it for free over the bridge.
+ */
+export function threatProse(
+	t: Pick<Threat, 'fen' | 'uci' | 'san' | 'gain' | 'targets'>
+): string | undefined {
+	// mate outranks any material description — and `targets` is the mated king,
+	// not a piece to "win", so the victim-naming below must never see it
+	if (t.gain === Infinity) return `${t.san} threatens mate.`;
+	const nullFen = threatProbeFen(t.fen);
+	if (nullFen) {
+		const motif = tacticalMotifPoint(nullFen, t.uci);
+		if (motif) return motif;
+	}
+	const victims = nameVictims(t.fen, t.targets);
+	if (victims) return `${t.san} wins ${victims}.`;
+	return undefined;
+}
+
+// The pieces on the threat's target squares, named from the CURRENT board
+// (targets are current squares). One victim keeps its square — "the bishop on
+// f4" — because a single square is worth pointing at; several drop them to stay
+// short — "the knight and the rook". Empty (a mate's king, or an empty square)
+// yields nothing.
+function nameVictims(fen: string, targets: string[]): string | undefined {
+	if (targets.length === 0) return undefined;
+	let board: Chess;
+	try {
+		board = new Chess(fen);
+	} catch {
+		return undefined;
+	}
+	const named: { noun: string; sq: string }[] = [];
+	for (const sq of targets) {
+		const p = board.get(sq as Square);
+		if (p && p.type !== 'k') named.push({ noun: PIECE_NAME[p.type], sq });
+	}
+	if (named.length === 0) return undefined;
+	if (named.length === 1) return `the ${named[0].noun} on ${named[0].sq}`;
+	return named.map((n) => `the ${n.noun}`).join(' and ');
+}
+
+function withProse(t: Threat): Threat {
+	const prose = threatProse(t);
+	return prose ? { ...t, prose } : t;
 }
 
 function kingSquare(fen: string, color: Color): string | null {
