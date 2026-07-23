@@ -1,0 +1,18 @@
+# botvinnik-sync — the E2EE blob store Worker (issue #203).
+# Deploy: `npm run deploy` from this dir (needs a Cloudflare account + `wrangler login`).
+# Local:  `npm run dev` starts workerd with a simulated R2 bucket — no account needed.
+
+name = "botvinnik-sync"
+main = "src/index.ts"
+compatibility_date = "2024-11-01"
+
+# One bucket holds every user's ciphertext, keyed by the unguessable blobId.
+# `bucket_name` must exist before the first deploy:
+#   npx wrangler r2 bucket create botvinnik-sync
+[[r2_buckets]]
+binding = "BUCKET"
+bucket_name = "botvinnik-sync"
+
+# Observability: keep it minimal — the whole point is the server learns nothing.
+[observability]
+enabled = true
