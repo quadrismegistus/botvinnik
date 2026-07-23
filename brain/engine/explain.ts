@@ -25,6 +25,9 @@ const NAME: Record<string, string> = {
 	q: 'queen',
 	k: 'king'
 };
+// The same piece-noun table, exported for callers outside the move explainers
+// (the threat box names the piece a threat wins).
+export { NAME as PIECE_NAME };
 
 function apply(chess: Chess, uci: string) {
 	try {
@@ -680,6 +683,23 @@ export function explainMove(input: {
 	return out;
 }
 
+// The named tactical motif a move exhibits — fork, free capture, pin/skewer,
+// discovered attack, or trapped piece — as a standalone sentence, or undefined.
+// The single chain behind bestMovePoint and explainGoodMove, exported so the
+// threat box can point it at a null-move probe and describe the threat in the
+// same words a played move would earn. Pure geometry/material on (fen, uci), so
+// it reads a hypothetical move as truthfully as a real one — the sentences name
+// pieces by type, never by "your"/"their", so they hold whoever is to move.
+export function tacticalMotifPoint(fenBefore: string, uci: string): string | undefined {
+	return (
+		forkPoint(fenBefore, uci) ??
+		freeCapturePoint(fenBefore, uci) ??
+		pinOrSkewerPoint(fenBefore, uci) ??
+		discoveredPoint(fenBefore, uci) ??
+		trappedPoint(fenBefore, uci)
+	);
+}
+
 // What the best move achieves, as a standalone sentence — the same detector
 // chain explainMove uses, exported so importers can backfill explanations.
 export function bestMovePoint(
@@ -695,12 +715,7 @@ export function bestMovePoint(
 		const m = apply(post, bestUci);
 		if (m && post.isCheckmate()) return `${m.san} is checkmate${mateGarnish(post)}.`;
 	}
-	const point =
-		forkPoint(fenBefore, bestUci) ??
-		freeCapturePoint(fenBefore, bestUci) ??
-		pinOrSkewerPoint(fenBefore, bestUci) ??
-		discoveredPoint(fenBefore, bestUci) ??
-		trappedPoint(fenBefore, bestUci);
+	const point = tacticalMotifPoint(fenBefore, bestUci);
 	if (point) return point;
 	if (bestPv.length > 1) {
 		// a sacrifice that pays in material is a better story than the count
@@ -820,12 +835,7 @@ export function explainGoodMove(
 			evidence: evidence(12)
 		};
 	}
-	const point =
-		forkPoint(fenBefore, playedUci) ??
-		freeCapturePoint(fenBefore, playedUci) ??
-		pinOrSkewerPoint(fenBefore, playedUci) ??
-		discoveredPoint(fenBefore, playedUci) ??
-		trappedPoint(fenBefore, playedUci);
+	const point = tacticalMotifPoint(fenBefore, playedUci);
 	if (point) return { text: point, evidence: evidence(1) };
 	if (playedPv.length > 1) {
 		const sac = sacrificeStory(fenBefore, playedPv);

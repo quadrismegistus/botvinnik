@@ -389,6 +389,56 @@ void main() {
       });
     }
   });
+  // #123 item 2: maybeCollect now reports what it did, so the insight card can
+  // say it at the moment the move is graded rather than leaving the player to
+  // find the puzzle later with no memory of the position.
+  group('maybeCollect reports its verdict', () {
+    Map<String, dynamic> stored(String fen,
+            {double wcDrop = 20, int depth = 22}) =>
+        {
+          'fenBefore': fen,
+          'san': 'Qh5',
+          'uci': 'd1h5',
+          'bestSan': 'Nf3',
+          'bestUci': 'g1f3',
+          'wcDrop': wcDrop,
+          'depth': depth,
+        };
+
+    test('a fresh over-threshold move is added', () async {
+      final h = makePractice([]);
+      final outcome = await h.practice.maybeCollect(stored(_fenA));
+      expect(outcome, CollectOutcome.added);
+      expect(h.practice.items.map((i) => i['fen']), [_fenA]);
+    });
+
+    test('a move for a position already collected is a duplicate', () async {
+      final h = makePractice([practiceItem(_fenA)]);
+      final outcome = await h.practice.maybeCollect(stored(_fenA));
+      expect(outcome, CollectOutcome.duplicate,
+          reason: 'the fen is already a puzzle — nothing new to add');
+      expect(h.practice.items, hasLength(1), reason: 'and it stays one item');
+    });
+
+    test('a move under the collect floor is not eligible', () async {
+      final h = makePractice([]);
+      // kCollectMin is 5; 3 is below the floor everything is collected at.
+      final outcome = await h.practice.maybeCollect(stored(_fenA, wcDrop: 3));
+      expect(outcome, CollectOutcome.notEligible);
+      expect(h.practice.items, isEmpty);
+    });
+
+    test('a move graded too shallow to trust is not eligible', () async {
+      final h = makePractice([]);
+      // over the drop floor, but the grade is only depth 5 — below minDepth 8,
+      // so the loss is not yet worth committing to a puzzle.
+      final outcome =
+          await h.practice.maybeCollect(stored(_fenA, depth: 5));
+      expect(outcome, CollectOutcome.notEligible);
+      expect(h.practice.items, isEmpty);
+    });
+  });
+
   testWidgets('tapping a sub-threshold row serves it anyway', (tester) async {
     // serveItem searches `items`, not `servable`, and says so — "practise this
     // one anyway" is the whole reason the browser lists sub-threshold puzzles

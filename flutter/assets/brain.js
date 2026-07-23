@@ -3949,6 +3949,7 @@ var brain = (() => {
     shapedStrengthRange: () => shapedStrengthRange,
     specToRecipe: () => specToRecipe,
     threatProbeFen: () => threatProbeFen,
+    threatProse: () => threatProse,
     unifyMoves: () => unifyMoves,
     whitePovWinChance: () => whitePovWinChance,
     winChance: () => winChance
@@ -7968,13 +7969,16 @@ var brain = (() => {
     }
     return out;
   }
+  function tacticalMotifPoint(fenBefore, uci) {
+    return forkPoint(fenBefore, uci) ?? freeCapturePoint(fenBefore, uci) ?? pinOrSkewerPoint(fenBefore, uci) ?? discoveredPoint(fenBefore, uci) ?? trappedPoint(fenBefore, uci);
+  }
   function bestMovePoint(fenBefore, bestUci, bestPv) {
     {
       const post = new Chess(fenBefore);
       const m = apply(post, bestUci);
       if (m && post.isCheckmate()) return `${m.san} is checkmate${mateGarnish(post)}.`;
     }
-    const point = forkPoint(fenBefore, bestUci) ?? freeCapturePoint(fenBefore, bestUci) ?? pinOrSkewerPoint(fenBefore, bestUci) ?? discoveredPoint(fenBefore, bestUci) ?? trappedPoint(fenBefore, bestUci);
+    const point = tacticalMotifPoint(fenBefore, bestUci);
     if (point) return point;
     if (bestPv.length > 1) {
       const sac = sacrificeStory(fenBefore, bestPv);
@@ -8032,7 +8036,7 @@ var brain = (() => {
         evidence: evidence(12)
       };
     }
-    const point = forkPoint(fenBefore, playedUci) ?? freeCapturePoint(fenBefore, playedUci) ?? pinOrSkewerPoint(fenBefore, playedUci) ?? discoveredPoint(fenBefore, playedUci) ?? trappedPoint(fenBefore, playedUci);
+    const point = tacticalMotifPoint(fenBefore, playedUci);
     if (point) return { text: point, evidence: evidence(1) };
     if (playedPv.length > 1) {
       const sac = sacrificeStory(fenBefore, playedPv);
@@ -9005,7 +9009,7 @@ var brain = (() => {
     if (best.mate !== null) {
       if (best.mate <= 0) return null;
       const king = kingSquare(fen, new Chess(fen).turn());
-      return {
+      return withProse({
         fen,
         uci: best.pv[0],
         san: getSan(nullFen, best.pv[0]) ?? best.pv[0],
@@ -9013,7 +9017,7 @@ var brain = (() => {
         // the whole mating line is the point, so it is all judged
         line: best.pv.slice(0, MAX_JUDGE_PLIES),
         targets: king ? [king] : []
-      };
+      });
     }
     const pv = best.pv.slice(0, MAX_JUDGE_PLIES);
     const quiet = quietMaterialOverLine(nullFen, pv);
@@ -9023,7 +9027,39 @@ var brain = (() => {
     const targets = quiet.plies > 0 ? victimSquares(nullFen, pv, quiet.plies) : [first.sq];
     if (targets.length === 0 && net < VICTIMLESS_MIN_GAIN) return null;
     const line = quiet.plies > 0 ? pv.slice(0, quiet.plies) : [pv[0]];
-    return { fen, uci: pv[0], san: getSan(nullFen, pv[0]) ?? pv[0], gain: net, line, targets };
+    return withProse({ fen, uci: pv[0], san: getSan(nullFen, pv[0]) ?? pv[0], gain: net, line, targets });
+  }
+  function threatProse(t) {
+    if (t.gain === Infinity) return `${t.san} threatens mate.`;
+    const nullFen = threatProbeFen(t.fen);
+    if (nullFen) {
+      const motif = tacticalMotifPoint(nullFen, t.uci);
+      if (motif) return motif;
+    }
+    const victims = nameVictims(t.fen, t.targets);
+    if (victims) return `${t.san} wins ${victims}.`;
+    return void 0;
+  }
+  function nameVictims(fen, targets) {
+    if (targets.length === 0) return void 0;
+    let board;
+    try {
+      board = new Chess(fen);
+    } catch {
+      return void 0;
+    }
+    const named = [];
+    for (const sq of targets) {
+      const p = board.get(sq);
+      if (p && p.type !== "k") named.push({ noun: NAME[p.type], sq });
+    }
+    if (named.length === 0) return void 0;
+    if (named.length === 1) return `the ${named[0].noun} on ${named[0].sq}`;
+    return named.map((n) => `the ${n.noun}`).join(" and ");
+  }
+  function withProse(t) {
+    const prose = threatProse(t);
+    return prose ? { ...t, prose } : t;
   }
   function kingSquare(fen, color) {
     const c = new Chess(fen);

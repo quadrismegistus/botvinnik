@@ -75,6 +75,31 @@ class FakeBridge implements JsBridge {
         };
       case 'puzzleSetupMove':
         return null;
+      case 'itemDataFromStoredMove':
+        // The brain keys a puzzle by the position the move was played FROM;
+        // that fen is both id and the dedup key addItem uses. Enough of the
+        // stored shape to be a plausible item — the collection tests care about
+        // whether it lands, not about the item's full contents.
+        final sm = (args[0] as Map).cast<String, dynamic>();
+        final fen = sm['fenBefore'] as String?;
+        if (fen == null) return null;
+        return {
+          'id': fen,
+          'fen': fen,
+          'playedSan': sm['san'],
+          'playedUci': sm['uci'],
+          'bestSan': sm['bestSan'],
+          'bestUci': sm['bestUci'],
+          'drop': sm['wcDrop'],
+          'depth': sm['depth'],
+        };
+      case 'addItem':
+        // brain: reject a fen already collected, else append. Returns null on a
+        // duplicate so maybeCollect can report CollectOutcome.duplicate.
+        final items = _items(args[0]);
+        final data = (args[1] as Map).cast<String, dynamic>();
+        if (items.any((i) => i['fen'] == data['fen'])) return null;
+        return [...items, data];
       default:
         throw StateError('FakeBridge has no answer for brain.$fn');
     }

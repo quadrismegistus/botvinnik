@@ -234,14 +234,23 @@ class FakeGrading implements GradingApi {
   dynamic noSuchMethod(Invocation invocation) => null;
 }
 
-/// Records what the controller tried to collect as a practice puzzle.
+/// Records what the controller tried to collect as a practice puzzle, and
+/// reports the same verdict the real controller would: the drop against the
+/// real [kCollectMin] floor. It always "adds" (never a duplicate) — the
+/// duplicate path is exercised against the real controller in
+/// practice_collection_test, not here.
 class FakePractice implements PracticeController {
   final List<Map<String, dynamic>> collected = [];
 
   @override
-  Future<void> maybeCollect(Map<String, dynamic> storedMove,
+  Future<CollectOutcome> maybeCollect(Map<String, dynamic> storedMove,
       {String? setupUci, int minDepth = 8}) async {
     collected.add(storedMove);
+    final drop = (storedMove['wcDrop'] as num?)?.toDouble() ?? 0;
+    final depth = (storedMove['depth'] as num?)?.toInt() ?? 0;
+    return (drop < kCollectMin || depth < minDepth)
+        ? CollectOutcome.notEligible
+        : CollectOutcome.added;
   }
 
   @override

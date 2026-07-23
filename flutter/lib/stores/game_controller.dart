@@ -1310,6 +1310,12 @@ class GameController extends ChangeNotifier {
   /// The threat in algebraic notation, e.g. 'Be6'.
   String? get threatSan => threat?['san'] as String?;
 
+  /// The threat in words, e.g. 'Nc6 forks the king and the rook.' — the brain
+  /// points the move explainers at the null-move probe and names what the free
+  /// move would do. Null for a victimless gain that names no piece, where the
+  /// numeric cost is all there is to say.
+  String? get threatProse => threat?['prose'] as String?;
+
   /// What the threat nets them, in pawns. NULL MEANS MATE: the brain reports
   /// Infinity there and JSON has no way to carry it across the bridge.
   double? get threatGain => (threat?['gain'] as num?)?.toDouble();
@@ -1653,9 +1659,29 @@ class GameController extends ChangeNotifier {
     if (practice != null && botEnabled && isHumanSide(record.color)) {
       final prevUci =
           record.ply >= 2 ? moves[record.ply - 2].uci : null;
-      await practice.maybeCollect(_storedMoveOf(record),
+      final outcome = await practice.maybeCollect(_storedMoveOf(record),
           setupUci: prevUci);
+      // Keyed by ply so the card reports the verdict against the RIGHT move:
+      // [lastGradeCollectOutcome] hands it back only while the grade on screen
+      // is this one. A takeback leaves it set — you did add that blunder — and
+      // the ply match makes it reappear if the position ever returns.
+      _lastCollect = (ply: record.ply, outcome: outcome);
+      notifyListeners();
     }
+  }
+
+  ({int ply, CollectOutcome outcome})? _lastCollect;
+
+  /// Whether the move whose grade the card is showing was just added to
+  /// practice — null unless the latest player grade is the one collection last
+  /// ran on. Only a real game against a bot collects (see the guard above), so
+  /// this is null on the analysis board and in bot-vs-bot, exactly where the
+  /// card should say nothing about practice.
+  CollectOutcome? get lastGradeCollectOutcome {
+    final g = lastPlayerGrade;
+    final c = _lastCollect;
+    if (g == null || c == null) return null;
+    return c.ply == g.ply ? c.outcome : null;
   }
 
   Map<String, dynamic> _storedMoveOf(MoveRecord m) {

@@ -30,6 +30,16 @@ const double kCollectMin = 5;
 const int kLineSearchDepth = 12;
 const int kLineSearchMs = 1500;
 
+/// What [PracticeController.maybeCollect] did with a graded move, so the
+/// insight card can say it at the moment it happens (#123):
+/// - [added]       a new puzzle was collected — the move cleared the threshold
+///                 and its position was not already in the queue
+/// - [duplicate]   it cleared the threshold, but that position is already a
+///                 puzzle (a blunder repeated, or replayed from the archive)
+/// - [notEligible] it did not clear the threshold — too small a loss, or graded
+///                 too shallow to trust — so nothing was collected
+enum CollectOutcome { added, duplicate, notEligible }
+
 class AttemptOutcome {
   final String san;
   final String uci;
@@ -233,19 +243,24 @@ class PracticeController extends ChangeNotifier {
   /// Auto-collection: called by GameController for every backfilled grade.
   /// [storedMove] is the web StoredMove shape; collects when the drop is big
   /// enough and the position isn't already a puzzle.
-  Future<void> maybeCollect(Map<String, dynamic> storedMove,
+  ///
+  /// Returns what it decided (see [CollectOutcome]) so the caller can say so at
+  /// the moment it happens — the collect threshold is only legible if the card
+  /// reports the verdict beside the win-chance loss it is judged on (#123).
+  Future<CollectOutcome> maybeCollect(Map<String, dynamic> storedMove,
       {String? setupUci, int minDepth = 8}) async {
     if (!loaded) await load();
     final drop = (storedMove['wcDrop'] as num?)?.toDouble() ?? 0;
     final depth = (storedMove['depth'] as num?)?.toInt() ?? 0;
-    if (drop < kCollectMin || depth < minDepth) return;
+    if (drop < kCollectMin || depth < minDepth) return CollectOutcome.notEligible;
     final data = _api.itemData(storedMove, setupUci);
-    if (data == null) return;
+    if (data == null) return CollectOutcome.notEligible;
     final next = _api.addItem(items, data);
-    if (next == null) return; // duplicate fen
+    if (next == null) return CollectOutcome.duplicate; // fen already a puzzle
     items = next;
     await _persist();
     notifyListeners();
+    return CollectOutcome.added;
   }
 
   /// Collect many at once — the import path.
