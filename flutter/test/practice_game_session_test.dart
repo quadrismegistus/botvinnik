@@ -176,6 +176,21 @@ void main() {
     expect(h.practice.current?['id'], _fenB);
   });
 
+  test('serving after a finished session drops the stale done note via _serve',
+      () {
+    // Exhaust a session so gameDoneNote is genuinely SET, then serve by a path
+    // that only clears it through _serve (not an explicit null) — the note must
+    // not resurface over the next puzzle.
+    final h = makePractice([practiceItem(_fenA), practiceItem(_fenB)]);
+    h.practice.startGameSession({_fenA});
+    h.practice.nextPuzzle();
+    expect(h.practice.gameDoneNote, isNotNull, reason: 'precondition: note set');
+
+    h.practice.serveItem(_fenB);
+    expect(h.practice.gameDoneNote, isNull);
+    expect(h.practice.current?['id'], _fenB);
+  });
+
   test('each game session bumps the serial so the tab can drop the browser',
       () {
     final h = makePractice([practiceItem(_fenA), practiceItem(_fenB)]);
