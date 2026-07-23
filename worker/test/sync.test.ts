@@ -28,7 +28,11 @@ function update(id: string, etag: string, body: BodyInit) {
   return fetch(url(id), { method: 'PUT', headers: { 'If-Match': etag }, body });
 }
 
-beforeAll(async () => {
+// Build the Worker once, reused across Miniflare instances (the main one and the
+// rate-limiting one below).
+let _code: string | undefined;
+async function workerCode(): Promise<string> {
+  if (_code) return _code;
   const entry = fileURLToPath(new URL('../src/index.ts', import.meta.url));
   const bundled = await build({
     entryPoints: [entry],
@@ -38,8 +42,12 @@ beforeAll(async () => {
     target: 'es2022',
     write: false,
   });
+  return (_code = bundled.outputFiles[0].text);
+}
+
+beforeAll(async () => {
   mf = new Miniflare({
-    modules: [{ type: 'ESModule', path: 'index.mjs', contents: bundled.outputFiles[0].text }],
+    modules: [{ type: 'ESModule', path: 'index.mjs', contents: await workerCode() }],
     r2Buckets: ['BUCKET'],
     compatibilityDate: '2024-11-01',
   });
@@ -163,5 +171,36 @@ describe('CORS', () => {
   it('exposes ETag to browser JS on real responses', async () => {
     const res = await fetch(url(freshId()));
     expect(res.headers.get('Access-Control-Expose-Headers')).toContain('ETag');
+  });
+});
+
+describe('rate limiting', () => {
+  // A dedicated Miniflare with a low limit — the main suite has no RATE_LIMITER
+  // binding, so its many requests are never throttled.
+  let rlmf: Miniflare;
+  const rlFetch = () =>
+    rlmf.dispatchFetch(url('r'.repeat(20))) as unknown as Promise<Response>;
+
+  beforeAll(async () => {
+    rlmf = new Miniflare({
+      modules: [{ type: 'ESModule', path: 'index.mjs', contents: await workerCode() }],
+      r2Buckets: ['BUCKET'],
+      ratelimits: {
+        RATE_LIMITER: { namespace_id: 'test', simple: { limit: 3, period: 60 } },
+      },
+      compatibilityDate: '2024-11-01',
+    });
+    await rlmf.ready;
+  });
+
+  afterAll(async () => {
+    await rlmf?.dispose();
+  });
+
+  it('429s once the per-window limit is exceeded', async () => {
+    const codes: number[] = [];
+    for (let i = 0; i < 5; i++) codes.push((await rlFetch()).status);
+    expect(codes[0]).toBe(404); // early requests still served (blob absent)
+    expect(codes.filter((c) => c === 429).length).toBeGreaterThan(0);
   });
 });

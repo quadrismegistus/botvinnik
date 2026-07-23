@@ -25,7 +25,10 @@ Compare-and-swap is HTTP-native and **mandatory** on `PUT`:
 - Neither header → `428`; both → `400`.
 
 Ciphertext is capped at **10 MB** (`413` past that). `blobId` must match
-`^[A-Za-z0-9_-]{16,128}$`.
+`^[A-Za-z0-9_-]{16,128}$`. A per-IP rate limit (120 requests / 60s, via the
+`[[ratelimits]]` binding) caps a flood on the open endpoint with **`429`**;
+legit syncing never approaches it. The limiter is optional — with no binding the
+check is skipped — so local runs and tests aren't throttled.
 
 ## Develop & test locally (no Cloudflare account)
 

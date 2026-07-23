@@ -17,8 +17,17 @@
  * no Durable Object is needed.
  */
 
+/** Cloudflare's rate-limiting binding (see the `[[ratelimits]]` in wrangler.toml). */
+interface RateLimiter {
+  limit(options: { key: string }): Promise<{ success: boolean }>;
+}
+
 export interface Env {
   BUCKET: R2Bucket;
+  // Per-IP flood protection on the open endpoint. Optional: when the binding is
+  // not configured (a bare local run, or a test that doesn't need it) the check
+  // is simply skipped.
+  RATE_LIMITER?: RateLimiter;
 }
 
 // 10 MB ciphertext cap. The backup JSON gzips ~10x, so this is generous; a
@@ -67,6 +76,15 @@ export default {
 
     const id = decodeURIComponent(match[1]);
     if (!ID_RE.test(id)) return text(400, 'bad blob id');
+
+    // Flood protection, per client IP. The unguessable blobId is the real
+    // capability; this just caps someone hammering the open endpoint. Legit use
+    // (a device syncing every few minutes) never comes near the limit.
+    if (env.RATE_LIMITER) {
+      const ip = request.headers.get('cf-connecting-ip') ?? 'anon';
+      const { success } = await env.RATE_LIMITER.limit({ key: ip });
+      if (!success) return text(429, 'too many requests — slow down');
+    }
 
     if (request.method === 'GET') return handleGet(id, env);
     if (request.method === 'PUT') return handlePut(id, request, env);
