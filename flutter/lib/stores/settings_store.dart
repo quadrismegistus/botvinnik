@@ -66,6 +66,7 @@ class SettingsStore extends ChangeNotifier {
   String? _whitePersonaId;
   String? _blackPersonaId;
   int _collectThreshold; // practice serves puzzles with drop ≥ this
+  bool _easeIn; // practice biases each session toward easier puzzles first
   int _botDelayMs; // pause between moves when a bot plays both sides
   bool _showArrows; // top-3 engine arrows on the board
   bool _blind; // no forward-looking engine help while playing
@@ -95,6 +96,7 @@ class SettingsStore extends ChangeNotifier {
     required String? whitePersonaId,
     required String? blackPersonaId,
     required int collectThreshold,
+    required bool easeIn,
     required int botDelayMs,
     required bool showArrows,
     required bool blind,
@@ -117,6 +119,7 @@ class SettingsStore extends ChangeNotifier {
         _whitePersonaId = whitePersonaId,
         _blackPersonaId = blackPersonaId,
         _collectThreshold = collectThreshold,
+        _easeIn = easeIn,
         _botDelayMs = botDelayMs,
         _showArrows = showArrows,
         _blind = blind,
@@ -179,6 +182,10 @@ class SettingsStore extends ChangeNotifier {
       whitePersonaId: whitePersonaId,
       blackPersonaId: blackPersonaId,
       collectThreshold: threshold,
+      // ON out of the box, like the web ('!= 0'): a warm-up on-ramp is kinder
+      // to start a session; '0' is the serious driller opting into strict due
+      // order, which is what spaced repetition actually asks for.
+      easeIn: prefs.getString('botvinnik-practice-easein') != '0',
       botDelayMs: (int.tryParse(prefs.getString('botvinnik-bot-delay') ?? '') ?? 650).clamp(0, 3000),
       showArrows: prefs.getString('botvinnik-arrows') != '0', // ON, like web
       blind: prefs.getString('botvinnik-blind') == '1',
@@ -402,6 +409,7 @@ class SettingsStore extends ChangeNotifier {
           ? 'b'
           : 'w';
   int get collectThreshold => _collectThreshold;
+  bool get easeIn => _easeIn;
   int get botDelayMs => _botDelayMs;
   bool get showArrows => _showArrows;
   bool get blind => _blind;
@@ -457,6 +465,13 @@ class SettingsStore extends ChangeNotifier {
     if (pct == _collectThreshold) return;
     _collectThreshold = pct;
     _prefs.setString('botvinnik-collect-threshold', '$pct');
+    notifyListeners();
+  }
+
+  set easeIn(bool on) {
+    if (on == _easeIn) return;
+    _easeIn = on;
+    _prefs.setString('botvinnik-practice-easein', on ? '1' : '0');
     notifyListeners();
   }
 
