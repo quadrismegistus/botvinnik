@@ -53,30 +53,24 @@ class InsightCard extends StatelessWidget {
 
     final label = grade.label;
     final expl = grade.explanation;
-    // The line to narrate on the board: the BEST move's pv, falling back to the
-    // explanation's evidence line when there is no best pv to show.
+    // Two lines you can watch on the board, two buttons — not one that silently
+    // means different things (#164). The card says "Best was Nc6" and draws it,
+    // so the obvious control has to BE "show me Nc6"; that is the BEST line
+    // (`grade.bestPv`, from the pre-move position). The other line is the one
+    // the explanation is built on — the move you PLAYED and its refutation
+    // (`evidence['ucis']`, which explain.ts builds from playedPv) — worth
+    // watching too, but only as its own labelled control, never as the default.
     //
-    // It used to be the other way round, and the evidence line is the move you
-    // PLAYED plus its refutation (explain.ts builds it from playedPv). So the
-    // card said "Best was Nc6", drew Nc6 on the preview board, and then played
-    // your own mistake when you pressed the arrow. That predates this card's
-    // board preview by months; the preview is what made it visible.
-    //
-    // One button, not two: the threat chip already has its own play control in
-    // this same card, and they coordinate through `previewTag` so only one
-    // shows STOP. A third would be worse than the confusion it fixed. If the
-    // refutation animation turns out to be missed, the natural home is a tap on
-    // the played arrow in the preview, which already distinguishes the two.
+    // Each appears only when its line exists: a good move has no refutation to
+    // show (evidence null), and a move with no better alternative has an empty
+    // bestPv. They carry distinct `previewTag`s so they coordinate with the
+    // threat chip's own play control through `previewing` — an untagged pair
+    // would each show STOP while the other was the line actually running.
     final evidence = expl?.evidence;
-    final hasBest = grade.bestPv.isNotEmpty;
-    final previewBase =
-        hasBest ? grade.fenBefore : (evidence?['fen'] as String? ?? grade.fenBefore);
-    final previewUcis = hasBest
-        ? grade.bestPv
-        : (evidence != null
-            ? (evidence['ucis'] as List).cast<String>()
-            : const <String>[]);
-    final canPreview = previewUcis.isNotEmpty;
+    final bestPv = grade.bestPv;
+    final evidenceUcis = evidence != null
+        ? (evidence['ucis'] as List).cast<String>()
+        : const <String>[];
 
     final children = <Widget>[
       Row(
@@ -90,30 +84,38 @@ class InsightCard extends StatelessWidget {
           if (grade.pctBest != null)
             Text('${grade.pctBest!.round()}%',
                 style: const TextStyle(color: Colors.white54, fontSize: 13)),
-          if (canPreview) ...[
-            const SizedBox(width: 6),
-            // tagged, because the threat chip has its own play button and both
-            // share `previewing` — untagged, each would show STOP while the
-            // other one was the line actually running
-            InkWell(
-              onTap: () => game.previewTag == 'move'
-                  ? game.stopPreview()
-                  : game.startPreview(previewBase, previewUcis, tag: 'move'),
-              borderRadius: BorderRadius.circular(14),
-              child: Icon(
-                game.previewTag == 'move'
-                    ? Icons.stop_circle_outlined
-                    : Icons.play_circle_outline,
-                size: 22,
-                color: game.previewTag == 'move'
-                    ? const Color(0xFF81B64C)
-                    : Colors.white54,
-              ),
-            ),
-          ],
         ],
       ),
     ];
+
+    // The two play controls, on their own line so a label can sit beside each
+    // arrow — the header row has no room, and two bare arrows there would be
+    // exactly the "which one is this?" the single button already was. Wrapped,
+    // so at 320pt the second button drops to a new line rather than overflowing.
+    // Colours echo the preview board's grammar (#29): BLUE is the engine's move
+    // everywhere in this app, RED is the move that cost you.
+    final controls = <Widget>[
+      if (bestPv.isNotEmpty)
+        _lineButton(game,
+            tag: 'best',
+            label: 'Best line',
+            base: grade.fenBefore,
+            ucis: bestPv,
+            accent: kEngineArrowBlue),
+      if (evidenceUcis.isNotEmpty)
+        _lineButton(game,
+            tag: 'played',
+            label: 'Your move',
+            base: evidence!['fen'] as String? ?? grade.fenBefore,
+            ucis: evidenceUcis,
+            accent: kThreatArrowRed),
+    ];
+    if (controls.isNotEmpty) {
+      children.add(Padding(
+        padding: const EdgeInsets.only(top: 8),
+        child: Wrap(spacing: 6, runSpacing: 4, children: controls),
+      ));
+    }
 
     // The evidence for the chip. The label IS this number thresholded, and the
     // same number decides whether the move becomes a practice puzzle — so
@@ -170,6 +172,48 @@ class InsightCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: children,
+      ),
+    );
+  }
+
+  /// One of the header's play controls: an arrow-plus-label that animates [ucis]
+  /// from [base] on the live board, toggling to STOP while it is the running
+  /// line. [tag] keeps it and the threat chip from both claiming STOP; [accent]
+  /// is the resting colour, green while active (the app's playback colour).
+  Widget _lineButton(
+    GameController game, {
+    required String tag,
+    required String label,
+    required String base,
+    required List<String> ucis,
+    required Color accent,
+  }) {
+    final active = game.previewTag == tag;
+    final color = active ? const Color(0xFF81B64C) : accent;
+    return InkWell(
+      onTap: () =>
+          active ? game.stopPreview() : game.startPreview(base, ucis, tag: tag),
+      borderRadius: BorderRadius.circular(6),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              active
+                  ? Icons.stop_circle_outlined
+                  : Icons.play_circle_outline,
+              size: 18,
+              color: color,
+            ),
+            const SizedBox(width: 5),
+            Text(label,
+                style: TextStyle(
+                    color: color,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600)),
+          ],
+        ),
       ),
     );
   }

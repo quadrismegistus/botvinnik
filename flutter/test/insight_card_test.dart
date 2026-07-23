@@ -435,36 +435,84 @@ void main() {
     expect(find.textContaining('held'), findsOneWidget);
   });
 
-  testWidgets('the play button animates the BEST line, not the move played',
-      (tester) async {
-    // It used to play the explanation's evidence line, which explain.ts builds
-    // from playedPv — your own mistake and its refutation. The card said "Best
-    // was d4", drew d4 on the preview board, and then played e4. #164.
-    final game = await _withGrade(gradeRaw(
-      uci: 'e2e4',
-      bestUci: 'd2d4',
-      explanation: {
-        'evidence': {'fen': _kStartFen, 'ucis': ['e2e4', 'e7e5']},
-      },
-    ));
-    await _pump(tester, game);
+  group('the two play controls (#164)', () {
+    // Two buttons, not one: "Best line" plays the engine's pv, "Your move"
+    // plays the explanation's evidence line (the move played + its refutation).
+    // The single button used to pick between them silently, so the arrow beside
+    // "Best was d4" sometimes replayed your own e4.
+    Map<String, dynamic> both() => gradeRaw(
+          uci: 'e2e4',
+          bestUci: 'd2d4',
+          explanation: {
+            'evidence': {'fen': _kStartFen, 'ucis': ['e2e4', 'e7e5']},
+          },
+        );
 
-    await tester.tap(find.byIcon(Icons.play_circle_outline).first);
-    await tester.pump();
+    testWidgets('"Best line" animates grade.bestPv (d4), not the move played',
+        (tester) async {
+      final game = await _withGrade(both());
+      await _pump(tester, game);
 
-    expect(game.previewing, isTrue);
-    expect(game.previewTag, 'move');
+      expect(find.text('Best line'), findsOneWidget);
+      await tester.tap(find.text('Best line'));
+      await tester.pump();
 
-    // What the BOARD shows after the first step — the only public observable,
-    // and the thing that was wrong. d4 gives a pawn on d4; e4 gives one on e4.
-    await tester.pump(const Duration(milliseconds: 900));
-    final shown = game.previewFen!;
-    expect(shown.split(' ').first, contains('3P4'),
-        reason: 'a pawn on d4 — the button beside "Best was d4" must show d4');
-    expect(shown, isNot(contains('4P3')), reason: 'not the move played');
+      expect(game.previewing, isTrue);
+      expect(game.previewTag, 'best');
 
-    game.stopPreview();
-    await tester.pump(const Duration(milliseconds: 200));
+      // The board is the only public observable, and the thing that was wrong:
+      // d4 gives a pawn on d4; e4 gives one on e4.
+      await tester.pump(const Duration(milliseconds: 900));
+      final shown = game.previewFen!;
+      expect(shown.split(' ').first, contains('3P4'),
+          reason: 'a pawn on d4 — "Best line" beside "Best was d4" shows d4');
+      expect(shown, isNot(contains('4P3')), reason: 'not the move played');
+
+      game.stopPreview();
+      await tester.pump(const Duration(milliseconds: 200));
+    });
+
+    testWidgets('"Your move" animates the evidence line (e4 + refutation)',
+        (tester) async {
+      final game = await _withGrade(both());
+      await _pump(tester, game);
+
+      expect(find.text('Your move'), findsOneWidget);
+      await tester.tap(find.text('Your move'));
+      await tester.pump();
+
+      expect(game.previewing, isTrue);
+      expect(game.previewTag, 'played');
+
+      await tester.pump(const Duration(milliseconds: 900));
+      final shown = game.previewFen!;
+      expect(shown.split(' ').first, contains('4P3'),
+          reason: 'the move played, e4 — this is the evidence line');
+      expect(shown, isNot(contains('3P4')), reason: 'not the best line');
+
+      game.stopPreview();
+      await tester.pump(const Duration(milliseconds: 200));
+    });
+
+    testWidgets('no evidence: only "Best line" shows', (tester) async {
+      // A good move has no refutation, so explain.ts hands over no evidence.
+      final game = await _withGrade(gradeRaw(explanation: const {
+        'bestPoint': 'A slightly sharper try.',
+      }));
+      await _pump(tester, game);
+      expect(find.text('Best line'), findsOneWidget);
+      expect(find.text('Your move'), findsNothing);
+    });
+
+    testWidgets('empty bestPv: only "Your move" shows', (tester) async {
+      // No better alternative to narrate — bestPv is empty — but the played
+      // move still has its evidence line.
+      final raw = both()..['bestPv'] = const <String>[];
+      final game = await _withGrade(raw);
+      await _pump(tester, game);
+      expect(find.text('Best line'), findsNothing);
+      expect(find.text('Your move'), findsOneWidget);
+    });
   });
 
 }
