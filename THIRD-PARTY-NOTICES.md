@@ -45,6 +45,7 @@ repository as the rest of the source.
 | Lichess open database (used to bake the offline opening book) | CC0 |
 | lichess-org/chess-openings (opening names) | CC0 |
 | Maia weights (CSSLab; via shermansiu/maia-\*) — the neural nets for the "Maia" bots, **fetched at runtime from HuggingFace and never redistributed with this app** | GPL-3.0 |
+| EFF "large" wordlist (Electronic Frontier Foundation) — the 7776 diceware words every generated sync phrase is drawn from, embedded verbatim in `flutter/lib/sync/eff_wordlist.dart` | CC BY 3.0 US |
 
 The Maia weights are data, not code, and are downloaded on first use rather
 than shipped in any build — so this app never redistributes them, and the
