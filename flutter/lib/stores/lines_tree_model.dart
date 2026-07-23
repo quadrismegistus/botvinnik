@@ -131,6 +131,7 @@ class LinesTreeModel {
     required String fen,
     required List<String> playedSans,
     required double height,
+    bool blind = false,
   }) {
     final innerLo = kPadTop + kNodeH / 2;
     final innerHi = height - kPadBottom - kNodeH / 2;
@@ -227,10 +228,20 @@ class LinesTreeModel {
     }
     nodes.removeWhere((id, _) => !referenced.contains(id));
 
-    // vertical layout: live nodes positioned by pctBest, others keep place
+    // vertical layout: live nodes positioned by pctBest, others keep place.
+    //
+    // In blind mode the layout must run over ONLY the nodes that will be drawn.
+    // A hidden node's desired y is a function of the engine's live score, and if
+    // it shares a column with a visible node, _separateColumn would push the
+    // visible one — leaking the score through the survivor's position (#147).
+    // Excluding hidden nodes here (rather than at paint) is the whole point:
+    // their y is computed in this pass, before the painter exists. Non-blind
+    // passes null and every node is laid out exactly as before.
+    final laidOut = blind ? visibleNodeIds(blind: true) : null;
     final byDepth = <int, Map<String, double>>{};
     for (final n in nodes.values) {
       if (n.id == kRoot) continue;
+      if (laidOut != null && !laidOut.contains(n.id)) continue;
       var desired = n.y;
       var bestVal = -1.0;
       for (final key in liveKeys) {

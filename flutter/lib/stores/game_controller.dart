@@ -505,6 +505,11 @@ class GameController extends ChangeNotifier {
       if (overlaySig != _lastOverlaySig) {
         _lastOverlaySig = overlaySig;
         _probeThreat();
+        // Toggling blind changes which nodes the tree lays out (#147). The
+        // model only recomputes y on ingest, and analysis stops at depth 22 /
+        // 3s — without this, flipping blind after it settled would leave the
+        // last sighted layout on screen, ghost positions and all.
+        _syncTree();
       }
       notifyListeners();
       return;
@@ -1478,6 +1483,11 @@ class GameController extends ChangeNotifier {
       fen: position.fen,
       playedSans: moves.map((m) => m.san).toList(),
       height: 300,
+      // Blind must be baked into the LAYOUT, not just the paint: a hidden
+      // node's score-derived y would otherwise displace a visible one and leak
+      // the eval through its position (#147). Same predicate the pane paints
+      // with — blind only bites in a real bot game.
+      blind: blind && botEnabled,
     );
   }
 
