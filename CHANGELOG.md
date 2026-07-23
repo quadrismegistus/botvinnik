@@ -10,6 +10,30 @@ The full pre-2026-07-19 roadmap — with the complete calibration saga and every
 design note as it was written — is preserved in git history (it was this file's
 predecessor, `ROADMAP.md` before the 2026-07-19 trim).
 
+## 2026-07-23 — review mode, ratings, and a backlog sweep
+
+A batch of finished-but-unmerged work plus two waves of small fixes.
+
+- **#202** — **review mode: a win-chance chart, reachable from game-over**
+  (#195, #198). The curve draws over a finished game in Review — one dot per
+  graded ply, coloured by its label, fed from each game's stored evals through
+  the brain's own `whitePovWinChance` so it matches the line the live chart
+  drew. The ply you're on is ringed, tapping a point seeks the board there, and
+  the game-over recap gains a "Review this game" button.
+- **#201** — **downloaded/custom-engine games now count toward the player
+  rating**, with a gym seam; and the bot picker's Elo-cap sliders snap to whole
+  hundreds and clamp to each engine's real `UCI_Elo` range.
+- **#164** — the Insights card gets **two play buttons** — "Best line" and "Your
+  move" — instead of one control that silently meant either.
+- **#143** — practice **"ease in" is a setting** now, not hardcoded: a switch in
+  Settings → Practice picks easy-first warm-up vs strict due-order.
+- **#144** — the won-clean **crowns gain their footer legend** (solid = clean
+  win; outline = won with help).
+- **Housekeeping:** #118 (ROADMAP testing docs rewritten), #120 (the maia3 spike
+  removed from the typecheck), and #133 / #155 / #200 (regression tests and
+  verification for the opponent-change reset, the stale practice verdict, and
+  rated-undo enforcement — all already fixed, now locked in or confirmed).
+
 ## 2026-07-23 — private cross-device sync
 
 - **#203** — **end-to-end-encrypted cross-device sync** (#210). The game archive
