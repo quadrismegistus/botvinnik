@@ -437,7 +437,10 @@ class _FamilyPickerState extends State<_FamilyPicker> {
                       .clamp(capMin.toDouble(), capMax.toDouble()),
                   min: capMin.toDouble(),
                   max: capMax.toDouble(),
-                  divisions: ((capMax - capMin) / 100).round(), // 100-Elo steps
+                  // 100-Elo steps, but at least one: a narrow-range engine
+                  // whose cap bounds snap to the same hundred would otherwise
+                  // give 0 divisions and trip Slider's `divisions > 0` assert.
+                  divisions: ((capMax - capMin) / 100).round().clamp(1, 100),
                   label: '$_capElo',
                   activeColor: _accent,
                   onChanged: (v) => setState(() => _capElo = v.round()),

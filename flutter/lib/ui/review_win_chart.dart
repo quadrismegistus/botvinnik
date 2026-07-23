@@ -4,9 +4,12 @@
 //
 // The evals are read straight off the stored moves — the same numbers grading
 // wrote at save time — and turned into White-POV win chance by the brain's own
-// `whitePovWinChance`, so this curve matches the one the live chart drew as the
-// game was played. The per-move bridge calls run once per opened game (memoised
-// on its id), not on every scrub.
+// `whitePovWinChance`, the identical call the live chart makes. One difference:
+// this curve plots only plies that actually have an eval, whereas the live
+// chart also shows a graded-but-unevaluated move (a save-time backfill miss) as
+// a flat 50% point — so review omits a point the live chart would draw there.
+// The per-move bridge calls run once per opened game (memoised on its id), not
+// on every scrub.
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
