@@ -4,6 +4,7 @@ import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
 import 'package:cryptography_plus/cryptography_plus.dart';
+import 'package:unorm_dart/unorm_dart.dart' as unorm;
 
 import 'eff_wordlist.dart';
 
@@ -225,15 +226,15 @@ class SyncCrypto {
     ).join(' ');
   }
 
-  /// Normalize a phrase before derivation so trivial typing differences (case,
-  /// stray or repeated whitespace) still reach the same key.
+  /// Normalize a phrase before derivation so trivial differences reach the same
+  /// key: trim, lowercase, collapse whitespace, and **NFC-normalize**.
   ///
-  /// PBKDF2's output is a pure function of the UTF-8 bytes, and neither Dart's
-  /// `utf8.encode` nor JS's `TextEncoder` applies Unicode normalization — so the
-  /// SAME non-ASCII phrase typed NFC on one device and NFD on another would
-  /// derive DIFFERENT keys. Generated phrases are pure ASCII, so this is safe
-  /// today; when custom-phrase entry lands (M4) it must either NFC-normalize
-  /// (a dependency) or refuse non-ASCII. Tracked there, not left implicit.
-  static String normalizePhrase(String phrase) =>
-      phrase.trim().toLowerCase().split(RegExp(r'\s+')).join(' ');
+  /// PBKDF2's output is a pure function of the UTF-8 bytes, and Dart's `String`
+  /// applies no Unicode normalization — so the SAME non-ASCII phrase entered NFC
+  /// on one device and NFD on another (macOS leans NFD) would otherwise derive
+  /// DIFFERENT keys. NFC is applied last so the final bytes are canonical
+  /// regardless of what lowercasing produced. ASCII phrases — every generated
+  /// one — are unchanged by NFC, so existing keys are unaffected.
+  static String normalizePhrase(String phrase) => unorm.nfc(
+      phrase.trim().toLowerCase().split(RegExp(r'\s+')).join(' '));
 }

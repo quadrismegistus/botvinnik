@@ -50,6 +50,22 @@ void main() {
     test('the shipped KDF cost is the #203 / OWASP number', () {
       expect(SyncCryptoParams.start.iterations, 600000);
     });
+
+    test('NFC-normalizes so NFD and NFC inputs derive the same key', () async {
+      // e-acute composed (NFC, U+00E9) vs decomposed (NFD, e + U+0301).
+      const composed = 'caf\u00e9 mountain river stone';
+      const decomposed = 'cafe\u0301 mountain river stone';
+      expect(composed == decomposed, isFalse); // different code units...
+      final a = await SyncCrypto.deriveKeys(composed, params: _fast);
+      final b = await SyncCrypto.deriveKeys(decomposed, params: _fast);
+      expect(a.blobId, b.blobId); // ...but the same derived key
+      expect(a.encKey, b.encKey);
+    });
+
+    test('normalizePhrase canonicalizes to NFC and leaves ASCII untouched', () {
+      expect(SyncCrypto.normalizePhrase('cafe\u0301'), 'caf\u00e9'); // NFD -> NFC
+      expect(SyncCrypto.normalizePhrase('One Two Three'), 'one two three');
+    });
   });
 
   group('seal / open', () {

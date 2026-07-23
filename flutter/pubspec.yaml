@@ -90,6 +90,11 @@ dependencies:
   # device, not per sync. Keychain/Keystore on native; WebCrypto-encrypted
   # localStorage on web (HTTPS only, which botvinnik.app is).
   flutter_secure_storage: ^10.3.1
+  # NFC-normalize a sync phrase before deriving keys (#203). Dart's String has no
+  # Unicode normalization, so the same non-ASCII phrase entered NFC on one device
+  # and NFD on another (macOS leans NFD) would derive DIFFERENT keys without this.
+  # Pure Dart; compiles for web.
+  unorm_dart: ^0.3.2
 
 dev_dependencies:
   flutter_test:
