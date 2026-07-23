@@ -61,9 +61,15 @@ export { getSan, getSanLine, getNumberedSanLine, getFenAfter, isCapture } from '
 
 // ---- board overlays ----
 export { threatProbeFen, judgeThreat, judgeTacticalWin } from './engine/threats';
-import { computeControl } from './engine/control';
-/** computeControl returns a Map (JSON-hostile) — flatten for the bridge. */
-export function controlSquares(fen: string): Record<string, 'w' | 'b'> {
+import { computeControl, type ControlCell } from './engine/control';
+/**
+ * computeControl returns a Map (JSON-hostile) — flatten for the bridge. Each
+ * value is a `{ side, margin, held }` cell, not a bare colour: the consumer
+ * grades tint intensity by `margin` (pawns the exchange there decides). `held`
+ * marking of contested-but-safe pieces is opt-in (off here — it repaints too
+ * much of the board to be a default).
+ */
+export function controlSquares(fen: string): Record<string, ControlCell> {
 	return Object.fromEntries(computeControl(fen));
 }
 

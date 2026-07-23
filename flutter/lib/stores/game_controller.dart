@@ -1283,7 +1283,7 @@ class GameController extends ChangeNotifier {
   // ---- overlays: opponent threat (null-move probe) + square control ----
 
   Map<String, dynamic>? _threat; // {fen, uci, san, gain} — fen-gated
-  final Map<String, Map<String, String>> _controlCache = {};
+  final Map<String, Map<String, ControlCell>> _controlCache = {};
 
   /// Top engine moves for the board's green arrows (web: top-3, fading).
   List<String> get engineArrowUcis {
@@ -1362,7 +1362,7 @@ class GameController extends ChangeNotifier {
       ((tacticalWin?['targets'] as List?) ?? const []).cast<String>();
 
   /// Square-control tint for the current position, when wanted.
-  Map<String, String>? get controlMap {
+  Map<String, ControlCell>? get controlMap {
     if (!_settings.showControl || blind) return null;
     final chess = _chess;
     if (chess == null) return null;
