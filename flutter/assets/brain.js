@@ -9641,11 +9641,21 @@ var brain = (() => {
   function expected(me, opp) {
     return 1 / (1 + Math.pow(10, (opp - me) / 400));
   }
+  function customEngineElo(_slug, statedLabel) {
+    return statedLabel;
+  }
+  function opponentElo(g) {
+    const p = personaById(g.botPersona);
+    if (p) return p.elo;
+    if (!g.botPersona?.startsWith("custom-") || g.botElo == null) return null;
+    const slug = g.botPersona.slice("custom-".length).split("~")[0];
+    return customEngineElo(slug, g.botElo - SCALE_OFFSET);
+  }
   function estimatePlayerElo(gamesList) {
     const outcomes = [];
     for (const g of gamesList) {
-      const p = personaById(g.botPersona);
-      if (!p) continue;
+      const opp = opponentElo(g);
+      if (opp == null) continue;
       if (g.botFallback) continue;
       if ((g.botUndos ?? 0) > 0) continue;
       if (g.botBothSides) continue;
@@ -9653,7 +9663,7 @@ var brain = (() => {
       if (g.botHintsUsed) continue;
       const score = playerScore(g);
       if (score === null) continue;
-      outcomes.push({ opp: p.elo, score });
+      outcomes.push({ opp, score });
     }
     if (outcomes.length === 0) return null;
     const meanOpp = outcomes.reduce((a, o) => a + o.opp, 0) / outcomes.length;

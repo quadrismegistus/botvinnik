@@ -26,6 +26,7 @@ import '../engine/maia_engine.dart';
 import '../engine/maia_progress.dart';
 import '../engine/retro_engine.dart';
 import 'custom_engine.dart';
+import 'engine_catalog.dart';
 import 'lines_tree_model.dart';
 import 'maia_status.dart';
 import 'practice_controller.dart';
@@ -1177,8 +1178,12 @@ class GameController extends ChangeNotifier {
           runner = null;
         }
         runner ??= _customRunners[cfg.id] = CustomEngineRunner(cfg.path);
+        // Clamp the (possibly round-hundred) label back into the engine's real
+        // UCI_Elo range — a "1300" the player picked drives an engine whose
+        // floor is 1320. A hand-added engine (no catalog entry) is sent as-is.
+        final capEntry = catalogEntryById(cfg.id);
         final uci = await runner.move(fen,
-            elo: cfg.limitElo ? cfg.elo : null,
+            elo: cfg.limitElo ? (capEntry?.clampElo(cfg.elo) ?? cfg.elo) : null,
             movetimeMs: cfg.movetimeMs,
             // The style option, for an engine that has styles (Rodent's
             // PersonalityFile, BrainLearn's MCTS). Null for a plain engine.

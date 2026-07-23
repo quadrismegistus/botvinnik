@@ -148,6 +148,17 @@ void main() {
         isEmpty);
   });
 
+  test('cap sliders round to hundreds; clampElo restores the real range', () {
+    final bl = kEngineCatalog.firstWhere((e) => e.id == 'brainlearn'); // 1320-3190
+    expect((bl.capSliderMin, bl.capSliderMax), (1300, 3200));
+    expect(bl.clampElo(1300), 1320, reason: 'a round label below the real floor');
+    expect(bl.clampElo(1500), 1500, reason: 'in range, unchanged');
+    expect(bl.clampElo(3200), 3190, reason: 'rounded ceiling clamped to real max');
+    final velvet = kEngineCatalog.firstWhere((e) => e.id == 'velvet'); // 1225-3000
+    expect((velvet.capSliderMin, velvet.capSliderMax), (1200, 3000));
+    expect(velvet.clampElo(1200), 1225);
+  });
+
   test('catalogEntryById matches a catalog id, and only that', () {
     expect(catalogEntryById('velvet')?.id, 'velvet');
     // a hand-added engine's id is a timestamp, never a catalog slug

@@ -9,15 +9,17 @@
 // something read back off the settings afterwards — the argument is beside the
 // exclusion below.
 //
-// Only PERSONA games count: legacy slider games were played against the old
-// softmax sampler, whose label-vs-strength mapping is broken against coherent
-// opponents (the founding result of the shaped-bot work) — those results
-// don't sit on the ruler.
+// Roster personas AND downloaded/custom engines count; only LEGACY slider games
+// (no persona id) are excluded — they were played against the old softmax
+// sampler, whose label-vs-strength mapping is broken against coherent opponents
+// (the founding result of the shaped-bot work), so those results don't sit on
+// the ruler. A downloaded engine's strength is its stated label for now; the
+// gym plugs a measured correction into `customEngineElo` later (an opt-in seam).
 //
 // Everything here is on the DISPLAY scale (lichess-rapid-equivalent).
 
 import type { StoredGame } from './gameStore';
-import { personaById } from './bots';
+import { personaById, SCALE_OFFSET } from './bots';
 
 export interface PlayerEloEstimate {
 	elo: number;
@@ -44,11 +46,38 @@ function expected(me: number, opp: number): number {
 	return 1 / (1 + Math.pow(10, (opp - me) / 400));
 }
 
+/** GYM-OVERRIDE SEAM. Map a downloaded engine's stated label to its measured
+ * display-scale strength. Identity today — we trust the catalog/UCI label — but
+ * the gym plugs its per-engine measured curve in HERE, applied at fit time so a
+ * later calibration retroactively corrects every stored game without rewriting
+ * the archive. Keyed by the engine slug in the persona id
+ * (`custom-velvet~mcts` -> `velvet`). */
+function customEngineElo(_slug: string, statedLabel: number): number {
+	// e.g. return GYM_ELO[_slug]?.(statedLabel) ?? statedLabel;
+	return statedLabel;
+}
+
+/** The opponent's display-scale elo for the fit, or null to leave the game off
+ * the ruler. A built-in roster bot reads its calibrated elo from bots.ts; a
+ * downloaded/custom engine (a persona id bots.ts does not know) reads the label
+ * recorded on the game — botElo is stored on the internal scale — and runs it
+ * through the gym seam. Legacy slider games carry no persona id and stay off. */
+function opponentElo(g: StoredGame): number | null {
+	const p = personaById(g.botPersona);
+	if (p) return p.elo;
+	// A downloaded engine's id is `custom-<slug>[~style]` and is deliberately not
+	// in bots.ts. Anything else that fails to resolve — a legacy slider game (no
+	// id) or a stale/renamed roster id — stays off the ruler.
+	if (!g.botPersona?.startsWith('custom-') || g.botElo == null) return null;
+	const slug = g.botPersona.slice('custom-'.length).split('~')[0];
+	return customEngineElo(slug, g.botElo - SCALE_OFFSET);
+}
+
 export function estimatePlayerElo(gamesList: StoredGame[]): PlayerEloEstimate | null {
 	const outcomes: Outcome[] = [];
 	for (const g of gamesList) {
-		const p = personaById(g.botPersona);
-		if (!p) continue;
+		const opp = opponentElo(g);
+		if (opp == null) continue; // legacy slider game, or no opponent on record
 		if (g.botFallback) continue; // opponent wasn't really the persona — off the ruler
 		if ((g.botUndos ?? 0) > 0) continue; // takebacks = assisted result — off the ruler
 		// Two bots playing each other. playerColor falls back to White when both
@@ -85,7 +114,7 @@ export function estimatePlayerElo(gamesList: StoredGame[]): PlayerEloEstimate | 
 		if (g.botHintsUsed) continue;
 		const score = playerScore(g);
 		if (score === null) continue;
-		outcomes.push({ opp: p.elo, score });
+		outcomes.push({ opp, score });
 	}
 	if (outcomes.length === 0) return null;
 

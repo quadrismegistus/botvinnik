@@ -318,9 +318,10 @@ class _FamilyPickerState extends State<_FamilyPicker> {
     setState(() {
       _capBackFamily = p.family; // Back returns to the list it came from.
       _capOn = cfg?.limitElo ?? false;
+      // Seed on a whole hundred inside the rounded slider range.
       _capElo = entry != null && entry.capsElo
-          ? seed.clamp(entry.eloMin, entry.eloMax).toInt()
-          : seed.clamp(600, 3200).toInt();
+          ? _snap100(seed).clamp(entry.capSliderMin, entry.capSliderMax).toInt()
+          : _snap100(seed).clamp(600, 3200).toInt();
       _sub = (_SubKind.custom, p.id);
     });
   }
@@ -339,7 +340,7 @@ class _FamilyPickerState extends State<_FamilyPicker> {
     final entry = catalogEntryById(_engineId(p));
     if (entry == null) return p.blurb; // hand-added: capability unknown
     return entry.capsElo
-        ? 'Dials ${entry.eloMin}–${entry.eloMax}'
+        ? 'Dials ${entry.capSliderMin}–${entry.capSliderMax}'
         : 'Full strength · ${p.elo}';
   }
 
@@ -401,7 +402,10 @@ class _FamilyPickerState extends State<_FamilyPicker> {
     // A capping engine dials over its ADVERTISED range; an unknown hand-added
     // engine keeps the honest "may be ignored" hedge over a generic range.
     final caps = entry != null && entry.capsElo;
-    final (capMin, capMax) = caps ? (entry.eloMin, entry.eloMax) : (600, 3200);
+    // Slider bounds are whole hundreds; the engine's real min/max are honoured
+    // by entry.clampElo when the move is played.
+    final (capMin, capMax) =
+        caps ? (entry.capSliderMin, entry.capSliderMax) : (600, 3200);
     final capSubtitle = caps
         ? 'Dials $name between $capMin and $capMax via UCI_Elo.'
         : 'Sends UCI_Elo. Works only if this engine supports it — full strength '
@@ -433,7 +437,7 @@ class _FamilyPickerState extends State<_FamilyPicker> {
                       .clamp(capMin.toDouble(), capMax.toDouble()),
                   min: capMin.toDouble(),
                   max: capMax.toDouble(),
-                  divisions: ((capMax - capMin) / 25).round(),
+                  divisions: ((capMax - capMin) / 100).round(), // 100-Elo steps
                   label: '$_capElo',
                   activeColor: _accent,
                   onChanged: (v) => setState(() => _capElo = v.round()),
@@ -526,6 +530,10 @@ class _Entry {
 
   int get sortElo => persona?.elo ?? members[members.length ~/ 2].elo;
 }
+
+/// Round an Elo to the nearest whole hundred (the granularity every cap slider
+/// snaps to).
+int _snap100(int v) => (v / 100).round() * 100;
 
 IconData _familyIcon(String family) => switch (family) {
       'squarefish' => Icons.grid_view,
