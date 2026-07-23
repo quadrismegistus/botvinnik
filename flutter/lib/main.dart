@@ -26,6 +26,7 @@ import 'brain/rating_api.dart';
 import 'db/app_db.dart';
 import 'db/db_init.dart';
 import 'engine/arbiter.dart';
+import 'engine/engine_reaper.dart';
 import 'engine/maia_engine.dart';
 import 'engine/maia_weights.dart';
 import 'engine/engine_factory.dart';
@@ -142,6 +143,13 @@ class _BootGateState extends State<BootGate> {
     // 4G and 46s on slow. The board does not need the engine to appear — the
     // arbiter queues searches until it answers — so the splash now lifts on
     // brain + settings + db, and the engine arrives behind it.
+    // Keep engine subprocesses from outliving the app: reap any a previous run
+    // left orphaned, and arm the exit hooks before we spawn our own. Desktop
+    // only; a no-op on web. (See #67 note — an orphaned velvet once burned a
+    // core for 23h after a stopped `flutter run`.)
+    installEngineExitGuards();
+    unawaited(reapOrphanedEngines());
+
     final arbiter = SearchArbiter(startEngine());
     final settings = await SettingsStore.load();
     final db = await AppDb.open();
