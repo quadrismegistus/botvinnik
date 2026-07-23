@@ -1287,7 +1287,7 @@
      "id": "fix",
      "createdAt": "2026-01-01T00:00:00Z",
      "box": 2,
-     "dueAt": "2026-07-24T12:45:33.521Z",
+     "dueAt": "2026-07-26T20:05:00.586Z",
      "attempts": 3,
      "correct": 2,
      "lastResult": "pass"
@@ -1349,7 +1349,7 @@
      "id": "fix",
      "createdAt": "2026-01-01T00:00:00Z",
      "box": 0,
-     "dueAt": "2026-07-21T12:55:38.322Z",
+     "dueAt": "2026-07-23T20:15:05.386Z",
      "attempts": 3,
      "correct": 1,
      "lastResult": "fail"
@@ -1438,35 +1438,151 @@
     "rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2"
    ],
    "expected": {
-    "a3": "w",
-    "a4": "w",
-    "a5": "b",
-    "a6": "b",
-    "b3": "w",
-    "b4": "b",
-    "b5": "w",
-    "b6": "b",
-    "c3": "w",
-    "c4": "w",
-    "c5": "b",
-    "c6": "b",
-    "d3": "w",
-    "d4": "w",
-    "d5": "b",
-    "d6": "b",
-    "e2": "w",
-    "e5": "w",
-    "e7": "b",
-    "f6": "b",
-    "g1": "w",
-    "g3": "w",
-    "g4": "w",
-    "g5": "b",
-    "g6": "b",
-    "h3": "w",
-    "h4": "w",
-    "h5": "b",
-    "h6": "b"
+    "a3": {
+     "side": "w",
+     "margin": 3,
+     "held": false
+    },
+    "a4": {
+     "side": "w",
+     "margin": 0,
+     "held": false
+    },
+    "a5": {
+     "side": "b",
+     "margin": 0,
+     "held": false
+    },
+    "a6": {
+     "side": "b",
+     "margin": 3,
+     "held": false
+    },
+    "b3": {
+     "side": "w",
+     "margin": 0,
+     "held": false
+    },
+    "b4": {
+     "side": "b",
+     "margin": 1,
+     "held": false
+    },
+    "b5": {
+     "side": "w",
+     "margin": 1,
+     "held": false
+    },
+    "b6": {
+     "side": "b",
+     "margin": 0,
+     "held": false
+    },
+    "c3": {
+     "side": "w",
+     "margin": 0,
+     "held": false
+    },
+    "c4": {
+     "side": "w",
+     "margin": 0,
+     "held": false
+    },
+    "c5": {
+     "side": "b",
+     "margin": 0,
+     "held": false
+    },
+    "c6": {
+     "side": "b",
+     "margin": 0,
+     "held": false
+    },
+    "d3": {
+     "side": "w",
+     "margin": 0,
+     "held": false
+    },
+    "d4": {
+     "side": "w",
+     "margin": 0,
+     "held": false
+    },
+    "d5": {
+     "side": "b",
+     "margin": 0,
+     "held": false
+    },
+    "d6": {
+     "side": "b",
+     "margin": 0,
+     "held": false
+    },
+    "e2": {
+     "side": "w",
+     "margin": 0,
+     "held": false
+    },
+    "e5": {
+     "side": "w",
+     "margin": 1,
+     "held": false
+    },
+    "e7": {
+     "side": "b",
+     "margin": 0,
+     "held": false
+    },
+    "f6": {
+     "side": "b",
+     "margin": 0,
+     "held": false
+    },
+    "g1": {
+     "side": "w",
+     "margin": 0,
+     "held": false
+    },
+    "g3": {
+     "side": "w",
+     "margin": 0,
+     "held": false
+    },
+    "g4": {
+     "side": "w",
+     "margin": 0,
+     "held": false
+    },
+    "g5": {
+     "side": "b",
+     "margin": 3,
+     "held": false
+    },
+    "g6": {
+     "side": "b",
+     "margin": 0,
+     "held": false
+    },
+    "h3": {
+     "side": "w",
+     "margin": 0,
+     "held": false
+    },
+    "h4": {
+     "side": "w",
+     "margin": 9,
+     "held": false
+    },
+    "h5": {
+     "side": "b",
+     "margin": 0,
+     "held": false
+    },
+    "h6": {
+     "side": "b",
+     "margin": 0,
+     "held": false
+    }
    }
   },
   {

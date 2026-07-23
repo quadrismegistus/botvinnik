@@ -4,11 +4,12 @@
 import 'dart:math' as math;
 
 import 'package:chessground/chessground.dart';
-import 'package:flutter/foundation.dart' show setEquals;
+import 'package:flutter/foundation.dart' show setEquals, visibleForTesting;
 import 'package:dartchess/dartchess.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../brain/chess_api.dart' show ControlCell;
 import '../stores/game_controller.dart';
 import '../stores/settings_store.dart';
 import 'board_theme.dart';
@@ -192,14 +193,28 @@ class _BoardPaneState extends State<BoardPane> {
   }
 }
 
+/// The exchange-margin → tint-intensity multiplier the control painter grades
+/// opacity by. Exposed for tests: canvas alpha can't be asserted through a
+/// widget test, but this pure mapping is the whole of the new intensity logic —
+/// margin 0 returns 1.0 (the old flat look, so nothing dims), a queen (9) returns
+/// 2.0, and anything beyond is clamped so a high base opacity still holds.
+@visibleForTesting
+double controlTintGrade(double margin) => 1 + (margin.clamp(0, 9) / 9);
+
 /// The square-control overlay, two claims in two shapes. EMPTY squares get a
 /// flat wash — "this side owns this square", a statement about territory.
 /// OCCUPIED squares get a ring around the piece — "this piece is winnable /
 /// falling where it stands", a statement about the piece, and the urgent one.
 /// Rings share the visual grammar of the threat overlay's victim rings, which
 /// outrank them on the same square.
+///
+/// Opacity is graded by each cell's exchange margin: an uncontested square
+/// (margin 0) paints at the base opacity the user chose, and a square where a
+/// whole queen swings paints up toward full — so "how decisively" reads off
+/// the board, not just "who". The base for margin 0 matches the old flat
+/// look, so nothing dims; contested squares only get brighter.
 class _ControlPainter extends CustomPainter {
-  final Map<String, String> control;
+  final Map<String, ControlCell> control;
   final Side orientation;
   final String us;
   final double peak;
@@ -208,20 +223,25 @@ class _ControlPainter extends CustomPainter {
   _ControlPainter(this.control, this.orientation, this.us, this.peak,
       this.occupied, this.threatRinged);
 
+  // margin 0 -> 1x, a queen (9) -> 2x; clamped so a base past 0.5 still holds.
+  static double _grade(double margin) => controlTintGrade(margin);
+
   @override
   void paint(Canvas canvas, Size size) {
     final sq = size.width / 8;
     for (final entry in control.entries) {
+      final cell = entry.value;
       final file = entry.key.codeUnitAt(0) - 'a'.codeUnitAt(0);
       final rank = int.parse(entry.key[1]) - 1;
       final x = orientation == Side.white ? file : 7 - file;
       final y = orientation == Side.white ? 7 - rank : rank;
-      final ours = entry.value == us;
+      final ours = cell.side == us;
       final base = ours ? kControlOurs : kControlTheirs;
+      final grade = _grade(cell.margin);
       if (occupied.contains(entry.key)) {
         if (threatRinged.contains(entry.key)) continue;
         // twice the wash's opacity: the piece-level claim should pop out of
-        // the ambient territory it sits in
+        // the ambient territory it sits in — then graded by the stake
         final stroke = sq / 14;
         canvas.drawCircle(
           Offset(x * sq + sq / 2, y * sq + sq / 2),
@@ -229,12 +249,13 @@ class _ControlPainter extends CustomPainter {
           Paint()
             ..style = PaintingStyle.stroke
             ..strokeWidth = stroke
-            ..color = base.withValues(alpha: math.min(1.0, peak * 2)),
+            ..color = base.withValues(alpha: math.min(1.0, peak * 2 * grade)),
         );
       } else {
         canvas.drawRect(
           Rect.fromLTWH(x * sq, y * sq, sq, sq),
-          Paint()..color = base.withValues(alpha: peak),
+          Paint()
+            ..color = base.withValues(alpha: math.min(1.0, peak * grade)),
         );
       }
     }
