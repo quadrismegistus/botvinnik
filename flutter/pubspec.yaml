@@ -74,6 +74,17 @@ dependencies:
   # import — http covers both branches with one API, and its MockClient is
   # the seam the import tests answer at instead of calling lichess.
   http: ^1.6.0
+  # End-to-end-encrypted cross-device sync (#203). Argon2id turns the sync
+  # phrase into a root key; HKDF splits that into the blobId (which the server
+  # sees) and the encKey (which never leaves the device); XChaCha20-Poly1305 is
+  # the blob cipher. The maintained fork of `cryptography` — on web it uses
+  # crypto.subtle where it can and pure Dart for what WebCrypto lacks (Argon2id,
+  # ChaCha). The Argon2id cost on web-WASM is the one thing M0 still has to pin.
+  cryptography_plus: ^3.0.0
+  # gzip for the backup JSON before it is encrypted (it compresses ~10x). This
+  # rather than dart:io's GZipCodec, which is native-only; `archive` is the one
+  # gzip that also compiles for web.
+  archive: ^4.0.0
 
 dev_dependencies:
   flutter_test:
