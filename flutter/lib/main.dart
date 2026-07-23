@@ -41,6 +41,7 @@ import 'stores/review_controller.dart';
 import 'stores/settings_store.dart';
 import 'sync/secure_sync_key_store.dart';
 import 'sync/sync_controller.dart';
+import 'sync/sync_triggers.dart';
 import 'ui/board_pane.dart';
 import 'ui/clock_display.dart';
 import 'stores/chess_clock.dart';
@@ -221,8 +222,7 @@ class _BootGateState extends State<BootGate> {
             // enters a phrase in Settings → Sync.
             ChangeNotifierProvider(
               create: (_) =>
-                  SyncController(db: booted.db, keyStore: SecureSyncKeyStore())
-                    ..loadCached(),
+                  SyncController(db: booted.db, keyStore: SecureSyncKeyStore()),
             ),
             // Not refreshed at boot: the fit reads the whole archive over the
             // bridge, and the only screen that shows it (the game-over recap)
@@ -271,14 +271,16 @@ class _BootGateState extends State<BootGate> {
           child: MaterialApp(
             title: 'botvinnik',
             theme: _theme(),
-            home: Builder(
-              builder: (context) => KeyboardControls(
-                game: context.read<GameController>(),
-                review: context.read<ReviewController>(),
-                practice: context.read<PracticeController>(),
-                settings: context.read<SettingsStore>(),
-                currentTab: () => _tab.value,
-                child: AppShell(tab: _tab),
+            home: SyncTriggers(
+              child: Builder(
+                builder: (context) => KeyboardControls(
+                  game: context.read<GameController>(),
+                  review: context.read<ReviewController>(),
+                  practice: context.read<PracticeController>(),
+                  settings: context.read<SettingsStore>(),
+                  currentTab: () => _tab.value,
+                  child: AppShell(tab: _tab),
+                ),
               ),
             ),
           ),

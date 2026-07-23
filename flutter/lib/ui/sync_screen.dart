@@ -2,9 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
-import '../stores/backup.dart';
-import '../stores/practice_controller.dart';
-import '../stores/review_controller.dart';
 import '../sync/sync_controller.dart';
 
 // The app's lichess-green accent, matching the game-over recap button.
@@ -126,9 +123,8 @@ class _SyncScreenState extends State<SyncScreen> {
 
   Future<void> _enable(BuildContext context, SyncController sync) async {
     final messenger = ScaffoldMessenger.maybeOf(context);
-    final reload = _reloader(context); // capture controllers before the await
+    // enable() → syncNow() reloads the tabs via SyncController.onPulled.
     await sync.enable(_phrase.text);
-    await reload(sync.status.lastPulled);
     if (sync.status.phase == SyncPhase.error) {
       messenger?.showSnackBar(
           SnackBar(content: Text(sync.status.message ?? 'Sync failed.')));
@@ -197,7 +193,7 @@ class _SyncScreenState extends State<SyncScreen> {
         const SizedBox(height: 20),
         FilledButton.icon(
           style: FilledButton.styleFrom(backgroundColor: _accent),
-          onPressed: busy ? null : () => _syncNow(context, sync),
+          onPressed: busy ? null : () => _syncNow(sync),
           icon: busy
               ? const SizedBox(
                   height: 16,
@@ -222,11 +218,9 @@ class _SyncScreenState extends State<SyncScreen> {
     );
   }
 
-  Future<void> _syncNow(BuildContext context, SyncController sync) async {
-    final reload = _reloader(context); // capture controllers before the await
-    final counts = await sync.syncNow();
-    await reload(counts);
-  }
+  // Manual sync — never throttled (autoSync is for the triggers). Tabs refresh
+  // via SyncController.onPulled.
+  Future<void> _syncNow(SyncController sync) => sync.syncNow();
 
   Future<void> _disable(BuildContext context, SyncController sync) async {
     final ok = await showDialog<bool>(
@@ -250,21 +244,6 @@ class _SyncScreenState extends State<SyncScreen> {
       await sync.disable();
       if (mounted) setState(() => _seeded = false); // reseed the setup form
     }
-  }
-
-  /// Capture the Practice/Review controllers up front, then return a closure
-  /// that reloads them if a pull actually brought anything in. A pull writes
-  /// underneath both controllers, so — exactly as restore does — they must
-  /// re-read or the tabs keep showing the pre-sync lists until restart. Reading
-  /// the controllers before any await keeps `context` off the async gap.
-  Future<void> Function(BackupCounts?) _reloader(BuildContext context) {
-    final practice = context.read<PracticeController>();
-    final review = context.read<ReviewController>();
-    return (pulled) async {
-      if (pulled == null || (pulled.games == 0 && pulled.practice == 0)) return;
-      await practice.load();
-      await review.loadGames();
-    };
   }
 
   IconData _statusIcon(SyncPhase p) => switch (p) {

@@ -168,6 +168,63 @@ void main() {
     expect(c.advise('one two three four five six').strong, isTrue);
   });
 
+  group('autoSync (triggers)', () {
+    test('throttles a burst to one sync per window', () async {
+      final store = MemorySyncStore();
+      var now = DateTime(2026, 7, 23, 12);
+      final c = SyncController(
+        db: MemoryDb([_game('a1', '2026-07-01T00:00:00.000Z')]),
+        keyStore: _FakeKeyStore(),
+        storeFactory: (_) => store,
+        kdfParams: _fast,
+        clock: () => now,
+      );
+      await c.enable(_phrase); // create
+      expect(store.writes, 1);
+
+      await c.autoSync(); // within the throttle window of enable's sync → no-op
+      expect(store.writes, 1);
+
+      now = now.add(const Duration(seconds: 11)); // past the window
+      await c.autoSync();
+      expect(store.writes, 2);
+    });
+
+    test('does nothing when sync is off', () async {
+      final store = MemorySyncStore();
+      final c = _controller(MemoryDb(), _FakeKeyStore(), store: store);
+      await c.autoSync();
+      expect(store.writes, 0);
+      expect(c.enabled, isFalse);
+    });
+
+    test('onPulled fires when a sync brings new data in, not otherwise',
+        () async {
+      final store = MemorySyncStore();
+      final a = SyncController(
+        db: MemoryDb([_game('a1', '2026-07-01T00:00:00.000Z')]),
+        keyStore: _FakeKeyStore(),
+        storeFactory: (_) => store,
+        kdfParams: _fast,
+      );
+      var aPulled = 0;
+      a.onPulled = () async => aPulled++;
+      await a.enable(_phrase); // store was empty → nothing pulled
+      expect(aPulled, 0);
+
+      final b = SyncController(
+        db: MemoryDb(),
+        keyStore: _FakeKeyStore(),
+        storeFactory: (_) => store,
+        kdfParams: _fast,
+      );
+      var bPulled = 0;
+      b.onPulled = () async => bPulled++;
+      await b.enable(_phrase); // pulls a1
+      expect(bPulled, 1);
+    });
+  });
+
   test('the practice collection also converges (max-attempts)', () async {
     final store = MemorySyncStore();
     final dbA = MemoryDb()..kv[kPracticeKvKey] = jsonEncode([

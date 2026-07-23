@@ -69,6 +69,17 @@ class SyncController extends ChangeNotifier {
   SyncSession? _session;
   SyncStatus _status = const SyncStatus(SyncPhase.off);
   bool _busy = false;
+  DateTime? _lastSyncAt;
+
+  /// The app wires this to reload the Practice/Review controllers after a sync
+  /// pulls new data — so a background sync (launch / resume / after a game)
+  /// refreshes the tabs even when the Sync screen isn't open. Kept a plain
+  /// callback so the controller stays decoupled from those controllers.
+  Future<void> Function()? onPulled;
+
+  /// A burst of triggers (launch + resume close together, or a rematch) must
+  /// not hammer the server; [autoSync] coalesces to at most one sync per window.
+  static const Duration _autoThrottle = Duration(seconds: 10);
 
   bool get enabled => _session != null;
   String? get phrase => _session?.phrase;
@@ -133,6 +144,7 @@ class SyncController extends ChangeNotifier {
     final session = _session;
     if (session == null || _busy) return null;
     _busy = true;
+    _lastSyncAt = _now();
     _set(SyncStatus(SyncPhase.syncing, lastSyncedAt: _status.lastSyncedAt));
     try {
       final service = SyncService(
@@ -143,7 +155,11 @@ class SyncController extends ChangeNotifier {
       final result = await service.syncNow();
       _set(SyncStatus(SyncPhase.ok,
           lastSyncedAt: _now(), lastPulled: result.pulled));
-      return result.pulled;
+      final pulled = result.pulled;
+      if (pulled.games > 0 || pulled.practice > 0) {
+        await onPulled?.call(); // refresh the tabs the pull wrote underneath
+      }
+      return pulled;
     } on SyncTransportException {
       _set(SyncStatus(SyncPhase.offline,
           lastSyncedAt: _status.lastSyncedAt,
@@ -161,6 +177,18 @@ class SyncController extends ChangeNotifier {
     } finally {
       _busy = false;
     }
+  }
+
+  /// A background sync for the automatic triggers (launch / resume / after a
+  /// game). Silent and throttled: it never throws (syncNow swallows), never
+  /// pops a dialog, and no-ops if sync is off, already running, or another sync
+  /// happened within [_autoThrottle]. The manual "Sync now" calls [syncNow]
+  /// directly, so it is never throttled.
+  Future<void> autoSync() async {
+    if (!enabled || _busy) return;
+    final last = _lastSyncAt;
+    if (last != null && _now().difference(last) < _autoThrottle) return;
+    await syncNow();
   }
 
   void _set(SyncStatus status) {
