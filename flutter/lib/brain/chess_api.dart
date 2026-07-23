@@ -52,8 +52,29 @@ class ChessApi {
     return r == null ? null : (r as Map).cast<String, dynamic>();
   }
 
-  /// Square-control tint: {square: 'w'|'b'} for squares one side owns.
-  Map<String, String> controlSquares(String fen) =>
-      (_bridge.call('controlSquares', args: [fen]) as Map)
-          .cast<String, String>();
+  /// Square-control tint: {square: ControlCell} for squares one side owns.
+  Map<String, ControlCell> controlSquares(String fen) {
+    final raw = _bridge.call('controlSquares', args: [fen]) as Map;
+    return {
+      for (final e in raw.entries)
+        e.key as String: ControlCell.fromJson((e.value as Map).cast<String, dynamic>()),
+    };
+  }
+}
+
+/// One square's control claim. [side] ('w'|'b') owns it; [margin] is the
+/// material (pawns) the exchange there decides, so tint intensity can be
+/// graded instead of flat; [held] flags an occupied piece its own side merely
+/// holds under fire (opt-in on the brain side, so normally false).
+class ControlCell {
+  final String side;
+  final double margin;
+  final bool held;
+  const ControlCell(this.side, this.margin, this.held);
+
+  factory ControlCell.fromJson(Map<String, dynamic> j) => ControlCell(
+        j['side'] as String,
+        (j['margin'] as num).toDouble(),
+        j['held'] as bool? ?? false,
+      );
 }
