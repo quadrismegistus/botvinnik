@@ -572,6 +572,7 @@ class _PracticeTabState extends State<PracticeTab> {
               constraints.maxWidth, constraints.maxHeight, kPracticeChrome);
           return Column(
             children: [
+              _gameScopeBanner(practice),
               Center(child: board(size)),
               _promptStrip(item, practice, sideToMove),
               _actionRow(context, practice),
@@ -591,6 +592,7 @@ class _PracticeTabState extends State<PracticeTab> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  _gameScopeBanner(practice),
                   _promptStrip(item, practice, sideToMove),
                   _actionRow(context, practice),
                 ],
@@ -599,6 +601,40 @@ class _PracticeTabState extends State<PracticeTab> {
           ],
         );
       },
+    );
+  }
+
+  /// A running "practise this game's mistakes" session (#197) narrows the queue
+  /// to one game's positions, and nothing else on the tab says so — the badge,
+  /// the collection browser and the due count all still speak for the whole
+  /// collection. This names the scope and offers the one way back to the full
+  /// queue, the same shape as the motif filter's "Show all puzzles".
+  Widget _gameScopeBanner(PracticeController practice) {
+    if (!practice.inGameSession) return const SizedBox.shrink();
+    return Container(
+      width: double.infinity,
+      color: const Color(0xFF1f1e1b),
+      padding: const EdgeInsets.fromLTRB(14, 6, 6, 6),
+      child: Row(
+        children: [
+          const Icon(Icons.history, size: 15, color: Color(0xFF81B64C)),
+          const SizedBox(width: 6),
+          const Expanded(
+            child: Text("Practising this game's mistakes",
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(color: Colors.white54, fontSize: 12)),
+          ),
+          TextButton(
+            onPressed: practice.exitGameSession,
+            style: TextButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                minimumSize: const Size(0, 32)),
+            child: const Text('Practise all',
+                style: TextStyle(color: Colors.white70, fontSize: 12)),
+          ),
+        ],
+      ),
     );
   }
 

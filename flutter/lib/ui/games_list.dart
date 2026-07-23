@@ -71,11 +71,17 @@ class GamesListBody extends StatefulWidget {
   /// The chess.com importer, same injection seam (#166).
   final ChesscomImportApi? chesscomApi;
 
+  /// Hand this game's blunder fens to the Practice tab (#197). Threaded down
+  /// to the open ReviewBody; null leaves the "practise this game's mistakes"
+  /// affordance off, which is what a standalone test of the list wants.
+  final void Function(Set<String> fens)? onPractiseGame;
+
   const GamesListBody(
       {super.key,
       this.saveFile = saveTextFile,
       this.importApi,
-      this.chesscomApi});
+      this.chesscomApi,
+      this.onPractiseGame});
 
   @override
   State<GamesListBody> createState() => _GamesListBodyState();
@@ -90,7 +96,9 @@ class _GamesListBodyState extends State<GamesListBody> {
     final review = context.watch<ReviewController>();
     // a game under review replaces the list within this tab, so the shell —
     // and the bottom tabs — stay put
-    if (review.current != null) return const ReviewBody();
+    if (review.current != null) {
+      return ReviewBody(onPractiseGame: widget.onPractiseGame);
+    }
     if (!review.loaded) {
       return const Center(child: CircularProgressIndicator());
     }

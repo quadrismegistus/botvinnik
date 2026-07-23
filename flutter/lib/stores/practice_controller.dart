@@ -119,6 +119,35 @@ class PracticeController extends ChangeNotifier {
       .where((i) => ((i['drop'] as num?)?.toDouble() ?? 0) >= threshold)
       .toList();
 
+  /// The positions (item ids / fens) one game's blunders map to, while a
+  /// "practise this game's mistakes" session (#197) is running; null the rest
+  /// of the time. Session-only, never persisted — the same discipline as
+  /// [motifFilter]: a scope is a property of the session you are sitting in,
+  /// not of the collection, and reopening the app onto three positions from a
+  /// game you reviewed weeks ago would read as the queue being broken.
+  Set<String>? gameScope;
+
+  bool get inGameSession => gameScope != null;
+
+  /// What a running session actually draws from. A game session serves EVERY
+  /// collected mistake in scope, threshold or not — you picked the game
+  /// deliberately, the way [serveItem] drills a hand-picked sub-threshold
+  /// position — so it draws from the whole collection filtered to the scope,
+  /// not from the threshold-gated [servable]. A normal session draws
+  /// [servable].
+  List<Map<String, dynamic>> get _pool {
+    final scope = gameScope;
+    if (scope == null) return servable;
+    return items.where((i) => scope.contains(i['id'] as String)).toList();
+  }
+
+  /// How many collected puzzles fall on the positions [fens] (a reviewed
+  /// game's move-before fens) — what the Review affordance labels itself with
+  /// and gates on. Counted over the whole collection, matching [_pool]'s game
+  /// branch, so the number the button shows is the number the session serves.
+  int countForGame(Set<String> fens) =>
+      items.where((i) => fens.contains(i['id'] as String)).length;
+
   int get due => loaded ? _api.dueCount(servable) : 0;
 
   /// The motif the drill is restricted to, or null for everything.
@@ -254,9 +283,41 @@ class PracticeController extends ChangeNotifier {
   // ---- session ----
 
   void startSession() {
+    // A fresh general session leaves any game scope behind: without this, a
+    // scope set weeks ago would still be silently narrowing the queue the next
+    // time the tab opened itself onto an empty board.
+    gameScope = null;
     sessionSolved = 0;
     sessionStreak = 0;
-    _serve(_api.nextItem(servable, motif: motifFilter, easyFirst: _easeIn));
+    _serve(_api.nextItem(_pool, motif: motifFilter, easyFirst: _easeIn));
+  }
+
+  /// Practise one reviewed game's own mistakes (#197): restrict the session to
+  /// [fens] — that game's blunder positions — and serve the first at once.
+  ///
+  /// A scope over the LIVE collection, not a snapshot copied out of it: the
+  /// items stay the real ones, so passing or failing them moves the real
+  /// Leitner boxes and the drill counts toward the same spaced-repetition
+  /// schedule as any other. It filters rather than forks — the whole point is
+  /// that these positions are already collected, so there is nothing to build.
+  void startGameSession(Set<String> fens) {
+    gameScope = fens;
+    // A game scope is its own filter; stacking a leftover motif on top of it
+    // could empty the pool and land the tab on "nothing tagged X" over a game
+    // that has plenty.
+    motifFilter = null;
+    sessionSolved = 0;
+    sessionStreak = 0;
+    _serve(_api.nextItem(_pool, easyFirst: _easeIn));
+  }
+
+  /// Leave the game scope and return to the full queue, serving the next
+  /// general puzzle at once — the way out the Practice tab offers while a game
+  /// session is running. Counters carry over; it is the same sitting.
+  void exitGameSession() {
+    if (gameScope == null) return;
+    gameScope = null;
+    _serve(_api.nextItem(_pool, motif: motifFilter, easyFirst: _easeIn));
   }
 
   void nextPuzzle() {
@@ -265,9 +326,9 @@ class PracticeController extends ChangeNotifier {
     // out". Under a motif filter down to a single item, honouring it empties
     // the pool and the tab announces there is nothing to practise while
     // holding a puzzle — so fall back to the unexcluded draw.
-    final next = _api.nextItem(servable,
+    final next = _api.nextItem(_pool,
             excludeId: id, motif: motifFilter, easyFirst: _easeIn) ??
-        _api.nextItem(servable, motif: motifFilter, easyFirst: _easeIn);
+        _api.nextItem(_pool, motif: motifFilter, easyFirst: _easeIn);
     _serve(next);
   }
 
@@ -295,7 +356,7 @@ class PracticeController extends ChangeNotifier {
   void setMotifFilter(String? motif) {
     if (motif == motifFilter) return;
     motifFilter = motif;
-    _serve(_api.nextItem(servable, motif: motif, easyFirst: _easeIn));
+    _serve(_api.nextItem(_pool, motif: motif, easyFirst: _easeIn));
   }
 
   void _serve(Map<String, dynamic>? item) {
@@ -598,7 +659,7 @@ class PracticeController extends ChangeNotifier {
   Future<void> remove(String id) async {
     items = _api.removeItem(items, id);
     if (current?['id'] == id) {
-      _serve(_api.nextItem(servable, motif: motifFilter, easyFirst: _easeIn));
+      _serve(_api.nextItem(_pool, motif: motifFilter, easyFirst: _easeIn));
     }
     await _persist();
     notifyListeners();
