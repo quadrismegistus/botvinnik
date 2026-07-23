@@ -126,9 +126,38 @@ class _GamesListBodyState extends State<GamesListBody> {
                       _row(context, review, review.games[i]),
                 ),
         ),
+        // The key to the two crowns, spelled out once at the foot of the list —
+        // where the Svelte archive put it. Only drawn when a crown is actually
+        // on screen: a legend for a mark that appears nowhere is just noise.
+        if (review.games.any((g) => winCrown(g) != null)) _legend(),
       ],
     );
   }
+
+  /// A one-line key for the solid/outline crowns. Mirrors the row's own colours
+  /// — gold for clean, muted for helped — so the mark and its explanation read
+  /// as the same thing.
+  Widget _legend() => Container(
+        width: double.infinity,
+        padding: const EdgeInsets.fromLTRB(12, 6, 12, 8),
+        decoration: const BoxDecoration(
+          border: Border(top: BorderSide(color: Color(0xFF2c2a26))),
+        ),
+        child: const Wrap(
+          spacing: 5,
+          runSpacing: 2,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            Icon(Icons.emoji_events, size: 13, color: Color(0xFFD4A017)),
+            Text('won clean — blind, no takebacks, no help',
+                style: TextStyle(fontSize: 11, color: Colors.white38)),
+            SizedBox(width: 4),
+            Icon(Icons.emoji_events_outlined, size: 13, color: Colors.white38),
+            Text('won with help — the row says which',
+                style: TextStyle(fontSize: 11, color: Colors.white38)),
+          ],
+        ),
+      );
 
   /// The import affordances, in the tab the imported games land in.
   ///
