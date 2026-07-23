@@ -14,6 +14,7 @@ void main() {
       '  503     1 /usr/bin/coreaudiod', // orphan, not ours → keep
       '    1     0 /sbin/launchd', // launchd itself → keep
       '   42     1 $_dir/patricia --uci', // orphan of ours → kill
+      '  888     1 /bin/bash -c tail -f $_dir/velvet.log', // only REFERENCES the dir → keep
     ].join('\n');
     expect(orphanEnginePids(ps, _dir, 999), unorderedEquals([501, 42]));
   });

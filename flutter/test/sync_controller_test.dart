@@ -162,6 +162,23 @@ void main() {
     expect(offline.status.phase, SyncPhase.offline);
   });
 
+  test('a throwing onPulled does not turn a completed sync into an error',
+      () async {
+    final store = MemorySyncStore();
+    // A pushes a game so B's first sync pulls and fires onPulled.
+    await _controller(MemoryDb([_game('a1', '2026-07-01T00:00:00.000Z')]),
+            _FakeKeyStore(), store: store)
+        .enable(_phrase);
+
+    final dbB = MemoryDb();
+    final b = _controller(dbB, _FakeKeyStore(), store: store);
+    b.onPulled = () async => throw StateError('reload boom');
+    await b.enable(_phrase);
+
+    expect(b.status.phase, SyncPhase.ok); // completed despite the callback
+    expect(dbB.games.keys, contains('a1')); // and the data landed
+  });
+
   test('advise warns on short phrases and blesses six words', () {
     final c = _controller(MemoryDb(), _FakeKeyStore(), store: MemorySyncStore());
     expect(c.advise('too short').strong, isFalse);

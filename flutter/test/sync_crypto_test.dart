@@ -66,6 +66,18 @@ void main() {
       expect(SyncCrypto.normalizePhrase('cafe\u0301'), 'caf\u00e9'); // NFD -> NFC
       expect(SyncCrypto.normalizePhrase('One Two Three'), 'one two three');
     });
+
+    test('converges even when lowercasing would strand a mark (U+0130)', () async {
+      // \u0130 precomposed (U+0130) vs decomposed (I + U+0307). Lowercasing the NFD
+      // form first would strand the combining dot; composing first avoids it.
+      final nfc = 'alpha ${String.fromCharCode(0x0130)} bravo charlie';
+      final nfd = 'alpha ${String.fromCharCodes(const [0x0049, 0x0307])} bravo charlie';
+      expect(nfc == nfd, isFalse); // genuinely different code units
+      final a = await SyncCrypto.deriveKeys(nfc, params: _fast);
+      final b = await SyncCrypto.deriveKeys(nfd, params: _fast);
+      expect(a.blobId, b.blobId);
+      expect(a.encKey, b.encKey);
+    });
   });
 
   group('seal / open', () {

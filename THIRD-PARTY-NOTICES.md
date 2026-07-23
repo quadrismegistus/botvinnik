@@ -37,6 +37,10 @@ repository as the rest of the source.
 | flutter_colorpicker | MIT |
 | sqflite | BSD-2-Clause |
 | chessboardjs-themes (Joshua Kunst) — board theme colours | MIT |
+| cryptography_plus (emz-hanauer.com; the maintained fork of Gohilla's `cryptography`) — the cross-device sync crypto (#203): PBKDF2 (phrase → key), HKDF (key split), AES-256-GCM (the blob cipher), run via WebCrypto on web | Apache-2.0 |
+| archive — gzip for the sync payload before it is encrypted; the cross-platform codec (incl. web) that `dart:io`'s GZipCodec is not | MIT |
+| flutter_secure_storage (German Saprykin) — device-local storage of the derived sync keys: Keychain / Keystore / WebCrypto-encrypted localStorage | BSD-3-Clause |
+| unorm_dart (Yasuhiro Shimizu) — Unicode NFC normalization of a sync phrase, so its NFD and NFC forms derive one key | MIT |
 
 ## Data
 

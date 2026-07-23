@@ -57,10 +57,16 @@ Future<void> reapOrphanedEngines() async {
 }
 
 /// Pure: from `ps -axo pid=,ppid=,command=` output, the PIDs that are orphaned
-/// engine processes safe to kill — parent gone (reparented to PID 1), running a
-/// binary under [enginesDir], and not us. A live engine has the app as its
-/// parent, so it never matches.
+/// engine processes safe to kill — parent gone (reparented to PID 1), the
+/// EXECUTABLE (argv[0]) is under [enginesDir], and not us. A live engine has the
+/// app as its parent, so it never matches.
+///
+/// The match anchors to the start of the command, so a process that merely
+/// mentions the engines dir in its arguments (e.g. an orphaned shell tailing a
+/// log there) is not a target — only a process actually *running* one of our
+/// binaries is.
 List<int> orphanEnginePids(String psOutput, String enginesDir, int selfPid) {
+  final prefix = enginesDir.endsWith('/') ? enginesDir : '$enginesDir/';
   final targets = <int>[];
   for (final line in const LineSplitter().convert(psOutput)) {
     final m = RegExp(r'^\s*(\d+)\s+(\d+)\s+(.*)$').firstMatch(line);
@@ -68,7 +74,7 @@ List<int> orphanEnginePids(String psOutput, String enginesDir, int selfPid) {
     final procPid = int.parse(m.group(1)!);
     final ppid = int.parse(m.group(2)!);
     final command = m.group(3)!;
-    if (procPid != selfPid && ppid == 1 && command.contains(enginesDir)) {
+    if (procPid != selfPid && ppid == 1 && command.startsWith(prefix)) {
       targets.add(procPid);
     }
   }

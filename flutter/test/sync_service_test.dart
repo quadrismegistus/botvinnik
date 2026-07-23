@@ -11,7 +11,7 @@ import 'package:http/testing.dart';
 import 'support/memory_db.dart';
 import 'support/memory_sync_store.dart';
 
-// Cheap Argon2id: the loop under test doesn't care about the KDF cost.
+// Cheap PBKDF2: the loop under test doesn't care about the KDF cost.
 const _fast = SyncCryptoParams(iterations: 1000);
 
 Map<String, dynamic> _game(String id, String endedAt) =>

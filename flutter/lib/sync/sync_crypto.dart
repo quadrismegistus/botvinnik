@@ -227,14 +227,22 @@ class SyncCrypto {
   }
 
   /// Normalize a phrase before derivation so trivial differences reach the same
-  /// key: trim, lowercase, collapse whitespace, and **NFC-normalize**.
+  /// key: trim, NFC-normalize, lowercase, collapse whitespace, NFC again.
   ///
   /// PBKDF2's output is a pure function of the UTF-8 bytes, and Dart's `String`
   /// applies no Unicode normalization — so the SAME non-ASCII phrase entered NFC
   /// on one device and NFD on another (macOS leans NFD) would otherwise derive
-  /// DIFFERENT keys. NFC is applied last so the final bytes are canonical
-  /// regardless of what lowercasing produced. ASCII phrases — every generated
-  /// one — are unchanged by NFC, so existing keys are unaffected.
-  static String normalizePhrase(String phrase) => unorm.nfc(
-      phrase.trim().toLowerCase().split(RegExp(r'\s+')).join(' '));
+  /// DIFFERENT keys.
+  ///
+  /// NFC is applied BEFORE lowercasing, not only after: Dart's `toLowerCase`
+  /// uses *simple* case mapping that can strand a combining mark (e.g. U+0130 İ
+  /// decomposed as `I` + U+0307 lowercases to `i` + U+0307, which never
+  /// recomposes), so an NFD and NFC form would diverge if we lowercased first.
+  /// Composing first lets the precomposed form lowercase cleanly; the final NFC
+  /// canonicalizes whatever lowercasing produced. ASCII phrases — every
+  /// generated one — are unchanged, so existing keys are unaffected.
+  static String normalizePhrase(String phrase) {
+    final lowered = unorm.nfc(phrase.trim()).toLowerCase();
+    return unorm.nfc(lowered.split(RegExp(r'\s+')).join(' '));
+  }
 }

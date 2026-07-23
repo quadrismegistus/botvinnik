@@ -13,7 +13,9 @@ import 'sync_key_store.dart';
 /// WebCrypto-encrypted localStorage on web — for defence in depth. But that is
 /// unavailable on an **unsigned macOS build** (Keychain wants a
 /// keychain-access-groups entitlement, which needs a signing certificate this
-/// project doesn't have — #67), so it falls back to plain `shared_preferences`.
+/// project doesn't have — #67), and on web only in a **secure context**
+/// (HTTPS/localhost — which `botvinnik.app` is), so it falls back to plain
+/// `shared_preferences` where the secure store is missing.
 ///
 /// Falling back to plaintext is safe here: the device already stores the games
 /// and practice **unencrypted** in its local database, so a key sitting beside
@@ -54,6 +56,12 @@ class SecureSyncKeyStore implements SyncKeyStore {
     final json = jsonEncode(session.toJson());
     try {
       await _secure.write(key: _key, value: json);
+      // Clear any stale plaintext fallback from a time the secure store was
+      // unavailable — otherwise a later transient secure-read failure could
+      // resurrect an old session (a different, abandoned blob).
+      try {
+        await (await _prefsInstance()).remove(_key);
+      } catch (_) {}
       return; // stored in the secure store; done
     } catch (e) {
       debugPrint('sync: secure write failed ($e) — persisting to local fallback '

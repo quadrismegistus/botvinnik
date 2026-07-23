@@ -157,7 +157,14 @@ class SyncController extends ChangeNotifier {
           lastSyncedAt: _now(), lastPulled: result.pulled));
       final pulled = result.pulled;
       if (pulled.games > 0 || pulled.practice > 0) {
-        await onPulled?.call(); // refresh the tabs the pull wrote underneath
+        // Refresh the tabs the pull wrote underneath — but a failure here must
+        // not turn a completed sync into a reported error: the CAS PUT already
+        // succeeded and the merge is on disk.
+        try {
+          await onPulled?.call();
+        } catch (e) {
+          debugPrint('sync: tab refresh (onPulled) failed: $e');
+        }
       }
       return pulled;
     } on SyncTransportException {
