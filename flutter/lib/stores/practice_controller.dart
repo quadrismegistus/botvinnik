@@ -76,6 +76,12 @@ class PracticeController extends ChangeNotifier {
   /// reads another would label the wrong rows.
   int get threshold => settings?.collectThreshold ?? 15;
 
+  /// Bias each session toward easier puzzles before the hard ones (the web's
+  /// `botvinnik-practice-easein`, on by default). Off is strict due order —
+  /// what spaced repetition asks for. Defaults on when settings hasn't been
+  /// injected yet, matching the pre-setting hardcoded behaviour.
+  bool get _easeIn => settings?.easeIn ?? true;
+
   /// Items at or above the configured threshold — what practice serves.
   List<Map<String, dynamic>> get servable => items
       .where((i) => ((i['drop'] as num?)?.toDouble() ?? 0) >= threshold)
@@ -218,7 +224,7 @@ class PracticeController extends ChangeNotifier {
   void startSession() {
     sessionSolved = 0;
     sessionStreak = 0;
-    _serve(_api.nextItem(servable, motif: motifFilter, easyFirst: true));
+    _serve(_api.nextItem(servable, motif: motifFilter, easyFirst: _easeIn));
   }
 
   void nextPuzzle() {
@@ -228,8 +234,8 @@ class PracticeController extends ChangeNotifier {
     // the pool and the tab announces there is nothing to practise while
     // holding a puzzle — so fall back to the unexcluded draw.
     final next = _api.nextItem(servable,
-            excludeId: id, motif: motifFilter, easyFirst: true) ??
-        _api.nextItem(servable, motif: motifFilter, easyFirst: true);
+            excludeId: id, motif: motifFilter, easyFirst: _easeIn) ??
+        _api.nextItem(servable, motif: motifFilter, easyFirst: _easeIn);
     _serve(next);
   }
 
@@ -257,7 +263,7 @@ class PracticeController extends ChangeNotifier {
   void setMotifFilter(String? motif) {
     if (motif == motifFilter) return;
     motifFilter = motif;
-    _serve(_api.nextItem(servable, motif: motif, easyFirst: true));
+    _serve(_api.nextItem(servable, motif: motif, easyFirst: _easeIn));
   }
 
   void _serve(Map<String, dynamic>? item) {
@@ -385,7 +391,7 @@ class PracticeController extends ChangeNotifier {
   Future<void> remove(String id) async {
     items = _api.removeItem(items, id);
     if (current?['id'] == id) {
-      _serve(_api.nextItem(servable, motif: motifFilter, easyFirst: true));
+      _serve(_api.nextItem(servable, motif: motifFilter, easyFirst: _easeIn));
     }
     await _persist();
     notifyListeners();

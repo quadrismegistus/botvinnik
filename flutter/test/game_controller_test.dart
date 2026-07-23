@@ -382,4 +382,66 @@ void main() {
       await tester.pump(const Duration(milliseconds: 120));
     });
   });
+
+  group('an opponent change is not itself a new game (#133)', () {
+    // The New Game sheet is the only caller that changes players, and its very
+    // next line starts the game with the FEN _onSettings cannot know. So the
+    // settings listener must NOT reset on its own: doing so bumped the
+    // generation twice per change and wiped to the standard start before the
+    // sheet redid it with the FEN. Counting resets is what tells this apart
+    // from the board merely ending up cleared — the exact measurement in #133.
+    //
+    // The eager `_lastSettingsSig` (assigned in the constructor, not by a late
+    // initializer) is the other half: it made the FIRST change detectable at
+    // all. The swallow used to hide it, which is why the old code's first
+    // change reset once and every later one reset twice.
+    testWidgets('each opponent change resets exactly once through the sheet '
+        'sequence — the first as well as the rest', (tester) async {
+      final arbiter = _CountingArbiter();
+      final settings = await loadSettings(); // both null: analysis
+      final game = GameController(
+          arbiter,
+          const FakeBot({
+            kTestBotId: testBotPersona,
+            kSquareBotId: squareBotPersona,
+          }),
+          FakeGrading(),
+          settings);
+
+      // The sheet's real sequence: assign the players, then start the game.
+      int resetsFor(void Function() change) {
+        final before = arbiter.resets;
+        change();
+        game.newGame();
+        return arbiter.resets - before;
+      }
+
+      // The FIRST change. With newGame() gone from _onSettings the listener
+      // adds nothing, so only the sheet's own reset counts.
+      expect(
+          resetsFor(() => settings.setPlayers(white: null, black: kTestBotId)),
+          1,
+          reason: 'only the sheet resets, not the settings listener');
+
+      // The SECOND change — the one that was TWO before the fix. _onSettings
+      // detected it and called newGame() of its own, on top of the sheet's.
+      expect(
+          resetsFor(() => settings.setPlayers(white: null, black: kSquareBotId)),
+          1,
+          reason: 'the listener no longer piggybacks a reset on the change');
+
+      settings.setPlayers(white: null, black: null);
+      game.newGame();
+      await tester.pump(const Duration(milliseconds: 200));
+    });
+  });
+}
+
+/// A [FakeArbiter] that counts board resets. newGame() calls bumpGeneration()
+/// exactly once, so the tally is the number of resets — which is what tells a
+/// redundant reset apart from a board that merely ended up cleared (#133).
+class _CountingArbiter extends FakeArbiter {
+  int resets = 0;
+  @override
+  void bumpGeneration() => resets++;
 }

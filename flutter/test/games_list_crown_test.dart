@@ -143,12 +143,18 @@ void main() {
   });
 
   group('the archive row', () {
+    // The crown icons live in the rows AND, once any row is crowned, in the
+    // footer legend — so a bare byIcon would count both. These finders are
+    // scoped to a ListTile, which the legend is not.
+    Finder inRow(IconData icon) =>
+        find.descendant(of: find.byType(ListTile), matching: find.byIcon(icon));
+
     testWidgets('a clean win draws the solid crown and says so',
         (tester) async {
       await pumpArchive(tester, [storedGame(hints: false)]);
 
-      expect(find.byIcon(Icons.emoji_events), findsOneWidget);
-      expect(find.byIcon(Icons.emoji_events_outlined), findsNothing);
+      expect(inRow(Icons.emoji_events), findsOneWidget);
+      expect(inRow(Icons.emoji_events_outlined), findsNothing);
       expect(find.text('Won clean — blind, no takebacks'), findsOneWidget);
     });
 
@@ -157,8 +163,8 @@ void main() {
       await pumpArchive(
           tester, [storedGame(undos: 2, hints: true, fallback: true)]);
 
-      expect(find.byIcon(Icons.emoji_events_outlined), findsOneWidget);
-      expect(find.byIcon(Icons.emoji_events), findsNothing);
+      expect(inRow(Icons.emoji_events_outlined), findsOneWidget);
+      expect(inRow(Icons.emoji_events), findsNothing);
       expect(
           find.text(
               'Won with help — 2 takebacks, engine stand-in, hint overlays'),
@@ -169,16 +175,16 @@ void main() {
         (tester) async {
       await pumpArchive(tester, [storedGame(hints: null)]);
 
-      expect(find.byIcon(Icons.emoji_events), findsNothing,
+      expect(inRow(Icons.emoji_events), findsNothing,
           reason: 'unknown must never look like clean');
-      expect(find.byIcon(Icons.emoji_events_outlined), findsOneWidget);
+      expect(inRow(Icons.emoji_events_outlined), findsOneWidget);
     });
 
     testWidgets('a loss carries no crown and no extra line', (tester) async {
       await pumpArchive(tester, [storedGame(result: '0-1')]);
 
-      expect(find.byIcon(Icons.emoji_events), findsNothing);
-      expect(find.byIcon(Icons.emoji_events_outlined), findsNothing);
+      expect(inRow(Icons.emoji_events), findsNothing);
+      expect(inRow(Icons.emoji_events_outlined), findsNothing);
       expect(find.textContaining('Won'), findsNothing);
     });
 
@@ -187,12 +193,36 @@ void main() {
       await pumpArchive(tester,
           [storedGame(hints: false, id: 'a'), storedGame(undos: 1, id: 'b')]);
 
-      final clean =
-          tester.widget<Icon>(find.byIcon(Icons.emoji_events));
-      final helped =
-          tester.widget<Icon>(find.byIcon(Icons.emoji_events_outlined));
+      final clean = tester.widget<Icon>(inRow(Icons.emoji_events));
+      final helped = tester.widget<Icon>(inRow(Icons.emoji_events_outlined));
       expect(clean.color, const Color(0xFFD4A017));
       expect(helped.color, isNot(const Color(0xFFD4A017)));
+    });
+  });
+
+  group('the crown legend', () {
+    testWidgets('appears once when the list holds a crowned win',
+        (tester) async {
+      await pumpArchive(tester,
+          [storedGame(hints: false, id: 'a'), storedGame(undos: 1, id: 'b')]);
+
+      expect(find.text('won clean — blind, no takebacks, no help'),
+          findsOneWidget);
+      expect(find.text('won with help — the row says which'), findsOneWidget);
+    });
+
+    testWidgets('is absent when nothing on the list is crowned',
+        (tester) async {
+      // A loss and an imported game: neither draws a crown, so the key to a
+      // mark that appears nowhere must not be drawn either.
+      await pumpArchive(tester, [
+        storedGame(result: '0-1', id: 'a'),
+        storedGame(imported: true, id: 'b'),
+      ]);
+
+      expect(find.text('won clean — blind, no takebacks, no help'),
+          findsNothing);
+      expect(find.text('won with help — the row says which'), findsNothing);
     });
   });
 

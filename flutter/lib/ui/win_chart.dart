@@ -1,11 +1,20 @@
 // The win-chance chart: White's win probability (0-100%) over the game, one
 // dot per graded ply, colored by the move's label. Tap a point to read it.
+//
+// The curve itself lives in [WinChartCanvas], which live play and review both
+// draw: they differ only in where the points come from ([WinChart] reads the
+// live game; review reads the stored evals) and what a tap does.
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../stores/game_controller.dart';
 import 'grade_strip.dart';
+
+/// One plotted ply: its number, SAN, White-POV win chance, and label (if any).
+/// A typedef so the live chart, the review chart and the painter name the same
+/// shape rather than three copies of the record drifting apart.
+typedef WinPoint = ({int ply, String san, double wc, String? label});
 
 class WinChart extends StatefulWidget {
   const WinChart({super.key});
@@ -36,37 +45,12 @@ class _WinChartState extends State<WinChart> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(14, 10, 14, 4),
-          child: SizedBox(
-            height: 140,
-            child: LayoutBuilder(
-              builder: (context, constraints) => GestureDetector(
-                onTapDown: (d) {
-                  final w = constraints.maxWidth - _kGutter;
-                  final maxPly = points.last.ply.toDouble();
-                  var best = 0;
-                  var bestDist = double.infinity;
-                  for (var i = 0; i < points.length; i++) {
-                    final x = _kGutter +
-                        w *
-                            (points[i].ply - 1) /
-                            (maxPly - 1).clamp(1, double.infinity);
-                    final dist = (x - d.localPosition.dx).abs();
-                    if (dist < bestDist) {
-                      bestDist = dist;
-                      best = i;
-                    }
-                  }
-                  setState(() => _selected = _selected == best ? null : best);
-                },
-                child: CustomPaint(
-                  size: Size.infinite,
-                  painter: _ChartPainter(points, table, sel),
-                ),
-              ),
-            ),
-          ),
+        WinChartCanvas(
+          points: points,
+          table: table,
+          selected: sel,
+          // tapping the same point again clears the readout
+          onPick: (i) => setState(() => _selected = _selected == i ? null : i),
         ),
         Padding(
           padding: const EdgeInsets.fromLTRB(14, 2, 14, 6),
@@ -79,8 +63,7 @@ class _WinChartState extends State<WinChart> {
     );
   }
 
-  Widget _readout(
-      ({int ply, String san, double wc, String? label}) p, ClassTable table) {
+  Widget _readout(WinPoint p, ClassTable table) {
     final moveNo = '${(p.ply + 1) ~/ 2}${p.ply.isOdd ? '.' : '…'}';
     final label = p.label;
     return Row(children: [
@@ -102,10 +85,67 @@ class _WinChartState extends State<WinChart> {
   }
 }
 
+/// The win-chance curve on its own: the 140px plot, the y-axis, and the
+/// nearest-point tap gesture. Stateless — the caller owns which point is
+/// [selected] (ringed) and what [onPick] does with a tapped point's index,
+/// so the same widget serves the live game and a stored one under review.
+class WinChartCanvas extends StatelessWidget {
+  final List<WinPoint> points;
+  final ClassTable table;
+  final int? selected; // index into points, drawn with a ring
+  final ValueChanged<int>? onPick; // nearest point to a tap, by index
+
+  const WinChartCanvas({
+    super.key,
+    required this.points,
+    required this.table,
+    this.selected,
+    this.onPick,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(14, 10, 14, 4),
+      child: SizedBox(
+        height: 140,
+        child: LayoutBuilder(
+          builder: (context, constraints) => GestureDetector(
+            onTapDown: onPick == null
+                ? null
+                : (d) {
+                    final w = constraints.maxWidth - _kGutter;
+                    final maxPly = points.last.ply.toDouble();
+                    var best = 0;
+                    var bestDist = double.infinity;
+                    for (var i = 0; i < points.length; i++) {
+                      final x = _kGutter +
+                          w *
+                              (points[i].ply - 1) /
+                              (maxPly - 1).clamp(1, double.infinity);
+                      final dist = (x - d.localPosition.dx).abs();
+                      if (dist < bestDist) {
+                        bestDist = dist;
+                        best = i;
+                      }
+                    }
+                    onPick!(best);
+                  },
+            child: CustomPaint(
+              size: Size.infinite,
+              painter: _ChartPainter(points, table, selected),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 const double _kGutter = 26; // room for the y-axis labels
 
 class _ChartPainter extends CustomPainter {
-  final List<({int ply, String san, double wc, String? label})> points;
+  final List<WinPoint> points;
   final ClassTable table;
   final int? selected;
   _ChartPainter(this.points, this.table, this.selected);
@@ -114,7 +154,7 @@ class _ChartPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final w = size.width - _kGutter;
     final maxPly = points.last.ply.toDouble();
-    Offset toXy(({int ply, String san, double wc, String? label}) p) => Offset(
+    Offset toXy(WinPoint p) => Offset(
           _kGutter +
               w * (p.ply - 1) / (maxPly - 1).clamp(1, double.infinity),
           size.height * (1 - p.wc / 100),

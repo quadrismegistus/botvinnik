@@ -18,6 +18,7 @@ import '../stores/settings_store.dart';
 import 'board_theme.dart';
 import 'grade_strip.dart';
 import 'layout.dart';
+import 'review_win_chart.dart';
 
 class ReviewBody extends StatelessWidget {
   const ReviewBody({super.key});
@@ -319,18 +320,26 @@ class ReviewBody extends StatelessWidget {
   static String _capitalised(String s) =>
       s.isEmpty ? s : s[0].toUpperCase() + s.substring(1);
 
-  /// The move list, with [summary] as its first row.
+  /// The move list, headed by the win-chance chart and the [summary].
   ///
-  /// The summary rides INSIDE the scrollable rather than above it: Review's
-  /// board is sized against `kReviewFixed` (layout.dart), so anything added to
-  /// that column has to be paid for out of the board — and this is read once
-  /// on opening a game, not while scrubbing through it.
+  /// Both ride INSIDE the scrollable rather than above it: Review's board is
+  /// sized against `kReviewFixed` (layout.dart), so anything added to that
+  /// column has to be paid for out of the board. The chart is scroll-away
+  /// context, not a control — and both it and the summary are cheap to keep in
+  /// the header, drawn from stored numbers rather than recomputed on a scrub.
   Widget _moveList(ReviewController review, ClassTable table, Widget summary) {
     final moves = review.moves;
     return ListView.builder(
       itemCount: (moves.length + 1) ~/ 2 + 1,
       itemBuilder: (context, index) {
-        if (index == 0) return summary;
+        if (index == 0) {
+          // The chart hides itself on an ungraded game (fewer than two graded
+          // plies), so this header collapses to just the summary there.
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [const ReviewWinChart(), summary],
+          );
+        }
         final i = index - 1;
         final white = moves[i * 2];
         final black = i * 2 + 1 < moves.length ? moves[i * 2 + 1] : null;

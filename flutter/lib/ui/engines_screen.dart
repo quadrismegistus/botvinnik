@@ -371,8 +371,10 @@ class _EngineFormDialogState extends State<EngineFormDialog> {
     final catalog = catalogEntryById(widget.existing?.id);
     final knownNoCap = catalog != null && !catalog.capsElo;
     final capsElo = catalog != null && catalog.capsElo;
-    final ratingMin = capsElo ? catalog.eloMin : 500;
-    final ratingMax = capsElo ? catalog.eloMax : 3500;
+    // Whole-hundred slider bounds; the engine's real min/max are honoured by
+    // clampElo when the move is played.
+    final ratingMin = capsElo ? catalog.capSliderMin : 500;
+    final ratingMax = capsElo ? catalog.capSliderMax : 3500;
 
     return AlertDialog(
       backgroundColor: const Color(0xFF1f1e1b),

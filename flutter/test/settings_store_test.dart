@@ -244,4 +244,27 @@ void main() {
       });
     });
   });
+
+  group('practice ease-in', () {
+    // ON out of the box, like the web: only an explicit '0' turns it off.
+    test('defaults on', () async {
+      expect((await load()).easeIn, isTrue);
+    });
+
+    test('an explicit 0 reads as off', () async {
+      expect((await load({'flutter.botvinnik-practice-easein': '0'})).easeIn,
+          isFalse);
+    });
+
+    test('round-trips through a reload', () async {
+      final s = await load();
+      s.easeIn = false;
+      expect(s.easeIn, isFalse);
+      expect((await load({'flutter.botvinnik-practice-easein': '0'})).easeIn,
+          isFalse);
+      s.easeIn = true;
+      expect((await load({'flutter.botvinnik-practice-easein': '1'})).easeIn,
+          isTrue);
+    });
+  });
 }

@@ -147,6 +147,17 @@ class SettingsTab extends StatelessWidget {
             },
           ),
         ),
+        SwitchListTile(
+          dense: true,
+          title: const Text('Ease in'),
+          subtitle: const Text(
+            'Start each session with easier puzzles, warming up before the '
+            'hard ones — they all still come up. Off is strict due order.',
+            style: TextStyle(fontSize: 11.5, color: Colors.white38),
+          ),
+          value: settings.easeIn,
+          onChanged: (v) => settings.easeIn = v,
+        ),
         ListTile(
           dense: true,
           title: const Text('Collected puzzles'),

@@ -26,6 +26,7 @@ import '../engine/maia_engine.dart';
 import '../engine/maia_progress.dart';
 import '../engine/retro_engine.dart';
 import 'custom_engine.dart';
+import 'engine_catalog.dart';
 import 'lines_tree_model.dart';
 import 'maia_status.dart';
 import 'practice_controller.dart';
@@ -90,6 +91,13 @@ class GameController extends ChangeNotifier {
   bool botThinking = false;
   String gameSeed = _newSeed();
   bool _saved = false;
+
+  /// The record [_saveGame] just wrote — the exact StoredGame map — held so the
+  /// game-over recap can open it in review straight away, without a round-trip
+  /// through the archive. Null until a game is archived, and cleared the moment
+  /// a new or re-opened game makes it stale.
+  Map<String, dynamic>? _lastSavedGame;
+  Map<String, dynamic>? get lastSavedGame => _lastSavedGame;
 
   // analysis cache: fen → future of its MultiPV-5 deep lines
   final Map<String, Future<List<EngineMove>?>> _analysis = {};
@@ -616,6 +624,7 @@ class GameController extends ChangeNotifier {
         : null;
     _undoWasCounted.clear();
     _saved = false;
+    _lastSavedGame = null;
     gameSeed = _newSeed();
     _analysis.clear();
     _partials.clear();
@@ -711,6 +720,7 @@ class GameController extends ChangeNotifier {
     lastMove =
         moves.isEmpty ? null : NormalMove.fromUci(moves.last.uci);
     _saved = false; // a re-finished game is a new game to archive
+    _lastSavedGame = null; // the old record no longer matches the live game
     _threat = null;
     _analysisFor(position.fen);
     _syncTree();
@@ -949,6 +959,10 @@ class GameController extends ChangeNotifier {
       'moves': stored,
     };
     await db.saveGame(record);
+    // Hold the record and announce it: the game-over recap watches this
+    // controller, so setting it here is what lights up "Review this game".
+    _lastSavedGame = record;
+    notifyListeners();
   }
 
   double? _bridgeAccuracy(List<Map<String, dynamic>> stored, String color) =>
@@ -1164,8 +1178,12 @@ class GameController extends ChangeNotifier {
           runner = null;
         }
         runner ??= _customRunners[cfg.id] = CustomEngineRunner(cfg.path);
+        // Clamp the (possibly round-hundred) label back into the engine's real
+        // UCI_Elo range — a "1300" the player picked drives an engine whose
+        // floor is 1320. A hand-added engine (no catalog entry) is sent as-is.
+        final capEntry = catalogEntryById(cfg.id);
         final uci = await runner.move(fen,
-            elo: cfg.limitElo ? cfg.elo : null,
+            elo: cfg.limitElo ? (capEntry?.clampElo(cfg.elo) ?? cfg.elo) : null,
             movetimeMs: cfg.movetimeMs,
             // The style option, for an engine that has styles (Rodent's
             // PersonalityFile, BrainLearn's MCTS). Null for a plain engine.

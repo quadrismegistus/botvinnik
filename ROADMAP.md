@@ -40,12 +40,24 @@ with the full 32-persona roster on those platforms today. Installing it is the
 supported answer.
 
 
-- Testing layout: vitest = `brain/**/*.test.ts` + `svelte/src/**/*.test.ts`
-  (pure logic; 264 tests in 17 files), `svelte/e2e/` = @playwright/test against
-  the built bundle (9 tests in 7 files; local Chrome via `npm run test:e2e`,
-  chromium in CI), `cd flutter && flutter test` = Dart unit tests (50),
-  `npm run test:rust` = bridge unit tests, tauri e2e = Linux CI only (no macOS
-  WebDriver backend).
+- Testing layout: `npm test` = vitest over `brain/**/*.test.ts` (the pure
+  brain logic; 295 tests in 18 files), fed by `npm run build:brain` which
+  bundles `brain.js` + Maia's separate `maia-brain.js` and runs each one's
+  smoke test and fixture replay (`npm run fixtures` / `fixtures:maia`
+  regenerate the golden inputs). `cd flutter && flutter test` = Dart unit and
+  widget tests (558 in 57 files). The vendored dartchess fork under
+  `vendor/dartchess/` has its own `dart test` suite (13 files, dominated by
+  perft gentests) — it matters even if you never touch web, since
+  `flutter/pubspec.yaml` overrides the published package with it, so the fork
+  is what ships in production iOS/Android builds. `cd worker && npm test` =
+  the sync blob-store Worker (issue #203) driven through Miniflare (17 tests
+  in `worker/test/`). Typechecking is split: `npm run check` is a plain `tsc`
+  over the brain and `scripts/`, `npm run check:flutter-ts` covers the Flutter
+  app's own TypeScript (which esbuild bundles without typechecking).
+  `npm run test:e2e:flutter` = @playwright/test in a real browser against the
+  built web app (`flutter/e2e/`, 3 specs — garbo/maia/retro engine workers;
+  the two `@network` Maia tests that fetch weights from HuggingFace are
+  skipped in CI).
   **Not in CI:** `flutter/integration_test/` needs a real device, so CI only
   *analyses* it. Run those locally against the real bridge with
   `flutter test integration_test/<file>.dart -d macos` — that is JavaScriptCore,

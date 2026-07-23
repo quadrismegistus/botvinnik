@@ -149,6 +149,14 @@ class EngineCatalogEntry {
   bool get ownDir =>
       dataFiles.isNotEmpty || personalities.any((p) => p.file != null);
 
+  /// The cap range rounded to whole hundreds, for a friendly 100-step slider —
+  /// an engine whose floor is 1320 shows 1300. A picked value is mapped back
+  /// into [eloMin]..[eloMax] by [clampElo] before it reaches the engine, so the
+  /// label stays round while the engine gets a value it can actually honour.
+  int get capSliderMin => (eloMin / 100).round() * 100;
+  int get capSliderMax => (eloMax / 100).round() * 100;
+  int clampElo(int shown) => shown.clamp(eloMin, eloMax);
+
   EngineBuild? buildFor(String? platformKey) =>
       platformKey == null ? null : builds[platformKey];
 }
