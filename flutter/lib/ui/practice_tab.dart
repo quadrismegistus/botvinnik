@@ -270,6 +270,33 @@ class _PracticeTabState extends State<PracticeTab> {
   /// the player can undo in a tap.
   Widget _idleBanner(PracticeController practice) {
     final motif = practice.motifFilter;
+    // A continued line that ran to its end (#143) leaves no puzzle on the board;
+    // say why, then fall back to Next for the scheduler's next draw.
+    final lineNote = practice.lineNote;
+    if (lineNote != null) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.fromLTRB(14, 8, 14, 8),
+        color: const Color(0xFF1f1e1b),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(lineNote,
+                  style:
+                      const TextStyle(color: Colors.white38, fontSize: 12)),
+            ),
+            TextButton(
+              onPressed: practice.nextPuzzle,
+              style: TextButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  minimumSize: const Size(0, 32)),
+              child: const Text('Next puzzle',
+                  style: TextStyle(color: Colors.white70, fontSize: 12)),
+            ),
+          ],
+        ),
+      );
+    }
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.fromLTRB(14, 8, 14, 8),
@@ -528,6 +555,9 @@ class _PracticeTabState extends State<PracticeTab> {
                   ? Side.white
                   : Side.black,
               onMove: (move, {viaDragAndDrop}) {
+                // Locked while the engine plays a line continuation (#143), the
+                // same way an in-flight check locks it.
+                if (practice.continuing) return;
                 if (move is! NormalMove || !pos.isLegal(move)) return;
                 final (_, san) = pos.makeSan(move);
                 final after = pos.playUnchecked(move);
@@ -610,9 +640,25 @@ class _PracticeTabState extends State<PracticeTab> {
       String sideToMove) {
     final attempt = practice.attempt;
     Widget content;
-    if (practice.checking) {
+    if (practice.continuing) {
+      content = const Text('Playing the reply…',
+          style: TextStyle(color: Colors.white54, fontSize: 13));
+    } else if (practice.checking) {
       content = const Text('Checking…',
           style: TextStyle(color: Colors.white54, fontSize: 13));
+    } else if (attempt == null && practice.lineDepth > 0) {
+      // A continued position (#143): a fresh target one move deeper, not the
+      // collected blunder — so no "you lost X% here" subtitle.
+      content = Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('$sideToMove to move — continue the line',
+              style:
+                  const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+          const Text('find the strong move here too',
+              style: TextStyle(color: Colors.white38, fontSize: 12)),
+        ],
+      );
     } else if (attempt == null) {
       final drop = (item['drop'] as num).toDouble();
       final motifs = (item['motifs'] as List?)?.cast<String>() ?? const [];
@@ -776,6 +822,15 @@ class _PracticeTabState extends State<PracticeTab> {
                     onPressed: practice.reveal,
                     child: const Text('Show best',
                         style: TextStyle(color: Colors.white70)),
+                  ),
+                // Keep playing forward from a puzzle you passed (#143): the
+                // engine answers and the position one move later becomes the
+                // next target. Off a PASS only, and never mid-continuation.
+                if (attempt != null && attempt.pass && !practice.continuing)
+                  TextButton(
+                    onPressed: practice.continueLine,
+                    child: const Text('Continue the line',
+                        style: TextStyle(color: Color(0xFF81B64C))),
                   ),
               ]),
             ),

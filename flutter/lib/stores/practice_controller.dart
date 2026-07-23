@@ -6,6 +6,7 @@
 
 import 'dart:convert';
 
+import 'package:dartchess/dartchess.dart';
 import 'package:flutter/foundation.dart';
 
 import '../brain/grading_api.dart';
@@ -20,6 +21,14 @@ const double kPassDrop = 5; // ≤5% win-chance loss passes (web PASS_DROP)
 // serve time, so tightening or loosening it later applies retroactively
 // to the whole collection instead of only to future games.
 const double kCollectMin = 5;
+
+// The "continue the line" search budget. Deliberately the SAME depth/time as
+// the checkAttempt verdict search (see there): the opponent's reply and the
+// next target are found at the depth the puzzle itself is graded at, and the
+// full-NNUE native engine's slower per-node cost is the same argument for a
+// snappy 1.5s cap here as it is there.
+const int kLineSearchDepth = 12;
+const int kLineSearchMs = 1500;
 
 class AttemptOutcome {
   final String san;
@@ -58,6 +67,29 @@ class PracticeController extends ChangeNotifier {
   bool _resultRecorded = false;
   int sessionSolved = 0;
   int sessionStreak = 0;
+
+  /// "Continue the line" state (#143). After a PASSED puzzle the player can keep
+  /// playing forward: the engine answers, the position one move later is served
+  /// as a fresh target, and the drill walks the line the puzzle came from.
+  ///
+  /// [continuing] is true while the two back-to-back searches run — the reply
+  /// and the next target — and locks the board like an in-flight check does.
+  bool continuing = false;
+
+  /// How many "continue" steps past the stored puzzle we are. Zero is the
+  /// scheduler-served puzzle; anything above is an EPHEMERAL line continuation
+  /// that must not touch the Leitner schedule (guarded in [checkAttempt]) — you
+  /// are drilling a line, not re-answering the collected position.
+  int lineDepth = 0;
+
+  /// Set when a continued line runs to its end (checkmate/stalemate): there is
+  /// no next target, so the drill stops with a note instead of a puzzle.
+  String? lineNote;
+
+  /// The position AFTER the graded attempt, captured by [checkAttempt] so
+  /// [continueLine] knows where to play the opponent's reply from. Null unless
+  /// an attempt has just committed against the puzzle on screen.
+  String? _fenAfterAttempt;
 
   /// Bumped by every `_serve`, i.e. by anything that puts a different puzzle on
   /// screen — Skip/Next, the motif picker, a delete, a new session. An
@@ -275,6 +307,14 @@ class PracticeController extends ChangeNotifier {
     revealBest = false;
     _resultRecorded = false;
     checking = false;
+    // Serving a scheduler-drawn puzzle leaves any line behind — this is also
+    // the cleanup point for a [continueLine] abandoned mid-flight: it captures
+    // the generation and returns without touching state once _gen has moved, so
+    // continuing/lineDepth/lineNote/_fenAfterAttempt are reset HERE for it.
+    continuing = false;
+    lineDepth = 0;
+    lineNote = null;
+    _fenAfterAttempt = null;
     notifyListeners();
   }
 
@@ -282,6 +322,9 @@ class PracticeController extends ChangeNotifier {
     attempt = null;
     pendingUci = null;
     checking = false;
+    // A fresh attempt has not been graded yet, so the position it would
+    // continue from is stale — clear it until the next check commits.
+    _fenAfterAttempt = null;
     notifyListeners();
   }
 
@@ -364,8 +407,19 @@ class PracticeController extends ChangeNotifier {
       refutationUci: pass ? null : refutation,
     );
     checking = false;
+    // Where a passed attempt can be continued FROM (#143). Set for every graded
+    // move, on the puzzle now on screen — the gen guard above has already
+    // dropped a verdict that outlived its puzzle, so this only lands for the
+    // current one.
+    _fenAfterAttempt = fenAfter;
 
-    if (!_resultRecorded) {
+    // Line continuations (lineDepth > 0) are an ephemeral drill of the line, not
+    // the collected position — they must not move a Leitner box or count toward
+    // session progress. Only the stored puzzle (lineDepth 0) is spaced
+    // repetition. (A continuation's synthetic id is not in `items` anyway, so
+    // recordResult would no-op — but the session counters would not, so the
+    // guard is load-bearing, not belt-and-braces.)
+    if (!_resultRecorded && lineDepth == 0) {
       _resultRecorded = true;
       items = _api.recordResult(items, item['id'] as String, pass,
           hinted: hintTier > 0);
@@ -377,6 +431,159 @@ class PracticeController extends ChangeNotifier {
         sessionStreak = 0;
       }
     }
+    notifyListeners();
+  }
+
+  /// Keep playing FORWARD from a puzzle you just passed (#143).
+  ///
+  /// Turns a one-move puzzle into a drill of the line it came from: play the
+  /// engine's reply to the move you found, then re-serve the position one move
+  /// later as a fresh target, and let you find the next move too. Was app-level
+  /// orchestration in the web's `+page.svelte`, never exported from the brain;
+  /// every primitive it needs is already here (the arbiter's depth-bounded
+  /// search, [GradingApi.winChance], dartchess SAN).
+  ///
+  /// Off a PASS only — continuing a line from a move that lost is not a drill of
+  /// the line, it is compounding the mistake. Two searches run back to back (the
+  /// reply, then the next best move), so this holds the SAME stale-verdict guard
+  /// [checkAttempt] does: the generation captured on entry is re-checked across
+  /// every await, and a Skip / delete / browser pick that serves a different
+  /// puzzle mid-flight makes this drop everything rather than land a target on
+  /// the wrong board. `_serve` has already reset the continue state for that
+  /// abandoned run, so the early return needs no cleanup of its own — exactly
+  /// like the checkAttempt guard.
+  Future<void> continueLine() async {
+    final att = attempt;
+    final fromFen = _fenAfterAttempt;
+    if (current == null ||
+        att == null ||
+        !att.pass ||
+        checking ||
+        continuing ||
+        fromFen == null) {
+      return;
+    }
+    final gen = _gen;
+    continuing = true;
+    lineNote = null;
+    notifyListeners();
+
+    Position afterAttempt;
+    try {
+      afterAttempt = Chess.fromSetup(Setup.parseFen(fromFen));
+    } catch (_) {
+      // A FEN we cannot parse is not a position to continue — bail cleanly.
+      if (gen == _gen) {
+        continuing = false;
+        notifyListeners();
+      }
+      return;
+    }
+
+    // 1. The opponent's reply to the move just played.
+    final replyLines = await _arbiter.search(
+      fen: fromFen,
+      depth: kLineSearchDepth,
+      multiPv: 1,
+      movetimeMs: kLineSearchMs,
+      priority: SearchPriority.practiceCheck,
+    );
+    if (gen != _gen) return; // a different puzzle was served mid-flight — drop
+    final replyUci = (replyLines != null &&
+            replyLines.isNotEmpty &&
+            replyLines.first.pv.isNotEmpty)
+        ? replyLines.first.pv.first
+        : null;
+    final replyMove = replyUci == null ? null : NormalMove.fromUci(replyUci);
+    if (replyMove == null || !afterAttempt.isLegal(replyMove)) {
+      continuing = false;
+      notifyListeners();
+      return;
+    }
+    final (_, replySan) = afterAttempt.makeSan(replyMove);
+    final afterReply = afterAttempt.playUnchecked(replyMove);
+
+    if (afterReply.isGameOver) {
+      // The line ran to its end — no next target to serve. End the drill with a
+      // note rather than a puzzle; the tab shows it on the idle banner.
+      lineDepth++;
+      continuing = false;
+      current = null;
+      attempt = null;
+      pendingUci = null;
+      _fenAfterAttempt = null;
+      lineNote = 'Line over after $replySan.';
+      notifyListeners();
+      return;
+    }
+
+    // 2. The next target: the best move in the position the reply leaves.
+    final targetFen = afterReply.fen;
+    final targetLines = await _arbiter.search(
+      fen: targetFen,
+      depth: kLineSearchDepth,
+      multiPv: 1,
+      movetimeMs: kLineSearchMs,
+      priority: SearchPriority.practiceCheck,
+    );
+    if (gen != _gen) return;
+    final best = (targetLines != null &&
+            targetLines.isNotEmpty &&
+            targetLines.first.pv.isNotEmpty)
+        ? targetLines.first
+        : null;
+    if (best == null) {
+      // The engine gave us nothing to aim at — stop rather than serve a puzzle
+      // with no best move.
+      continuing = false;
+      current = null;
+      attempt = null;
+      pendingUci = null;
+      _fenAfterAttempt = null;
+      lineNote = 'Line over after $replySan.';
+      notifyListeners();
+      return;
+    }
+    final bestUci = best.pv.first;
+    final (_, bestSan) = afterReply.makeSan(NormalMove.fromUci(bestUci));
+    // best.score is the side-to-move's perspective, and after the reply it is
+    // the player's move again — so it is already the player's eval, matching the
+    // `evalBestPawns` a stored item carries and what checkAttempt's best branch
+    // reads back. Feed winChance null pawns when it is a mate, as everywhere.
+    final wcBest =
+        _grading.winChance(best.mate == null ? best.score : null, best.mate);
+
+    // Install the ephemeral target. Bump the generation like [_serve] does so a
+    // check still in flight against the previous position is dropped, then swap
+    // the board over. The synthetic id is the fen — unique to the position and,
+    // not being in `items`, harmless if a stale recordResult ever reached it.
+    _gen++;
+    lineDepth++;
+    current = {
+      'id': targetFen,
+      'fen': targetFen,
+      'bestUci': bestUci,
+      'bestSan': bestSan,
+      'bestPv': best.pv,
+      'motifs': const <String>[],
+      'evalBestPawns': best.score,
+      'mateBest': best.mate,
+      'wcBest': wcBest,
+      'drop': 0,
+      'playedSan': replySan,
+      'lastResult': null,
+      'attempts': 0,
+      'correct': 0,
+    };
+    attempt = null;
+    pendingUci = null;
+    hintTier = 0;
+    revealBest = false;
+    _resultRecorded = false;
+    checking = false;
+    continuing = false;
+    lineNote = null;
+    _fenAfterAttempt = null;
     notifyListeners();
   }
 
