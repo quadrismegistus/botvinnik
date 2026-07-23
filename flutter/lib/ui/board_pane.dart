@@ -193,6 +193,14 @@ class _BoardPaneState extends State<BoardPane> {
   }
 }
 
+/// The exchange-margin → tint-intensity multiplier the control painter grades
+/// opacity by. Exposed for tests: canvas alpha can't be asserted through a
+/// widget test, but this pure mapping is the whole of the new intensity logic —
+/// margin 0 returns 1.0 (the old flat look, so nothing dims), a queen (9) returns
+/// 2.0, and anything beyond is clamped so a high base opacity still holds.
+@visibleForTesting
+double controlTintGrade(double margin) => 1 + (margin.clamp(0, 9) / 9);
+
 /// The square-control overlay, two claims in two shapes. EMPTY squares get a
 /// flat wash — "this side owns this square", a statement about territory.
 /// OCCUPIED squares get a ring around the piece — "this piece is winnable /
@@ -205,14 +213,6 @@ class _BoardPaneState extends State<BoardPane> {
 /// whole queen swings paints up toward full — so "how decisively" reads off
 /// the board, not just "who". The base for margin 0 matches the old flat
 /// look, so nothing dims; contested squares only get brighter.
-/// The exchange-margin → tint-intensity multiplier the control painter grades
-/// opacity by. Exposed for tests: canvas alpha can't be asserted through a
-/// widget test, but this pure mapping is the whole of the new intensity logic —
-/// margin 0 returns 1.0 (the old flat look, so nothing dims), a queen (9) returns
-/// 2.0, and anything beyond is clamped so a high base opacity still holds.
-@visibleForTesting
-double controlTintGrade(double margin) => 1 + (margin.clamp(0, 9) / 9);
-
 class _ControlPainter extends CustomPainter {
   final Map<String, ControlCell> control;
   final Side orientation;
