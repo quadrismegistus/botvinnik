@@ -5,9 +5,17 @@
 // mover's own absence are accounted for; x-rays behind other pieces are not).
 //
 // An EMPTY square exactly one side can safely use is controlled by that side.
-// An OCCUPIED square is tinted only when the opponent wins the exchange
-// outright there (the piece is effectively lost) — tinting every held square
-// would just repaint the whole board.
+// An OCCUPIED square is tinted when the opponent wins the exchange outright
+// there (the piece is effectively lost). With the opt-in `held` option it is
+// also tinted for its OWN side when the opponent attacks it but cannot win the
+// exchange — a contested-but-safe piece. Held is off by default because
+// tinting every safe piece would just repaint the whole board; the option
+// restricts it to pieces actually under fire, which is the readable subset.
+//
+// Each tinted square carries a `margin`: the material (in pawns) the exchange
+// there decides, so the consumer can grade intensity instead of painting a
+// flat yes/no. A hanging queen reads hotter than a hanging pawn; calm
+// territory the opponent cannot even contest reads margin 0.
 //
 // Pure chess.js — no engine time. The opponent's moves come from the same
 // null-move turn-flip the threat probe uses (ep voided).
@@ -19,7 +27,9 @@
 // reads as crushed even when it is winning (in 4k3/8/8/8/7q/8/8/4K2R w K - 0 1
 // White plays Rxh4 and is a queen up, but would tint 5 against 16). Blank says
 // "no fair comparison here", which is the truth. Making it symmetric needs
-// pseudo-legal move generation, which chess.js does not expose.
+// pseudo-legal move generation, which chess.js does not expose. (Tried once in
+// 40ed32d, reverted with that data in be3cc0c — do not re-attempt without a
+// plan for the asymmetry.)
 
 import { Chess, type Color, type Square } from 'chess.js';
 import { PIECE_VAL } from './explain';
@@ -74,9 +84,23 @@ function bestNets(c: Chess): Map<string, number> {
 	return out;
 }
 
-export type ControlMap = Map<string, 'w' | 'b'>;
+// A square one side owns, with the exchange margin that decides it (pawns) and
+// whether it is an occupied piece its own side merely HOLDS (as opposed to an
+// empty square owned, or an enemy piece falling where it stands).
+export interface ControlCell {
+	side: 'w' | 'b';
+	margin: number;
+	held: boolean;
+}
 
-export function computeControl(fen: string): ControlMap {
+export type ControlMap = Map<string, ControlCell>;
+
+export interface ControlOpts {
+	// mark occupied squares the owner holds under fire (default off — see header)
+	held?: boolean;
+}
+
+export function computeControl(fen: string, opts: ControlOpts = {}): ControlMap {
 	const map: ControlMap = new Map();
 	let real: Chess;
 	try {
@@ -109,16 +133,30 @@ export function computeControl(fen: string): ControlMap {
 			const sq = (files[f] + r) as Square;
 			const piece = real.get(sq);
 			if (piece) {
-				const opp: Color = piece.color === 'w' ? 'b' : 'w';
+				const owner: Color = piece.color;
+				const opp: Color = owner === 'w' ? 'b' : 'w';
 				const oppNet = nets[opp].get(sq);
-				if (oppNet !== undefined && oppNet > 0) map.set(sq, opp); // the piece is winnable
+				if (oppNet === undefined) continue; // opponent can't reach it — nothing to say
+				if (oppNet > 0) {
+					// the piece is winnable: the opponent wins `oppNet` pawns outright
+					map.set(sq, { side: opp, margin: oppNet, held: false });
+				} else if (opts.held) {
+					// under fire but the exchange doesn't win for the opponent — the
+					// owner holds it; margin is the deterrent depth (0 = even standoff)
+					map.set(sq, { side: owner, margin: oppNet === 0 ? 0 : -oppNet, held: true });
+				}
 			} else {
 				const w = nets.w.get(sq);
 				const b = nets.b.get(sq);
 				const wSafe = w !== undefined && w >= 0;
 				const bSafe = b !== undefined && b >= 0;
-				if (wSafe && !bSafe) map.set(sq, 'w');
-				else if (bSafe && !wSafe) map.set(sq, 'b');
+				// margin = how much the losing side forfeits by contesting the square
+				// (it can only reach it at a loss, or not at all → 0, calm territory)
+				if (wSafe && !bSafe) {
+					map.set(sq, { side: 'w', margin: b === undefined ? 0 : -b, held: false });
+				} else if (bSafe && !wSafe) {
+					map.set(sq, { side: 'b', margin: w === undefined ? 0 : -w, held: false });
+				}
 			}
 		}
 	}

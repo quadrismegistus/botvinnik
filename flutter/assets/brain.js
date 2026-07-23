@@ -9210,7 +9210,7 @@ var brain = (() => {
     }
     return out;
   }
-  function computeControl(fen) {
+  function computeControl(fen, opts = {}) {
     const map = /* @__PURE__ */ new Map();
     let real;
     try {
@@ -9240,16 +9240,25 @@ var brain = (() => {
         const sq = files[f] + r;
         const piece = real.get(sq);
         if (piece) {
-          const opp = piece.color === "w" ? "b" : "w";
+          const owner = piece.color;
+          const opp = owner === "w" ? "b" : "w";
           const oppNet = nets[opp].get(sq);
-          if (oppNet !== void 0 && oppNet > 0) map.set(sq, opp);
+          if (oppNet === void 0) continue;
+          if (oppNet > 0) {
+            map.set(sq, { side: opp, margin: oppNet, held: false });
+          } else if (opts.held) {
+            map.set(sq, { side: owner, margin: oppNet === 0 ? 0 : -oppNet, held: true });
+          }
         } else {
           const w = nets.w.get(sq);
           const b = nets.b.get(sq);
           const wSafe = w !== void 0 && w >= 0;
           const bSafe = b !== void 0 && b >= 0;
-          if (wSafe && !bSafe) map.set(sq, "w");
-          else if (bSafe && !wSafe) map.set(sq, "b");
+          if (wSafe && !bSafe) {
+            map.set(sq, { side: "w", margin: b === void 0 ? 0 : -b, held: false });
+          } else if (bSafe && !wSafe) {
+            map.set(sq, { side: "b", margin: w === void 0 ? 0 : -w, held: false });
+          }
         }
       }
     }
