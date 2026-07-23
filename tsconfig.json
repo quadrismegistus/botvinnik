@@ -25,7 +25,5 @@
 		"strict": true
 	},
 	"include": ["brain/**/*.ts", "scripts/**/*.ts", "scripts/**/*.mts"],
-	// maia3-spike is a snapshot of maia3's own TypeScript, imported here to read
-	// rather than to build — it resolves against its own project layout.
-	"exclude": ["node_modules", "flutter", "vendor", "scripts/maia3-spike"]
+	"exclude": ["node_modules", "flutter", "vendor"]
 }
