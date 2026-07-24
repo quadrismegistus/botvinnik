@@ -238,6 +238,10 @@ class PracticeController extends ChangeNotifier {
       if (victim == null || victim == Role.king) return null;
       // Recapture check: did your move capture on this same square? If so, the
       // opponent taking back there is a trade, not a free win — say nothing.
+      // (En passant is the one gap: your pawn's destination was empty before,
+      // so an e.p. capture reads as a non-capture and a pawn recapture would
+      // slip through as "wins your pawn". Pawn-only and rarely past the collect
+      // threshold, so left as-is rather than special-casing a rare path.)
       final before = Chess.fromSetup(Setup.parseFen(beforeFen));
       final played = NormalMove.fromUci(playedUci);
       final youCapturedHere =
