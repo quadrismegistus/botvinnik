@@ -80,6 +80,7 @@ export function estimatePlayerElo(gamesList: StoredGame[]): PlayerEloEstimate | 
 		if (opp == null) continue; // legacy slider game, or no opponent on record
 		if (g.botFallback) continue; // opponent wasn't really the persona — off the ruler
 		if ((g.botUndos ?? 0) > 0) continue; // takebacks = assisted result — off the ruler
+		if ((g.refusedMoves ?? 0) > 0) continue; // a move was refused (#167) — assisted, off the ruler
 		// Two bots playing each other. playerColor falls back to White when both
 		// sides carry a persona, so such a game archives looking like a human
 		// White game and was being scored as one. #144 stopped it earning a crown
