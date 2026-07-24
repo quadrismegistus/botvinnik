@@ -4,6 +4,7 @@
 // pass/fail, hints in tiers. Find-best drill only for now (blundercheck
 // is a later pass, like the web's second drill mode).
 
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:dartchess/dartchess.dart';
@@ -30,6 +31,23 @@ const double kCollectMin = 5;
 const int kLineSearchDepth = 12;
 const int kLineSearchMs = 1500;
 
+/// How many plies of the opponent's punishing line the drill keeps to play back
+/// (#215). A few is enough to show the point — the piece falling, the mate —
+/// without walking a won endgame.
+const int _kRefutePlies = 6;
+
+/// The pause between plies while the punishment line auto-plays.
+const Duration _kRefuteStep = Duration(milliseconds: 850);
+
+const Map<Role, String> _kRoleNoun = {
+  Role.pawn: 'pawn',
+  Role.knight: 'knight',
+  Role.bishop: 'bishop',
+  Role.rook: 'rook',
+  Role.queen: 'queen',
+  Role.king: 'king',
+};
+
 /// What [PracticeController.maybeCollect] did with a graded move, so the
 /// insight card can say it at the moment it happens (#123):
 /// - [added]       a new puzzle was collected — the move cleared the threshold
@@ -47,6 +65,14 @@ class AttemptOutcome {
   final double drop;
   final double? evalPawns;
   final String? refutationUci; // the punishing reply when the attempt fails
+  /// The opponent's full punishing line from the position after your move, so
+  /// the drill can PLAY the cost of the mistake, not just assert it (#215).
+  /// Capped to a few plies; empty on a pass (nothing to punish).
+  final List<String> refutationPv;
+  /// A one-line "why it's bad", derived in Dart from the refutation: whether it
+  /// mates or which of your pieces it wins. Null when the punishment is subtler
+  /// than a mate or an outright capture — the win-chance drop carries it then.
+  final String? punishment;
   const AttemptOutcome({
     required this.san,
     required this.uci,
@@ -54,6 +80,8 @@ class AttemptOutcome {
     required this.drop,
     required this.evalPawns,
     this.refutationUci,
+    this.refutationPv = const [],
+    this.punishment,
   });
 }
 
@@ -108,7 +136,122 @@ class PracticeController extends ChangeNotifier {
   /// as `GameController._gen`.
   int _gen = 0;
 
+  /// "Watch what it costs" (#215): while a failed attempt's punishment line
+  /// auto-plays on the board. [refutePreviewPly] is how many plies of
+  /// [AttemptOutcome.refutationPv] have been played from the after-your-move
+  /// position; the board renders [refutePreviewFen] and locks input meanwhile.
+  bool refutePreviewing = false;
+  int refutePreviewPly = 0;
+  Timer? _refuteTimer;
+
   PracticeController(this._db, this._api, this._grading, this._arbiter);
+
+  @override
+  void dispose() {
+    _refuteTimer?.cancel();
+    super.dispose();
+  }
+
+  /// The board position the punishment preview is showing: the after-your-move
+  /// position walked forward [refutePreviewPly] plies down the refutation. Null
+  /// when no preview is running or the FEN/line can't be played.
+  String? get refutePreviewFen {
+    if (!refutePreviewing) return null;
+    final att = attempt;
+    final base = _fenAfterAttempt;
+    if (att == null || base == null) return null;
+    try {
+      Position pos = Chess.fromSetup(Setup.parseFen(base));
+      for (var i = 0; i < refutePreviewPly && i < att.refutationPv.length; i++) {
+        final m = NormalMove.fromUci(att.refutationPv[i]);
+        if (!pos.isLegal(m)) break;
+        pos = pos.playUnchecked(m);
+      }
+      return pos.fen;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Start (or restart) auto-playing the punishment line for the failed attempt
+  /// on screen. No-op unless there is a failed attempt with a line to show.
+  void startRefutationPreview() {
+    final att = attempt;
+    if (att == null || att.pass || att.refutationPv.isEmpty) return;
+    if (_fenAfterAttempt == null) return;
+    _refuteTimer?.cancel();
+    refutePreviewing = true;
+    refutePreviewPly = 0;
+    notifyListeners();
+    _refuteTimer = Timer.periodic(_kRefuteStep, (_) => _stepRefutation());
+  }
+
+  /// One ply of the punishment preview — what the timer fires, exposed so a test
+  /// can walk the line without waiting on real time.
+  @visibleForTesting
+  void stepRefutationPreview() => _stepRefutation();
+
+  void _stepRefutation() {
+    if (!refutePreviewing) return;
+    final att = attempt;
+    if (att == null || refutePreviewPly >= att.refutationPv.length) {
+      // The line has fully played out — hold on the final position a moment,
+      // then clear so the drill's prompt (and best-move controls) return.
+      stopRefutationPreview();
+      return;
+    }
+    refutePreviewPly++;
+    notifyListeners();
+  }
+
+  /// Stop the punishment preview and return the board to the attempt position.
+  void stopRefutationPreview() {
+    _refuteTimer?.cancel();
+    _refuteTimer = null;
+    if (!refutePreviewing && refutePreviewPly == 0) return;
+    refutePreviewing = false;
+    refutePreviewPly = 0;
+    notifyListeners();
+  }
+
+  /// A plain-language punishment for a failed attempt, from the position after
+  /// your move and the opponent's best reply: mate, or the piece it wins.
+  /// Returns null when the refutation neither mates nor captures a piece
+  /// outright — a subtler tactic, where the win-chance drop is the honest
+  /// thing to show and the playable line does the explaining.
+  /// [beforeFen] is the puzzle position and [playedUci] the move made on it —
+  /// both needed to tell a free win from an even trade: a refutation that
+  /// recaptures on the square your move just captured on is a TRADE, not a lost
+  /// piece, so it must not be reported as "wins your rook" (the win-chance drop
+  /// carries that). Your move walking a piece INTO a capture (a non-capture that
+  /// hangs it) is still a real loss and still named.
+  String? _describePunishment(
+      String beforeFen, String playedUci, String fenAfter, String? refUci) {
+    if (refUci == null) return null;
+    try {
+      final pos = Chess.fromSetup(Setup.parseFen(fenAfter));
+      final move = NormalMove.fromUci(refUci);
+      if (!pos.isLegal(move)) return null;
+      final victim = pos.board.roleAt(move.to); // the piece captured, if any
+      final (after, refSan) = pos.makeSan(move);
+      if (after.isCheckmate) return '$refSan is checkmate.';
+      if (victim == null || victim == Role.king) return null;
+      // Recapture check: did your move capture on this same square? If so, the
+      // opponent taking back there is a trade, not a free win — say nothing.
+      // (En passant is the one gap: your pawn's destination was empty before,
+      // so an e.p. capture reads as a non-capture and a pawn recapture would
+      // slip through as "wins your pawn". Pawn-only and rarely past the collect
+      // threshold, so left as-is rather than special-casing a rare path.)
+      final before = Chess.fromSetup(Setup.parseFen(beforeFen));
+      final played = NormalMove.fromUci(playedUci);
+      final youCapturedHere =
+          before.board.roleAt(played.to) != null && played.to == move.to;
+      if (youCapturedHere) return null;
+      return '$refSan wins your ${_kRoleNoun[victim] ?? 'piece'}.';
+    } catch (_) {
+      return null;
+    }
+  }
 
   /// The drop a puzzle needs before practice will serve it.
   ///
@@ -452,6 +595,12 @@ class PracticeController extends ChangeNotifier {
 
   void _serve(Map<String, dynamic>? item) {
     _gen++;
+    // A punishment preview belongs to the attempt being left behind — cancel its
+    // timer and reset it so the new puzzle never opens mid-playback.
+    _refuteTimer?.cancel();
+    _refuteTimer = null;
+    refutePreviewing = false;
+    refutePreviewPly = 0;
     current = item;
     attempt = null;
     pendingUci = null;
@@ -475,6 +624,11 @@ class PracticeController extends ChangeNotifier {
   }
 
   void retry() {
+    // Leaving the graded attempt behind: stop any punishment playback with it.
+    _refuteTimer?.cancel();
+    _refuteTimer = null;
+    refutePreviewing = false;
+    refutePreviewPly = 0;
     attempt = null;
     pendingUci = null;
     checking = false;
@@ -501,7 +655,10 @@ class PracticeController extends ChangeNotifier {
   /// priority — preempts background analysis, waits behind nothing).
   Future<void> checkAttempt(String uci, String san, String fenAfter) async {
     final item = current;
-    if (item == null || checking) return;
+    // Also barred while the punishment preview plays: the UI already blocks the
+    // board then, but guarding here keeps a stray call from grading against a
+    // position the preview has walked away from, leaving the timer live.
+    if (item == null || checking || refutePreviewing) return;
     final gen = _gen;
     checking = true;
     pendingUci = uci; // show the move on the board while we check
@@ -509,6 +666,7 @@ class PracticeController extends ChangeNotifier {
 
     double? evalPawns;
     String? refutation;
+    List<String> refutationPv = const [];
     double drop;
     if (uci == item['bestUci']) {
       evalPawns = (item['evalBestPawns'] as num?)?.toDouble();
@@ -551,6 +709,8 @@ class PracticeController extends ChangeNotifier {
       final wcAfter = _grading.winChance(evalPawns, mate);
       drop = ((item['wcBest'] as num).toDouble() - wcAfter).clamp(0.0, 100.0);
       refutation = top.pv.isEmpty ? null : top.pv.first;
+      // Keep the whole punishing line, capped, so the drill can play it (#215).
+      refutationPv = top.pv.take(_kRefutePlies).toList();
     }
 
     final pass = drop <= kPassDrop;
@@ -561,6 +721,11 @@ class PracticeController extends ChangeNotifier {
       drop: drop,
       evalPawns: evalPawns,
       refutationUci: pass ? null : refutation,
+      refutationPv: pass ? const [] : refutationPv,
+      punishment: pass
+          ? null
+          : _describePunishment(
+              item['fen'] as String, uci, fenAfter, refutation),
     );
     checking = false;
     // Where a passed attempt can be continued FROM (#143). Set for every graded
