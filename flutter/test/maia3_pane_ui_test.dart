@@ -101,4 +101,102 @@ void main() {
     expect(analyzed, isEmpty, reason: 'blind must not even ask');
     game.dispose();
   });
+
+  testWidgets(
+      'Played asks for the pre-move position and pins the played move',
+      (tester) async {
+    final settings = await loadSettings();
+    final game = GameController(
+        FakeArbiter(), const FakeBot(), FakeGrading(), settings);
+    final fenBeforeMove = game.position.fen;
+    game.playUci('e2e4');
+    final analyzed = <String>[];
+    final store = _fakeStore(analyzed);
+    await tester.pumpWidget(MultiProvider(
+      providers: [
+        ChangeNotifierProvider<GameController>.value(value: game),
+        ChangeNotifierProvider<SettingsStore>.value(value: settings),
+        ChangeNotifierProvider<Maia3Store>.value(value: store),
+      ],
+      child: const MaterialApp(home: Scaffold(body: Maia3Pane())),
+    ));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.pump();
+
+    expect(analyzed, [game.displayFen],
+        reason: 'defaults to next (prospective)');
+
+    await tester.tap(find.text('Played'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.pump();
+
+    expect(analyzed.last, fenBeforeMove,
+        reason: 'Played asks about the position before the played move');
+    expect(find.byType(Maia3ChartCanvas), findsOneWidget);
+    game.dispose();
+  });
+
+  testWidgets(
+      'Played skips a bots auto-reply and pins the humans own move',
+      (tester) async {
+    final settings = await loadSettings(black: kTestBotId);
+    final game = GameController(
+        FakeArbiter(), const FakeBot(), FakeGrading(), settings);
+    final fenBeforeHumanMove = game.position.fen;
+    game.playUci('e2e4'); // the human (White) move
+    final fenAfterHumanMove = game.position.fen;
+    // The fake arbiter's search never resolves, so the bot never actually
+    // replies here — append its move directly to simulate one having landed
+    // before the panel asks. This is the exact shape that broke retro mode:
+    // moves.last stops being the human's move the instant the bot moves.
+    game.moves.add(MoveRecord(
+      ply: 2,
+      san: 'e5',
+      uci: 'e7e5',
+      color: 'b',
+      fenBefore: fenAfterHumanMove,
+      fenAfter: fenAfterHumanMove, // content unused by _lastPlayerMove
+    ));
+    final analyzed = <String>[];
+    final store = _fakeStore(analyzed);
+    await tester.pumpWidget(MultiProvider(
+      providers: [
+        ChangeNotifierProvider<GameController>.value(value: game),
+        ChangeNotifierProvider<SettingsStore>.value(value: settings),
+        ChangeNotifierProvider<Maia3Store>.value(value: store),
+      ],
+      child: const MaterialApp(home: Scaffold(body: Maia3Pane())),
+    ));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.pump();
+
+    await tester.tap(find.text('Played'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.pump();
+
+    expect(analyzed.last, fenBeforeHumanMove,
+        reason: 'Played must attribute to the human move (e4), not the '
+            "bot's auto-reply (e5)");
+    game.dispose();
+  });
+
+  testWidgets('Played with no move played yet shows a note, not a request',
+      (tester) async {
+    final (game, _, analyzed) = await _pump(tester);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.pump();
+    analyzed.clear();
+
+    await tester.tap(find.text('Played'));
+    await tester.pump();
+
+    expect(find.text('Play a move to see it here.'), findsOneWidget);
+    expect(analyzed, isEmpty);
+    game.dispose();
+  });
 }

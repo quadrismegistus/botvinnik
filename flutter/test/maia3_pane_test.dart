@@ -1,6 +1,8 @@
 // The chart's pure decisions: which moves earn a line, and how end labels
 // are spread apart without losing their order.
 
+import 'dart:ui';
+
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:botvinnik_mobile/brain/maia3_api.dart';
@@ -33,6 +35,63 @@ void main() {
         {'Kxh2': 1.0}
       ]));
       expect(picked, ['Kxh2']);
+    });
+
+    test('forceInclude is a no-op when the move is already picked', () {
+      final curves = _curves([
+        {'e4': 0.5, 'd4': 0.3, 'Nf3': 0.1, 'c4': 0.05, 'g3': 0.03},
+      ]);
+      expect(Maia3ChartPainter.pickMoves(curves, forceInclude: 'd4'),
+          Maia3ChartPainter.pickMoves(curves));
+    });
+
+    test('forceInclude bumps the weakest pick to make room', () {
+      final curves = _curves([
+        {'e4': 0.5, 'd4': 0.3, 'Nf3': 0.1, 'c4': 0.05, 'g3': 0.03, 'b3': 0.02},
+      ]);
+      final picked = Maia3ChartPainter.pickMoves(curves, forceInclude: 'b3');
+      expect(picked.length, 5);
+      expect(picked, contains('b3'));
+      expect(picked, isNot(contains('g3')), reason: 'weakest pick bumped');
+    });
+
+    test('forceInclude of an illegal move is dropped, not fabricated', () {
+      final curves = _curves([
+        {'e4': 0.5, 'd4': 0.3},
+      ]);
+      final picked = Maia3ChartPainter.pickMoves(curves, forceInclude: 'Qxh7#');
+      expect(picked, isNot(contains('Qxh7#')));
+    });
+  });
+
+  group('eloAtX', () {
+    test('snaps to the nearest rung across the plot width', () {
+      final curves = _curves([
+        {'e4': 1.0},
+        {'e4': 1.0},
+        {'e4': 1.0},
+      ]);
+      // rungs at 600/700/800; gutters are 26 left, 46 right (see the
+      // module-level constants) — pick a size wide enough to matter.
+      const size = Size(200, 160);
+      expect(Maia3ChartPainter.eloAtX(curves, size, 26), 600);
+      expect(Maia3ChartPainter.eloAtX(curves, size, 200 - 46), 800);
+      expect(Maia3ChartPainter.eloAtX(curves, size, (200 - 26 - 46) / 2 + 26),
+          700);
+    });
+
+    test('null with no rungs or a zero-width plot', () {
+      expect(
+          Maia3ChartPainter.eloAtX(_curves([]), const Size(200, 160), 100),
+          isNull);
+      expect(
+          Maia3ChartPainter.eloAtX(
+              _curves([
+                {'e4': 1.0}
+              ]),
+              const Size(10, 160),
+              5),
+          isNull);
     });
   });
 

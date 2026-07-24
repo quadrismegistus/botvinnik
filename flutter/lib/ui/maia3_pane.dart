@@ -19,6 +19,12 @@ import '../brain/maia3_api.dart';
 import '../stores/game_controller.dart';
 import '../stores/maia3_store.dart';
 
+/// Prospective: curves for the position on the board now — "what might I
+/// play?". Retrospective: curves for the position BEFORE the last move
+/// actually played — "was what I just played normal?" — with that move
+/// pinned on the chart even if it isn't in the top-5 by peak popularity.
+enum Maia3Mode { prospective, retrospective }
+
 class Maia3Pane extends StatefulWidget {
   const Maia3Pane({super.key});
 
@@ -28,6 +34,7 @@ class Maia3Pane extends StatefulWidget {
 
 class _Maia3PaneState extends State<Maia3Pane> {
   String? _asked;
+  Maia3Mode _mode = Maia3Mode.prospective;
 
   @override
   void initState() {
@@ -51,8 +58,11 @@ class _Maia3PaneState extends State<Maia3Pane> {
       return const _Note('Blind mode — no move help until the game ends.');
     }
 
-    final fen = game.displayFen;
-    if (_asked != fen) {
+    final lastPlayed = _lastPlayerMove(game);
+    final retro = _mode == Maia3Mode.retrospective;
+    final fen = retro ? lastPlayed?.fenBefore : game.displayFen;
+
+    if (fen != null && _asked != fen) {
       _asked = fen;
       // Post-frame: setPosition notifies synchronously and this is build.
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -60,30 +70,58 @@ class _Maia3PaneState extends State<Maia3Pane> {
       });
     }
 
-    final curves = store.curves;
+    final curves = fen != null ? store.curves : null;
     final children = <Widget>[
-      if (curves != null && store.shownFen != null)
-        Maia3ChartCanvas(curves: curves, stale: store.shownFen != fen),
-      if (store.failed)
-        const _Note('Maia couldn’t answer — it will try again '
-            'on the next move.')
-      else if (curves == null)
-        _Note(_pendingLine(store)),
-      if (curves != null)
-        Padding(
-          padding: const EdgeInsets.fromLTRB(14, 2, 14, 6),
-          child: Text(
-            // failed suppresses "Asking…": the note above already says it
-            // gave up, and saying both at once reads as a contradiction
-            (store.loading || store.shownFen != fen) && !store.failed
-                ? 'Asking Maia…'
-                : 'How often humans play each move, by rating · Maia-3',
-            style: const TextStyle(color: Colors.white24, fontSize: 11),
+      _ModeToggle(mode: _mode, onChanged: (m) => setState(() => _mode = m)),
+      if (retro && lastPlayed == null)
+        const _Note('Play a move to see it here.')
+      else ...[
+        if (curves != null && store.shownFen != null)
+          Maia3ChartCanvas(
+            curves: curves,
+            stale: store.shownFen != fen,
+            playedSan: retro ? lastPlayed?.san : null,
           ),
-        ),
+        if (store.failed)
+          const _Note('Maia couldn’t answer — it will try again '
+              'on the next move.')
+        else if (curves == null)
+          _Note(_pendingLine(store)),
+        if (curves != null)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 2, 14, 6),
+            child: Text(
+              // failed suppresses "Asking…": the note above already says it
+              // gave up, and saying both at once reads as a contradiction
+              (store.loading || store.shownFen != fen) && !store.failed
+                  ? 'Asking Maia…'
+                  : retro
+                      ? 'How the move you played compares, by rating · Maia-3'
+                      : 'How often humans play each move, by rating · Maia-3',
+              style: const TextStyle(color: Colors.white24, fontSize: 11),
+            ),
+          ),
+      ],
     ];
     return Column(
         crossAxisAlignment: CrossAxisAlignment.start, children: children);
+  }
+
+  /// The most recent move belonging to the human, at or before the browse
+  /// cursor — same "whose move counts" rule as [GameController.lastPlayerGrade]
+  /// (skip the bot's replies; show every move in bot-vs-bot or no-bot games),
+  /// but bounded by [GameController.browsePly] so browsing history moves the
+  /// answer too, not just live play. Without this, playing a move against an
+  /// auto-replying bot would immediately reattribute "Played" to the BOT'S
+  /// reply — the position one ply later — rather than the human's move.
+  MoveRecord? _lastPlayerMove(GameController game) {
+    for (var i = game.browsePly - 1; i >= 0; i--) {
+      final m = game.moves[i];
+      if (!game.botEnabled || game.botBothSides || m.color == game.playerColor) {
+        return m;
+      }
+    }
+    return null;
   }
 
   String _pendingLine(Maia3Store store) {
@@ -94,6 +132,52 @@ class _Maia3PaneState extends State<Maia3Pane> {
     }
     if (p != null && p.phase == 'starting') return 'Starting Maia-3…';
     return 'Asking Maia…';
+  }
+}
+
+/// Two-way switch between prospective ("Now") and retrospective ("Played")
+/// chart data — see [Maia3Mode].
+class _ModeToggle extends StatelessWidget {
+  final Maia3Mode mode;
+  final ValueChanged<Maia3Mode> onChanged;
+  const _ModeToggle({required this.mode, required this.onChanged});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(14, 8, 14, 0),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _segment('Now', Maia3Mode.prospective),
+          const SizedBox(width: 4),
+          _segment('Played', Maia3Mode.retrospective),
+        ],
+      ),
+    );
+  }
+
+  Widget _segment(String label, Maia3Mode value) {
+    final active = mode == value;
+    return GestureDetector(
+      onTap: () => onChanged(value),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+        decoration: BoxDecoration(
+          color: active ? Colors.white12 : Colors.transparent,
+          borderRadius: BorderRadius.circular(4),
+          border: Border.all(color: active ? Colors.white24 : Colors.white10),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 10.5,
+            color: active ? Colors.white70 : Colors.white30,
+            fontWeight: active ? FontWeight.w600 : FontWeight.normal,
+          ),
+        ),
+      ),
+    );
   }
 }
 
@@ -110,14 +194,49 @@ class _Note extends StatelessWidget {
 
 /// The chart on its own: popularity (0..100%) against rating (600..2600),
 /// one polyline per shown move, SAN labels spread apart at the right edge.
-class Maia3ChartCanvas extends StatelessWidget {
+/// Hovering (or, on touch, dragging a finger across it) drops a scrubber
+/// line pinned to the nearest ELO rung, highlighting that rung's top move.
+class Maia3ChartCanvas extends StatefulWidget {
   final Maia3MoveCurves curves;
 
   /// True while these curves belong to a position the board has already left
   /// — drawn dimmed rather than blanked, so browsing doesn't flicker.
   final bool stale;
 
-  const Maia3ChartCanvas({super.key, required this.curves, this.stale = false});
+  /// In retrospective mode, the SAN of the move actually played from this
+  /// position — pinned on the chart (forced into the drawn set, styled
+  /// distinctly) even if it isn't among the top-5 by peak popularity.
+  final String? playedSan;
+
+  const Maia3ChartCanvas({
+    super.key,
+    required this.curves,
+    this.stale = false,
+    this.playedSan,
+  });
+
+  @override
+  State<Maia3ChartCanvas> createState() => _Maia3ChartCanvasState();
+}
+
+class _Maia3ChartCanvasState extends State<Maia3ChartCanvas> {
+  int? _hoverElo;
+
+  void _updateHover(Offset local, Size size) {
+    final elo = Maia3ChartPainter.eloAtX(widget.curves, size, local.dx);
+    if (elo != _hoverElo) setState(() => _hoverElo = elo);
+  }
+
+  void _clearHover() {
+    if (_hoverElo != null) setState(() => _hoverElo = null);
+  }
+
+  @override
+  void didUpdateWidget(covariant Maia3ChartCanvas old) {
+    super.didUpdateWidget(old);
+    // A new position's curves invalidate whatever rung was under the cursor.
+    if (old.curves != widget.curves) _hoverElo = null;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -126,11 +245,28 @@ class Maia3ChartCanvas extends StatelessWidget {
       child: SizedBox(
         height: 160,
         child: Opacity(
-          opacity: stale ? 0.45 : 1,
-          child: CustomPaint(
-            size: Size.infinite,
-            painter: Maia3ChartPainter(curves),
-          ),
+          opacity: widget.stale ? 0.45 : 1,
+          child: LayoutBuilder(builder: (context, constraints) {
+            final size = Size(constraints.maxWidth, constraints.maxHeight);
+            return MouseRegion(
+              onExit: (_) => _clearHover(),
+              child: Listener(
+                onPointerHover: (e) => _updateHover(e.localPosition, size),
+                onPointerDown: (e) => _updateHover(e.localPosition, size),
+                onPointerMove: (e) => _updateHover(e.localPosition, size),
+                onPointerUp: (_) => _clearHover(),
+                onPointerCancel: (_) => _clearHover(),
+                child: CustomPaint(
+                  size: Size.infinite,
+                  painter: Maia3ChartPainter(
+                    widget.curves,
+                    playedSan: widget.playedSan,
+                    hoverElo: _hoverElo,
+                  ),
+                ),
+              ),
+            );
+          }),
         ),
       ),
     );
@@ -156,12 +292,22 @@ const List<Color> _kLineColors = [
 
 class Maia3ChartPainter extends CustomPainter {
   final Maia3MoveCurves curves;
-  Maia3ChartPainter(this.curves);
+
+  /// See [Maia3ChartCanvas.playedSan].
+  final String? playedSan;
+
+  /// The ELO rung under the cursor, or null when nothing is being hovered.
+  final int? hoverElo;
+
+  Maia3ChartPainter(this.curves, {this.playedSan, this.hoverElo});
 
   /// The moves worth a line, ordered by peak popularity so the palette's
-  /// strongest colors go to the strongest moves.
+  /// strongest colors go to the strongest moves. [forceInclude] — the played
+  /// move in retrospective mode — is guaranteed a line even if it never
+  /// peaks in the top 5, bumping the weakest pick to make room.
   @visibleForTesting
-  static List<String> pickMoves(Maia3MoveCurves curves) {
+  static List<String> pickMoves(Maia3MoveCurves curves,
+      {String? forceInclude}) {
     final peak = <String, double>{};
     for (final rung in curves.perElo) {
       rung.moveProbabilities.forEach((san, p) {
@@ -170,7 +316,39 @@ class Maia3ChartPainter extends CustomPainter {
     }
     final sans = peak.keys.toList()
       ..sort((a, b) => peak[b]!.compareTo(peak[a]!));
-    return sans.take(_kMaxMoves).toList();
+    final picked = sans.take(_kMaxMoves).toList();
+    if (forceInclude != null &&
+        peak.containsKey(forceInclude) &&
+        !picked.contains(forceInclude)) {
+      if (picked.length >= _kMaxMoves) picked.removeLast();
+      picked.add(forceInclude);
+    }
+    return picked;
+  }
+
+  /// The ELO rung nearest horizontal position [dx] in a chart painted at
+  /// [size], or null if there's nothing to snap to (no rungs, no width).
+  @visibleForTesting
+  static int? eloAtX(Maia3MoveCurves curves, Size size, double dx) {
+    final rungs = curves.perElo;
+    if (rungs.isEmpty) return null;
+    final plotW = size.width - _kGutterL - _kGutterR;
+    if (plotW <= 0) return null;
+    final eloLo = rungs.first.elo.toDouble();
+    final eloHi = rungs.last.elo.toDouble();
+    final eloSpan = (eloHi - eloLo).clamp(1, double.infinity);
+    final frac = ((dx - _kGutterL) / plotW).clamp(0.0, 1.0);
+    final target = eloLo + frac * eloSpan;
+    var best = rungs.first.elo;
+    var bestDist = (rungs.first.elo - target).abs();
+    for (final r in rungs) {
+      final dist = (r.elo - target).abs();
+      if (dist < bestDist) {
+        bestDist = dist;
+        best = r.elo;
+      }
+    }
+    return best;
   }
 
   /// Spreads label centers at least [minGap] apart inside [lo]..[hi],
@@ -229,11 +407,12 @@ class Maia3ChartPainter extends CustomPainter {
     }
 
     // the lines
-    final sans = pickMoves(curves);
+    final sans = pickMoves(curves, forceInclude: playedSan);
     final endYs = <double>[];
     for (var m = 0; m < sans.length; m++) {
       final san = sans[m];
       final color = _kLineColors[m % _kLineColors.length];
+      final isPlayed = san == playedSan;
       final path = Path();
       var started = false;
       var lastY = 0.0;
@@ -248,12 +427,24 @@ class Maia3ChartPainter extends CustomPainter {
         }
         lastY = o.dy;
       }
+      // The played move gets a white halo underneath so it reads as
+      // "the" line even when its own color is faint against the others.
+      if (isPlayed) {
+        canvas.drawPath(
+          path,
+          Paint()
+            ..color = Colors.white.withValues(alpha: 0.85)
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 4
+            ..strokeJoin = StrokeJoin.round,
+        );
+      }
       canvas.drawPath(
         path,
         Paint()
           ..color = color
           ..style = PaintingStyle.stroke
-          ..strokeWidth = 1.8
+          ..strokeWidth = isPlayed ? 2.4 : 1.8
           ..strokeJoin = StrokeJoin.round,
       );
       endYs.add(lastY);
@@ -279,7 +470,83 @@ class Maia3ChartPainter extends CustomPainter {
             ..strokeWidth = 1,
         );
       }
-      _text(canvas, sans[i], Offset(endX + 6, labelY - 6), color: color);
+      final labelAt = Offset(endX + 6, labelY - 6);
+      if (sans[i] == playedSan) {
+        // A small filled swatch marks the played move's label — the halo on
+        // its line already sets it apart, this carries that to the legend.
+        canvas.drawCircle(labelAt.translate(-4, 5), 2.5, Paint()..color = color);
+        _text(canvas, sans[i], labelAt.translate(4, 0), color: color);
+      } else {
+        _text(canvas, sans[i], labelAt, color: color);
+      }
+    }
+
+    // scrubber: a vertical line pinned to the hovered rung, with a
+    // highlighted dot on its top (argmax) move and that move's read-out.
+    if (hoverElo != null) {
+      Maia3RungCurve? hoverRung;
+      for (final r in rungs) {
+        if (r.elo == hoverElo) {
+          hoverRung = r;
+          break;
+        }
+      }
+      if (hoverRung != null) {
+        final x = xFor(hoverElo!);
+        canvas.drawLine(
+          Offset(x, 0),
+          Offset(x, plotH),
+          Paint()
+            ..color = Colors.white30
+            ..strokeWidth = 1,
+        );
+        _text(canvas, hoverElo.toString(), Offset(x, plotH + 2),
+            align: 'center', color: Colors.white70);
+
+        String? topSan;
+        var topP = -1.0;
+        for (final san in sans) {
+          final p = hoverRung.moveProbabilities[san] ?? 0;
+          if (p > topP) {
+            topP = p;
+            topSan = san;
+          }
+        }
+        for (var m = 0; m < sans.length; m++) {
+          final san = sans[m];
+          final color = _kLineColors[m % _kLineColors.length];
+          final p = hoverRung.moveProbabilities[san] ?? 0;
+          final y = yFor(p);
+          final isTop = san == topSan;
+          canvas.drawCircle(
+              Offset(x, y), isTop ? 4.5 : 2, Paint()..color = isTop ? Colors.white : color);
+          if (isTop) {
+            canvas.drawCircle(
+                Offset(x, y),
+                4.5,
+                Paint()
+                  ..color = color
+                  ..style = PaintingStyle.stroke
+                  ..strokeWidth = 1.5);
+          }
+        }
+        if (topSan != null) {
+          final topY = yFor(topP).clamp(14.0, plotH - 4);
+          final atRight = x > plotW * 0.6 + _kGutterL;
+          final label = '$topSan ${(topP * 100).round()}%';
+          final tp = TextPainter(
+            text: TextSpan(
+                text: label,
+                style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 9,
+                    fontWeight: FontWeight.w600)),
+            textDirection: TextDirection.ltr,
+          )..layout();
+          final labelX = atRight ? x - 6 - tp.width : x + 6;
+          tp.paint(canvas, Offset(labelX, topY - 14));
+        }
+      }
     }
   }
 
@@ -299,5 +566,8 @@ class Maia3ChartPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(Maia3ChartPainter old) => old.curves != curves;
+  bool shouldRepaint(Maia3ChartPainter old) =>
+      old.curves != curves ||
+      old.playedSan != playedSan ||
+      old.hoverElo != hoverElo;
 }
