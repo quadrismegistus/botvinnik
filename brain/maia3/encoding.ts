@@ -45,13 +45,12 @@ export function mirrorSquare(square: string): string {
  * a pawn reaching the back rank always promotes, so `to` alone disambiguates.
  * Underpromotions (r/b/n) use a reserved lane keyed by destination + piece.
  *
- * FLAG: only the vocab SIZE (4352) is confirmed (read from the ONNX by the
- * calibration spike). The from*64+to layout, the square indexing, and the
- * underpromotion lane ORDER are all DERIVED, not verified against CSSLab's
- * enumeration — and the vitest suite cannot pin them, because it writes and
- * reads policy vectors through this same function (a wrong-but-consistent
- * scheme passes identically). Must be cross-checked against real ONNX output
- * on a position with a known dominant move before the chart is trusted.
+ * Layout verified 2026-07-24 against flawchess's CONFIRMED tensor contract
+ * (their maia_encoding.py, re-verified by them against the live model to
+ * 0.01%): from*64+to base, a1=0/h8=63 indexing, underpromotion lane
+ * 4096 + to*4 + laneIdx with (q,r,b,n) order, raw-ELO scalar inputs. Read
+ * for the numerical contract only — no code was copied (their impl is MIT,
+ * written from scratch against the same ONNX I/O contract).
  */
 export function moveVocabIndex(from: string, to: string, promotion?: string): number {
 	const fromIdx = squareIndex(from);
