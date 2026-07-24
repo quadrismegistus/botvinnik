@@ -258,7 +258,12 @@ self.onmessage = (e: MessageEvent) => {
 		const req = msg as { id: number; fen: string; eloInputs: number[] };
 		chain = chain
 			.then(async () => {
-				const session = await initSession(() => {});
+				// Same re-keyed reporter as init: if an analyze races ahead of the
+				// warm-up and starts the download itself, the narration must not
+				// depend on who got there first.
+				const session = await initSession((p) =>
+					self.postMessage({ type: p.phase, received: p.received, total: p.total }),
+				);
 				const result = await analyze(session, req.fen, req.eloInputs);
 				self.postMessage({ id: req.id, ...result });
 			})
