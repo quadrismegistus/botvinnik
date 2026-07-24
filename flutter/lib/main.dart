@@ -35,6 +35,7 @@ import 'stores/book_store.dart';
 import 'stores/bot_record_store.dart';
 import 'stores/custom_engine.dart';
 import 'stores/game_controller.dart';
+import 'stores/maia3_store.dart';
 import 'stores/pgn_import.dart';
 import 'stores/player_rating_store.dart';
 import 'stores/practice_controller.dart';
@@ -54,6 +55,7 @@ import 'ui/keyboard.dart';
 import 'ui/layout.dart';
 import 'ui/lines_pane.dart';
 import 'ui/lines_tree_pane.dart';
+import 'ui/maia3_pane.dart';
 import 'ui/move_list.dart';
 import 'ui/new_game_sheet.dart';
 import 'ui/pgn_import_dialog.dart';
@@ -244,6 +246,10 @@ class _BootGateState extends State<BootGate> {
             // provider_parity_test (which scans for *Api reads) cannot guard
             // it — bot_record_test.dart does, over the source.
             ChangeNotifierProvider(create: (_) => BotRecordStore(booted.db)),
+            // The moves-by-rating chart (#221). Lazy twice over: the provider
+            // builds on first read, and the store itself downloads nothing
+            // until the chart panel asks for a position.
+            ChangeNotifierProvider(create: (_) => Maia3Store(booted.bridge)),
             ChangeNotifierProvider.value(value: booted.customEngines),
             ChangeNotifierProvider(create: (_) => BookStore()),
             Provider(create: (_) => ChessApi(booted.bridge)),
@@ -1118,7 +1124,8 @@ class _PlayTabState extends State<PlayTab> {
         2 => const LinesTreePane(),
         3 => const WinChart(),
         4 => const MoveListPane(),
-        _ => const BookPane(),
+        5 => const BookPane(),
+        _ => const Maia3Pane(),
       };
 
   Widget _panel() {
@@ -1179,6 +1186,7 @@ class _PlayTabState extends State<PlayTab> {
     (Icons.show_chart, 'Chart'),
     (Icons.list_alt, 'Moves'),
     (Icons.menu_book_outlined, 'Book'),
+    (Icons.groups_2_outlined, 'Humans'),
   ];
 
   /// The order the panels are SHOWN in, by their stable id (the index into
@@ -1186,7 +1194,7 @@ class _PlayTabState extends State<PlayTab> {
   /// (`botvinnik-panels`) stay valid without a migration). Analysis first —
   /// Tree and Chart — then the line list directly above the move list:
   /// Insights, Tree, Chart, Lines, Moves, Book.
-  static const List<int> _paneOrder = [0, 2, 3, 1, 4, 5];
+  static const List<int> _paneOrder = [0, 2, 6, 3, 1, 4, 5];
 
   /// [multi] makes the bar inclusive: tapping toggles a panel rather than
   /// replacing the selection. The last one cannot be turned off — an empty

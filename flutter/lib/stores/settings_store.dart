@@ -237,7 +237,7 @@ class SettingsStore extends ChangeNotifier {
     final out = <int>{};
     for (final part in (raw ?? '').split(',')) {
       final v = int.tryParse(part);
-      if (v != null && v >= 0 && v < 6) out.add(v);
+      if (v != null && v >= 0 && v < 7) out.add(v);
     }
     return out;
   }

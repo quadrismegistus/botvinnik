@@ -69,4 +69,14 @@ npx --no-install esbuild web_src/maia-worker.ts \
   --outfile=web/maia/maia-worker.js --log-level=warning
 cp "$ORT/ort-wasm-simd-threaded.mjs" "$ORT/ort-wasm-simd-threaded.wasm" web/maia/
 
-echo "staged web/brain.js, web/wasm/ ($(ls web/wasm | tr '\n' ' ')), web/retro/, web/garbo/ and web/maia/"
+# maia3: the ELO-conditioned moves-by-rating chart engine. Same ORT runtime
+# as maia1 — the two share the wasm/mjs pair, each under its own path so the
+# workers' `ort.env.wasm.wasmPaths = './'`  resolves correctly per worker.
+rm -rf web/maia3
+mkdir -p web/maia3
+npx --no-install esbuild web_src/maia3-worker.ts \
+  --bundle --format=iife --platform=browser --target=es2022 \
+  --outfile=web/maia3/maia3-worker.js --log-level=warning
+cp "$ORT/ort-wasm-simd-threaded.mjs" "$ORT/ort-wasm-simd-threaded.wasm" web/maia3/
+
+echo "staged web/brain.js, web/wasm/ ($(ls web/wasm | tr '\n' ' ')), web/retro/, web/garbo/, web/maia/ and web/maia3/"

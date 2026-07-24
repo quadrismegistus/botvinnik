@@ -9,7 +9,7 @@
 // the Dart bridge; flutter/lib/brain/js_bridge.dart asserts it at boot so a
 // stale bundled asset fails loudly instead of skewing silently.
 
-export const BRAIN_VERSION = 1;
+export const BRAIN_VERSION = 2;
 
 // ---- shaped bot + numeric recipe (move selection) ----
 export {
@@ -116,3 +116,29 @@ export type { CcGame } from './chesscomCore';
 // ---- stored-game math (pure parts of gameStore) ----
 export { moveAccuracy, gameAccuracy, labelCounts, LABEL_VERSION } from './gameStore';
 export { estimatePlayerElo } from './playerElo';
+
+// ---- Maia-3 (ELO-conditioned human-move model) ----
+// The moves-by-rating chart's data layer: encodeBoard produces the input
+// tensor, computeMoveCurves turns a worker's raw per-rung logits into the
+// chart-friendly { perElo, wdlByElo } shape. Ladder is the 21-rung batch
+// the worker passes as elo_self/elo_oppo. See issue #221.
+export {
+	encodeBoard,
+	encodeBoardArray,
+	isBlackToMove,
+	POLICY_VOCAB_SIZE,
+} from './maia3/encoding';
+export {
+	maskAndSoftmax,
+	softmaxWdl,
+	expectedScore,
+	computeMoveCurves,
+} from './maia3/decoding';
+export type {
+	WdlVector,
+	MoveCurvePoint,
+	RawPolicyByElo,
+	RawWdlByElo,
+	MoveCurveResult,
+} from './maia3/decoding';
+export { MAIA_ELO_LADDER } from './maia3/ladder';
