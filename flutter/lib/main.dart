@@ -35,6 +35,7 @@ import 'stores/book_store.dart';
 import 'stores/bot_record_store.dart';
 import 'stores/custom_engine.dart';
 import 'stores/game_controller.dart';
+import 'stores/maia3_store.dart';
 import 'stores/pgn_import.dart';
 import 'stores/player_rating_store.dart';
 import 'stores/practice_controller.dart';
@@ -244,6 +245,10 @@ class _BootGateState extends State<BootGate> {
             // provider_parity_test (which scans for *Api reads) cannot guard
             // it — bot_record_test.dart does, over the source.
             ChangeNotifierProvider(create: (_) => BotRecordStore(booted.db)),
+            // The moves-by-rating chart (#221). Lazy twice over: the provider
+            // builds on first read, and the store itself downloads nothing
+            // until the chart panel asks for a position.
+            ChangeNotifierProvider(create: (_) => Maia3Store(booted.bridge)),
             ChangeNotifierProvider.value(value: booted.customEngines),
             ChangeNotifierProvider(create: (_) => BookStore()),
             Provider(create: (_) => ChessApi(booted.bridge)),
