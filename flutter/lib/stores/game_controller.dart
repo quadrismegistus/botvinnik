@@ -263,13 +263,25 @@ class GameController extends ChangeNotifier {
   final Map<String, int> _refusalAttempts = {};
   static const int kMaxRefusalAttempts = 3;
 
-  /// True while [_maybeRefuse] is awaiting a grade for a just-attempted move.
-  /// Gates [playerMove]/[playUci] the same way [botThinking] does — without
-  /// it, a second move fired before the first's check resolves could apply
-  /// against a position [_apply] has already moved past (playUnchecked does
-  /// not validate legality against the CURRENT position, only the one the
-  /// move was computed from).
+  /// True while a [_maybeRefuse] call for generation [_refusalPendingGen] is
+  /// awaiting a grade. Gates [playerMove]/[playUci] the same way
+  /// [botThinking] does — without it, a second move fired before the
+  /// first's check resolves could apply against a position [_apply] has
+  /// already moved past (playUnchecked does not validate legality against
+  /// the CURRENT position, only the one the move was computed from).
+  ///
+  /// [_refusalPendingGen] exists because this flag is shared across calls,
+  /// not per-call: a stale check for an ABANDONED generation (a new game or
+  /// undo landed while it was still awaiting its capped grade) must not
+  /// clear a FRESH check's flag out from under it when it finally resolves
+  /// — that reopens the gate mid-check and lets two `_maybeRefuse` calls
+  /// race the same position. The guard below and the `finally` in
+  /// [_maybeRefuse] both compare against `_gen` so only the call that
+  /// actually owns the flag for the CURRENT generation may release it — no
+  /// gen-bumping call site (newGame, undo, ...) needs to remember to reset
+  /// this itself; the comparison self-heals the moment `_gen` moves on.
   bool _refusalPending = false;
+  int? _refusalPendingGen;
 
   /// Set by [_maybeRefuse] when a move is refused, for the UI to say so — a
   /// silent snap-back reads as a misclick, not a refusal. Cleared the moment
@@ -653,6 +665,7 @@ class GameController extends ChangeNotifier {
     _refusedMoves = 0;
     _refusalAttempts.clear();
     _refusalPending = false;
+    _refusalPendingGen = null;
     refusalMessage = null;
     _clock?.dispose();
     _flagged = null;
@@ -739,6 +752,10 @@ class GameController extends ChangeNotifier {
 
   void undo() {
     _browsePly = null;
+    // A refusal message describes a specific just-attempted move; taking a
+    // move back moves the conversation on regardless of whether refusal mode
+    // is even the reason (review follow-up, #167/#224).
+    refusalMessage = null;
     // A rated game does not permit takebacks — that is part of what "rated"
     // means (#168), and it is also what stops the clock and the position from
     // desyncing: there is no coherent way to un-press a chess clock, so the
@@ -786,6 +803,7 @@ class GameController extends ChangeNotifier {
   /// instead of being recomputed — or lost.
   void redo() {
     _browsePly = null;
+    refusalMessage = null; // see undo
     if (_redoStack.isEmpty || botThinking || _rated) return;
     // An undo→redo round trip taught you nothing and changed nothing: the same
     // moves go back on the same board, so it is not a takeback and must not
@@ -811,7 +829,11 @@ class GameController extends ChangeNotifier {
 
   /// The human plays a move (already validated by the board).
   void playerMove(NormalMove move, String san) {
-    if (!isPlayerTurn || botThinking || _refusalPending || gameOver) return;
+    // _refusalPendingGen == _gen, not just _refusalPending: a stale pending
+    // flag left by an abandoned generation's check must not block moves in
+    // the CURRENT one (see the field docs on _refusalPending).
+    final refusalPending = _refusalPending && _refusalPendingGen == _gen;
+    if (!isPlayerTurn || botThinking || refusalPending || gameOver) return;
     // the sample point: what the board was showing at the moment a human move
     // was committed (see [_botHintsUsed]). Bot replies come through _apply
     // directly, so only human moves are sampled.
@@ -845,13 +867,14 @@ class GameController extends ChangeNotifier {
   /// human move hanging indefinitely on a slow engine, and must never refuse
   /// (or silently allow) a blunder on a number it does not actually have.
   Future<void> _maybeRefuse(NormalMove move, String san) async {
+    final gen = _gen;
     _refusalPending = true;
+    _refusalPendingGen = gen;
     try {
       final fenBefore = position.fen;
       final uci = move.uci;
       final color = position.turn == Side.white ? 'w' : 'b';
       final candidateFen = position.playUnchecked(move).fen;
-      final gen = _gen;
       final attempts = _refusalAttempts[fenBefore] ?? 0;
 
       final grade = await _computeGrade(
@@ -868,7 +891,13 @@ class GameController extends ChangeNotifier {
 
       final drop =
           (grade != null && grade.backfilled) ? _wcDrop(grade) : 0.0;
-      if (drop >= _settings.collectThreshold &&
+      // `grade != null` here, not just `drop >= threshold`: the two happen to
+      // coincide today only because collectThreshold's UI floor is 5 (never
+      // 0), so a null grade's drop-of-0.0 can never clear it — correct by
+      // luck, not by construction. Spelling it out means the `grade!`
+      // unwraps below stay safe even if that floor is ever lowered.
+      if (grade != null &&
+          drop >= _settings.collectThreshold &&
           attempts < kMaxRefusalAttempts) {
         _refusalAttempts[fenBefore] = attempts + 1;
         _refusedMoves++;
@@ -885,7 +914,7 @@ class GameController extends ChangeNotifier {
             'color': color,
             'fenBefore': fenBefore,
             'fenAfter': candidateFen,
-            'evalPawns': grade!.evalPawns,
+            'evalPawns': grade.evalPawns,
             'mate': grade.mate,
             'pctBest': grade.pctBest,
             'wcDrop': drop,
@@ -908,7 +937,10 @@ class GameController extends ChangeNotifier {
       _apply(move, san);
       _maybeBotTurn();
     } finally {
-      _refusalPending = false;
+      // Only release the flag if this call still owns it for the CURRENT
+      // generation — a stale call for an abandoned generation must not
+      // clear a fresh call's in-flight flag out from under it.
+      if (_refusalPendingGen == gen) _refusalPending = false;
     }
   }
 
@@ -1613,6 +1645,10 @@ class GameController extends ChangeNotifier {
     if (moves.isEmpty) return;
     final next = (browsePly + delta).clamp(0, moves.length);
     _browsePly = next == moves.length ? null : next;
+    // A refusal message is about the live position's just-attempted move;
+    // browsing elsewhere and back should not leave it showing stale next to
+    // whatever the card ends up displaying (review follow-up, #167/#224).
+    refusalMessage = null;
     notifyListeners();
   }
 
@@ -1620,6 +1656,7 @@ class GameController extends ChangeNotifier {
     if (moves.isEmpty) return;
     final next = ply.clamp(0, moves.length);
     _browsePly = next == moves.length ? null : next;
+    refusalMessage = null; // see browseBy
     notifyListeners();
   }
 

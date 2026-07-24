@@ -245,6 +245,37 @@ void main() {
       game.dispose();
     });
 
+    test('browsing away clears a stale refusal message (review follow-up)',
+        () async {
+      // A refusal message describes one specific attempted move — it must
+      // not keep showing next to an unrelated position after the player
+      // browses elsewhere and back. browseBy needs SOME move history to
+      // step through; what it is doesn't matter to what's under test here
+      // (refusalMessage's clearing behavior), so append one directly rather
+      // than threading a realistic bot reply through the fake arbiter.
+      final (game, _) = await newRefusalGame();
+      game.moves.add(MoveRecord(
+        ply: 1,
+        san: 'd4',
+        uci: 'd2d4',
+        color: 'w',
+        fenBefore: game.position.fen,
+        fenAfter: game.position.fen,
+      ));
+
+      game.playUci('e2e4'); // refused: never commits, sets refusalMessage
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+      expect(game.refusalMessage, isNotNull);
+
+      game.browseBy(-1);
+      expect(game.refusalMessage, isNull, reason: 'browsing away clears it');
+
+      game.browseLive();
+      expect(game.refusalMessage, isNull,
+          reason: 'returning to live does not resurrect it');
+      game.dispose();
+    });
+
     test('refusedMoves persists on the saved game record', () async {
       final db = FakeDb();
       final settings = await loadSettings(black: kTestBotId);
