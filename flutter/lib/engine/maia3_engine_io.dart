@@ -12,9 +12,14 @@
 //
 // The failure handling is maia_engine_io's, shrunk to one model instead of
 // three bands: a `.part` rename so a half-arrived download never reads as a
-// cache hit, a session whose run stalls is retired rather than reused (ORT's
-// isolate hands results out on a broadcast stream — an abandoned run can
-// answer the wrong request), and retiring latches after three strikes.
+// cache hit, and repeated failures latch after three strikes.
+//
+// One hard-won difference from Maia-1: sessions here are SINGLE-USE. The
+// second run on a reused native session returns all-NaN logits for this
+// model (byte-identical inputs; wasm unaffected; Maia-1's convnet
+// unaffected) — see maia3_nan_probe_test.dart, which keeps a canary on the
+// bug. Each analyze builds a fresh session and releases it when the run
+// really finishes.
 
 import 'dart:async';
 import 'dart:io';
@@ -70,7 +75,6 @@ class Maia3Engine {
   Future<_Net>? _net;
   Future<void> _chain = Future.value();
   int _gen = 0;
-  int _running = 0;
   int _retirements = 0;
   static const int _kMaxRetirements = 3;
   bool _dead = false;
@@ -78,6 +82,7 @@ class Maia3Engine {
 
   /// One in-flight download, whoever asked.
   Future<Uint8List>? _downloading;
+  bool _builtOnce = false;
 
   void warmUp() {
     if (_disposed || _dead) return;
@@ -129,7 +134,19 @@ class Maia3Engine {
     }
 
     final net = await _session();
-    if (_disposed || gen != _gen) return null;
+    // Claim the session: Maia-3 sessions are SINGLE-USE on this native ORT.
+    // The second run on a reused session returns all-NaN logits — proven with
+    // byte-identical inputs by maia3_nan_probe_test (sync and isolate paths
+    // alike; wasm is fine, Maia-1's convnet is fine). Arena flags and graph-
+    // optimization levels don't change it, and the dart API exposes no
+    // DisableMemPattern. So: one session, one run, release when the run
+    // really finishes. Build cost is ~330ms against a ~520ms inference —
+    // acceptable at debounced chart cadence.
+    _net = null;
+    if (_disposed || gen != _gen) {
+      net.session.release();
+      return null;
+    }
 
     final batch = eloInputs.length;
     final tokens = Float32List(batch * _kTokensPerBoard);
@@ -163,17 +180,20 @@ class Maia3Engine {
 
     if (run == null) {
       releaseInputs();
+      net.session.release();
       return null;
     }
-    // Inputs are freed when the run REALLY finishes, not when we stop
-    // waiting — ORT reads them from its own isolate (see maia_engine_io).
-    _running++;
+    // Inputs — and the single-use session — are freed when the run REALLY
+    // finishes, not when we stop waiting: ORT reads them from its own isolate
+    // (see maia_engine_io), and release mid-run is a use-after-free. On a
+    // timeout this still runs whenever ORT eventually returns, so nothing
+    // leaks even on the retire path.
     final finished = run.then<List<OrtValue?>?>((o) => o, onError: (Object e) {
       debugPrint('[maia3] inference failed: $e');
       return null;
     }).whenComplete(() {
-      _running--;
       releaseInputs();
+      net.session.release();
     });
 
     List<OrtValue?>? outputs;
@@ -225,14 +245,12 @@ class Maia3Engine {
     }
   }
 
-  /// Drop a session that can no longer be trusted, without releasing it —
-  /// a run may still be inside it (see maia_engine_io._retire). Rebuilding
-  /// reads the cached file, so one hiccup costs tens of milliseconds; a
-  /// session that keeps doing it strands a native session each time, so it
-  /// latches in the end.
+  /// Count a run that failed or stalled. Sessions are single-use (claimed
+  /// and released by the run itself), so there is nothing to tear down here —
+  /// this only keeps the give-up latch: a model that keeps failing should
+  /// stop being asked.
   void _retire(String why) {
     _retirements++;
-    _net = null;
     if (_retirements >= _kMaxRetirements) {
       _dead = true;
       debugPrint('[maia3] retired $_retirements times, giving up: $why');
@@ -268,11 +286,18 @@ class Maia3Engine {
         _downloading = null;
       }));
     }
-    onProgress?.call(const MaiaProgress('starting'));
-    // a frame to draw that in: building the graph is synchronous FFI
-    await Future<void>.delayed(const Duration(milliseconds: 16));
+    // Sessions are single-use (see _analyze), so _load runs per inference —
+    // only the FIRST build gets narrated, or every position would flash a
+    // "starting" note over a ~330ms rebuild that is just how inference works.
+    if (!_builtOnce) {
+      onProgress?.call(const MaiaProgress('starting'));
+      // a frame to draw that in: building the graph is synchronous FFI
+      await Future<void>.delayed(const Duration(milliseconds: 16));
+    }
     try {
-      return _buildSession(bytes);
+      final net = _buildSession(bytes);
+      _builtOnce = true;
+      return net;
     } catch (e) {
       // A cached model that will not open would fail identically forever.
       try {
@@ -374,11 +399,10 @@ class Maia3Engine {
   void dispose() {
     _disposed = true;
     _gen++;
-    // Not while a run is out — `release` mid-run is a use-after-free in
-    // native code; stranding one session at teardown is free.
-    if (_running == 0) {
-      _net?.then((n) => n.session.release(), onError: (_) {});
-    }
+    // Only an UNCLAIMED warm-up session can be sitting in _net — a running
+    // one was claimed (nulled) by its run and releases itself when the run
+    // really finishes. So releasing here is always safe.
+    _net?.then((n) => n.session.release(), onError: (_) {});
     _net = null;
   }
 }
