@@ -112,6 +112,11 @@ class Maia3Store extends ChangeNotifier {
     final cached = _cache.remove(fen);
     if (cached != null) {
       _cache[fen] = cached; // LRU refresh
+      // Cancel any pending timer too: harmless today (the _wanted guard in
+      // _run neutralizes a stray firing), but every other branch maintains
+      // the one-live-timer invariant locally and this one should not lean on
+      // a downstream guard.
+      _debounce?.cancel();
       _show(fen, cached);
       return;
     }

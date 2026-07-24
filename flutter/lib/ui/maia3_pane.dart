@@ -73,7 +73,9 @@ class _Maia3PaneState extends State<Maia3Pane> {
         Padding(
           padding: const EdgeInsets.fromLTRB(14, 2, 14, 6),
           child: Text(
-            store.loading || store.shownFen != fen
+            // failed suppresses "Asking…": the note above already says it
+            // gave up, and saying both at once reads as a contradiction
+            (store.loading || store.shownFen != fen) && !store.failed
                 ? 'Asking Maia…'
                 : 'How often humans play each move, by rating · Maia-3',
             style: const TextStyle(color: Colors.white24, fontSize: 11),
@@ -219,10 +221,10 @@ class Maia3ChartPainter extends CustomPainter {
       _text(canvas, text, Offset(0, y - 5), align: null);
     }
 
-    // x axis: a rating label every 500
-    for (var elo = eloLo; elo <= eloHi; elo += 500) {
-      final x = xFor(elo);
-      _text(canvas, elo.round().toString(), Offset(x, plotH + 2),
+    // x axis: endpoints and midpoint — stepping 500 from 600 gave 1100/2100,
+    // which read as odd tick values rather than a rating scale
+    for (final elo in {eloLo, (eloLo + eloHi) / 2, eloHi}) {
+      _text(canvas, elo.round().toString(), Offset(xFor(elo), plotH + 2),
           align: 'center');
     }
 

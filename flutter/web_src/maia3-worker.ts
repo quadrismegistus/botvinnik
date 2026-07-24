@@ -242,7 +242,12 @@ self.onmessage = (e: MessageEvent) => {
 	if (!msg || typeof msg !== 'object') return;
 
 	if (msg.type === 'init') {
-		initSession((p) => self.postMessage(p)).then(
+		// Re-key phase → type on the wire: the protocol (and the Dart client)
+		// speak `type`; posting the Progress object verbatim shipped a message
+		// nobody could read and the first-use narration was silently dead.
+		initSession((p) =>
+			self.postMessage({ type: p.phase, received: p.received, total: p.total }),
+		).then(
 			() => self.postMessage({ type: 'ready' }),
 			(err) => self.postMessage({ type: 'error', message: String(err) }),
 		);
