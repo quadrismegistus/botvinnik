@@ -11,6 +11,7 @@ import 'package:botvinnik_mobile/brain/types.dart';
 import 'package:botvinnik_mobile/stores/game_controller.dart';
 import 'package:botvinnik_mobile/stores/settings_store.dart';
 
+import 'support/fake_db.dart';
 import 'support/game_harness.dart';
 
 void main() {
@@ -176,6 +177,127 @@ void main() {
       // both sides you: botEnabled is false, so nothing is collected
       final practice = await playOneMove();
       expect(practice.collected, isEmpty);
+    });
+  });
+
+  group('refusal mode (#167)', () {
+    // FakeGrading's default winChance is a constant 0, so _wcDrop is always
+    // 0 too — fine for "was collection attempted", useless for refusal,
+    // which needs a real number to compare against a threshold. gradeMove's
+    // hardcoded grade never sets evalPawns, and backfillGrade does not add
+    // it either, so evalPawns stays null through every attempt in this
+    // harness: reading that as "bad" and a non-null bestEval as "good" gives
+    // every attempted move here a reliable, large win-chance drop.
+    double winChanceOf(double? eval, int? mate) =>
+        eval == null ? 20 : 80; // drop = 60
+
+    Future<(GameController, FakePractice)> newRefusalGame() async {
+      final settings = await loadSettings(black: kTestBotId);
+      final practice = FakePractice();
+      final game = GameController(
+          FakeArbiter(analysisLines: kFakeLines),
+          const FakeBot({kTestBotId: testBotPersona}),
+          FakeGrading(winChanceOf: winChanceOf),
+          settings,
+          null,
+          practice);
+      game.newGame(refuseBlunders: true);
+      return (game, practice);
+    }
+
+    test('a bad move is refused, not played, and still collected', () async {
+      final (game, practice) = await newRefusalGame();
+      game.playUci('e2e4');
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+
+      expect(game.moves, isEmpty, reason: 'refused — never committed');
+      expect(game.refusedMoves, 1);
+      expect(game.refusalMessage, contains('try again'));
+      expect(practice.collected, hasLength(1),
+          reason: 'still queued as a puzzle even though it was never played');
+      expect(practice.collected.single['san'], 'e4');
+      game.dispose();
+    });
+
+    test('relents on the 4th attempt at the same position', () async {
+      final (game, practice) = await newRefusalGame();
+      for (var i = 0; i < GameController.kMaxRefusalAttempts; i++) {
+        game.playUci('e2e4');
+        await Future<void>.delayed(const Duration(milliseconds: 150));
+        expect(game.moves, isEmpty, reason: 'attempt ${i + 1} refused');
+      }
+      expect(game.refusedMoves, GameController.kMaxRefusalAttempts);
+
+      game.playUci('e2e4'); // the 4th attempt at this position
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+
+      expect(game.moves, hasLength(1), reason: 'relented — now committed');
+      expect(game.moves.single.san, 'e4');
+      expect(game.refusedMoves, GameController.kMaxRefusalAttempts,
+          reason: 'the relented-through move is not itself a refusal');
+      // 3 refusal-time collects, plus the ordinary POST-commit collect
+      // _gradePipeline runs for every move once it lands — the relented-
+      // through move is still a real blunder in this harness (its eval
+      // reads exactly as "bad" as the three that were refused), and it
+      // should still reach the practice queue like any played blunder does.
+      expect(
+          practice.collected, hasLength(GameController.kMaxRefusalAttempts + 1));
+      game.dispose();
+    });
+
+    test('browsing away clears a stale refusal message (review follow-up)',
+        () async {
+      // A refusal message describes one specific attempted move — it must
+      // not keep showing next to an unrelated position after the player
+      // browses elsewhere and back. browseBy needs SOME move history to
+      // step through; what it is doesn't matter to what's under test here
+      // (refusalMessage's clearing behavior), so append one directly rather
+      // than threading a realistic bot reply through the fake arbiter.
+      final (game, _) = await newRefusalGame();
+      game.moves.add(MoveRecord(
+        ply: 1,
+        san: 'd4',
+        uci: 'd2d4',
+        color: 'w',
+        fenBefore: game.position.fen,
+        fenAfter: game.position.fen,
+      ));
+
+      game.playUci('e2e4'); // refused: never commits, sets refusalMessage
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+      expect(game.refusalMessage, isNotNull);
+
+      game.browseBy(-1);
+      expect(game.refusalMessage, isNull, reason: 'browsing away clears it');
+
+      game.browseLive();
+      expect(game.refusalMessage, isNull,
+          reason: 'returning to live does not resurrect it');
+      game.dispose();
+    });
+
+    test('refusedMoves persists on the saved game record', () async {
+      final db = FakeDb();
+      final settings = await loadSettings(black: kTestBotId);
+      final game = GameController(
+          FakeArbiter(analysisLines: kFakeLines, streamPartials: true),
+          const FakeBot({kTestBotId: testBotPersona}),
+          SavingGrading(winChanceOf: winChanceOf),
+          settings,
+          db);
+      game.newGame(refuseBlunders: true);
+
+      for (var i = 0; i < GameController.kMaxRefusalAttempts; i++) {
+        game.playUci('e2e4');
+        await Future<void>.delayed(const Duration(milliseconds: 150));
+      }
+      game.playUci('e2e4'); // relent — commits
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+
+      await game.debugForceSave();
+      expect(game.lastSavedGame?['refusedMoves'],
+          GameController.kMaxRefusalAttempts);
+      game.dispose();
     });
   });
 

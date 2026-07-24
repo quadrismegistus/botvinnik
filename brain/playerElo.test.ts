@@ -147,6 +147,15 @@ describe('takeback exclusion', () => {
 	});
 });
 
+describe('refused-move exclusion (#167)', () => {
+	it('a game with a refused move is off the ruler, same as a takeback', () => {
+		const refused = { ...game('squarefish-1000', '1-0', 'b'), refusedMoves: 1 };
+		const clean = { ...game('squarefish-1000', '1-0', 'b'), refusedMoves: 0 };
+		expect(estimatePlayerElo([refused])).toBeNull();
+		expect(estimatePlayerElo([clean])).not.toBeNull();
+	});
+});
+
 describe('rated mode is the gate (#168)', () => {
 	it('a game not started as rated never counts, however clean it was', () => {
 		// The pair. Same game, same result, same opponent — the ONLY difference

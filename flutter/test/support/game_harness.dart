@@ -194,6 +194,14 @@ class FakeBot implements BotApi {
 }
 
 class FakeGrading implements GradingApi {
+  /// Override to make [winChance] vary — the default (always 0) means
+  /// _wcDrop is always 0 too, which is fine for tests that only check
+  /// WHETHER collection was attempted, but cannot produce a drop large
+  /// enough to exercise refusal mode (game_controller_test.dart's "refusal
+  /// mode" group), which needs a real number to compare against a threshold.
+  final double Function(double? evalPawns, int? mate)? winChanceOf;
+  FakeGrading({this.winChanceOf});
+
   /// A blunder-shaped grade, so a move that reaches the collect guard is one
   /// practice would want. Only the fields the pipeline and _storedMoveOf read
   /// need to be here.
@@ -227,7 +235,8 @@ class FakeGrading implements GradingApi {
       MoveGrade({...grade.raw, 'backfilled': true});
 
   @override
-  double winChance(double? evalPawns, int? mate) => 0;
+  double winChance(double? evalPawns, int? mate) =>
+      winChanceOf?.call(evalPawns, mate) ?? 0;
   @override
   double whitePovWinChance(String color, double? evalPawns, int? mate) => 50;
   @override
@@ -289,6 +298,8 @@ const kStandardStartFen =
 /// — so it cannot reach the end of a save. These two are the difference
 /// between a test that archives a game and one that dies in the accountancy.
 class SavingGrading extends FakeGrading {
+  SavingGrading({super.winChanceOf});
+
   @override
   double? gameAccuracy(List<Map<String, dynamic>> storedMoves, String color) =>
       null;
