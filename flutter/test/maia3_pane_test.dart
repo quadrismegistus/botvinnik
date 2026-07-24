@@ -3,6 +3,7 @@
 
 import 'dart:ui';
 
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:botvinnik_mobile/brain/maia3_api.dart';
@@ -114,6 +115,55 @@ void main() {
     test('well-separated labels are untouched', () {
       expect(Maia3ChartPainter.spreadLabels([10, 100, 190], 12, 0, 200),
           [10, 100, 190]);
+    });
+  });
+
+  group('Maia3ChartCanvas hover wiring', () {
+    // pickMoves/eloAtX are covered as pure functions above, but nothing
+    // exercised the actual MouseRegion/Listener -> setState -> repaint path
+    // (review follow-up, #223): a regression in that wiring — a bad
+    // local-to-Size mapping, onExit never firing — would pass unnoticed.
+    // MaterialApp/Scaffold add their own CustomPaints (ink, shadows, ...),
+    // so find.byType(CustomPaint) alone is ambiguous — key on the painter.
+    final chartFinder = find.byWidgetPredicate(
+        (w) => w is CustomPaint && w.painter is Maia3ChartPainter);
+    Maia3ChartPainter painterOf(WidgetTester tester) =>
+        tester.widget<CustomPaint>(chartFinder).painter as Maia3ChartPainter;
+
+    testWidgets('hovering pins the scrubber; leaving clears it',
+        (tester) async {
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Maia3ChartCanvas(
+            curves: _curves([
+              {'e4': 0.5, 'd4': 0.3},
+              {'e4': 0.4, 'd4': 0.5},
+              {'e4': 0.3, 'd4': 0.6},
+            ]),
+          ),
+        ),
+      ));
+
+      expect(painterOf(tester).hoverElo, isNull);
+
+      final gesture = await tester.createGesture(kind: PointerDeviceKind.mouse);
+      addTearDown(gesture.removePointer);
+      await gesture.addPointer(location: Offset.zero);
+      await tester.pump();
+
+      final topLeft = tester.getTopLeft(chartFinder);
+      final size = tester.getSize(chartFinder);
+      await gesture.moveTo(topLeft + Offset(size.width / 2, size.height / 2));
+      await tester.pump();
+
+      expect(painterOf(tester).hoverElo, isNotNull,
+          reason: 'a mouse hover over the chart must reach the painter');
+
+      await gesture.moveTo(const Offset(5, 5)); // off the chart entirely
+      await tester.pump();
+
+      expect(painterOf(tester).hoverElo, isNull,
+          reason: 'leaving the chart must clear the scrubber');
     });
   });
 }

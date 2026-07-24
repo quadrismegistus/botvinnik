@@ -47,7 +47,7 @@ const Duration _kFetchTimeout = Duration(seconds: 30);
 const Duration _kRunTimeout = Duration(seconds: 15);
 
 class _Net {
-  const _Net(this.session, this.tokensName, this.eloSelfName, this.eloOppoName,
+  _Net(this.session, this.tokensName, this.eloSelfName, this.eloOppoName,
       this.moveName, this.valueName);
   final OrtSession session;
   final String tokensName;
@@ -55,6 +55,19 @@ class _Net {
   final String eloOppoName;
   final String moveName;
   final String valueName;
+
+  // dispose() can race an in-flight _session() build: it attaches its own
+  // release to whatever future _net currently is, without knowing whether
+  // _analyze's own claim-and-release has already run or is about to. Native
+  // OrtSession.release() has no reentrancy guard, so without this flag that
+  // race is a double-free. Idempotency here is cheaper than synchronizing
+  // dispose() against every in-flight _session() call.
+  bool _released = false;
+  void release() {
+    if (_released) return;
+    _released = true;
+    session.release();
+  }
 }
 
 class Maia3Engine {
@@ -144,7 +157,7 @@ class Maia3Engine {
     // acceptable at debounced chart cadence.
     _net = null;
     if (_disposed || gen != _gen) {
-      net.session.release();
+      net.release();
       return null;
     }
 
@@ -180,7 +193,7 @@ class Maia3Engine {
 
     if (run == null) {
       releaseInputs();
-      net.session.release();
+      net.release();
       return null;
     }
     // Inputs — and the single-use session — are freed when the run REALLY
@@ -193,7 +206,7 @@ class Maia3Engine {
       return null;
     }).whenComplete(() {
       releaseInputs();
-      net.session.release();
+      net.release();
     });
 
     List<OrtValue?>? outputs;
@@ -399,10 +412,13 @@ class Maia3Engine {
   void dispose() {
     _disposed = true;
     _gen++;
-    // Only an UNCLAIMED warm-up session can be sitting in _net — a running
-    // one was claimed (nulled) by its run and releases itself when the run
-    // really finishes. So releasing here is always safe.
-    _net?.then((n) => n.session.release(), onError: (_) {});
+    // _net can still be a PENDING future here (mid-download or mid-build) —
+    // not yet claimed by _analyze, which only nulls it out once _session()
+    // has already resolved. Racing dispose() against that build is exactly
+    // why _Net.release() is idempotent: this callback and _analyze's own
+    // post-await release (which also fires, seeing _disposed) can both run
+    // against the same _Net once the future settles.
+    _net?.then((n) => n.release(), onError: (_) {});
     _net = null;
   }
 }

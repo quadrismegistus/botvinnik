@@ -159,21 +159,29 @@ class _ModeToggle extends StatelessWidget {
 
   Widget _segment(String label, Maia3Mode value) {
     final active = mode == value;
+    // The visual pill stays small (it sits in a dense chart header), but the
+    // tappable area is padded out to a real touch target — ~19px of pill
+    // alone is a mis-tap risk on a phone.
     return GestureDetector(
       onTap: () => onChanged(value),
+      behavior: HitTestBehavior.opaque,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-        decoration: BoxDecoration(
-          color: active ? Colors.white12 : Colors.transparent,
-          borderRadius: BorderRadius.circular(4),
-          border: Border.all(color: active ? Colors.white24 : Colors.white10),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            fontSize: 10.5,
-            color: active ? Colors.white70 : Colors.white30,
-            fontWeight: active ? FontWeight.w600 : FontWeight.normal,
+        constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
+        alignment: Alignment.center,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+          decoration: BoxDecoration(
+            color: active ? Colors.white12 : Colors.transparent,
+            borderRadius: BorderRadius.circular(4),
+            border: Border.all(color: active ? Colors.white24 : Colors.white10),
+          ),
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: 10.5,
+              color: active ? Colors.white70 : Colors.white30,
+              fontWeight: active ? FontWeight.w600 : FontWeight.normal,
+            ),
           ),
         ),
       ),

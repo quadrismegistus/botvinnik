@@ -22,7 +22,7 @@
 //   → { id, error: string }
 
 import * as ort from 'onnxruntime-web/wasm';
-import { encodeBoard } from '../../brain/maia3/encoding';
+import { encodeBoard, POLICY_VOCAB_SIZE } from '../../brain/maia3/encoding';
 
 declare const self: DedicatedWorkerGlobalScope;
 
@@ -173,7 +173,6 @@ async function initSession(report: (p: Progress) => void): Promise<ort.Inference
 
 const NUM_SQUARES = 64;
 const PLANES_PER_SQUARE = 12;
-const POLICY_VOCAB_SIZE = 4352;
 const WDL_SIZE = 3;
 
 /**
