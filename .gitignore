@@ -65,6 +65,7 @@ flutter/web/wasm/
 flutter/web/retro/
 flutter/web/garbo/
 flutter/web/maia/
+flutter/web/maia3/
 flutter/web/brain.js
 
 # sqflite's shared-worker build: unused (db_init_web uses the no-worker
@@ -85,3 +86,5 @@ flutter/web/sqflite_sw.js
 # that are not covered by more specific rules. Delete this block when Android
 # becomes a real target and commit the scaffold deliberately.
 flutter/android/
+
+.claude

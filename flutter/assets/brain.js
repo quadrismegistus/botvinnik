@@ -1950,8 +1950,8 @@ var brain = (() => {
               if (piece === null) {
                 throw new Error(`Invalid FEN: unknown piece character '${char}'`);
               }
-              const squareIndex = (7 - rank2) * 8 + file2;
-              (0, Board_1.setPiece)(board, squareIndex, piece);
+              const squareIndex2 = (7 - rank2) * 8 + file2;
+              (0, Board_1.setPiece)(board, squareIndex2, piece);
               file2++;
             }
           }
@@ -2034,8 +2034,8 @@ var brain = (() => {
           let rankStr = "";
           let emptyCount = 0;
           for (let file2 = 0; file2 < 8; file2++) {
-            const squareIndex = rank2 * 8 + file2;
-            const piece = board.mailbox[squareIndex];
+            const squareIndex2 = rank2 * 8 + file2;
+            const piece = board.mailbox[squareIndex2];
             if (piece === types_1.Piece.EMPTY) {
               emptyCount++;
             } else {
@@ -2558,14 +2558,14 @@ var brain = (() => {
         30,
         20
       ]);
-      function mirrorSquare(sq) {
+      function mirrorSquare2(sq) {
         const rank2 = sq / 8 | 0;
         const file2 = sq & 7;
         return (7 - rank2) * 8 + file2;
       }
       function pst(piece, square2) {
         const isWhite = piece >= types_1.Piece.WHITE_PAWN && piece <= types_1.Piece.WHITE_KING;
-        const sq = isWhite ? mirrorSquare(square2) : square2;
+        const sq = isWhite ? mirrorSquare2(square2) : square2;
         switch (piece) {
           case types_1.Piece.WHITE_PAWN:
           case types_1.Piece.BLACK_PAWN:
@@ -3633,9 +3633,9 @@ var brain = (() => {
          */
         setPiece(square2, piece) {
           const squareNorm = (0, APIAdapter_1.normalizeSquare)(square2);
-          const squareIndex = (0, conversion_1.squareToIndex)(squareNorm);
+          const squareIndex2 = (0, conversion_1.squareToIndex)(squareNorm);
           const pieceEnum = (0, APIAdapter_1.symbolToPiece)(piece);
-          (0, Board_1.setPiece)(this.board, squareIndex, pieceEnum);
+          (0, Board_1.setPiece)(this.board, squareIndex2, pieceEnum);
         }
         /**
          * Remove a piece from a square
@@ -3644,8 +3644,8 @@ var brain = (() => {
          */
         removePiece(square2) {
           const squareNorm = (0, APIAdapter_1.normalizeSquare)(square2);
-          const squareIndex = (0, conversion_1.squareToIndex)(squareNorm);
-          (0, Board_1.removePiece)(this.board, squareIndex);
+          const squareIndex2 = (0, conversion_1.squareToIndex)(squareNorm);
+          (0, Board_1.removePiece)(this.board, squareIndex2);
         }
         /**
          * Get move history
@@ -3891,8 +3891,10 @@ var brain = (() => {
     CLASS: () => CLASS,
     LABEL_ORDER: () => LABEL_ORDER,
     LABEL_VERSION: () => LABEL_VERSION,
+    MAIA_ELO_LADDER: () => MAIA_ELO_LADDER,
     MOTIF_TAGS_VERSION: () => MOTIF_TAGS_VERSION,
     PERSONAS: () => PERSONAS,
+    POLICY_VOCAB_SIZE: () => POLICY_VOCAB_SIZE,
     SCALE_OFFSET: () => SCALE_OFFSET,
     addItem: () => addItem,
     addItems: () => addItems,
@@ -3907,11 +3909,15 @@ var brain = (() => {
     botRecipe: () => botRecipe,
     botSpec: () => botSpec,
     ccGameToStored: () => ccGameToStored,
+    computeMoveCurves: () => computeMoveCurves,
     confidences: () => confidences,
     controlSquares: () => controlSquares,
     dueCount: () => dueCount,
     enPassantSetup: () => enPassantSetup,
+    encodeBoard: () => encodeBoard,
+    encodeBoardArray: () => encodeBoardArray,
     estimatePlayerElo: () => estimatePlayerElo,
+    expectedScore: () => expectedScore,
     explainGoodMove: () => explainGoodMove,
     explainMove: () => explainMove,
     gameAccuracy: () => gameAccuracy,
@@ -3922,12 +3928,14 @@ var brain = (() => {
     getSanLine: () => getSanLine,
     gradeMove: () => gradeMove,
     horizonMove: () => horizonMove,
+    isBlackToMove: () => isBlackToMove,
     isCapture: () => isCapture,
     itemDataFromStoredMove: () => itemDataFromStoredMove,
     judgeTacticalWin: () => judgeTacticalWin,
     judgeThreat: () => judgeThreat,
     labelCounts: () => labelCounts,
     lichessGameToStored: () => lichessGameToStored,
+    maskAndSoftmax: () => maskAndSoftmax,
     masteryStats: () => masteryStats,
     motifTags: () => motifTags,
     moveAccuracy: () => moveAccuracy,
@@ -3947,6 +3955,7 @@ var brain = (() => {
     shapedParams: () => shapedParams,
     shapedSearchDepth: () => shapedSearchDepth,
     shapedStrengthRange: () => shapedStrengthRange,
+    softmaxWdl: () => softmaxWdl,
     specToRecipe: () => specToRecipe,
     threatProbeFen: () => threatProbeFen,
     threatProse: () => threatProse,
@@ -9736,8 +9745,126 @@ var brain = (() => {
     return { elo: best, se, games: outcomes.length };
   }
 
+  // brain/maia3/encoding.ts
+  var NUM_SQUARES = 64;
+  var SQUARES_PER_SIDE = 8;
+  var PLANES_PER_SQUARE = 12;
+  var PIECE_PLANE_ORDER = ["P", "N", "B", "R", "Q", "K", "p", "n", "b", "r", "q", "k"];
+  var POLICY_VOCAB_SIZE = 4352;
+  var BASE_VOCAB_SIZE = NUM_SQUARES * NUM_SQUARES;
+  var UNDERPROMOTION_LANES = ["q", "r", "b", "n"];
+  function squareIndex(square2) {
+    const file2 = square2.charCodeAt(0) - "a".charCodeAt(0);
+    const row = Number(square2[1]) - 1;
+    return row * SQUARES_PER_SIDE + file2;
+  }
+  function mirrorSquare(square2) {
+    return square2[0] + (SQUARES_PER_SIDE + 1 - Number(square2[1]));
+  }
+  function moveVocabIndex(from, to, promotion) {
+    const fromIdx = squareIndex(from);
+    const toIdx = squareIndex(to);
+    if (promotion === void 0 || promotion === "q") {
+      return fromIdx * NUM_SQUARES + toIdx;
+    }
+    const laneIdx = UNDERPROMOTION_LANES.indexOf(promotion);
+    return BASE_VOCAB_SIZE + toIdx * UNDERPROMOTION_LANES.length + laneIdx;
+  }
+  function mirrorPiecePlacement(piecePlacement) {
+    return piecePlacement.split("/").reverse().map(
+      (row) => row.replace(
+        /[a-zA-Z]/g,
+        (c) => c === c.toUpperCase() ? c.toLowerCase() : c.toUpperCase()
+      )
+    ).join("/");
+  }
+  function encodeBoard(fen) {
+    const [piecePlacement, activeColor] = fen.split(" ");
+    if (piecePlacement === void 0) {
+      throw new Error(`maia3/encoding: invalid FEN (no piece-placement field): ${fen}`);
+    }
+    const isBlackToMove2 = activeColor === "b";
+    const framed = isBlackToMove2 ? mirrorPiecePlacement(piecePlacement) : piecePlacement;
+    const tokens = new Float32Array(NUM_SQUARES * PLANES_PER_SQUARE);
+    const rows = framed.split("/");
+    for (let rowFromTop = 0; rowFromTop < SQUARES_PER_SIDE; rowFromTop++) {
+      const row = SQUARES_PER_SIDE - 1 - rowFromTop;
+      let file2 = 0;
+      const rowStr = rows[rowFromTop] ?? "";
+      for (const ch of rowStr) {
+        const emptyCount = Number.parseInt(ch, 10);
+        if (Number.isNaN(emptyCount)) {
+          const planeIdx = PIECE_PLANE_ORDER.indexOf(ch);
+          if (planeIdx >= 0) {
+            tokens[(row * SQUARES_PER_SIDE + file2) * PLANES_PER_SQUARE + planeIdx] = 1;
+          }
+          file2 += 1;
+        } else {
+          file2 += emptyCount;
+        }
+      }
+    }
+    return tokens;
+  }
+  function encodeBoardArray(fen) {
+    return Array.from(encodeBoard(fen));
+  }
+  function isBlackToMove(fen) {
+    return fen.split(" ")[1] === "b";
+  }
+
+  // brain/maia3/decoding.ts
+  function maskAndSoftmax(policy, fen) {
+    const chess = new Chess(fen);
+    const black = isBlackToMove(fen);
+    const legalMoves = chess.moves({ verbose: true });
+    const scores = legalMoves.map((move) => {
+      const from = black ? mirrorSquare(move.from) : move.from;
+      const to = black ? mirrorSquare(move.to) : move.to;
+      const idx = moveVocabIndex(from, to, move.promotion);
+      return policy[idx] ?? Number.NEGATIVE_INFINITY;
+    });
+    const max = scores.length > 0 ? Math.max(...scores) : 0;
+    const exps = scores.map((s) => Math.exp(s - max));
+    const sum = exps.reduce((a, b) => a + b, 0);
+    const probabilities = {};
+    legalMoves.forEach((move, i) => {
+      probabilities[move.san] = sum > 0 ? (exps[i] ?? 0) / sum : 0;
+    });
+    return probabilities;
+  }
+  function softmaxWdl(logits) {
+    const values = [logits[0] ?? 0, logits[1] ?? 0, logits[2] ?? 0];
+    const max = Math.max(...values);
+    const exps = values.map((v) => Math.exp(v - max));
+    const sum = exps.reduce((a, b) => a + b, 0);
+    const at = (i) => sum > 0 ? (exps[i] ?? 0) / sum : 0;
+    return { loss: at(0), draw: at(1), win: at(2) };
+  }
+  function expectedScore(wdl) {
+    return wdl.win + 0.5 * wdl.draw;
+  }
+  function computeMoveCurves(fen, rawPolicyByElo, rawWdlByElo) {
+    return {
+      perElo: rawPolicyByElo.map(({ elo, policy }) => ({
+        elo,
+        moveProbabilities: maskAndSoftmax(policy, fen)
+      })),
+      wdlByElo: rawWdlByElo.map(({ elo, wdl }) => ({ elo, wdl: softmaxWdl(wdl) }))
+    };
+  }
+
+  // brain/maia3/ladder.ts
+  var MAIA_ELO_LADDER_MIN = 600;
+  var MAIA_ELO_LADDER_MAX = 2600;
+  var MAIA_ELO_LADDER_STEP = 100;
+  var MAIA_ELO_LADDER = Array.from(
+    { length: (MAIA_ELO_LADDER_MAX - MAIA_ELO_LADDER_MIN) / MAIA_ELO_LADDER_STEP + 1 },
+    (_, i) => MAIA_ELO_LADDER_MIN + i * MAIA_ELO_LADDER_STEP
+  );
+
   // brain/brain-entry.ts
-  var BRAIN_VERSION = 1;
+  var BRAIN_VERSION = 2;
   function controlSquares(fen) {
     return Object.fromEntries(computeControl(fen));
   }
