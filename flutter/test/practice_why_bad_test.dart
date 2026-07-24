@@ -70,6 +70,23 @@ void main() {
     expect(h.practice.attempt!.punishment, contains('rook'));
   });
 
+  test('a recapture is a trade — never "wins your piece"', () async {
+    // You play Rxe8 (capturing a rook); the opponent recaptures ...Rxe8. That's
+    // an even rook trade, not a lost rook — the card must not claim otherwise.
+    const before = '3rr1k1/5ppp/8/8/8/8/5PPP/4R1K1 w - - 0 1';
+    const afterRxe8 = '3rR1k1/5ppp/8/8/8/8/5PPP/6K1 b - - 0 1';
+    final arbiter = FakeArbiter(searchLines: [_line(['d8e8'])]);
+    final item = practiceItem(before, bestUci: 'g1f1'); // any non-Rxe8 best
+    final h = makePractice([item], arbiter: arbiter);
+    h.practice.startSession();
+
+    await h.practice.checkAttempt('e1e8', 'Rxe8', afterRxe8);
+
+    expect(h.practice.attempt!.pass, isFalse);
+    expect(h.practice.attempt!.punishment, isNull,
+        reason: 'Rxe8 then ...Rxe8 is an even trade, not a won rook');
+  });
+
   test('the punishment calls a mating refutation checkmate', () async {
     final arbiter = FakeArbiter(searchLines: [_line(['e8e1'])]);
     final item = practiceItem(_puzzleFen, bestUci: 'd2d4');

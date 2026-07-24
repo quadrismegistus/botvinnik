@@ -219,7 +219,14 @@ class PracticeController extends ChangeNotifier {
   /// Returns null when the refutation neither mates nor captures a piece
   /// outright — a subtler tactic, where the win-chance drop is the honest
   /// thing to show and the playable line does the explaining.
-  String? _describePunishment(String fenAfter, String? refUci) {
+  /// [beforeFen] is the puzzle position and [playedUci] the move made on it —
+  /// both needed to tell a free win from an even trade: a refutation that
+  /// recaptures on the square your move just captured on is a TRADE, not a lost
+  /// piece, so it must not be reported as "wins your rook" (the win-chance drop
+  /// carries that). Your move walking a piece INTO a capture (a non-capture that
+  /// hangs it) is still a real loss and still named.
+  String? _describePunishment(
+      String beforeFen, String playedUci, String fenAfter, String? refUci) {
     if (refUci == null) return null;
     try {
       final pos = Chess.fromSetup(Setup.parseFen(fenAfter));
@@ -228,10 +235,15 @@ class PracticeController extends ChangeNotifier {
       final victim = pos.board.roleAt(move.to); // the piece captured, if any
       final (after, refSan) = pos.makeSan(move);
       if (after.isCheckmate) return '$refSan is checkmate.';
-      if (victim != null && victim != Role.king) {
-        return '$refSan wins your ${_kRoleNoun[victim] ?? 'piece'}.';
-      }
-      return null;
+      if (victim == null || victim == Role.king) return null;
+      // Recapture check: did your move capture on this same square? If so, the
+      // opponent taking back there is a trade, not a free win — say nothing.
+      final before = Chess.fromSetup(Setup.parseFen(beforeFen));
+      final played = NormalMove.fromUci(playedUci);
+      final youCapturedHere =
+          before.board.roleAt(played.to) != null && played.to == move.to;
+      if (youCapturedHere) return null;
+      return '$refSan wins your ${_kRoleNoun[victim] ?? 'piece'}.';
     } catch (_) {
       return null;
     }
@@ -639,7 +651,10 @@ class PracticeController extends ChangeNotifier {
   /// priority — preempts background analysis, waits behind nothing).
   Future<void> checkAttempt(String uci, String san, String fenAfter) async {
     final item = current;
-    if (item == null || checking) return;
+    // Also barred while the punishment preview plays: the UI already blocks the
+    // board then, but guarding here keeps a stray call from grading against a
+    // position the preview has walked away from, leaving the timer live.
+    if (item == null || checking || refutePreviewing) return;
     final gen = _gen;
     checking = true;
     pendingUci = uci; // show the move on the board while we check
@@ -703,7 +718,10 @@ class PracticeController extends ChangeNotifier {
       evalPawns: evalPawns,
       refutationUci: pass ? null : refutation,
       refutationPv: pass ? const [] : refutationPv,
-      punishment: pass ? null : _describePunishment(fenAfter, refutation),
+      punishment: pass
+          ? null
+          : _describePunishment(
+              item['fen'] as String, uci, fenAfter, refutation),
     );
     checking = false;
     // Where a passed attempt can be continued FROM (#143). Set for every graded

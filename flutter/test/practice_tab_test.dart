@@ -17,6 +17,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 
+import 'package:botvinnik_mobile/brain/types.dart' show EngineMove;
 import 'package:botvinnik_mobile/stores/practice_controller.dart';
 import 'package:botvinnik_mobile/stores/settings_store.dart';
 import 'package:botvinnik_mobile/ui/practice_tab.dart';
@@ -272,6 +273,40 @@ void main() {
   });
 
   group('why a move is bad (#215)', () {
+    // Black to move; e8-e1 is back-rank mate (Kg1 boxed by its own pawns).
+    const backRankMate = '4r1k1/5ppp/8/8/8/8/5PPP/6K1 b - - 0 1';
+    EngineMove line(List<String> pv) =>
+        EngineMove(pv: pv, score: 5, mate: null, depth: 12, multipv: 1);
+
+    testWidgets('tapping "Watch what it costs" enters the board preview',
+        (tester) async {
+      final h = makePractice(
+        [practiceItem(_pinFen, bestUci: 'd2d4')],
+        arbiter: FakeArbiter(searchLines: [line(['e8e1'])]),
+      );
+      h.practice.startSession();
+      await _pumpTab(tester, h.practice);
+
+      // Drive the failed attempt THROUGH checkAttempt so _fenAfterAttempt is
+      // set — the direct-attempt shortcut the other tests use leaves it null,
+      // which would make the tap a silent no-op (the trap the review flagged).
+      // The fake search resolves on a zero-delay timer; advance fake time.
+      unawaited(h.practice.checkAttempt('a2a3', 'a3', backRankMate));
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 2));
+      await tester.pump();
+
+      await tester.ensureVisible(find.text('Watch what it costs'));
+      await tester.tap(find.text('Watch what it costs'));
+      await tester.pump();
+      expect(h.practice.refutePreviewing, isTrue,
+          reason: 'the tap must actually start the preview, not no-op');
+
+      // Cancel the periodic timer so nothing is pending at teardown.
+      h.practice.stopRefutationPreview();
+      await tester.pump();
+    });
+
     testWidgets('a failed attempt names the punishment and offers to play it',
         (tester) async {
       final h = makePractice([practiceItem(_pinFen, bestUci: 'd2d4')]);
