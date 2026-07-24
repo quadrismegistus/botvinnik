@@ -10,7 +10,7 @@ import 'dart:convert';
 
 /// Bump in lockstep with BRAIN_VERSION in src/lib/brain-entry.ts.
 /// Boot fails loudly on mismatch instead of skewing silently.
-const int kExpectedBrainVersion = 1;
+const int kExpectedBrainVersion = 2;
 
 /// Marker for an omitted argument: marshals as JS `undefined`, engaging the
 /// brain's parameter defaults (`now = Date.now()`, `rand = Math.random`).
