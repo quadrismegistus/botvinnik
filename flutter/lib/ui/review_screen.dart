@@ -165,8 +165,9 @@ class ReviewBody extends StatelessWidget {
             style: TextButton.styleFrom(
               foregroundColor: const Color(0xFFE8B44A),
               padding: const EdgeInsets.symmetric(horizontal: 8),
-              minimumSize: const Size(0, 32),
-              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              // 48dp, per this project's own precedent (#221 enlarged the
+              // review toggle for the same reason).
+              minimumSize: const Size(0, 48),
             ),
             child: const Text('Back to the game', style: TextStyle(fontSize: 12)),
           ),
@@ -431,8 +432,15 @@ class ReviewBody extends StatelessWidget {
     final moves = review.moves;
     final tree = board.tree;
     final mainline = tree?.mainline ?? const <ReviewNode>[];
+    // A move played PAST the end of the game replaces ply n+1, which on an
+    // even-length game falls in a row the archive does not reach. Without the
+    // extra row that branch — the "how should it have gone on?" line, the most
+    // natural thing to try — prints nowhere.
+    final trailing = mainline.isNotEmpty &&
+        mainline.length.isEven &&
+        mainline.last.variations.isNotEmpty;
     return ListView.builder(
-      itemCount: (moves.length + 1) ~/ 2 + 1,
+      itemCount: (moves.length + 1) ~/ 2 + 1 + (trailing ? 1 : 0),
       itemBuilder: (context, index) {
         if (index == 0) {
           // The chart hides itself on an ungraded game (fewer than two graded
@@ -446,7 +454,9 @@ class ReviewBody extends StatelessWidget {
           );
         }
         final i = index - 1;
-        final white = moves[i * 2];
+        // Both nullable: the trailing row above has no archived moves in it at
+        // all, only the branch that continues past them.
+        final white = i * 2 < moves.length ? moves[i * 2] : null;
         final black = i * 2 + 1 < moves.length ? moves[i * 2 + 1] : null;
         Widget cell(Map<String, dynamic>? m, int ply) {
           if (m == null) return const SizedBox();
@@ -485,12 +495,24 @@ class ReviewBody extends StatelessWidget {
           );
         }
 
-        // Variations hanging off either half of this move pair, printed under
-        // it the way a book does — the played move keeps the row, the
+        // Variations replacing either half of this move pair, printed under it
+        // the way a book does — the played move keeps the row, the
         // alternatives are indented beneath it (#196).
+        //
+        // A variation hangs off the node BEFORE the move it replaces: it is a
+        // child of the position that move was played from. So an alternative
+        // to ply P is carried by ply P-1, and ply 1's alternatives are carried
+        // by the ROOT. Indexing the carrier instead of the replaced move put
+        // every branch one row too early — an alternative to White's second
+        // move printed above move 1 — and left a branch off the start position
+        // rendered by nothing at all, since no mainline node carries it.
         final branches = <ReviewNode>[
+          // `<= length + 1`, not `<= length`: the ply one past the end of the
+          // game is a real place to have played something, and its carrier is
+          // the game's last move.
           for (final ply in [i * 2 + 1, i * 2 + 2])
-            if (ply - 1 < mainline.length) ...mainline[ply - 1].variations
+            if (ply <= mainline.length + 1)
+              ...(ply == 1 ? tree!.root : mainline[ply - 2]).variations
         ];
 
         return Padding(
@@ -529,11 +551,22 @@ class ReviewBody extends StatelessWidget {
       line.add(n);
     }
     final current = board.tree?.current;
+    // Numbered like a book — "2." for a White alternative, "2..." for a Black
+    // one. Without it, two branches replacing different moves render as two
+    // identical indented rows in the same group, and nothing says which move
+    // either departs from.
+    final n = branch.ply;
+    final label = branch.color == 'b' ? '${(n + 1) ~/ 2}...' : '${(n + 1) ~/ 2}.';
     return Padding(
       padding: const EdgeInsets.only(left: 30, top: 1, bottom: 2),
       child: Wrap(
         crossAxisAlignment: WrapCrossAlignment.center,
         children: [
+          Padding(
+            padding: const EdgeInsets.only(right: 4),
+            child: Text(label,
+                style: const TextStyle(color: Colors.white38, fontSize: 11)),
+          ),
           for (final n in line)
             InkWell(
               onTap: () => board.gotoNode(n),

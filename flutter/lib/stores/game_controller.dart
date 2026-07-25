@@ -364,7 +364,13 @@ class GameController extends ChangeNotifier {
     _lastSettingsSig = _settingsSig(); // see the field: NOT a late initializer
     _syncRetro();
     _settings.addListener(_onSettings);
-    _analysisFor(position.fen);
+    // Not for a review board: it has no game open yet, so this queued a second
+    // full depth-22 / MultiPV-5 search of the START position on the one shared
+    // engine at boot, whose result nobody would ever read. The provider is
+    // created eagerly (KeyboardControls reads it in the first shell build), so
+    // this cost was paid on every launch whether or not Review was opened.
+    // showReview asks for the real position when a game is opened.
+    if (!_review) _analysisFor(position.fen);
     _maybeBotTurn();
   }
 
@@ -614,7 +620,11 @@ class GameController extends ChangeNotifier {
       // opacity sliders notify on every drag frame, and re-probing there
       // queued dozens of engine searches ahead of the position's analysis.
       final overlaySig = '${_settings.showThreats}|${_settings.blind}';
-      if (overlaySig != _lastOverlaySig) {
+      // `_tree != null` for the review board: without a game open there is
+      // nothing to probe, and a threat probe OUTRANKS analysis — so toggling
+      // overlays on the Play tab preempted the live board's own search on
+      // behalf of a review board nobody had opened.
+      if (overlaySig != _lastOverlaySig && (!_review || _tree != null)) {
         _lastOverlaySig = overlaySig;
         _probeThreat();
         // Toggling blind changes which nodes the tree lays out (#147). The
@@ -696,6 +706,12 @@ class GameController extends ChangeNotifier {
       bool rated = false,
       bool refuseBlunders = false,
       TimeControl? timeControl}) {
+    // The review board has no game to start, and this is the last unguarded
+    // bumpGeneration on it — which voids EVERY queued and running search of
+    // every priority on the arbiter shared with the live game, including a bot
+    // move in flight. undo/redo/resign are already guarded; this was the trap
+    // left for whoever wires the next control into the Review tab.
+    if (_review) return;
     _browsePly = null;
     _redoStack.clear();
     _gen++;
@@ -1790,6 +1806,13 @@ class GameController extends ChangeNotifier {
       _reviewId = null;
       _tree = null;
       moves.clear();
+      // The BOARD too, not just the move list. Closing left the last position
+      // of the closed game sitting there with its last-move highlight, which
+      // is what the next game briefly renders over.
+      _startFen = Chess.initial.fen;
+      position = Chess.initial;
+      lastMove = null;
+      _threat = null;
       notifyListeners();
       return;
     }
@@ -1809,9 +1832,15 @@ class GameController extends ChangeNotifier {
   /// the move list and the jump-to-start button all mean. Naming a move of the
   /// game is how you say "take me back to what actually happened".
   void gotoMainlinePly(int ply) {
-    if (_tree == null) return;
-    _tree!.gotoMainlinePly(ply);
-    _syncToTree();
+    final t = _tree;
+    if (t == null) return;
+    final before = t.current;
+    t.gotoMainlinePly(ply);
+    // Only if the board actually moved. _syncToTree cancels position-scoped
+    // work on the arbiter SHARED with the live game, so tapping the move you
+    // are already on, or pressing "last move" at the last move, threw away the
+    // Play board's analysis for nothing.
+    if (!identical(t.current, before)) _syncToTree();
   }
 
   /// Rebuild the tree and the move list from a stored game.
@@ -1831,6 +1860,30 @@ class GameController extends ChangeNotifier {
       for (final e in (stored['moves'] as List?) ?? const [])
         (e as Map).cast<String, dynamic>()
     ];
+    // Checked BEFORE anything is read out, not after — the guard used to sit
+    // below the casts it was there to protect, so a record missing a field
+    // threw a _TypeError on the way to it. That throw lands inside a
+    // ChangeNotifier notification, which swallows it, leaving _reviewId set to
+    // the game that failed and _tree still on the PREVIOUS one: game B's move
+    // list and chart over game A's board, with re-opening B a no-op. The
+    // archive is the one input here we do not control — BackupService.importJson
+    // validates only id and endedAt and writes the rest verbatim, and sync pulls
+    // funnel through it.
+    final usable = raw.isNotEmpty &&
+        raw.every((m) =>
+            m['san'] is String &&
+            m['uci'] is String &&
+            m['color'] is String &&
+            m['ply'] is num &&
+            _parses(m['fenBefore']) &&
+            _parses(m['fenAfter']));
+    if (!usable) {
+      moves.clear();
+      _startFen = Chess.initial.fen;
+      _tree = ReviewTree(_startFen);
+      _reviewColor = 'w';
+      return;
+    }
     moves
       ..clear()
       ..addAll([
@@ -1844,38 +1897,51 @@ class GameController extends ChangeNotifier {
             fenAfter: m['fenAfter'] as String,
           )
       ]);
-    // A stored record whose fens will not parse must not take down the Review
-    // tab. The save path always writes real ones, but an import, a
-    // hand-edited row or a record from a schema that predates a field can
-    // carry something else — and the ARCHIVE is the one thing here we do not
-    // control. Degrade to an empty board at the start position, which reads as
-    // "nothing to show", rather than throwing a FenException up through a
-    // ChangeNotifier where it surfaces as a blank tab.
-    final usable = raw.isNotEmpty &&
-        raw.every((m) =>
-            _parses(m['fenBefore'] as String?) &&
-            _parses(m['fenAfter'] as String?));
-    if (!usable) {
-      moves.clear();
-      _startFen = Chess.initial.fen;
-      _tree = ReviewTree(_startFen);
-    } else {
-      _startFen = moves.first.fenBefore;
-      _tree = ReviewTree.fromStored(_startFen, raw);
-    }
-    // Orientation only. An import has no "you" in it, so it is read from
-    // White's — the same rule ReviewBody applied when it owned the board.
+    _startFen = moves.first.fenBefore;
+    // Castling reaches the archive as two different strings. dartchess
+    // normalises it to king-takes-rook (parseSan gives e1h1), which is what a
+    // PGN import stores; the lichess and chess.com importers write from+to
+    // (e1g1); an in-app game stores whatever squares the player dragged. The
+    // tree matches a played move against the archived one by UCI STRING, so
+    // without this, castling on an imported game forks a phantom variation off
+    // itself — "you have left the game", the archived grade for the move
+    // dropped, and a move list reading O-O branching into O-O.
+    _tree = ReviewTree.fromStored(_startFen, [
+      for (final m in raw) {...m, 'uci': _normalisedUci(m)}
+    ]);
+    // Orientation only. A game with no bot in it — an import, or an analysis
+    // game — has no "you" to take a side, so it is read from White's. That is
+    // the same rule ReviewBody applied for imports; for an ANALYSIS game the
+    // old rule happened to pick Black, which was arbitrary rather than
+    // intended, so this is a deliberate change and not a port.
     final botColor = stored['botColor'] as String?;
     _reviewColor = botColor == null ? 'w' : (botColor == 'w' ? 'b' : 'w');
   }
 
-  static bool _parses(String? fen) {
-    if (fen == null) return false;
+  static bool _parses(Object? fen) {
+    if (fen is! String) return false;
     try {
       Chess.fromSetup(Setup.parseFen(fen));
       return true;
     } catch (_) {
       return false;
+    }
+  }
+
+  /// A stored move's uci in dartchess's own spelling, so it can be compared
+  /// with one the board produces. See the call site for why the archive holds
+  /// more than one spelling of the same castling move. Falls back to the
+  /// stored string if anything about the record will not parse — by this point
+  /// it has been validated, but a normaliser is not worth a crash.
+  static String _normalisedUci(Map<String, dynamic> m) {
+    final uci = m['uci'] as String;
+    try {
+      final pos = Chess.fromSetup(Setup.parseFen(m['fenBefore'] as String));
+      final move = Move.parse(uci);
+      if (move is! NormalMove) return uci;
+      return pos.normalizeMove(move).uci;
+    } catch (_) {
+      return uci;
     }
   }
 
@@ -1891,8 +1957,13 @@ class GameController extends ChangeNotifier {
     // game. bumpGeneration voids every queued and running search of every
     // priority, so scrubbing a review would have resolved the live game's
     // bot-move search as null and left its bot silently declining to move.
-    // This drops only position-scoped work (analysis, threat probe), which is
-    // the same thing [_apply] does when the board moves under it.
+    // This drops position-scoped work, which is the same thing [_apply] does
+    // when the board moves under it. Note that _positionScoped covers the
+    // refusal check too (#167), so a scrub here can cancel an in-flight
+    // pre-commit check on the Play board — which fails OPEN, letting a blunder
+    // through ungraded. No user-reachable simultaneity today (the arrow keys
+    // are gated to the Review tab), but it is a real hazard rather than the
+    // "analysis and threat probe only" this comment used to claim.
     //
     // It does also drop the live position's own background analysis, since
     // that fen is not this one — an accepted cost of one engine behind two
@@ -1918,8 +1989,12 @@ class GameController extends ChangeNotifier {
   void reviewPlay(NormalMove move, String san) {
     final t = _tree;
     if (t == null || !position.isLegal(move)) return;
+    // Normalised for the same reason the archive is (see _normalisedUci):
+    // dragging a king two squares and dragging it onto its rook are the same
+    // castling move, and only one of those spellings is in the record.
+    final norm = position.normalizeMove(move) as NormalMove;
     t.play(
-      uci: move.uci,
+      uci: norm.uci,
       san: san,
       color: position.turn == Side.white ? 'w' : 'b',
       fen: position.playUnchecked(move).fen,
@@ -1929,8 +2004,9 @@ class GameController extends ChangeNotifier {
 
   /// Jump to any node of the tree — a move list tapping a variation move.
   void gotoNode(ReviewNode node) {
-    if (_tree == null) return;
-    _tree!.goto(node);
+    final t = _tree;
+    if (t == null || identical(t.current, node)) return;
+    t.goto(node);
     _syncToTree();
   }
 
@@ -1938,11 +2014,18 @@ class GameController extends ChangeNotifier {
   /// variation's own end when in one, the game's otherwise).
   void gotoStart() => gotoMainlinePly(0);
 
+  /// The end of the PLAYED game — not the end of an exploration hanging off
+  /// it, which is where "forward until it stops" would land.
   void gotoEnd() {
     final t = _tree;
     if (t == null) return;
+    if (t.onMainline) {
+      gotoMainlinePly(t.mainlineLength);
+      return;
+    }
+    final before = t.current;
     while (t.forward()) {}
-    _syncToTree();
+    if (!identical(t.current, before)) _syncToTree();
   }
 
   bool get canStepBack => _tree?.canBack ?? false;
@@ -2003,14 +2086,10 @@ class GameController extends ChangeNotifier {
     linesTree?.ingest(
       lines: currentLines,
       fen: position.fen,
-      // Truncated at the review cursor: in review `moves` is the whole
-      // archived game while `position` is wherever the cursor sits, so the
-      // full list would hand the tree a played path that runs past the fen
-      // beside it. Live, _reviewPly is -1 and this is the whole list.
-      // In review this is the path to the CURSOR — including a variation's
-      // own moves — not the whole archived game, whose later moves have
-      // nothing to do with the position beside them. Live, _tree is null and
-      // this is the played list as before.
+      // In review this is the path to the CURSOR — including a variation's own
+      // moves — not the whole archived game, whose later moves have nothing to
+      // do with the position beside them. Live, _tree is null and this is the
+      // played list as before.
       playedSans: [
         for (final m in _review && _tree != null ? _tree!.current.pathFromRoot : moves)
           (m is MoveRecord ? m.san : (m as ReviewNode).san!)
@@ -2026,16 +2105,39 @@ class GameController extends ChangeNotifier {
 
   Future<List<EngineMove>?> _analysisFor(String fen,
       {void Function(List<EngineMove>)? onUpdate}) {
-    return _analysis.putIfAbsent(
-        fen,
-        () => _arbiter.analysis(fen, onUpdate: (lines) {
-              _partials[fen] = lines;
-              if (fen == position.fen) {
-                _syncTree();
-                notifyListeners();
-              }
-              onUpdate?.call(lines);
-            }));
+    return _analysis.putIfAbsent(fen, () {
+      late final Future<List<EngineMove>?> mine;
+      mine = _arbiter.analysis(fen, onUpdate: (lines) {
+        _partials[fen] = lines;
+        if (fen == position.fen) {
+          _syncTree();
+          notifyListeners();
+        }
+        onUpdate?.call(lines);
+      }).then((lines) {
+        // A QUEUED analysis that gets cancelled resolves null having streamed
+        // nothing, and this map is only cleared on load. Memoising that null
+        // means the position is never analysed again for as long as the game
+        // is open — no engine arrows, no lines, no win rings, permanently.
+        //
+        // Live that barely showed: you rarely stand on the same fen twice.
+        // Review is nothing BUT revisiting fens, and every cursor step cancels
+        // (see _syncToTree), so scrubbing forward and back left a trail of
+        // dead positions behind the cursor — while the threat arrow, which is
+        // not memoised, kept coming back. That read as a rendering bug.
+        //
+        // Identity-guarded: only evict the entry if it is still THIS future,
+        // never a newer one someone started for the same fen in the meantime.
+        // Null only, not empty — an empty answer from a search that actually
+        // ran is a real answer (a mated position has no moves), and evicting
+        // it would re-search a terminal position forever.
+        if (lines == null && identical(_analysis[fen], mine)) {
+          _analysis.remove(fen);
+        }
+        return lines;
+      });
+      return mine;
+    });
   }
 
   /// White-POV win chance per graded ply — the chart's data.

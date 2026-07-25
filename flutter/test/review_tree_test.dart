@@ -91,6 +91,62 @@ void main() {
     });
   });
 
+  group('past the end of the game (review follow-up)', () {
+    // The last move of the archive has no children, so "the mainline is
+    // children.first" made the first move played there part of the game —
+    // silently, and with no way back, since by every derived rule it was not
+    // a variation. Reachable on any game whose final position is playable:
+    // every resignation, every flag-fall, every imported PGN.
+    test('a move played at the end is a VARIATION, not a continuation', () {
+      final t = _tree();
+      t.gotoMainlinePly(3); // the last archived move
+      t.play(uci: 'f1b5', san: 'Bb5', color: 'w', fen: 'fen-bb5');
+
+      expect(t.onMainline, isFalse, reason: 'nobody played this');
+      expect(t.mainlineLength, 3, reason: 'the archive did not grow');
+      expect(t.mainline.map((n) => n.san), ['e4', 'e5', 'Nf3']);
+      expect(t.current.archived, isFalse);
+    });
+
+    test('and it can be discarded like any other variation', () {
+      final t = _tree();
+      t.gotoMainlinePly(3);
+      t.play(uci: 'f1b5', san: 'Bb5', color: 'w', fen: 'fen-bb5');
+
+      final back = t.discardVariation();
+      expect(back?.san, 'Nf3', reason: 'the last move of the game');
+      expect(t.onMainline, isTrue);
+      expect(t.mainline.last.variations, isEmpty);
+    });
+
+    test('it is listed as a variation of the last move', () {
+      // Which is what gives the move list something to render.
+      final t = _tree();
+      t.gotoMainlinePly(3);
+      t.play(uci: 'f1b5', san: 'Bb5', color: 'w', fen: 'fen-bb5');
+      expect(t.mainline.last.variations.map((n) => n.san), ['Bb5']);
+    });
+
+    test('forward still walks INTO it — it is the line you are on', () {
+      final t = _tree();
+      t.gotoMainlinePly(3);
+      t.play(uci: 'f1b5', san: 'Bb5', color: 'w', fen: 'fen-bb5');
+      t.back();
+      expect(t.current.san, 'Nf3');
+      t.forward();
+      expect(t.current.san, 'Bb5');
+    });
+
+    test('gotoMainlineEnd stops at the end of the GAME', () {
+      final t = _tree();
+      t.gotoMainlinePly(3);
+      t.play(uci: 'f1b5', san: 'Bb5', color: 'w', fen: 'fen-bb5');
+      t.gotoMainlineEnd();
+      expect(t.current.san, 'Nf3');
+      expect(t.onMainline, isTrue);
+    });
+  });
+
   group('branching', () {
     test('an alternative move makes a variation and does not disturb the game',
         () {

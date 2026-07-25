@@ -8,12 +8,20 @@
 // departure to survive being come back from — neither of which a flat list of
 // moves with a cursor can do.
 //
-// The MAINLINE is `children.first` all the way down, established when the
-// archive is loaded and never displaced: a move played during review is always
-// appended after the existing children, so the game that was played stays the
-// first child of every node on it. Everything else — "am I in a variation",
-// "which mainline ply does this hang off" — is derived from that one rule
-// rather than stored, so it cannot disagree with the tree.
+// The MAINLINE is the ARCHIVE, and nothing else: a node is on it only if it
+// came out of the stored game ([ReviewNode.archived]). Everything else — "am I
+// in a variation", "which mainline ply does this hang off" — is derived from
+// that one fact rather than stored separately, so it cannot disagree.
+//
+// It was "children.first all the way down" first, and that is wrong in one
+// specific place that turns out to be a completely ordinary thing to do: at the
+// LAST move of the game there are no children yet, so the first move you play
+// there becomes children.first — and silently joined the game. The board then
+// showed a position the move list did not contain, the verdict strip called it
+// "Start position", and no "Back to the game" button appeared, because by every
+// derived rule it was not a variation. Reachable on any game whose final
+// position is still playable: every resignation, every flag-fall, every
+// imported PGN.
 //
 // Deliberately free of Flutter, dartchess and the engine: it is handed FENs
 // and SANs that its caller has already computed, so the whole structure is
@@ -29,6 +37,7 @@ class ReviewNode {
     this.uci,
     this.color,
     this.stored,
+    this.archived = false,
   });
 
   final ReviewNode? parent;
@@ -44,6 +53,11 @@ class ReviewNode {
   final String? uci;
   final String? color; // 'w' | 'b'
 
+  /// This move came out of the archived game, rather than being played here
+  /// during review. THE definition of the mainline — see the file header for
+  /// why "the first child" is not.
+  final bool archived;
+
   /// The archived record for this move — its grade, label and explanation, as
   /// saved when the game was played. Null for a move played during review:
   /// nothing about it was ever graded and stored, and pretending otherwise
@@ -54,21 +68,33 @@ class ReviewNode {
 
   bool get isRoot => parent == null;
 
-  /// The continuation that was actually played, where there is one. Always
-  /// `children.first` — see the file header.
+  /// The continuation of whatever line this node is on — the played move on
+  /// the mainline, a variation's own next move inside one. This is what
+  /// forward navigation follows, and it is deliberately NOT the same question
+  /// as [archivedChild].
   ReviewNode? get mainChild => children.isEmpty ? null : children.first;
 
-  /// Alternatives to [mainChild] tried during review.
-  List<ReviewNode> get variations =>
-      children.length <= 1 ? const [] : children.sublist(1);
+  /// The archived continuation, if the game went on from here. Null at the
+  /// last move of the game even when a move has been played there during
+  /// review — which is exactly the distinction the file header is about.
+  ReviewNode? get archivedChild {
+    for (final c in children) {
+      if (c.archived) return c;
+    }
+    return null;
+  }
 
-  /// This node lies on the line that was actually played: every step from the
-  /// root to here took the first child.
+  /// Everything played from here that is NOT the archived continuation — the
+  /// alternatives, for a move list to print. Includes a move played on past
+  /// the end of the game, which has no archived sibling to be an alternative
+  /// to but is still not part of what happened.
+  List<ReviewNode> get variations =>
+      [for (final c in children) if (!c.archived) c];
+
+  /// This node lies on the line that was actually played.
   bool get onMainline {
-    var n = this;
-    while (!n.isRoot) {
-      if (!identical(n.parent!.children.first, n)) return false;
-      n = n.parent!;
+    for (ReviewNode? n = this; n != null && !n.isRoot; n = n.parent) {
+      if (!n.archived) return false;
     }
     return true;
   }
@@ -81,7 +107,7 @@ class ReviewNode {
   /// that matters for "get me back to the game" is the first one.
   ReviewNode? get variationRoot {
     for (final n in pathFromRoot) {
-      if (!identical(n.parent!.children.first, n)) return n;
+      if (!n.archived) return n;
     }
     return null;
   }
@@ -117,6 +143,7 @@ class ReviewTree {
         uci: m['uci'] as String,
         color: m['color'] as String?,
         stored: m,
+        archived: true,
       );
       at.children.add(node);
       at = node;
@@ -143,10 +170,10 @@ class ReviewTree {
   /// branch.
   final Map<ReviewNode, ReviewNode> _preferred = {};
 
-  /// The played line, root excluded.
+  /// The played line, root excluded — the archive, and only the archive.
   List<ReviewNode> get mainline {
     final out = <ReviewNode>[];
-    for (var n = root.mainChild; n != null; n = n.mainChild) {
+    for (var n = root.archivedChild; n != null; n = n.archivedChild) {
       out.add(n);
     }
     return out;
@@ -276,6 +303,10 @@ class ReviewTree {
   ///
   /// Clears the remembered branches: naming a move of the game is how you say
   /// you are back on the game, and forward from there must follow the game.
+  /// The last move of the PLAYED game — not the end of an exploration that
+  /// happens to hang off it.
+  void gotoMainlineEnd() => gotoMainlinePly(mainlineLength);
+
   void gotoMainlinePly(int ply) {
     _preferred.clear();
     final line = mainline;

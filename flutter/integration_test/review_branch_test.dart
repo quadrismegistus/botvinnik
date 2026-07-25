@@ -58,17 +58,27 @@ import 'package:botvinnik_mobile/stores/review_controller.dart';
 import 'package:botvinnik_mobile/stores/settings_store.dart';
 import 'package:botvinnik_mobile/ui/board_pane.dart';
 
-/// Where a square's centre is on screen.
+/// Where a square's centre is on screen, for a board drawn with [orientation]
+/// at the bottom.
 ///
-/// chessground's own geometry, replicated over the board container's measured
-/// rect: files left-to-right and ranks bottom-to-top when White is at the
-/// bottom, which is the orientation an archived game from White's side opens
-/// in. Squares are `size / 8`, and the centre is half a square in from the
-/// corner — aiming at a corner is how a rounding error puts the pointer on the
-/// neighbouring square.
-Offset squareCentre(Rect board, String square) {
-  final file = square.codeUnitAt(0) - 'a'.codeUnitAt(0); // 0..7
-  final rank = square.codeUnitAt(1) - '1'.codeUnitAt(0); // 0..7
+/// chessground's own geometry over the board container's measured rect.
+/// ORIENTATION IS NOT OPTIONAL: `board_pane.dart` orients from the reviewed
+/// game's colour, so a game you played as Black draws Black at the bottom and
+/// a White-at-bottom helper silently aims at the mirrored square — d2->d4
+/// becomes e7->e5, which is illegal for White at the start, so the drag does
+/// nothing and the test fails claiming the drag never reached playerMove. The
+/// first version of this helper had exactly that bug and passed, because the
+/// fixture happens to be a White-at-bottom game.
+///
+/// Squares are `size / 8`, and the centre is half a square in — aiming at a
+/// corner is how a rounding error lands on the neighbour.
+Offset squareCentre(Rect board, String square, {Side orientation = Side.white}) {
+  var file = square.codeUnitAt(0) - 'a'.codeUnitAt(0); // 0..7
+  var rank = square.codeUnitAt(1) - '1'.codeUnitAt(0); // 0..7
+  if (orientation == Side.black) {
+    file = 7 - file;
+    rank = 7 - rank;
+  }
   final s = board.width / 8;
   return Offset(
     board.left + (file + 0.5) * s,
@@ -85,7 +95,7 @@ class _StubDb implements AppDb {
 /// fens are DERIVED rather than typed (dartchess normalises an en-passant
 /// square no capture can reach, so a hand-written one is a fen this app never
 /// writes and the board would not match it).
-Map<String, dynamic> archivedGame() {
+Map<String, dynamic> archivedGame({String botColor = 'b'}) {
   final moves = <Map<String, dynamic>>[];
   Position pos = Chess.initial;
   var ply = 0;
@@ -104,7 +114,7 @@ Map<String, dynamic> archivedGame() {
       'fenAfter': pos.fen,
     });
   }
-  return {'id': 'g-branch-test', 'botColor': 'b', 'moves': moves};
+  return {'id': 'g-branch-test', 'botColor': botColor, 'moves': moves};
 }
 
 void main() {
@@ -113,8 +123,15 @@ void main() {
   late JsBridge bridge;
   setUpAll(() async => bridge = await JsBridge.load());
 
-  testWidgets('dragging a piece on the review board branches the game',
-      (tester) async {
+  // Both orientations. A game you played as Black draws Black at the bottom,
+  // which is half of all games and the case a White-only helper gets silently
+  // wrong rather than loudly.
+  for (final (botColor, orientation, label) in [
+    ('b', Side.white, 'played as White'),
+    ('w', Side.black, 'played as Black'),
+  ]) {
+    testWidgets('dragging a piece branches the game ($label)',
+        (tester) async {
     SharedPreferences.setMockInitialValues({});
     final settings = await SettingsStore.load();
     final review = ReviewController(_StubDb());
@@ -127,7 +144,7 @@ void main() {
       settings,
       review,
     );
-    review.open(archivedGame());
+    review.open(archivedGame(botColor: botColor));
 
     await tester.pumpWidget(
       MultiProvider(
@@ -156,8 +173,8 @@ void main() {
 
     // 1. d4 — a legal first move that is NOT what was played, so it must
     // create a variation rather than walk the game.
-    final from = squareCentre(rect, 'd2');
-    final to = squareCentre(rect, 'd4');
+    final from = squareCentre(rect, 'd2', orientation: orientation);
+    final to = squareCentre(rect, 'd4', orientation: orientation);
 
     // A real drag, in steps. chessground needs the pointer to travel past
     // _kDragDistanceThreshold (3 logical pixels) before it treats the gesture
@@ -189,4 +206,5 @@ void main() {
 
     board.dispose();
   });
+  }
 }

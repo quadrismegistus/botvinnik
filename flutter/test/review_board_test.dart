@@ -127,8 +127,31 @@ void main() {
 
     test('closing the archive clears the board', () async {
       final (review, board) = await _open();
+      board.stepForward();
       review.close();
       expect(board.moves, isEmpty);
+      expect(board.tree, isNull);
+      // The board itself, not just the list — it used to keep the closed
+      // game's position and last-move highlight.
+      expect(board.position.fen, Chess.initial.fen);
+      expect(board.lastMove, isNull);
+      board.dispose();
+    });
+
+    test('re-notifying about the SAME game leaves the cursor alone', () async {
+      // ReviewController notifies on loadGames(), which fires on archive
+      // refresh, after an import and after a sync pull. Without the same-id
+      // guard every one of those would snap the board back to ply 0 and throw
+      // away any variation being explored.
+      final (review, board) = await _open();
+      board.gotoMainlinePly(1);
+      board.playUci('c7c5'); // a variation in progress
+      expect(board.inVariation, isTrue);
+
+      review.notifyListeners();
+
+      expect(board.inVariation, isTrue, reason: 'the branch survived');
+      expect(board.tree!.current.san, 'c5');
       board.dispose();
     });
   });
@@ -289,11 +312,89 @@ void main() {
     });
 
     test('an illegal move is refused', () async {
+      // Through playerMove, NOT playUci: playUci has its own legality guard
+      // and returns before reviewPlay is ever reached, so driving this via
+      // playUci passed even with reviewPlay's own guard deleted.
       final (_, board) = await _open();
       board.gotoMainlinePly(1);
-      board.playUci('e2e4'); // that pawn is already on e4
+      board.playerMove(NormalMove.fromUci('e2e4'), 'e4'); // pawn already on e4
       expect(board.inVariation, isFalse);
       expect(board.position.fen, _kAfterE4);
+      expect(board.tree!.current.san, 'e4', reason: 'nothing was played');
+    });
+
+    test('a move played past the END of the game is a variation', () async {
+      // The archive's last node has no children, so an append there used to
+      // become children.first — the mainline — and the board showed a position
+      // the move list did not contain, with no way back.
+      final (_, board) = await _open();
+      board.gotoMainlinePly(2); // the last archived move
+      board.playUci('g1f3');
+
+      expect(board.inVariation, isTrue);
+      expect(board.moves, hasLength(2), reason: 'the archive did not grow');
+      expect(board.tree!.mainline, hasLength(2));
+      expect(board.reviewStoredMove, isNull);
+      board.discardVariation();
+      expect(board.inVariation, isFalse);
+      expect(board.position.fen, _kAfterE5);
+    });
+
+    test('castling matches the archive however the king was dragged',
+        () async {
+      // dartchess normalises castling to king-takes-rook, which is what a PGN
+      // import stores; the lichess/chess.com importers store from+to; an
+      // in-app game stores whatever was dragged. Matched by raw string, the
+      // ordinary way to castle forked a phantom variation off the played move
+      // and dropped its archived grade.
+      final settings = await loadSettings();
+      final review = ReviewController(_StubDb());
+      final board = fakeReviewBoard(review, settings);
+
+      // Build an archive that stores O-O the PGN-import way (e1h1)...
+      Position pos = Chess.initial;
+      final moves = <Map<String, dynamic>>[];
+      var ply = 0;
+      for (final uci in ['e2e4', 'e7e5', 'g1f3', 'b8c6', 'f1c4', 'f8c5']) {
+        final m = NormalMove.fromUci(uci);
+        final before = pos.fen;
+        final (_, san) = pos.makeSan(m);
+        pos = pos.play(m);
+        moves.add({
+          'ply': ++ply,
+          'san': san,
+          'uci': uci,
+          'color': ply.isOdd ? 'w' : 'b',
+          'fenBefore': before,
+          'fenAfter': pos.fen,
+        });
+      }
+      final castle = pos.parseSan('O-O')! as NormalMove;
+      expect(castle.uci, 'e1h1', reason: 'precondition: the import spelling');
+      final before = pos.fen;
+      final after = pos.play(castle);
+      moves.add({
+        'ply': ++ply,
+        'san': 'O-O',
+        'uci': castle.uci,
+        'color': 'w',
+        'fenBefore': before,
+        'fenAfter': after.fen,
+        'label': 'good',
+      });
+      review.open({'id': 'castle', 'botColor': 'b', 'moves': moves});
+
+      board.gotoMainlinePly(6); // just before the castle
+      board.playUci('e1g1'); // ...and castle the way a player drags
+
+      expect(board.inVariation, isFalse,
+          reason: 'this IS the played move, not a departure from it');
+      expect(board.tree!.current.san, 'O-O');
+      expect(board.reviewStoredMove?['label'], 'good',
+          reason: 'the archived grade came with it');
+      expect(board.tree!.mainline, hasLength(7),
+          reason: 'no phantom second O-O');
+      board.dispose();
     });
   });
 
