@@ -45,28 +45,50 @@ const _mateIn1BlackMates = 'r3k3/8/8/8/8/8/5PPP/6K1 b - - 0 1';
 /// finished game with nowhere to archive to returns out of `_saveGame`
 /// immediately, which is one less thing (grading waits, save timers) for
 /// these tests to have to wind down.
+///
+/// The arbiter is stocked so the bot can actually MOVE. The file comment used
+/// to argue the fixture had to keep the human on the move after a rematch,
+/// because `_maybeBotTurn`'s opening wait spins on wall-clock time that
+/// `tester.pump` cannot advance — true of a bare fake, but `streamPartials`
+/// exists precisely to exit that loop at depth 10, and four other test files
+/// already use it for this. Since rematch now carries the starting FEN
+/// forward, the swap genuinely does hand the bot the first move here, and the
+/// fixture has to survive that rather than be arranged around it.
+/// [squareBotPersona] rather than [testBotPersona]: only the former carries
+/// the `shapedLabel` that lets a bot turn reach a move at all.
 Future<(GameController, SettingsStore, FakeArbiter)> _game(
-    {bool rated = false, TimeControl? timeControl}) async {
+    {bool rated = false, TimeControl? timeControl, bool refuseBlunders = false}) async {
   final settings = await loadSettings(); // both null: analysis, nobody to move for
-  final arbiter = FakeArbiter(analysisLines: const []);
-  final game = GameController(
-      arbiter, const FakeBot({kTestBotId: testBotPersona}), FakeGrading(), settings);
-  settings.setPlayers(white: kTestBotId, black: null);
+  final arbiter = FakeArbiter(
+      analysisLines: kFakeLines,
+      streamPartials: true,
+      searchLines: kFakeLines);
+  final game = GameController(arbiter,
+      const FakeBot({kSquareBotId: squareBotPersona}), FakeGrading(), settings);
+  settings.setPlayers(white: kSquareBotId, black: null);
   game.newGame(
-      fromFen: _mateIn1BlackMates, rated: rated, timeControl: timeControl);
+      fromFen: _mateIn1BlackMates,
+      rated: rated,
+      timeControl: timeControl,
+      refuseBlunders: refuseBlunders);
   return (game, settings, arbiter);
 }
 
-/// A live rated clock's ticker is a real periodic Timer; leaving one running
-/// past a test's end fails the pending-timer invariant (see
-/// clock_lifecycle_test's own `_windDown`, the same fix). Only the rated
-/// rematch test needs this — every other test here either never rates a game
-/// or ends on a casual one, which never gets a clock at all.
+/// Two live Timers can outlast one of these tests: a rated clock's ticker
+/// (periodic — see clock_lifecycle_test's own `_windDown`, the same fix) and
+/// the bot turn a rematch now starts, since carrying the FEN forward means the
+/// swap really does hand the bot the first move. Taking both sides off the
+/// board and starting a fresh game bumps the generation, which is what makes
+/// the in-flight turn stand down.
 Future<void> _windDown(
     WidgetTester tester, GameController g, SettingsStore s) async {
+  // Let an in-flight bot turn run to its end first: bumping the generation
+  // under it makes it BAIL, but the 50ms poll it is sitting in is already
+  // scheduled and stays pending either way.
+  await tester.pump(const Duration(milliseconds: 200));
   s.setPlayers(white: null, black: null);
   g.newGame();
-  await tester.pump();
+  await tester.pump(const Duration(milliseconds: 200));
 }
 
 void main() {
@@ -106,7 +128,7 @@ void main() {
     testWidgets(
         'swaps the sides and starts one fresh game, not a double reset (#133)',
         (tester) async {
-      final (g, settings, arbiter) = await _game();
+      final (g, settings, arbiter) = await _game(refuseBlunders: true);
       g.playUci('a8a1'); // Ra1#
       await tester.pump(const Duration(milliseconds: 50));
       expect(g.gameOver, isTrue, reason: 'precondition');
@@ -114,18 +136,23 @@ void main() {
       final resetsBefore = arbiter.bumpGenerations;
       g.rematch();
 
-      expect(settings.blackPersonaId, kTestBotId,
+      expect(settings.blackPersonaId, kSquareBotId,
           reason: 'the bot takes the side the human just played');
       expect(settings.whitePersonaId, isNull,
           reason: 'the human takes the side the bot just played');
       expect(g.gameOver, isFalse, reason: 'a fresh game is under way');
-      expect(g.moves, isEmpty);
+      expect(g.moves, isEmpty, reason: 'and the bot has not moved yet either');
+      // Fixture has it ON, so this can actually fail: with the fixture at its
+      // default the assertion held whatever rematch() did, and a rematch that
+      // carried the flag left all six tests green.
       expect(g.refuseBlunders, isFalse,
           reason: 'a per-attempt toggle (#167), not a property of the match '
               'being continued — it is never carried');
       expect(arbiter.bumpGenerations - resetsBefore, 1,
           reason: 'exactly one reset — the New Game sheet\'s own documented '
               'sequence, not the double reset #133 was about');
+
+      await _windDown(tester, g, settings);
     });
 
     testWidgets('carries the time control when the finished game was rated',
@@ -149,9 +176,72 @@ void main() {
       await _windDown(tester, g, settings);
     });
 
+    testWidgets('a rated rematch re-asserts the rated PRESET, not just the flag',
+        (tester) async {
+      // The sheet turns blind on and the three overlays off for a rated game,
+      // and deliberately does not restore them at game over. So the natural
+      // move after a rated game — turning blind off to read the analysis of
+      // what you just played — leaves the settings exactly wrong. Without the
+      // preset, the rematch is rated but `_assisted` is true, the FIRST human
+      // move sets botHintsUsed, and playerElo drops the game: a game that says
+      // rated, shows nothing, and cannot count.
+      final tc = TimeControl.parse('5+0');
+      final (g, settings, _) = await _game(rated: true, timeControl: tc);
+      g.playUci('a8a1'); // Ra1#
+      await tester.pump(const Duration(milliseconds: 50));
+
+      settings.blind = false; // the player looks at the game they just lost
+      settings.showArrows = true;
+      expect(g.blind, isFalse, reason: 'precondition');
+
+      g.rematch();
+
+      expect(g.rated, isTrue);
+      expect(g.blind, isTrue, reason: 'the preset came back with the flag');
+      expect(settings.showArrows, isFalse);
+      expect(settings.showThreats, isFalse);
+      expect(settings.showControl, isFalse);
+
+      await _windDown(tester, g, settings);
+    });
+
+    testWidgets('a casual rematch leaves the overlay settings alone',
+        (tester) async {
+      // The preset belongs to rated play; a casual rematch has no business
+      // blinding a board the player deliberately turned the help on for.
+      final (g, settings, _) = await _game();
+      settings.blind = false;
+      settings.showArrows = true;
+      g.playUci('a8a1');
+      await tester.pump(const Duration(milliseconds: 50));
+
+      g.rematch();
+
+      expect(g.blind, isFalse);
+      expect(settings.showArrows, isTrue);
+
+      await _windDown(tester, g, settings);
+    });
+
+    testWidgets('the starting position carries, so a FEN game rematches from it',
+        (tester) async {
+      // "Same opponent, same terms" has to include the position the game was
+      // played from — a rematch that silently reverts a pasted FEN to the
+      // standard start is a different game.
+      final (g, settings, _) = await _game();
+      g.playUci('a8a1');
+      await tester.pump(const Duration(milliseconds: 50));
+
+      g.rematch();
+
+      expect(g.position.fen, _mateIn1BlackMates,
+          reason: 'not the standard start');
+      await _windDown(tester, g, settings);
+    });
+
     testWidgets('a casual game\'s rematch stays casual, with no clock',
         (tester) async {
-      final (g, _, _) = await _game(); // rated defaults to false
+      final (g, settings, _) = await _game(); // rated defaults to false
       g.playUci('a8a1'); // Ra1#
       await tester.pump(const Duration(milliseconds: 50));
       expect(g.gameOver, isTrue, reason: 'precondition');
@@ -162,6 +252,8 @@ void main() {
       expect(g.clock, isNull,
           reason: 'newGame only ever builds a clock for a rated game — '
               'nothing here to carry regardless of what the last one had');
+
+      await _windDown(tester, g, settings);
     });
   });
 }

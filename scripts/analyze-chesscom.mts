@@ -29,8 +29,8 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { ccGameToAnalysed, fetchChesscomArchives, fetchChesscomMonth } from '../brain/chesscomCore';
-import { analysedGameToStored, type PracticeCandidate } from '../brain/lichessImport';
+import { fetchChesscomArchives, fetchChesscomMonth, mapOneGame } from '../brain/chesscomCore';
+import type { PracticeCandidate } from '../brain/lichessImport';
 import type { StoredGame } from '../brain/gameStore';
 
 // ---------- args ----------
@@ -172,6 +172,10 @@ async function main() {
 
 	for (const monthUrl of months) {
 		const monthKey = monthUrl.split('/games/')[1];
+		// Per-month, because the checkpoint is per-month: the run-wide `skipped`
+		// tally is for the closing summary, and using it here would leave every
+		// LATER month unsealed after one early skip.
+		let skippedThisMonth = 0;
 		if (state.doneMonths.includes(monthKey)) {
 			console.log(`${monthKey}: already done, skipping`);
 			continue;
@@ -187,21 +191,26 @@ async function main() {
 
 			// ccGameToAnalysed guards the shape drift it knows about (a missing
 			// white/black/end_time) and returns null for it, same as any other
-			// refusal below. This try/catch is the backstop for what it did NOT
-			// anticipate — an engine crash mid-analysis, some other drift — mirroring
-			// chesscom_import_api.dart's per-game try/catch (#176): this walk makes
-			// one call per game with no other guard, and months checkpoint on
-			// completion, so an uncaught throw here wouldn't just lose one game —
-			// it would wedge this month and every earlier month behind it, on every
-			// re-run, forever.
-			let mapped: ReturnType<typeof analysedGameToStored> = null;
-			try {
-				const lichessShaped = await ccGameToAnalysed(cc, evalPosition);
-				mapped = lichessShaped ? analysedGameToStored(lichessShaped, username!, 'chesscom') : null;
-			} catch (e) {
-				console.warn(`  skipping ${cc.uuid}: ${e instanceof Error ? e.message : String(e)}`);
+			// refusal below. This try/catch is the backstop for the drift it did NOT
+			// anticipate, mirroring chesscom_import_api.dart's per-game try/catch
+			// (#176): this walk makes one call per game with no other guard, so an
+			// uncaught throw would wedge this month and every earlier month behind
+			// it, on every re-run, forever.
+			//
+			// NOT a backstop for an engine crash, whatever an earlier version of
+			// this comment claimed: Engine.analyze resolves or hangs — it has no
+			// reject path and nothing listens for the child's error/exit — so a
+			// dead engine leaves the promise pending and the script simply stops.
+			// Catching here cannot help with that; it would need a listener on the
+			// child process, which is a separate job.
+			const result = await mapOneGame(cc, evalPosition, username!);
+			if (!result.ok) {
+				console.warn(`  skipping ${cc.uuid}: ${result.reason}`);
 				skipped++;
+				skippedThisMonth++;
+				continue;
 			}
+			const mapped = result.mapped;
 			if (!mapped) continue;
 
 			const stored = mapped.stored;
@@ -233,7 +242,21 @@ async function main() {
 			}
 		}
 
-		state.doneMonths.push(monthKey);
+		// Only checkpoint a month that came through WHOLE. Skipping the games it
+		// could not map is the point of the try/catch above, but sealing the
+		// month anyway would turn a loud, retryable wedge into silent permanent
+		// loss: `already done, skipping` on every future run, the lost game
+		// recorded in nothing but a console.warn that has long scrolled past.
+		// An unsealed month costs a re-analysis of the games that DID work; that
+		// is the cheaper mistake by a wide margin, and re-running is exactly what
+		// someone does after reading the skip warnings.
+		if (skippedThisMonth === 0) {
+			state.doneMonths.push(monthKey);
+		} else {
+			console.warn(
+				`  ${monthKey}: ${skippedThisMonth} game(s) skipped — month left open for a re-run`
+			);
+		}
 		writeBackup(games, practice);
 		writeFileSync(STATE, JSON.stringify(state));
 	}

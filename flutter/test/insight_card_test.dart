@@ -352,6 +352,37 @@ void main() {
     });
 
     testWidgets(
+        'a widened isBest with a DIFFERENT best move still shows both (review)',
+        (tester) async {
+      // backfillGrade sets `isBest = grade.isBest || pctBest >= 100` while
+      // bestUci stays pinned to the pre-move MultiPV winner — and the deeper
+      // post-move eval routinely lands above that winner, so isBest is
+      // regularly true for a move the engine did not pick. This card only ever
+      // sees backfilled grades.
+      //
+      // Gated on isBest, the card drew the PLAYED move in engine-blue
+      // captioned "also the best move", suppressed "Best was d4" entirely, and
+      // left the Best-line button above animating a different move. It claimed
+      // a move was best when it was not.
+      final game = await _withGrade(gradeRaw(
+          isBest: true, // widened by the backfill...
+          pctBest: 100.0,
+          label: 'best',
+          // ...while these still name a DIFFERENT move
+          bestUci: 'd2d4',
+          bestSan: 'd4'));
+      await _pump(tester, game);
+
+      final arrows = _shapes(tester).whereType<Arrow>().toList();
+      expect(arrows, hasLength(2),
+          reason: 'two moves, so two arrows — the honest comparison');
+      expect(arrows.map((a) => a.dest), containsAll([Square.e4, Square.d4]));
+      expect(find.text('Played e4'), findsOneWidget);
+      expect(find.text('Best was d4'), findsOneWidget,
+          reason: 'the engine\'s actual move is not suppressed');
+    });
+
+    testWidgets(
         'the best move still gets a board — one blue arrow, not overlapping red/green',
         (tester) async {
       // isBest means uci === bestUci in the real grader (insights.ts sets

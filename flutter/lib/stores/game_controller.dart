@@ -834,8 +834,35 @@ class GameController extends ChangeNotifier {
     // `rated && timeControl != null` guard) — a casual rematch has nothing
     // to carry regardless of what _clock holds over from before.
     final timeControl = wasRated ? _clock?.control : null;
+    // The rated PRESET, not just the rated flag. The New Game sheet turns
+    // blind on and the three overlays off whenever it starts a rated game,
+    // and deliberately does NOT restore them at game over — restoring them
+    // there would flip the board mid-recap. So the natural thing to do after
+    // a rated game, turning blind off to actually read the analysis of what
+    // you just played, leaves those settings exactly wrong for the next one.
+    //
+    // Without this, a rated rematch is born un-ratable: `_assisted` is
+    // sampled at every human move, so the FIRST move sets botHintsUsed, and
+    // playerElo drops any game carrying it. You would get a game that says
+    // "rated", shows you nothing (the rated shell hides the panels), and
+    // cannot count — with nothing on screen to say so. The sheet's safety
+    // net assumes hints get turned on DURING a game; this path starts one
+    // with them already on.
+    if (wasRated) {
+      _settings.blind = true;
+      _settings.showArrows = false;
+      _settings.showThreats = false;
+      _settings.showControl = false;
+    }
+    // Before newGame, and newGame last: newGame's own _maybeBotTurn has to
+    // see the swapped personas, or the wrong side gets the opening move.
+    // (An earlier version of this comment claimed setPlayers itself triggers
+    // an unrated restart through the settings listener. It does not —
+    // _onSettings' changed-signature branch calls _syncRetro and nothing
+    // else, and says so. The ordering is still required, for the reason
+    // above.)
     _settings.setPlayers(white: black, black: white);
-    newGame(rated: wasRated, timeControl: timeControl);
+    newGame(rated: wasRated, timeControl: timeControl, fromFen: _startFen);
   }
 
   /// Moves taken off by undo, in game order, so redo can put them back

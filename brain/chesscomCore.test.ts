@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ccGameToAnalysed, ccGameToStored, type CcGame } from './chesscomCore';
+import { ccGameToAnalysed, ccGameToStored, mapOneGame, type CcGame } from './chesscomCore';
 import { analysedGameToStored } from './lichessImport';
 import type { UciEval } from './engine/types';
 
@@ -249,4 +249,51 @@ describe('offline script per-game resilience (mirrors scripts/analyze-chesscom.m
 		expect(mappedIds).toEqual(['chesscom-good-1', 'chesscom-good-2']);
 		expect(skipped).toBe(1);
 	});
+});
+
+// The per-game skip the offline analyzer depends on (#177 review follow-up).
+//
+// These call the SAME function scripts/analyze-chesscom.mts calls. The
+// previous version of this file mirrored the script's loop shape instead,
+// because the script spawns engines at module load and cannot be imported —
+// which meant deleting the script's try/catch left the whole suite green.
+describe('mapOneGame — the offline analyzer\'s per-game step', () => {
+	const good = SCHOLARS_MATE;
+
+	it('maps a good game', async () => {
+		const r = await mapOneGame(good, flatEval, 'ryan');
+		expect(r.ok).toBe(true);
+		if (r.ok) expect(r.mapped?.stored.id).toBeTruthy();
+	});
+
+	// The guard and the backstop are DIFFERENT mechanisms and these pin the
+	// difference. Drift the guard anticipates comes back as an ordinary
+	// refusal — ok, nothing mapped — and the caller just moves on without
+	// counting a skip or holding the month open. Only a throw the guard did
+	// not see becomes ok:false.
+	it('a drifted record is an ordinary refusal, not an error', async () => {
+		// A NUMBER where a username belongs: truthy, so the old truthiness
+		// guard passed it and .toLowerCase() threw one call later.
+		const drifted = { ...good, white: { ...good.white, username: 12345 as never } };
+		const r = await mapOneGame(drifted, flatEval, 'ryan');
+		expect(r.ok).toBe(true);
+		if (r.ok) expect(r.mapped).toBeNull();
+	});
+
+	it('a missing end_time is refused rather than becoming a NaN date', async () => {
+		const { end_time: _drop, ...rest } = good;
+		const r = await mapOneGame(rest as never, flatEval, 'ryan');
+		expect(r.ok).toBe(true);
+		if (r.ok) expect(r.mapped).toBeNull();
+	});
+
+	it('surfaces an evaluator throw as a skip, so one game cannot abort a month',
+		async () => {
+			const boom = async () => {
+				throw new Error('engine died');
+			};
+			const r = await mapOneGame(good, boom, 'ryan');
+			expect(r.ok).toBe(false);
+			if (!r.ok) expect(r.reason).toContain('engine died');
+		});
 });

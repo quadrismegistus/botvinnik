@@ -167,12 +167,17 @@ class InsightCard extends StatelessWidget {
     // (#185) — it used to be withheld exactly then, which read as "nothing to
     // show" when the truer picture is "one arrow, because there's nothing
     // left to compare." [_board] returns null only in the genuine no-board
-    // cases: an unparseable uci, or (off the isBest branch) a promotion
+    // cases: an unparseable uci, or (off the coincide branch) a promotion
     // differing solely in the piece chosen, where [_prose] below stands in.
     final board = _board(grade);
     if (board != null) {
       children.add(Padding(padding: const EdgeInsets.only(top: 8), child: board));
-    } else if (!grade.isBest) {
+    } else if (grade.uci != grade.bestUci) {
+      // Same test as [_board]'s, and for the same reason: gated on `isBest`
+      // this suppressed the engine's actual move on every grade where a
+      // deeper post-move eval had widened that flag past the pre-move winner.
+      // The one case with genuinely nothing to say is the one where the two
+      // moves really are the same.
       children.add(Padding(
         padding: const EdgeInsets.only(top: 8),
         child: Text(
@@ -215,7 +220,18 @@ class InsightCard extends StatelessWidget {
     // that is the player's, so it agrees with the board above unless they
     // have flipped it by hand
     final orientation = grade.color == 'w' ? Side.white : Side.black;
-    if (grade.isBest) {
+    // `uci == bestUci`, NOT `isBest`. Those agree in `gradeMove`, which sets
+    // `isBest: idx === 0` — but this card only ever sees BACKFILLED grades,
+    // and `backfillGrade` widens the flag: `isBest = grade.isBest || pctBest
+    // >= 100` (insights.ts), while bestUci stays pinned to the pre-move
+    // MultiPV winner. The deeper post-move eval routinely lands above that
+    // winner, so isBest is regularly true for a move the engine did not pick.
+    //
+    // Read literally, the old branch then drew the PLAYED move in the app's
+    // engine-blue captioned "also the best move", suppressed "Best was e4"
+    // entirely, and left the Best-line button two rows above animating a
+    // different move. The card claimed a move was best when it was not.
+    if (grade.uci == grade.bestUci) {
       final solo = MovePreview.soleMoveFor(grade.uci);
       if (solo == null) return null; // unparseable uci — see [MovePreview.soleMoveFor]
       return MovePreview.same(
