@@ -137,8 +137,9 @@ class ReviewTree {
   /// on how you got here.
   ///
   /// Kept as parent → child rather than as a path, so it survives jumping
-  /// about the tree and needs no rebuilding. Cleared whenever you explicitly
-  /// ask for the played line, which is a statement that you are done with the
+  /// about the tree and needs no rebuilding. Forgotten for a node as soon as
+  /// you back out past it (see [back]), and cleared wholesale when you name a
+  /// move of the played game — both being ways of saying you are done with the
   /// branch.
   final Map<ReviewNode, ReviewNode> _preferred = {};
 
@@ -233,9 +234,23 @@ class ReviewTree {
 
   bool back() {
     if (!canBack) return false;
-    // Remember the way back down before climbing out of it.
-    _preferred[current.parent!] = current;
-    current = current.parent!;
+    final leaving = current;
+    // Two halves, and the second is what stops the memory outstaying its
+    // welcome. Remember the way back INTO this node, so one step back and one
+    // forward returns you to the line you were reading rather than evicting
+    // you from it. But forget the way ONWARD from it: you have now retreated
+    // past this move, and a branch you have backed out of should not be
+    // re-entered by walking forward through it later. Retreat far enough and
+    // every branch below you has been forgotten, so forward follows the game.
+    //
+    // Stricter than lichess, which drops the branch on the first step back
+    // (its forward is plainly `children[0]`; branch selection is a separate
+    // up/down fork control). Looser than remembering the path forever, which
+    // is what this did first and what made backing out of a variation feel
+    // like it had trapped you in it.
+    _preferred.remove(leaving);
+    _preferred[leaving.parent!] = leaving;
+    current = leaving.parent!;
     return true;
   }
 

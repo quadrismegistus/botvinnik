@@ -141,19 +141,62 @@ void main() {
       expect(t.current.san, 'e5', reason: 'the game, not the branch');
     });
 
-    test('tapping into a variation makes forward follow it from above', () {
+    test('backing out PAST the branch point puts forward back on the game', () {
+      // One step back and forward returns you to the branch (above) — but once
+      // you have retreated past the move it departed from, you have left that
+      // line of thought, and walking forward again must follow what was
+      // actually played rather than silently re-entering it.
+      final t = _tree();
+      t.gotoMainlinePly(1); // after 1. e4
+      t.play(uci: 'c7c5', san: 'c5', color: 'b', fen: 'fen-sicilian');
+
+      t.back(); // to e4 — still remembers c5
+      t.back(); // to the start — past the branch point
+      expect(t.current, t.root);
+
+      t.forward();
+      expect(t.current.san, 'e4');
+      t.forward();
+      expect(t.current.san, 'e5', reason: 'the played move, not the branch');
+      expect(t.onMainline, isTrue);
+    });
+
+    test('the branch itself survives being backed out of', () {
+      // Forgetting the way forward is not deleting the line — it is still
+      // there to be tapped back into from the move list.
       final t = _tree();
       t.gotoMainlinePly(1);
       final branch =
           t.play(uci: 'c7c5', san: 'c5', color: 'b', fen: 'fen-sicilian');
-      t.gotoMainlinePly(0);
+      t.back();
+      t.back();
+      t.forward();
+      t.forward();
+      expect(t.current.san, 'e5');
+      expect(t.mainline[0].variations.map((n) => n.san), ['c5']);
+
       t.goto(branch);
-      t.back();
-      t.back();
-      expect(t.current, t.root);
-      t.forward();
-      t.forward();
       expect(t.current.san, 'c5');
+      expect(t.onMainline, isFalse);
+    });
+
+    test('a deep branch is walked forward normally after one step back', () {
+      // The rule must not eat the ordinary case: inside a variation, its own
+      // continuation IS children.first, so stepping about within it is
+      // unaffected by any of this.
+      final t = _tree();
+      t.gotoMainlinePly(1);
+      t.play(uci: 'c7c5', san: 'c5', color: 'b', fen: 'fen-a');
+      t.play(uci: 'g1f3', san: 'Nf3', color: 'w', fen: 'fen-a2');
+      t.play(uci: 'd7d6', san: 'd6', color: 'b', fen: 'fen-a3');
+
+      t.back();
+      t.back();
+      expect(t.current.san, 'c5');
+      t.forward();
+      expect(t.current.fen, 'fen-a2');
+      t.forward();
+      expect(t.current.fen, 'fen-a3');
     });
 
     test('forward inside a variation follows the VARIATION', () {
