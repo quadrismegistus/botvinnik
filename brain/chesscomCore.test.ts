@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { ccGameToStored, type CcGame } from './chesscomCore';
+import { ccGameToAnalysed, ccGameToStored, type CcGame } from './chesscomCore';
+import { analysedGameToStored } from './lichessImport';
+import type { UciEval } from './engine/types';
 
 // A chess.com archive game, in the exact shape the Published-Data API returns
 // (verified by hand against api.chess.com/pub/player/<name>/games/<yyyy>/<mm>
@@ -162,5 +164,89 @@ describe('ccGameToStored', () => {
 		const noBlack = { ...SCHOLARS_MATE } as Partial<CcGame>;
 		delete noBlack.black;
 		expect(ccGameToStored(noBlack as CcGame, 'x')).toBeNull();
+	});
+});
+
+// a stub evaluator: no engine, just enough shape for ccGameToAnalysed to walk
+// every position without waiting on a real search
+const flatEval: (fen: string) => Promise<UciEval> = async () => ({ cp: 0, pv: [] });
+
+describe('ccGameToAnalysed', () => {
+	it('fabricates the lichess-shaped analysis from a chess.com game', async () => {
+		const game = await ccGameToAnalysed(SCHOLARS_MATE, flatEval);
+		expect(game).not.toBeNull();
+		expect(game!.id).toBe(SCHOLARS_MATE.uuid);
+		expect(game!.variant).toBe('standard');
+		expect(game!.winner).toBe('white'); // white.result === 'win' above
+		expect(game!.pgn).toBe(SCHOLARS_MATE.pgn);
+		expect(game!.moves).toBe('e4 e5 Qh5 Nc6 Bc4 Nf6 Qxf7#');
+		expect(game!.players.white).toEqual({ user: { name: 'botvinnik_fan' }, rating: 1240 });
+		expect(game!.players.black).toEqual({ user: { name: 'Opponent99' }, rating: 1255 });
+		// one analysis entry per ply, same as a real Lichess export
+		expect(game!.analysis).toHaveLength(7);
+
+		// the mapped shape must survive the SAME grader analysedGameToStored feeds
+		// on, since that is the only reason ccGameToAnalysed exists
+		const mapped = analysedGameToStored(game!, 'botvinnik_fan', 'chesscom');
+		expect(mapped).not.toBeNull();
+		expect(mapped!.stored.moveCount).toBe(7);
+	});
+
+	it('skips a shape-drifted record instead of throwing', async () => {
+		// Same hazard as ccGameToStored above, for the offline script's sibling
+		// mapper: the script makes one call per game with no catch of its own, and
+		// resumes from a per-month checkpoint, so a mapper that threw on a missing
+		// field would wedge this month AND every earlier month behind it, on every
+		// re-run. A drifted record must resolve null like any other refusal.
+		const noEndTime = { ...SCHOLARS_MATE } as Partial<CcGame>;
+		delete noEndTime.end_time;
+		await expect(ccGameToAnalysed(noEndTime as CcGame, flatEval)).resolves.toBeNull();
+
+		const noWhite = { ...SCHOLARS_MATE } as Partial<CcGame>;
+		delete noWhite.white;
+		await expect(ccGameToAnalysed(noWhite as CcGame, flatEval)).resolves.toBeNull();
+
+		const noBlack = { ...SCHOLARS_MATE } as Partial<CcGame>;
+		delete noBlack.black;
+		await expect(ccGameToAnalysed(noBlack as CcGame, flatEval)).resolves.toBeNull();
+	});
+});
+
+// scripts/analyze-chesscom.mts cannot be imported directly in a unit test: it
+// spawns real engine processes and reads process.argv at module load, before
+// any test harness gets a say. So this reproduces its per-game loop verbatim
+// — guard-then-catch, skip-and-continue — against the REAL ccGameToAnalysed,
+// to prove the shape survives a throw the guard above does NOT anticipate
+// (here, evalPosition itself rejecting — an engine crash mid-analysis) without
+// losing the good games on either side of it. Mirrors the batch-survival test
+// chesscom_import_api.dart added for the in-app importer's own backstop (#176).
+describe('offline script per-game resilience (mirrors scripts/analyze-chesscom.mts)', () => {
+	it('one game whose analysis throws does not abort the batch', async () => {
+		const good1: CcGame = { ...SCHOLARS_MATE, uuid: 'good-1' };
+		const crashes: CcGame = { ...SCHOLARS_MATE, uuid: 'crashes' };
+		const good2: CcGame = { ...SCHOLARS_MATE, uuid: 'good-2' };
+		// every position of this game hits the same evaluator, so a crash fires
+		// regardless of which position gets probed first — an engine dying
+		// mid-search, not a shape the guard above could have caught
+		const crashingEval: (fen: string) => Promise<UciEval> = async () => {
+			throw new Error('engine crashed');
+		};
+
+		let skipped = 0;
+		const mappedIds: string[] = [];
+		for (const cc of [good1, crashes, good2]) {
+			const evalForThisGame = cc.uuid === crashes.uuid ? crashingEval : flatEval;
+			let mapped: ReturnType<typeof analysedGameToStored> = null;
+			try {
+				const lichessShaped = await ccGameToAnalysed(cc, evalForThisGame);
+				mapped = lichessShaped ? analysedGameToStored(lichessShaped, 'botvinnik_fan', 'chesscom') : null;
+			} catch {
+				skipped++;
+			}
+			if (mapped) mappedIds.push(mapped.stored.id);
+		}
+
+		expect(mappedIds).toEqual(['chesscom-good-1', 'chesscom-good-2']);
+		expect(skipped).toBe(1);
 	});
 });

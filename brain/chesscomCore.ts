@@ -126,6 +126,15 @@ export async function ccGameToAnalysed(
 	signal?: { aborted: boolean }
 ): Promise<LichessGame | null> {
 	if (cc.rules !== 'chess' || !cc.pgn) return null;
+	// Same drifted-record hazard ccGameToStored guards against above: the offline
+	// script (this mapper's only caller) makes one call per game and, unlike the
+	// in-app importer, resumes from a per-month checkpoint — so an unguarded
+	// throw here doesn't just lose one game, it wedges that month AND every
+	// earlier month behind it on every re-run. white/black feed the winner and
+	// players below; end_time feeds lastMoveAt.
+	if (!cc.white?.username || !cc.black?.username || typeof cc.end_time !== 'number') {
+		return null;
+	}
 	const c = new Chess();
 	try {
 		c.loadPgn(cc.pgn);
