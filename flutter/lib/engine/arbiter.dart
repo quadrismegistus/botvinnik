@@ -30,12 +30,30 @@ import 'uci_protocol.dart';
 // "do not spoil live play", not the whole of it: the service driving it also
 // refuses to run at all while a real game is on the board (see
 // stores/background_grader.dart).
-enum SearchPriority { botMove, practiceCheck, threatProbe, analysis, backgroundGrade }
+//
+// refusalCheck (#167) sits just under practiceCheck for the same reason the
+// threat probe sits above analysis, only more so: a human has already let go
+// of the piece and the board cannot move until this answers. Ahead of analysis
+// it preempts the position's own depth-22 search — which is normally still
+// running, since the player moved while it was thinking — and gets the engine
+// immediately. Behind it (as an ordinary `analysis` request, which is what it
+// was) equal priority never preempts, so it waited out the full budget of a
+// search it had just made pointless: seconds of dead board on every move.
+enum SearchPriority {
+  botMove,
+  practiceCheck,
+  refusalCheck,
+  threatProbe,
+  analysis,
+  backgroundGrade
+}
 
 /// Work that belongs to one board position, and is pointless once the board
-/// moves on. Both kinds are dropped by [SearchArbiter.cancelAnalyses].
+/// moves on. All three kinds are dropped by [SearchArbiter.cancelAnalyses].
 bool _positionScoped(SearchPriority p) =>
-    p == SearchPriority.analysis || p == SearchPriority.threatProbe;
+    p == SearchPriority.analysis ||
+    p == SearchPriority.threatProbe ||
+    p == SearchPriority.refusalCheck;
 
 /// Web-app analysis budget (stockfish.ts DEFAULT_BUDGET + MULTIPV).
 const int kAnalysisDepth = 22;
@@ -63,6 +81,19 @@ const int kAnalysisDepth = 22;
 const int kAnalysisMovetimeMs = 10000;
 const int kAnalysisMultiPv = 5;
 const int kBotMultiPv = 12;
+
+/// A search that has streamed this deep has something worth keeping: it is the
+/// bar [SearchArbiter.cancelAnalyses] lets a doomed analysis reach before it
+/// stops, and the bar refusal mode accepts a running analysis's partials at
+/// rather than waiting out its full budget (see `_preLinesFor`).
+const int kMinUsefulDepth = 12;
+
+/// Refusal mode's pre-commit check (#167): shallow on purpose. `backfillGrade`
+/// reads the multipv-1 line and nothing else, and depth 10 is the bar
+/// `MoveGrade.backfilled` already sets for a grade to count — so this is the
+/// cheapest search that can answer "does this move lose too much", and it ends
+/// on its own instead of holding the engine to depth 22 while a player waits.
+const int kRefusalCheckDepth = 10;
 
 class _Request {
   final String fen;
@@ -117,9 +148,6 @@ class SearchArbiter {
   bool _preempting = false;
   int _generation = 0;
   int _runningStreamDepth = 0;
-  // a cancelled analysis is allowed to reach this depth before stopping, so
-  // the move it would have labeled still gets its backfill
-  static const int _kMinUsefulDepth = 12;
   int? _stopAtDepth;
 
   SearchArbiter(this._ready) {
@@ -157,10 +185,10 @@ class SearchArbiter {
       // the courtesy window exists so grading still gets usable lines; a
       // threat probe has nothing to salvage, so it just stops
       if (running.priority != SearchPriority.analysis ||
-          _runningStreamDepth >= _kMinUsefulDepth) {
+          _runningStreamDepth >= kMinUsefulDepth) {
         _engine?.stop();
       } else {
-        _stopAtDepth = _kMinUsefulDepth; // stop once it gets there
+        _stopAtDepth = kMinUsefulDepth; // stop once it gets there
       }
     }
   }

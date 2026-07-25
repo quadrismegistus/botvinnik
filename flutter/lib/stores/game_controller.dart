@@ -288,6 +288,32 @@ class GameController extends ChangeNotifier {
   /// any move actually commits, or a new game starts.
   String? refusalMessage;
 
+  /// The position a refusal check is deliberating over: the move the player
+  /// just let go of, shown on the board for the length of the check so the
+  /// piece lands where they dropped it instead of snapping back to an
+  /// unchanged board while a search runs. Null whenever no check is in flight.
+  ///
+  /// PRESENTATIONAL ONLY, and deliberately so — no [MoveRecord], no clock
+  /// press, no [_apply]. There is nothing to roll back if the move is refused:
+  /// this clears and the board re-syncs to [position], which never moved. The
+  /// board hands the pending position `PlayerSide.none`, matching the
+  /// [_refusalPending] gate in [playerMove] — you cannot move again until the
+  /// check answers either way.
+  String? pendingFen;
+  NormalMove? pendingMove;
+
+  /// Both of the transient refusal-mode surfaces at once: the message about
+  /// the last refused move and the board's optimistic view of the one being
+  /// checked. Every path that moves the conversation on (new game, undo,
+  /// redo, browsing) drops both — a message about a move you are no longer
+  /// looking at is noise, and a pending position that outlives its check
+  /// would leave the board showing a move that never happened.
+  void _clearRefusalUi() {
+    refusalMessage = null;
+    pendingFen = null;
+    pendingMove = null;
+  }
+
   /// The clock, in a rated game that was given a time control. Null otherwise —
   /// a casual game has no clock, and a rated game without a chosen control is
   /// still a rated game.
@@ -666,7 +692,7 @@ class GameController extends ChangeNotifier {
     _refusalAttempts.clear();
     _refusalPending = false;
     _refusalPendingGen = null;
-    refusalMessage = null;
+    _clearRefusalUi();
     _clock?.dispose();
     _flagged = null;
     _clock = rated && timeControl != null
@@ -755,7 +781,7 @@ class GameController extends ChangeNotifier {
     // A refusal message describes a specific just-attempted move; taking a
     // move back moves the conversation on regardless of whether refusal mode
     // is even the reason (review follow-up, #167/#224).
-    refusalMessage = null;
+    _clearRefusalUi();
     // A rated game does not permit takebacks — that is part of what "rated"
     // means (#168), and it is also what stops the clock and the position from
     // desyncing: there is no coherent way to un-press a chess clock, so the
@@ -803,7 +829,7 @@ class GameController extends ChangeNotifier {
   /// instead of being recomputed — or lost.
   void redo() {
     _browsePly = null;
-    refusalMessage = null; // see undo
+    _clearRefusalUi(); // see undo
     if (_redoStack.isEmpty || botThinking || _rated) return;
     // An undo→redo round trip taught you nothing and changed nothing: the same
     // moves go back on the same board, so it is not a takeback and must not
@@ -853,9 +879,9 @@ class GameController extends ChangeNotifier {
   /// mistake would be, via a hand-built stored-move map since no [MoveRecord]
   /// ever exists for it — and [_apply] is never called, so there is nothing
   /// to roll back and no conflict with [undo]'s botThinking guard (the bot
-  /// never gets a turn here). The board's own optimistic drag animation
-  /// snaps back on its own once it re-syncs against [displayFen], which
-  /// never advanced.
+  /// never gets a turn here). The board shows the attempted move meanwhile via
+  /// [pendingFen], which is a view of it and not a commit of it, and reverts
+  /// to [position] — which never advanced — the instant the refusal lands.
   ///
   /// Otherwise the move is allowed through exactly as it would be without
   /// refusal mode. This includes the FAIL-OPEN case: if the child search
@@ -876,6 +902,15 @@ class GameController extends ChangeNotifier {
       final color = position.turn == Side.white ? 'w' : 'b';
       final candidateFen = position.playUnchecked(move).fen;
       final attempts = _refusalAttempts[fenBefore] ?? 0;
+
+      // Everything above here is synchronous, so this paints in the frame the
+      // player let go of the piece: the check is fast now, but no search is
+      // instant, and a board that sits unchanged while one runs reads as a
+      // dropped move rather than a considered one.
+      refusalMessage = null; // the previous attempt's, not this one's
+      pendingFen = candidateFen;
+      pendingMove = move;
+      notifyListeners();
 
       final grade = await _computeGrade(
         ply: moves.length + 1,
@@ -905,6 +940,12 @@ class GameController extends ChangeNotifier {
         refusalMessage = left > 0
             ? 'That loses too much — try again ($left left)'
             : 'That loses too much — one more try lets it through';
+        // Snap the board back NOW, with the message — not after the collect
+        // below, which is a database write the player should not be watching
+        // their own piece hover through.
+        pendingFen = null;
+        pendingMove = null;
+        notifyListeners();
         final practice = _practice;
         if (practice != null) {
           final storedMove = {
@@ -933,14 +974,25 @@ class GameController extends ChangeNotifier {
       }
 
       _refusalAttempts.remove(fenBefore);
-      refusalMessage = null;
+      // Cleared before [_apply], not after: _apply notifies, and it must not
+      // paint a frame in which the move is both committed and still pending.
+      _clearRefusalUi();
       _apply(move, san);
       _maybeBotTurn();
     } finally {
       // Only release the flag if this call still owns it for the CURRENT
-      // generation — a stale call for an abandoned generation must not
-      // clear a fresh call's in-flight flag out from under it.
-      if (_refusalPendingGen == gen) _refusalPending = false;
+      // generation — a stale call for an abandoned generation must not clear
+      // a fresh call's in-flight flag out from under it, and must not tear
+      // down the board view that check is showing. Every gen-bumping path
+      // (newGame, undo, redo, browse) clears the pending view itself.
+      if (_refusalPendingGen == gen) {
+        _refusalPending = false;
+        if (pendingFen != null) {
+          pendingFen = null;
+          pendingMove = null;
+          notifyListeners();
+        }
+      }
     }
   }
 
@@ -1648,7 +1700,7 @@ class GameController extends ChangeNotifier {
     // A refusal message is about the live position's just-attempted move;
     // browsing elsewhere and back should not leave it showing stale next to
     // whatever the card ends up displaying (review follow-up, #167/#224).
-    refusalMessage = null;
+    _clearRefusalUi();
     notifyListeners();
   }
 
@@ -1656,7 +1708,7 @@ class GameController extends ChangeNotifier {
     if (moves.isEmpty) return;
     final next = ply.clamp(0, moves.length);
     _browsePly = next == moves.length ? null : next;
-    refusalMessage = null; // see browseBy
+    _clearRefusalUi(); // see browseBy
     notifyListeners();
   }
 
@@ -1792,6 +1844,33 @@ class GameController extends ChangeNotifier {
   /// `backfilled == false` — rather than null, so a caller that only cares
   /// about "did we get a grade at all" is not forced to treat an unbackfilled
   /// one as failure.
+  /// Pre-lines for a caller a human is WAITING on (refusal mode), as opposed
+  /// to the post-commit pipeline that can take all the time it likes.
+  ///
+  /// [fen] is the live position, so its analysis has been running since the
+  /// position appeared and its streamed partials are normally already far
+  /// deeper than this decision needs. Awaiting the future instead means
+  /// waiting out the whole depth-22 / [kAnalysisMovetimeMs] budget of a search
+  /// the player has just made irrelevant — which, together with the queue wait
+  /// it caused for the candidate search, is what made refusal mode feel like
+  /// the board had stopped responding.
+  ///
+  /// The await is kept as the fallback for the genuinely cold case (a move
+  /// played before anything streamed) and capped, so that case fails open
+  /// rather than hanging. It is also the path the test harness takes, since a
+  /// fake arbiter resolves instantly and may never stream partials at all.
+  Future<List<EngineMove>?> _preLinesFor(String fen, Duration cap) async {
+    final partial = _partials[fen];
+    if (partial != null &&
+        partial.isNotEmpty &&
+        partial.first.depth >= kMinUsefulDepth) {
+      return partial;
+    }
+    final lines = await _analysisFor(fen).timeout(cap, onTimeout: () => null);
+    if (lines != null && lines.isNotEmpty) return lines;
+    return _partials[fen];
+  }
+
   Future<MoveGrade?> _computeGrade({
     required int ply,
     required String fenBefore,
@@ -1805,8 +1884,13 @@ class GameController extends ChangeNotifier {
   }) async {
     // pre-lines: the completed (or cancelled-with-partials) analysis of the
     // position the move was played from, falling back to streamed partials
-    var pre = await _analysisFor(fenBefore);
-    if (pre == null || pre.isEmpty) pre = _partials[fenBefore];
+    List<EngineMove>? pre;
+    if (cap == null) {
+      pre = await _analysisFor(fenBefore);
+      if (pre == null || pre.isEmpty) pre = _partials[fenBefore];
+    } else {
+      pre = await _preLinesFor(fenBefore, cap);
+    }
     if (gen != _gen || pre == null || pre.isEmpty) return null;
 
     final grade = _grading.gradeMove(
@@ -1833,21 +1917,31 @@ class GameController extends ChangeNotifier {
       if (child == null || child.isEmpty) child = _partials[fenAfter];
     } else {
       // Pre-commit refusal check (_maybeRefuse): a human is waiting, so this
-      // needs the depth-10 shortcut itself rather than the full search.
-      // Nobody has normally analyzed this exact candidate position before
-      // (it only exists because THIS move is being considered), so
-      // registering our own onUpdate here reliably wins _analysisFor's
-      // putIfAbsent — resolve the instant a streamed update crosses depth
-      // 10, capped so a slow engine never holds a move indefinitely.
-      final ready = Completer<List<EngineMove>?>();
-      unawaited(_analysisFor(fenAfter, onUpdate: (lines) {
-        if (!ready.isCompleted && lines.isNotEmpty && lines.first.depth >= 10) {
-          ready.complete(lines);
-        }
-      }).then((lines) {
-        if (!ready.isCompleted) ready.complete(lines);
-      }));
-      child = await ready.future.timeout(cap, onTimeout: () => null);
+      // is a search of its own rather than an [_analysisFor] — three reasons,
+      // all of which were latency the player felt on every single move:
+      //
+      //  * PRIORITY. An `analysis` request queues behind the position's own
+      //    still-running depth-22 analysis, because equal priority never
+      //    preempts. [SearchPriority.refusalCheck] takes the engine now.
+      //  * IT ENDS. `go depth 10, MultiPV 1` is everything backfillGrade
+      //    reads. The old full-budget analysis kept running long after it had
+      //    answered, so a REFUSED move left the engine busy for seconds and
+      //    the retry queued behind it — each attempt slower than the last.
+      //  * NOT CACHED. A depth-10 MultiPV-1 result must not become
+      //    `_analysis[fenAfter]`; if the move is allowed, [_apply] asks for
+      //    that fen's analysis and must get the real full-depth one, not this.
+      //
+      // [cap] is the backstop, not the plan: it should never be reached now,
+      // and reaching it fails open (see [_maybeRefuse]).
+      child = await _arbiter
+          .search(
+            fen: fenAfter,
+            depth: kRefusalCheckDepth,
+            multiPv: 1,
+            movetimeMs: cap.inMilliseconds,
+            priority: SearchPriority.refusalCheck,
+          )
+          .timeout(cap, onTimeout: () => null);
       if (child == null || child.isEmpty) child = _partials[fenAfter];
     }
     if (gen != _gen ||
@@ -1999,6 +2093,25 @@ class GameController extends ChangeNotifier {
     // flutter_test reports as a pending timer and a device reports as a clock
     // still counting down a game nobody is playing.
     _clock?.dispose();
+    _disposed = true;
     super.dispose();
+  }
+
+  /// Set by [dispose], read by [notifyListeners].
+  bool _disposed = false;
+
+  /// Nearly everything that ends in a `notifyListeners()` here is a
+  /// fire-and-forget async tail — a grade pipeline, a bot turn's 1.5s opening
+  /// wait, a refusal check — and any of them can still be in flight when the
+  /// controller is torn down. There is nothing for them to do about that:
+  /// [ChangeNotifier] throws if they notify, so the alternative is a
+  /// `_disposed` check bolted onto every one of those tails, and the one that
+  /// gets forgotten becomes a crash in a `finally` nobody is watching.
+  /// Dropping the notification is the whole correct response — the listeners
+  /// are gone.
+  @override
+  void notifyListeners() {
+    if (_disposed) return;
+    super.notifyListeners();
   }
 }

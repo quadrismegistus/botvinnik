@@ -8,6 +8,8 @@
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:botvinnik_mobile/brain/types.dart';
+import 'package:botvinnik_mobile/engine/arbiter.dart'
+    show SearchPriority, kRefusalCheckDepth;
 import 'package:botvinnik_mobile/stores/game_controller.dart';
 import 'package:botvinnik_mobile/stores/settings_store.dart';
 
@@ -297,6 +299,135 @@ void main() {
       await game.debugForceSave();
       expect(game.lastSavedGame?['refusedMoves'],
           GameController.kMaxRefusalAttempts);
+      game.dispose();
+    });
+
+    // ---- latency (#167 follow-up: "a serious lag before it appears") ----
+    //
+    // The check ran entirely at `analysis` priority: it awaited the live
+    // position's depth-22 analysis to COMPLETION for pre-lines, then queued
+    // the candidate search behind that same still-running analysis, because
+    // equal priority never preempts. Two multi-second waits, in series,
+    // before the piece moved at all.
+
+    test('the candidate search preempts, and stays shallow', () async {
+      final arbiter = FakeArbiter(analysisLines: kFakeLines);
+      final settings = await loadSettings(black: kTestBotId);
+      final game = GameController(
+          arbiter,
+          const FakeBot({kTestBotId: testBotPersona}),
+          FakeGrading(winChanceOf: winChanceOf),
+          settings,
+          null,
+          FakePractice());
+      game.newGame(refuseBlunders: true);
+
+      game.playUci('e2e4');
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+
+      final check = arbiter.searchRequests
+          .where((r) => r.priority == SearchPriority.refusalCheck);
+      expect(check, hasLength(1),
+          reason: 'an `analysis`-priority request would queue behind the '
+              'live position analysis instead of preempting it');
+      expect(check.single.depth, kRefusalCheckDepth);
+      expect(check.single.multiPv, 1,
+          reason: 'backfillGrade reads the multipv-1 line and nothing else');
+      game.dispose();
+    });
+
+    test('does not wait out an analysis that has already streamed usable lines',
+        () async {
+      // The live position's analysis streams depth-15 partials and then keeps
+      // thinking for far longer than any player would wait. Reading the
+      // partials answers now; awaiting the future does not answer at all.
+      final settings = await loadSettings(black: kTestBotId);
+      final practice = FakePractice();
+      final game = GameController(
+          FakeArbiter(
+            analysisLines: kFakeLines,
+            streamPartials: true,
+            analysisDelay: const Duration(seconds: 30),
+          ),
+          const FakeBot({kTestBotId: testBotPersona}),
+          FakeGrading(winChanceOf: winChanceOf),
+          settings,
+          null,
+          practice);
+      game.newGame(refuseBlunders: true);
+
+      game.playUci('e2e4');
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+
+      expect(game.refusedMoves, 1,
+          reason: 'decided from streamed partials, not the finished search');
+      expect(game.moves, isEmpty);
+      game.dispose();
+    });
+
+    test('the board shows the attempted move while the check runs', () async {
+      final settings = await loadSettings(black: kTestBotId);
+      final game = GameController(
+          // the refusal check resolves from analysisLines, so searchDelay is
+          // the length of the check itself here
+          FakeArbiter(
+              analysisLines: kFakeLines,
+              searchDelay: const Duration(milliseconds: 100)),
+          const FakeBot({kTestBotId: testBotPersona}),
+          FakeGrading(winChanceOf: winChanceOf),
+          settings,
+          null,
+          FakePractice());
+      game.newGame(refuseBlunders: true);
+      final before = game.position.fen;
+
+      game.playUci('e2e4');
+      expect(game.pendingFen, isNot(before),
+          reason: 'the piece lands where it was dropped, in the same frame — '
+              'an unchanged board reads as a move the app ate');
+      expect(game.pendingMove?.uci, 'e2e4');
+      expect(game.position.fen, before, reason: 'shown, not committed');
+
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+      expect(game.pendingFen, isNull, reason: 'refused — the board snaps back');
+      expect(game.position.fen, before);
+      expect(game.refusalMessage, isNotNull);
+      game.dispose();
+    });
+
+    test('a pending board view never outlives its check', () async {
+      // Every gen-bumping path clears it; undo is the one that can land while
+      // a check is genuinely in flight (the search here never resolves).
+      final settings = await loadSettings(black: kTestBotId);
+      final game = GameController(
+          FakeArbiter(
+              analysisLines: kFakeLines,
+              searchDelay: const Duration(seconds: 30)),
+          const FakeBot({kTestBotId: testBotPersona}),
+          FakeGrading(winChanceOf: winChanceOf),
+          settings,
+          null,
+          FakePractice());
+      game.newGame(refuseBlunders: true);
+      game.moves.add(MoveRecord(
+        ply: 1,
+        san: 'd4',
+        uci: 'd2d4',
+        color: 'w',
+        fenBefore: game.position.fen,
+        fenAfter: game.position.fen,
+      ));
+
+      game.playUci('e2e4');
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      expect(game.pendingFen, isNotNull, reason: 'check still in flight');
+
+      game.undo();
+      expect(game.pendingFen, isNull);
+      game.browseBy(-1);
+      expect(game.pendingFen, isNull);
+      game.newGame(refuseBlunders: true);
+      expect(game.pendingFen, isNull);
       game.dispose();
     });
   });

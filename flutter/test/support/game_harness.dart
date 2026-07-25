@@ -56,11 +56,29 @@ class FakeArbiter implements SearchArbiter {
   /// exercise a turn abandoned mid-flight.
   final List<EngineMove>? searchLines;
   final Duration searchDelay;
+
+  /// How long `analysis()` takes to RESOLVE, after streaming its partials.
+  ///
+  /// The real thing is a depth-22 search on a 10s backstop, and the gap
+  /// between "has streamed something useful" and "has finished" is where
+  /// refusal mode's latency bug lived (#167). Set this long, with
+  /// [streamPartials] on, to model an analysis that is still thinking: a
+  /// caller that reads the partials answers immediately, one that awaits the
+  /// future does not answer at all.
+  final Duration analysisDelay;
+
+  /// Every `search()` this arbiter was asked for, in order — priority and
+  /// depth included, which is what "the refusal check preempts and stays
+  /// shallow" is actually a claim about.
+  final List<({SearchPriority priority, int depth, int multiPv})>
+      searchRequests = [];
+
   FakeArbiter({
     this.analysisLines,
     this.streamPartials = false,
     this.searchLines,
     this.searchDelay = Duration.zero,
+    this.analysisDelay = Duration.zero,
   });
 
   @override
@@ -69,6 +87,9 @@ class FakeArbiter implements SearchArbiter {
     final lines = analysisLines;
     if (lines == null) return Completer<List<EngineMove>?>().future;
     if (streamPartials) onUpdate?.call(lines);
+    if (analysisDelay > Duration.zero) {
+      return Future<List<EngineMove>?>.delayed(analysisDelay, () => lines);
+    }
     return Future<List<EngineMove>?>.value(lines);
   }
 
@@ -83,7 +104,16 @@ class FakeArbiter implements SearchArbiter {
     required SearchPriority priority,
     void Function(List<EngineMove>)? onUpdate,
   }) {
-    final lines = searchLines;
+    searchRequests
+        .add((priority: priority, depth: depth, multiPv: multiPv));
+    // Refusal mode's pre-commit check (#167) is a search, not an `analysis`,
+    // so that it can outrank and preempt the live position's analysis — but
+    // it is asking the same question of the same kind of fake, and answering
+    // it from [analysisLines] is what keeps a refusal test from having to
+    // supply bot-move lines it does not otherwise need. [searchLines] still
+    // wins where a test sets both.
+    final lines = searchLines ??
+        (priority == SearchPriority.refusalCheck ? analysisLines : null);
     if (lines == null) return Completer<List<EngineMove>?>().future;
     return Future<List<EngineMove>?>.delayed(searchDelay, () => lines);
   }
