@@ -9633,7 +9633,7 @@ var brain = (() => {
   // brain/chesscomCore.ts
   function ccGameToStored(cc, username) {
     if (cc.rules !== "chess" || !cc.pgn) return null;
-    if (!cc.white?.username || !cc.black?.username || typeof cc.end_time !== "number") {
+    if (typeof cc.white?.username !== "string" || typeof cc.black?.username !== "string" || typeof cc.end_time !== "number") {
       return null;
     }
     const c = new Chess();

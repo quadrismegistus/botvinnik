@@ -129,6 +129,28 @@ jobs:
       # (missing required file, unsubstituted bootstrap token). Note it cannot
       # catch an UNPROCESSED sw.js — it is the step that processes it; what
       # protects against that is every build path going through this script.
+      # files_web.dart uses package:web instead of dart:html specifically so
+      # this build stays possible — dart:html has no wasm compiler support,
+      # and that file's header said as much while nothing ran the build the
+      # comment was claiming (#159). The value is entirely the exit code.
+      #
+      # FIRST, before build-web.sh, and that ordering is load-bearing: this is
+      # a bare `flutter build web`, so it overwrites build/web WITHOUT
+      # --no-web-resources-cdn and with sw.js's manifest placeholder
+      # unsubstituted — the two things build-web.sh exists to prevent, whose
+      # own header says the protection is "every build path going through this
+      # script". Run after it, this leaves a directory nothing should serve,
+      # and the e2e suite below only escapes serving it because playwright
+      # .config.ts happens to rebuild. Running first makes the residue
+      # structurally unreachable rather than accidentally repaired.
+      #
+      # Catches an UNCONDITIONAL dart:html import, directly or from a
+      # dependency. It does NOT catch one behind `if (dart.library.html)`,
+      # which is how cross-platform packages usually ship web code, and it
+      # does not catch dart:io at all.
+      - name: Web build compiles to wasm (dry run, not shipped)
+        working-directory: flutter
+        run: flutter build web --release --wasm
       - name: Web build, with the offline manifest
         working-directory: flutter
         run: ./build-web.sh

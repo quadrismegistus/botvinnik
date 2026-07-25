@@ -105,8 +105,14 @@ class InsightCard extends StatelessWidget {
     // arrow — the header row has no room, and two bare arrows there would be
     // exactly the "which one is this?" the single button already was. Wrapped,
     // so at 320pt the second button drops to a new line rather than overflowing.
-    // Colours echo the preview board's grammar (#29): BLUE is the engine's move
-    // everywhere in this app, RED is the move that cost you.
+    // Still BLUE for the engine's move and RED for the move that cost you
+    // (#29), deliberately NOT recoloured to green alongside the mini-board
+    // below (#185): tapping a button already turns it the app's "now playing"
+    // green (see [_lineButton]'s `active`), so a resting green here would
+    // barely change on tap — the blue-to-green flip is the affordance, and
+    // making rest and active both green would erase it. The mini-board's
+    // arrows have no such active state to protect, so they use red/green/blue
+    // freely.
     final controls = <Widget>[
       if (bestPv.isNotEmpty)
         _lineButton(game,
@@ -157,28 +163,27 @@ class InsightCard extends StatelessWidget {
       }
     }
 
-    if (!grade.isBest) {
-      final arrows = MovePreview.arrowsFor(grade.uci, grade.bestUci);
+    // The mini-board, drawn even when the move played WAS the best move
+    // (#185) — it used to be withheld exactly then, which read as "nothing to
+    // show" when the truer picture is "one arrow, because there's nothing
+    // left to compare." [_board] returns null only in the genuine no-board
+    // cases: an unparseable uci, or (off the coincide branch) a promotion
+    // differing solely in the piece chosen, where [_prose] below stands in.
+    final board = _board(grade);
+    if (board != null) {
+      children.add(Padding(padding: const EdgeInsets.only(top: 8), child: board));
+    } else if (grade.uci != grade.bestUci) {
+      // Same test as [_board]'s, and for the same reason: gated on `isBest`
+      // this suppressed the engine's actual move on every grade where a
+      // deeper post-move eval had widened that flag past the pre-move winner.
+      // The one case with genuinely nothing to say is the one where the two
+      // moves really are the same.
       children.add(Padding(
         padding: const EdgeInsets.only(top: 8),
-        child: arrows == null
-            // no board to draw (see [MovePreview.arrowsFor]): the sentence it
-            // would have replaced, unchanged
-            ? Text(
-                'Best was ${grade.bestSan}',
-                style: const TextStyle(color: Colors.white70, fontSize: 13),
-              )
-            : MovePreview(
-                fen: grade.fenBefore,
-                played: arrows.$1,
-                best: arrows.$2,
-                playedSan: grade.san,
-                bestSan: grade.bestSan,
-                // the mover's own side. In an ordinary game against a bot that
-                // is the player's, so it agrees with the board above unless
-                // they have flipped it by hand.
-                orientation: grade.color == 'w' ? Side.white : Side.black,
-              ),
+        child: Text(
+          'Best was ${grade.bestSan}',
+          style: const TextStyle(color: Colors.white70, fontSize: 13),
+        ),
       ));
     }
 
@@ -201,6 +206,50 @@ class InsightCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: children,
       ),
+    );
+  }
+
+  /// The played-vs-best mini-board (#185), or null when there is genuinely
+  /// nothing to draw. Two branches, not one gated by [MoveGrade.isBest] before
+  /// the caller: the coincide case needs [MovePreview.same]'s single blue
+  /// arrow, not the two-arrow constructor fed the same move twice (which would
+  /// draw red directly under green on the identical line and read as one
+  /// arrow anyway, just the wrong colour for what it's showing).
+  Widget? _board(MoveGrade grade) {
+    // the mover's own side, both branches: in an ordinary game against a bot
+    // that is the player's, so it agrees with the board above unless they
+    // have flipped it by hand
+    final orientation = grade.color == 'w' ? Side.white : Side.black;
+    // `uci == bestUci`, NOT `isBest`. Those agree in `gradeMove`, which sets
+    // `isBest: idx === 0` — but this card only ever sees BACKFILLED grades,
+    // and `backfillGrade` widens the flag: `isBest = grade.isBest || pctBest
+    // >= 100` (insights.ts), while bestUci stays pinned to the pre-move
+    // MultiPV winner. The deeper post-move eval routinely lands above that
+    // winner, so isBest is regularly true for a move the engine did not pick.
+    //
+    // Read literally, the old branch then drew the PLAYED move in the app's
+    // engine-blue captioned "also the best move", suppressed "Best was e4"
+    // entirely, and left the Best-line button two rows above animating a
+    // different move. The card claimed a move was best when it was not.
+    if (grade.uci == grade.bestUci) {
+      final solo = MovePreview.soleMoveFor(grade.uci);
+      if (solo == null) return null; // unparseable uci — see [MovePreview.soleMoveFor]
+      return MovePreview.same(
+        fen: grade.fenBefore,
+        move: solo,
+        san: grade.san,
+        orientation: orientation,
+      );
+    }
+    final arrows = MovePreview.arrowsFor(grade.uci, grade.bestUci);
+    if (arrows == null) return null; // see [MovePreview.arrowsFor]
+    return MovePreview(
+      fen: grade.fenBefore,
+      played: arrows.$1,
+      best: arrows.$2,
+      playedSan: grade.san,
+      bestSan: grade.bestSan,
+      orientation: orientation,
     );
   }
 

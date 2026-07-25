@@ -4,7 +4,7 @@
 
 import { Chess, type Square } from 'chess.js';
 import type { UciEval } from './engine/types';
-import type { LichessEval, LichessGame } from './lichessImport';
+import { analysedGameToStored, type LichessEval, type LichessGame } from './lichessImport';
 import { gameAccuracy, labelCounts, type StoredGame, type StoredMove } from './gameStore';
 
 export interface CcGame {
@@ -43,7 +43,16 @@ export function ccGameToStored(
 	// game and does not catch, so a single thrown game would abort the entire
 	// import (up to 300 games, across many months). white/black feed the
 	// human-colour match below; end_time stamps endedAt.
-	if (!cc.white?.username || !cc.black?.username || typeof cc.end_time !== 'number') {
+	//
+	// `typeof === 'string'`, not truthiness: both usernames are handed straight
+	// to .toLowerCase() a few lines down, so a record carrying a NUMBER there —
+	// truthy, and exactly the kind of drift this guard exists for — sailed
+	// through and threw anyway, one call later.
+	if (
+		typeof cc.white?.username !== 'string' ||
+		typeof cc.black?.username !== 'string' ||
+		typeof cc.end_time !== 'number'
+	) {
 		return null;
 	}
 	const c = new Chess();
@@ -126,6 +135,19 @@ export async function ccGameToAnalysed(
 	signal?: { aborted: boolean }
 ): Promise<LichessGame | null> {
 	if (cc.rules !== 'chess' || !cc.pgn) return null;
+	// Same drifted-record hazard ccGameToStored guards against above: the offline
+	// script (this mapper's only caller) makes one call per game and, unlike the
+	// in-app importer, resumes from a per-month checkpoint — so an unguarded
+	// throw here doesn't just lose one game, it wedges that month AND every
+	// earlier month behind it on every re-run. white/black feed the winner and
+	// players below; end_time feeds lastMoveAt.
+	if (
+		typeof cc.white?.username !== 'string' ||
+		typeof cc.black?.username !== 'string' ||
+		typeof cc.end_time !== 'number'
+	) {
+		return null;
+	}
 	const c = new Chess();
 	try {
 		c.loadPgn(cc.pgn);
@@ -224,4 +246,36 @@ export async function fetchChesscomMonth(url: string): Promise<CcGame[]> {
 	if (!res.ok) throw new Error(`chess.com API error ${res.status}`);
 	const data = (await res.json()) as { games: CcGame[] };
 	return data.games.sort((a, b) => b.end_time - a.end_time);
+}
+
+/**
+ * One archived game, mapped for the offline analyzer: analyse it, shape it,
+ * and turn any throw into a skip the caller can count.
+ *
+ * This lives HERE, rather than inline in scripts/analyze-chesscom.mts, purely
+ * so it can be tested. The script spawns engines and reads process.argv at
+ * module load, so a test cannot import it — which meant the per-game try/catch
+ * added for #177 had no coverage at all: deleting it left the whole brain
+ * suite green, and nothing in CI typechecks or runs scripts/ either. A test
+ * that mirrors a loop it cannot import proves things about the copy.
+ *
+ * `ok: false` is a game to skip and count, not a fatal: see the caller for why
+ * a month with skips must NOT be checkpointed as done.
+ */
+export async function mapOneGame(
+	cc: CcGame,
+	evalPosition: (fen: string) => Promise<UciEval>,
+	username: string
+): Promise<
+	{ ok: true; mapped: ReturnType<typeof analysedGameToStored> } | { ok: false; reason: string }
+> {
+	try {
+		const lichessShaped = await ccGameToAnalysed(cc, evalPosition);
+		return {
+			ok: true,
+			mapped: lichessShaped ? analysedGameToStored(lichessShaped, username, 'chesscom') : null
+		};
+	} catch (e) {
+		return { ok: false, reason: e instanceof Error ? e.message : String(e) };
+	}
 }

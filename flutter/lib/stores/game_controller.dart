@@ -795,6 +795,76 @@ class GameController extends ChangeNotifier {
     _maybeBotTurn();
   }
 
+  /// One tap from the recap into an identical game with the sides swapped
+  /// (#212) — lichess/chess.com convention, and the whole point of the
+  /// button: New Game re-prompts for opponent and settings every time,
+  /// Rematch re-prompts for nothing. Guarded by [canRematch]; a no-op call
+  /// (e.g. a stale button reference on a review board) is silently ignored
+  /// rather than asserting, the same posture [resign] takes.
+  ///
+  /// Follows the New Game sheet's own documented sequence at its Start
+  /// button: [SettingsStore.setPlayers] can itself trigger a restart through
+  /// the settings listener (`_onSettings`), and that restart is always
+  /// unrated — so the explicit [newGame] call below, carrying the real
+  /// rated/timeControl, has to run LAST or its result would be immediately
+  /// clobbered. Read the swap and the rated/clock state from `this` and
+  /// `_settings` BEFORE calling setPlayers, for the same reason: nothing
+  /// downstream of setPlayers may be trusted to still hold the values this
+  /// game just finished with.
+  ///
+  /// Rated carries over on purpose, unlike the sheet's own Rated switch
+  /// (which resets to unticked every time the sheet opens — see the comment
+  /// on [_rated]'s declaration). That reset exists to stop a forgotten
+  /// sticky checkbox from quietly rating games the player never chose to
+  /// rate; Rematch is not that. It is one explicit tap, taken with the
+  /// just-finished result still on screen, so continuing under the same
+  /// terms is exactly as deliberate as re-ticking the box would be — and a
+  /// rematch of a CASUAL game stays casual for the same reason in reverse:
+  /// the tap carries the previous choice forward, it does not invent a rated
+  /// one. [refuseBlunders] is NOT carried — it is off by default in
+  /// [newGame] like every other caller, because #167 gives it no comparable
+  /// "same terms" claim: it is a practice toggle for THIS attempt, not a
+  /// property of the match being continued.
+  void rematch() {
+    if (!canRematch) return;
+    final white = _settings.whitePersonaId;
+    final black = _settings.blackPersonaId;
+    final wasRated = _rated;
+    // Only a rated game ever carries a clock (see newGame's own
+    // `rated && timeControl != null` guard) — a casual rematch has nothing
+    // to carry regardless of what _clock holds over from before.
+    final timeControl = wasRated ? _clock?.control : null;
+    // The rated PRESET, not just the rated flag. The New Game sheet turns
+    // blind on and the three overlays off whenever it starts a rated game,
+    // and deliberately does NOT restore them at game over — restoring them
+    // there would flip the board mid-recap. So the natural thing to do after
+    // a rated game, turning blind off to actually read the analysis of what
+    // you just played, leaves those settings exactly wrong for the next one.
+    //
+    // Without this, a rated rematch is born un-ratable: `_assisted` is
+    // sampled at every human move, so the FIRST move sets botHintsUsed, and
+    // playerElo drops any game carrying it. You would get a game that says
+    // "rated", shows you nothing (the rated shell hides the panels), and
+    // cannot count — with nothing on screen to say so. The sheet's safety
+    // net assumes hints get turned on DURING a game; this path starts one
+    // with them already on.
+    if (wasRated) {
+      _settings.blind = true;
+      _settings.showArrows = false;
+      _settings.showThreats = false;
+      _settings.showControl = false;
+    }
+    // Before newGame, and newGame last: newGame's own _maybeBotTurn has to
+    // see the swapped personas, or the wrong side gets the opening move.
+    // (An earlier version of this comment claimed setPlayers itself triggers
+    // an unrated restart through the settings listener. It does not —
+    // _onSettings' changed-signature branch calls _syncRetro and nothing
+    // else, and says so. The ordering is still required, for the reason
+    // above.)
+    _settings.setPlayers(white: black, black: white);
+    newGame(rated: wasRated, timeControl: timeControl, fromFen: _startFen);
+  }
+
   /// Moves taken off by undo, in game order, so redo can put them back
   /// exactly as they were — including their grades, which cost engine time
   /// to earn. Any new move discards them (see _apply).
@@ -819,6 +889,23 @@ class GameController extends ChangeNotifier {
           : moves.isNotEmpty);
   bool get canRedo =>
       !_review && _redoStack.isNotEmpty && !botThinking && !_rated;
+
+  /// Whether the recap offers Rematch. Requires an actual opponent as well
+  /// as [gameOver]: analysis (both sides human) has nothing for the sides
+  /// swap to do — swapping two nulls is a no-op — and "rematch" promises a
+  /// continuation against SOMEONE, which that mode never had.
+  ///
+  /// AND the finished game has to be finished with. [newGame] bumps the
+  /// generation, which makes an in-flight [_gradePipeline] return before it
+  /// writes the backfilled label and before the practice-collect guard — so a
+  /// fast tap here threw away the grade and the puzzle for the very move that
+  /// ended the game, which is the one most worth keeping. That race has always
+  /// existed (any New Game does it), but Rematch is the first one-tap path
+  /// sitting directly under the result, which turns it from rare into normal.
+  /// The wait is the length of one grade, and [_saveGame] is already waiting
+  /// on the same futures.
+  bool get canRematch =>
+      !_review && gameOver && botEnabled && _pendingGrades.isEmpty;
 
   /// Undo the last player move (and the bot reply on top of it);
   /// on the analysis board, one ply at a time.
@@ -1132,7 +1219,13 @@ class GameController extends ChangeNotifier {
     _probeThreat();
     late final Future<void> pipeline;
     pipeline = _gradePipeline(record, _gen)
-      ..whenComplete(() => _pendingGrades.remove(pipeline));
+      ..whenComplete(() {
+        _pendingGrades.remove(pipeline);
+        // So [canRematch] can go true again: the recap's button is disabled
+        // while a grade is in flight, and nothing else notifies when the last
+        // one drains.
+        notifyListeners();
+      });
     _pendingGrades.add(pipeline);
     if (gameOver) {
       // The ticker keeps counting otherwise, and eventually flags — rewriting a

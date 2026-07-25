@@ -3,7 +3,13 @@
 //
 // package:web + dart:js_interop rather than dart:html: dart:html is not
 // available to the wasm compiler, and this would otherwise be the only file
-// in the app standing in the way of that build.
+// in the app standing in the way of that build. Kept buildable, not shipped:
+// pages.yml and build-web.sh only ever produce and serve the JS/CanvasKit
+// bundle, and nobody has done the extra plumbing (skwasm renderer, headers)
+// an actual wasm deploy would need. CI runs `flutter build web --release
+// --wasm` as a dry run (#159) purely to keep this comment honest — so the
+// next dart:html import, direct or pulled in by a dependency, fails loudly
+// in CI instead of quietly rotting this claim.
 
 import 'dart:js_interop';
 import 'dart:ui' show Rect;
