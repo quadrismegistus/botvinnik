@@ -212,6 +212,7 @@ class PlayerRatingStore extends ChangeNotifier {
   /// Only then the things the player did inside a rated game.
   String? _reasonFor(Map<String, dynamic> game) {
     final undos = (game['botUndos'] as num?)?.toInt() ?? 0;
+    final refused = (game['refusedMoves'] as num?)?.toInt() ?? 0;
     if (game['botPersona'] == null) return 'there was no bot opponent';
     if (game['botBothSides'] == true) return 'both sides were bots';
     if (game['rated'] != true) return 'it was not a rated game';
@@ -220,6 +221,11 @@ class PlayerRatingStore extends ChangeNotifier {
     }
     if (undos > 0) {
       return undos == 1 ? 'you took a move back' : 'you took $undos moves back';
+    }
+    if (refused > 0) {
+      return refused == 1
+          ? 'a move was refused'
+          : '$refused moves were refused';
     }
     if (game['botHintsUsed'] == true) {
       return 'the hint overlays were on the board';

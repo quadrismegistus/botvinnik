@@ -8,9 +8,12 @@
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:botvinnik_mobile/brain/types.dart';
+import 'package:botvinnik_mobile/engine/arbiter.dart'
+    show SearchPriority, kRefusalCheckDepth;
 import 'package:botvinnik_mobile/stores/game_controller.dart';
 import 'package:botvinnik_mobile/stores/settings_store.dart';
 
+import 'support/fake_db.dart';
 import 'support/game_harness.dart';
 
 void main() {
@@ -176,6 +179,256 @@ void main() {
       // both sides you: botEnabled is false, so nothing is collected
       final practice = await playOneMove();
       expect(practice.collected, isEmpty);
+    });
+  });
+
+  group('refusal mode (#167)', () {
+    // FakeGrading's default winChance is a constant 0, so _wcDrop is always
+    // 0 too — fine for "was collection attempted", useless for refusal,
+    // which needs a real number to compare against a threshold. gradeMove's
+    // hardcoded grade never sets evalPawns, and backfillGrade does not add
+    // it either, so evalPawns stays null through every attempt in this
+    // harness: reading that as "bad" and a non-null bestEval as "good" gives
+    // every attempted move here a reliable, large win-chance drop.
+    double winChanceOf(double? eval, int? mate) =>
+        eval == null ? 20 : 80; // drop = 60
+
+    Future<(GameController, FakePractice)> newRefusalGame() async {
+      final settings = await loadSettings(black: kTestBotId);
+      final practice = FakePractice();
+      final game = GameController(
+          FakeArbiter(analysisLines: kFakeLines),
+          const FakeBot({kTestBotId: testBotPersona}),
+          FakeGrading(winChanceOf: winChanceOf),
+          settings,
+          null,
+          practice);
+      game.newGame(refuseBlunders: true);
+      return (game, practice);
+    }
+
+    test('a bad move is refused, not played, and still collected', () async {
+      final (game, practice) = await newRefusalGame();
+      game.playUci('e2e4');
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+
+      expect(game.moves, isEmpty, reason: 'refused — never committed');
+      expect(game.refusedMoves, 1);
+      expect(game.refusalMessage, contains('try again'));
+      expect(practice.collected, hasLength(1),
+          reason: 'still queued as a puzzle even though it was never played');
+      expect(practice.collected.single['san'], 'e4');
+      game.dispose();
+    });
+
+    test('relents on the 4th attempt at the same position', () async {
+      final (game, practice) = await newRefusalGame();
+      for (var i = 0; i < GameController.kMaxRefusalAttempts; i++) {
+        game.playUci('e2e4');
+        await Future<void>.delayed(const Duration(milliseconds: 150));
+        expect(game.moves, isEmpty, reason: 'attempt ${i + 1} refused');
+      }
+      expect(game.refusedMoves, GameController.kMaxRefusalAttempts);
+
+      game.playUci('e2e4'); // the 4th attempt at this position
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+
+      expect(game.moves, hasLength(1), reason: 'relented — now committed');
+      expect(game.moves.single.san, 'e4');
+      expect(game.refusedMoves, GameController.kMaxRefusalAttempts,
+          reason: 'the relented-through move is not itself a refusal');
+      // 3 refusal-time collects, plus the ordinary POST-commit collect
+      // _gradePipeline runs for every move once it lands — the relented-
+      // through move is still a real blunder in this harness (its eval
+      // reads exactly as "bad" as the three that were refused), and it
+      // should still reach the practice queue like any played blunder does.
+      expect(
+          practice.collected, hasLength(GameController.kMaxRefusalAttempts + 1));
+      game.dispose();
+    });
+
+    test('browsing away clears a stale refusal message (review follow-up)',
+        () async {
+      // A refusal message describes one specific attempted move — it must
+      // not keep showing next to an unrelated position after the player
+      // browses elsewhere and back. browseBy needs SOME move history to
+      // step through; what it is doesn't matter to what's under test here
+      // (refusalMessage's clearing behavior), so append one directly rather
+      // than threading a realistic bot reply through the fake arbiter.
+      final (game, _) = await newRefusalGame();
+      game.moves.add(MoveRecord(
+        ply: 1,
+        san: 'd4',
+        uci: 'd2d4',
+        color: 'w',
+        fenBefore: game.position.fen,
+        fenAfter: game.position.fen,
+      ));
+
+      game.playUci('e2e4'); // refused: never commits, sets refusalMessage
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+      expect(game.refusalMessage, isNotNull);
+
+      game.browseBy(-1);
+      expect(game.refusalMessage, isNull, reason: 'browsing away clears it');
+
+      game.browseLive();
+      expect(game.refusalMessage, isNull,
+          reason: 'returning to live does not resurrect it');
+      game.dispose();
+    });
+
+    test('refusedMoves persists on the saved game record', () async {
+      final db = FakeDb();
+      final settings = await loadSettings(black: kTestBotId);
+      final game = GameController(
+          FakeArbiter(analysisLines: kFakeLines, streamPartials: true),
+          const FakeBot({kTestBotId: testBotPersona}),
+          SavingGrading(winChanceOf: winChanceOf),
+          settings,
+          db);
+      game.newGame(refuseBlunders: true);
+
+      for (var i = 0; i < GameController.kMaxRefusalAttempts; i++) {
+        game.playUci('e2e4');
+        await Future<void>.delayed(const Duration(milliseconds: 150));
+      }
+      game.playUci('e2e4'); // relent — commits
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+
+      await game.debugForceSave();
+      expect(game.lastSavedGame?['refusedMoves'],
+          GameController.kMaxRefusalAttempts);
+      game.dispose();
+    });
+
+    // ---- latency (#167 follow-up: "a serious lag before it appears") ----
+    //
+    // The check ran entirely at `analysis` priority: it awaited the live
+    // position's depth-22 analysis to COMPLETION for pre-lines, then queued
+    // the candidate search behind that same still-running analysis, because
+    // equal priority never preempts. Two multi-second waits, in series,
+    // before the piece moved at all.
+
+    test('the candidate search preempts, and stays shallow', () async {
+      final arbiter = FakeArbiter(analysisLines: kFakeLines);
+      final settings = await loadSettings(black: kTestBotId);
+      final game = GameController(
+          arbiter,
+          const FakeBot({kTestBotId: testBotPersona}),
+          FakeGrading(winChanceOf: winChanceOf),
+          settings,
+          null,
+          FakePractice());
+      game.newGame(refuseBlunders: true);
+
+      game.playUci('e2e4');
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+
+      final check = arbiter.searchRequests
+          .where((r) => r.priority == SearchPriority.refusalCheck);
+      expect(check, hasLength(1),
+          reason: 'an `analysis`-priority request would queue behind the '
+              'live position analysis instead of preempting it');
+      expect(check.single.depth, kRefusalCheckDepth);
+      expect(check.single.multiPv, 1,
+          reason: 'backfillGrade reads the multipv-1 line and nothing else');
+      game.dispose();
+    });
+
+    test('does not wait out an analysis that has already streamed usable lines',
+        () async {
+      // The live position's analysis streams depth-15 partials and then keeps
+      // thinking for far longer than any player would wait. Reading the
+      // partials answers now; awaiting the future does not answer at all.
+      final settings = await loadSettings(black: kTestBotId);
+      final practice = FakePractice();
+      final game = GameController(
+          FakeArbiter(
+            analysisLines: kFakeLines,
+            streamPartials: true,
+            analysisDelay: const Duration(seconds: 30),
+          ),
+          const FakeBot({kTestBotId: testBotPersona}),
+          FakeGrading(winChanceOf: winChanceOf),
+          settings,
+          null,
+          practice);
+      game.newGame(refuseBlunders: true);
+
+      game.playUci('e2e4');
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+
+      expect(game.refusedMoves, 1,
+          reason: 'decided from streamed partials, not the finished search');
+      expect(game.moves, isEmpty);
+      game.dispose();
+    });
+
+    test('the board shows the attempted move while the check runs', () async {
+      final settings = await loadSettings(black: kTestBotId);
+      final game = GameController(
+          // the refusal check resolves from analysisLines, so searchDelay is
+          // the length of the check itself here
+          FakeArbiter(
+              analysisLines: kFakeLines,
+              searchDelay: const Duration(milliseconds: 100)),
+          const FakeBot({kTestBotId: testBotPersona}),
+          FakeGrading(winChanceOf: winChanceOf),
+          settings,
+          null,
+          FakePractice());
+      game.newGame(refuseBlunders: true);
+      final before = game.position.fen;
+
+      game.playUci('e2e4');
+      expect(game.pendingFen, isNot(before),
+          reason: 'the piece lands where it was dropped, in the same frame — '
+              'an unchanged board reads as a move the app ate');
+      expect(game.pendingMove?.uci, 'e2e4');
+      expect(game.position.fen, before, reason: 'shown, not committed');
+
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+      expect(game.pendingFen, isNull, reason: 'refused — the board snaps back');
+      expect(game.position.fen, before);
+      expect(game.refusalMessage, isNotNull);
+      game.dispose();
+    });
+
+    test('a pending board view never outlives its check', () async {
+      // Every gen-bumping path clears it; undo is the one that can land while
+      // a check is genuinely in flight (the search here never resolves).
+      final settings = await loadSettings(black: kTestBotId);
+      final game = GameController(
+          FakeArbiter(
+              analysisLines: kFakeLines,
+              searchDelay: const Duration(seconds: 30)),
+          const FakeBot({kTestBotId: testBotPersona}),
+          FakeGrading(winChanceOf: winChanceOf),
+          settings,
+          null,
+          FakePractice());
+      game.newGame(refuseBlunders: true);
+      game.moves.add(MoveRecord(
+        ply: 1,
+        san: 'd4',
+        uci: 'd2d4',
+        color: 'w',
+        fenBefore: game.position.fen,
+        fenAfter: game.position.fen,
+      ));
+
+      game.playUci('e2e4');
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      expect(game.pendingFen, isNotNull, reason: 'check still in flight');
+
+      game.undo();
+      expect(game.pendingFen, isNull);
+      game.browseBy(-1);
+      expect(game.pendingFen, isNull);
+      game.newGame(refuseBlunders: true);
+      expect(game.pendingFen, isNull);
+      game.dispose();
     });
   });
 

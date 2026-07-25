@@ -39,6 +39,21 @@ class Maia3Store extends ChangeNotifier {
   /// macOS/iOS on native). The panel shows an honest absence, not a stand-in.
   static bool get supported => Maia3Engine.supported;
 
+  /// [supported], or a test that has replaced the transport outright.
+  ///
+  /// The gate is the TRANSPORT's — ORT on macOS/iOS, WASM off iPhone-web — so
+  /// an injected [debugAnalyze] is supported everywhere by definition: there
+  /// is no platform left to be unsupported by. Read this, not [supported],
+  /// anywhere the answer decides whether work happens.
+  ///
+  /// Without it the whole panel's suite is silently a macOS-only suite. It
+  /// passed where it was written and failed on the Linux CI runner — 10 tests
+  /// whose only complaint was that the store had returned early and the pane
+  /// had drawn the unsupported note, which is precisely the state in which
+  /// they can no longer catch a regression. Same shape as the workaround in
+  /// roster_picker_offline_test.dart.
+  bool get usable => debugAnalyze != null || supported;
+
   final Maia3Api? _api;
   final JsBridge? _bridge;
 
@@ -98,7 +113,7 @@ class Maia3Store extends ChangeNotifier {
   /// the first. Null-safe against rapid browsing: whatever position is
   /// current when the debounce fires is the one that runs.
   void setPosition(String fen) {
-    if (!supported || _disposed) return;
+    if (!usable || _disposed) return;
     if (fen == shownFen && curves != null) {
       _wanted = fen;
       _debounce?.cancel();

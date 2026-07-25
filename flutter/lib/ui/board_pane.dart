@@ -52,6 +52,22 @@ class _BoardPaneState extends State<BoardPane> {
         kingSquareInCheck: pos.isCheck ? pos.board.kingOf(pos.turn) : null,
       );
     }
+    // refusal mode (#167): a move is being checked before it commits. Show it
+    // where the player put it — input off, like the two views above, since
+    // nothing may move until the check answers — rather than leaving the piece
+    // to snap home and the board to look like it ate the move.
+    final pendingFen = game.pendingFen;
+    if (pendingFen != null) {
+      final pos = Chess.fromSetup(Setup.parseFen(pendingFen));
+      return GameData(
+        fen: pendingFen,
+        lastMove: game.pendingMove,
+        playerSide: PlayerSide.none,
+        validMoves: makeLegalMoves(pos),
+        sideToMove: pos.turn,
+        kingSquareInCheck: pos.isCheck ? pos.board.kingOf(pos.turn) : null,
+      );
+    }
     final pos = game.position;
     return GameData(
       fen: pos.fen,
@@ -79,7 +95,14 @@ class _BoardPaneState extends State<BoardPane> {
   Widget build(BuildContext context) {
     final game = context.watch<GameController>();
     final settings = context.watch<SettingsStore>();
-    final sig = '${game.browseFen ?? game.previewFen ?? game.position.fen}'
+    // The pending flag is in the signature separately from the fen it shows:
+    // when a checked move is ALLOWED, position.fen becomes the fen that was
+    // pending, so the fen alone does not change — but playerSide does, from
+    // none back to yours, and without this the board would keep the input-off
+    // GameData it was handed during the check.
+    final sig =
+        '${game.browseFen ?? game.previewFen ?? game.pendingFen ?? game.position.fen}'
+        '|${game.pendingFen != null}'
         '|${game.botEnabled}|${game.playerColor}|${game.botBothSides}';
     _controller ??= ChessboardController(game: _gameData(game));
     if (_lastFen != sig) {
@@ -90,8 +113,11 @@ class _BoardPaneState extends State<BoardPane> {
     final white = (game.playerColor == 'w') != game.flipped;
     final orientation = white ? Side.white : Side.black;
     // the overlays describe the LIVE position, so they are meaningless while
-    // the board is showing a preview or a past move
-    final still = game.previewing || game.browsing;
+    // the board is showing a preview, a past move, or a move being checked
+    // before it commits — in that last case they would be actively wrong,
+    // drawing the pre-move threat over the post-move board
+    final still =
+        game.previewing || game.browsing || game.pendingFen != null;
     final threatUci = still ? null : game.threatUci;
     // ring the pieces the threat actually wins — minus the arrow's own
     // destination square, which already carries the arrowhead

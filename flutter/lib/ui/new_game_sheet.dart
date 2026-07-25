@@ -55,6 +55,10 @@ class _NewGameSheetState extends State<_NewGameSheet> {
   // would put them on the record without their having said so this time.
   bool _rated = false;
 
+  /// Off by default and not remembered between games, like [_rated] — a
+  /// session-scoped choice, not a standing preference (issue #167).
+  bool _refuseBlunders = false;
+
   /// The clock a rated game runs on. Null is a rated game with no clock, which
   /// is still rated — the time control is a property of the game, not of what
   /// counts.
@@ -238,6 +242,49 @@ class _NewGameSheetState extends State<_NewGameSheet> {
         ),
       );
 
+  Widget _refuseBlundersRow() => InkWell(
+        onTap: () => setState(() => _refuseBlunders = !_refuseBlunders),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 6),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(
+                  _refuseBlunders
+                      ? Icons.check_box
+                      : Icons.check_box_outline_blank,
+                  size: 18,
+                  color: _refuseBlunders
+                      ? const Color(0xFF81B64C)
+                      : Colors.white38),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Refuse blunders',
+                        style: TextStyle(
+                            fontSize: 13.5,
+                            fontWeight: FontWeight.w600,
+                            color: _refuseBlunders
+                                ? const Color(0xFF81B64C)
+                                : Colors.white70)),
+                    const SizedBox(height: 1),
+                    const Text(
+                        'A move that loses too much is rejected instead of '
+                        'played — retry the position. Still collected as a '
+                        'practice puzzle, and takes the game off your '
+                        'rating like a takeback would.',
+                        style:
+                            TextStyle(fontSize: 11, color: Colors.white38)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+
   Widget _fenField() => TextField(
         controller: _fen,
         style: const TextStyle(fontSize: 12.5, color: Colors.white70),
@@ -280,6 +327,11 @@ class _NewGameSheetState extends State<_NewGameSheet> {
                 style: const TextStyle(color: Colors.white38, fontSize: 12)),
             if (_rateable) _ratedRow(),
             if (_rateable && _rated) _timeRow(),
+            // Same predicate as _rateable, not because this is about rating,
+            // but because it needs exactly the same shape: one human side to
+            // refuse blunders FOR, one bot to be playing against. Bot-vs-bot
+            // has no human move to check; analysis has no bot game to be in.
+            if (_rateable) _refuseBlundersRow(),
             const SizedBox(height: 10),
             _fenField(),
             const SizedBox(height: 14),
@@ -290,10 +342,12 @@ class _NewGameSheetState extends State<_NewGameSheet> {
                   setState(() => _fenError = 'Not a valid FEN');
                   return;
                 }
-                // `_rateable` again, not just `_rated`: the switch is hidden
-                // when neither side is a bot, but a player who ticks it and
-                // then changes a side leaves it ticked behind the fold.
+                // `_rateable` again, not just `_rated`/`_refuseBlunders`: the
+                // switches are hidden when neither side is a bot, but a
+                // player who ticks one and then changes a side leaves it
+                // ticked behind the fold.
                 final rated = _rated && _rateable;
+                final refuseBlunders = _refuseBlunders && _rateable;
                 if (rated) {
                   // The mode, applied to the settings the board actually
                   // reads. Persistent on purpose — these are ordinary
@@ -316,6 +370,7 @@ class _NewGameSheetState extends State<_NewGameSheet> {
                     .newGame(
                         fromFen: fen.isEmpty ? null : fen,
                         rated: rated,
+                        refuseBlunders: refuseBlunders,
                         timeControl: rated ? _time : null);
                 Navigator.pop(context);
               },

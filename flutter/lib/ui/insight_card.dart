@@ -33,6 +33,19 @@ class InsightCard extends StatelessWidget {
           child: _loadingLine(loading, game.persona?.name ?? 'Maia'));
     }
 
+    // Refusal mode (#167) just rejected an attempted move — this overrides
+    // whatever the card would otherwise show (the LAST committed move's
+    // grade, or the empty placeholder) rather than living inside either
+    // branch below: a refusal can happen at any point in the game, not only
+    // when there is no grade yet to display.
+    final refusal = game.refusalMessage;
+    if (refusal != null) {
+      return _CardShell(
+        child: Text(refusal,
+            style: TextStyle(color: table.color('blunder'), fontSize: 13)),
+      );
+    }
+
     final grade = game.lastPlayerGrade;
     final threat = _threat(game);
 

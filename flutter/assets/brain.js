@@ -9712,6 +9712,7 @@ var brain = (() => {
       if (opp == null) continue;
       if (g.botFallback) continue;
       if ((g.botUndos ?? 0) > 0) continue;
+      if ((g.refusedMoves ?? 0) > 0) continue;
       if (g.botBothSides) continue;
       if (g.rated !== true) continue;
       if (g.botHintsUsed) continue;

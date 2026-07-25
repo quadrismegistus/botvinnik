@@ -56,11 +56,29 @@ class FakeArbiter implements SearchArbiter {
   /// exercise a turn abandoned mid-flight.
   final List<EngineMove>? searchLines;
   final Duration searchDelay;
+
+  /// How long `analysis()` takes to RESOLVE, after streaming its partials.
+  ///
+  /// The real thing is a depth-22 search on a 10s backstop, and the gap
+  /// between "has streamed something useful" and "has finished" is where
+  /// refusal mode's latency bug lived (#167). Set this long, with
+  /// [streamPartials] on, to model an analysis that is still thinking: a
+  /// caller that reads the partials answers immediately, one that awaits the
+  /// future does not answer at all.
+  final Duration analysisDelay;
+
+  /// Every `search()` this arbiter was asked for, in order — priority and
+  /// depth included, which is what "the refusal check preempts and stays
+  /// shallow" is actually a claim about.
+  final List<({SearchPriority priority, int depth, int multiPv})>
+      searchRequests = [];
+
   FakeArbiter({
     this.analysisLines,
     this.streamPartials = false,
     this.searchLines,
     this.searchDelay = Duration.zero,
+    this.analysisDelay = Duration.zero,
   });
 
   @override
@@ -69,6 +87,9 @@ class FakeArbiter implements SearchArbiter {
     final lines = analysisLines;
     if (lines == null) return Completer<List<EngineMove>?>().future;
     if (streamPartials) onUpdate?.call(lines);
+    if (analysisDelay > Duration.zero) {
+      return Future<List<EngineMove>?>.delayed(analysisDelay, () => lines);
+    }
     return Future<List<EngineMove>?>.value(lines);
   }
 
@@ -83,7 +104,16 @@ class FakeArbiter implements SearchArbiter {
     required SearchPriority priority,
     void Function(List<EngineMove>)? onUpdate,
   }) {
-    final lines = searchLines;
+    searchRequests
+        .add((priority: priority, depth: depth, multiPv: multiPv));
+    // Refusal mode's pre-commit check (#167) is a search, not an `analysis`,
+    // so that it can outrank and preempt the live position's analysis — but
+    // it is asking the same question of the same kind of fake, and answering
+    // it from [analysisLines] is what keeps a refusal test from having to
+    // supply bot-move lines it does not otherwise need. [searchLines] still
+    // wins where a test sets both.
+    final lines = searchLines ??
+        (priority == SearchPriority.refusalCheck ? analysisLines : null);
     if (lines == null) return Completer<List<EngineMove>?>().future;
     return Future<List<EngineMove>?>.delayed(searchDelay, () => lines);
   }
@@ -194,6 +224,14 @@ class FakeBot implements BotApi {
 }
 
 class FakeGrading implements GradingApi {
+  /// Override to make [winChance] vary — the default (always 0) means
+  /// _wcDrop is always 0 too, which is fine for tests that only check
+  /// WHETHER collection was attempted, but cannot produce a drop large
+  /// enough to exercise refusal mode (game_controller_test.dart's "refusal
+  /// mode" group), which needs a real number to compare against a threshold.
+  final double Function(double? evalPawns, int? mate)? winChanceOf;
+  FakeGrading({this.winChanceOf});
+
   /// A blunder-shaped grade, so a move that reaches the collect guard is one
   /// practice would want. Only the fields the pipeline and _storedMoveOf read
   /// need to be here.
@@ -227,7 +265,8 @@ class FakeGrading implements GradingApi {
       MoveGrade({...grade.raw, 'backfilled': true});
 
   @override
-  double winChance(double? evalPawns, int? mate) => 0;
+  double winChance(double? evalPawns, int? mate) =>
+      winChanceOf?.call(evalPawns, mate) ?? 0;
   @override
   double whitePovWinChance(String color, double? evalPawns, int? mate) => 50;
   @override
@@ -289,6 +328,8 @@ const kStandardStartFen =
 /// — so it cannot reach the end of a save. These two are the difference
 /// between a test that archives a game and one that dies in the accountancy.
 class SavingGrading extends FakeGrading {
+  SavingGrading({super.winChanceOf});
+
   @override
   double? gameAccuracy(List<Map<String, dynamic>> storedMoves, String color) =>
       null;
