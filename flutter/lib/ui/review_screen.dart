@@ -1,22 +1,29 @@
-// Review one stored game: static board with the played move highlighted and
-// the best move as a green arrow, verdict strip, tappable move list,
-// prev/next scrubbing in the bottom bar.
+// Review one stored game: the ANALYSIS BOARD over the record (#194) — square
+// tinting, engine arrows, threat and win glyphs, all live for whichever ply
+// the cursor is on — plus the verdict strip, tappable move list and prev/next
+// scrubbing in the bottom bar.
+//
+// The board is [BoardPane], the same widget the Play tab uses, driven by a
+// [ReviewBoardController] that follows this tab's cursor. Nothing about the
+// overlays is reimplemented here; the board republishes that controller AS the
+// GameController for its subtree, so BoardPane and everything under it resolve
+// to the review board without knowing review exists. What is left in this file
+// is the archive's own furniture: the stored grades, which never cross the
+// engine.
 //
 // A BODY, not a screen: it renders inside the Review tab rather than as a
 // pushed route. A route would cover the shell — which is what made the bottom
 // tabs vanish the moment you opened a game, stranding you in a mode you could
 // only leave with the app bar's back arrow.
 
-import 'package:chessground/chessground.dart';
-import 'package:dartchess/dartchess.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import '../stores/pgn_import.dart';
+import '../stores/game_controller.dart';
 import '../stores/practice_controller.dart';
 import '../stores/review_controller.dart';
 import '../stores/settings_store.dart';
-import 'board_theme.dart';
+import 'board_pane.dart';
 import 'grade_strip.dart';
 import 'layout.dart';
 import 'review_win_chart.dart';
@@ -36,10 +43,6 @@ class ReviewBody extends StatelessWidget {
     final table = context.read<ClassTable>();
     final game = review.current;
     if (game == null) return const SizedBox();
-    // An import has no "you" in it, so there is no side to take: show it from
-    // White's, which is how every published game is printed.
-    final youAreWhite =
-        game[kImportedKey] == true || (game['botColor'] as String?) == 'b';
     final m = review.currentMove;
     // The brain's ranking, not one written out here — the grade strip and the
     // brain both order by LABEL_ORDER, and a second list would drift from it.
@@ -57,14 +60,24 @@ class ReviewBody extends StatelessWidget {
       child: LayoutBuilder(
         builder: (context, constraints) {
           final settings = context.watch<SettingsStore>();
-          Widget board(double size) => StaticChessboard(
-            settings: staticBoardSettingsFor(settings),
-            size: size,
-            orientation: youAreWhite ? Side.white : Side.black,
-            fen: review.fen,
-            lastMove: m == null ? null : NormalMove.fromUci(m['uci'] as String),
-            shapes: _shapes(m),
-          );
+          // The review board republished as THE GameController for this
+          // subtree: BoardPane, and everything it draws, reads
+          // `context.watch<GameController>()` and must find the review board
+          // here without any of them learning that review exists. Outside this
+          // subtree that read still means the live game.
+          //
+          // Orientation, the played move's highlight and the best-move arrow
+          // all come from the controller now — it knows the reviewed game's
+          // colour, its cursor, and the engine's own top lines — so none of
+          // them are passed in.
+          Widget board(double size) => SizedBox(
+                width: size,
+                height: size,
+                child: ChangeNotifierProvider<GameController>.value(
+                  value: context.watch<ReviewBoardController>(),
+                  child: const BoardPane(),
+                ),
+              );
 
           if (constraints.maxWidth < kWideBreakpoint) {
             final size = panedBoardSize(
@@ -106,22 +119,15 @@ class ReviewBody extends StatelessWidget {
     );
   }
 
-  Set<Shape> _shapes(Map<String, dynamic>? m) {
-    if (m == null) return const {};
-    final bestUci = m['bestUci'] as String?;
-    final label = m['label'] as String?;
-    // show the best-move arrow when the played move wasn't it
-    if (bestUci == null ||
-        label == 'best' ||
-        label == 'brilliant' ||
-        label == 'great') {
-      return const {};
-    }
-    final best = NormalMove.fromUci(bestUci);
-    return {
-      Arrow(color: const Color(0xB33BAB4A), orig: best.from, dest: best.to),
-    };
-  }
+  // The stored best-move arrow that used to be drawn here is GONE, and
+  // deliberately: BoardPane now draws the engine's own top lines for the
+  // position on the board, in the same green. The stored arrow was a
+  // different fact in the same ink — the move you should have played INSTEAD
+  // of the one just made — and it was drawn on the position AFTER that move,
+  // where its from-square may hold nothing or hold something else. Two greens
+  // meaning opposite directions in time is exactly the collision the overlay
+  // grammar exists to prevent. The retrospective advice survives as text, in
+  // the verdict strip's "best: ..." beside the move it belongs to.
 
   Widget _verdictStrip(Map<String, dynamic>? m, ClassTable table) {
     Widget content;

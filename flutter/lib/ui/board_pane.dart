@@ -72,9 +72,15 @@ class _BoardPaneState extends State<BoardPane> {
     return GameData(
       fen: pos.fen,
       lastMove: game.lastMove,
-      playerSide: !game.botEnabled
-          ? PlayerSide.both // analysis board: move either side
-          : game.botBothSides
+      playerSide: game.reviewing
+          // Review (#194) shows everything the analysis board shows but takes
+          // no input: its `moves` is the archived game, not a line being
+          // built, so a drag here would splice a move onto a list the board is
+          // not standing at. Branching from the cursor is #196.
+          ? PlayerSide.none
+          : !game.botEnabled
+              ? PlayerSide.both // analysis board: move either side
+              : game.botBothSides
               ? PlayerSide.none // bot-vs-bot: you watch, nothing to drag
               : game.playerColor == 'w'
                   ? PlayerSide.white

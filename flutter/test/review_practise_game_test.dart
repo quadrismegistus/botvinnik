@@ -21,6 +21,8 @@ import 'package:botvinnik_mobile/stores/settings_store.dart';
 import 'package:botvinnik_mobile/ui/grade_strip.dart';
 import 'package:botvinnik_mobile/ui/review_screen.dart';
 
+import 'package:botvinnik_mobile/stores/game_controller.dart';
+
 import 'support/game_harness.dart';
 import 'support/practice_harness.dart';
 
@@ -97,6 +99,8 @@ Future<Set<String>?> _pump(
           value: ClassTable(_kClassRaw, labelOrder: const [])),
       ChangeNotifierProvider<SettingsStore>.value(value: settings),
       ChangeNotifierProvider<ReviewController>.value(value: review),
+      ChangeNotifierProvider<ReviewBoardController>.value(
+          value: fakeReviewBoard(review, settings)),
       ChangeNotifierProvider<PracticeController>.value(value: h.practice),
     ],
     child: MaterialApp(
@@ -154,6 +158,8 @@ void main() {
             value: ClassTable(_kClassRaw, labelOrder: const [])),
         ChangeNotifierProvider<SettingsStore>.value(value: settings),
         ChangeNotifierProvider<ReviewController>.value(value: review),
+      ChangeNotifierProvider<ReviewBoardController>.value(
+          value: fakeReviewBoard(review, settings)),
         ChangeNotifierProvider<PracticeController>.value(value: h.practice),
       ],
       child: MaterialApp(
@@ -193,6 +199,8 @@ void main() {
             value: ClassTable(_kClassRaw, labelOrder: const [])),
         ChangeNotifierProvider<SettingsStore>.value(value: settings),
         ChangeNotifierProvider<ReviewController>.value(value: review),
+      ChangeNotifierProvider<ReviewBoardController>.value(
+          value: fakeReviewBoard(review, settings)),
         ChangeNotifierProvider<PracticeController>.value(value: h.practice),
       ],
       child: const MaterialApp(home: Scaffold(body: ReviewBody())),
