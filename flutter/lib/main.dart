@@ -1176,6 +1176,25 @@ class _PlayTabState extends State<PlayTab> {
                     color: Color(0xFF81B64C), fontWeight: FontWeight.w600)),
           ),
           const PlayerRatingCard(afterGame: true),
+          // One tap back into an identical game, sides swapped (#212) — the
+          // common case after a result, and the reason this exists at all: New
+          // Game re-prompts for opponent and settings every time. Gated on
+          // GameController.canRematch, not gameOver alone, because analysis
+          // (both sides human) has no opponent for the swap to act on.
+          if (game.canRematch)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(10, 6, 14, 0),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton.icon(
+                  onPressed: game.rematch,
+                  icon: const Icon(Icons.replay, size: 18),
+                  label: const Text('Rematch'),
+                  style: TextButton.styleFrom(
+                      foregroundColor: const Color(0xFF81B64C)),
+                ),
+              ),
+            ),
           // A way straight from the result into studying it (#198). Enabled
           // once _saveGame has archived the game — the record it hands back is
           // opened as-is, no round-trip through the archive.
