@@ -795,6 +795,49 @@ class GameController extends ChangeNotifier {
     _maybeBotTurn();
   }
 
+  /// One tap from the recap into an identical game with the sides swapped
+  /// (#212) — lichess/chess.com convention, and the whole point of the
+  /// button: New Game re-prompts for opponent and settings every time,
+  /// Rematch re-prompts for nothing. Guarded by [canRematch]; a no-op call
+  /// (e.g. a stale button reference on a review board) is silently ignored
+  /// rather than asserting, the same posture [resign] takes.
+  ///
+  /// Follows the New Game sheet's own documented sequence at its Start
+  /// button: [SettingsStore.setPlayers] can itself trigger a restart through
+  /// the settings listener (`_onSettings`), and that restart is always
+  /// unrated — so the explicit [newGame] call below, carrying the real
+  /// rated/timeControl, has to run LAST or its result would be immediately
+  /// clobbered. Read the swap and the rated/clock state from `this` and
+  /// `_settings` BEFORE calling setPlayers, for the same reason: nothing
+  /// downstream of setPlayers may be trusted to still hold the values this
+  /// game just finished with.
+  ///
+  /// Rated carries over on purpose, unlike the sheet's own Rated switch
+  /// (which resets to unticked every time the sheet opens — see the comment
+  /// on [_rated]'s declaration). That reset exists to stop a forgotten
+  /// sticky checkbox from quietly rating games the player never chose to
+  /// rate; Rematch is not that. It is one explicit tap, taken with the
+  /// just-finished result still on screen, so continuing under the same
+  /// terms is exactly as deliberate as re-ticking the box would be — and a
+  /// rematch of a CASUAL game stays casual for the same reason in reverse:
+  /// the tap carries the previous choice forward, it does not invent a rated
+  /// one. [refuseBlunders] is NOT carried — it is off by default in
+  /// [newGame] like every other caller, because #167 gives it no comparable
+  /// "same terms" claim: it is a practice toggle for THIS attempt, not a
+  /// property of the match being continued.
+  void rematch() {
+    if (!canRematch) return;
+    final white = _settings.whitePersonaId;
+    final black = _settings.blackPersonaId;
+    final wasRated = _rated;
+    // Only a rated game ever carries a clock (see newGame's own
+    // `rated && timeControl != null` guard) — a casual rematch has nothing
+    // to carry regardless of what _clock holds over from before.
+    final timeControl = wasRated ? _clock?.control : null;
+    _settings.setPlayers(white: black, black: white);
+    newGame(rated: wasRated, timeControl: timeControl);
+  }
+
   /// Moves taken off by undo, in game order, so redo can put them back
   /// exactly as they were — including their grades, which cost engine time
   /// to earn. Any new move discards them (see _apply).
@@ -819,6 +862,12 @@ class GameController extends ChangeNotifier {
           : moves.isNotEmpty);
   bool get canRedo =>
       !_review && _redoStack.isNotEmpty && !botThinking && !_rated;
+
+  /// Whether the recap offers Rematch. Requires an actual opponent as well
+  /// as [gameOver]: analysis (both sides human) has nothing for the sides
+  /// swap to do — swapping two nulls is a no-op — and "rematch" promises a
+  /// continuation against SOMEONE, which that mode never had.
+  bool get canRematch => !_review && gameOver && botEnabled;
 
   /// Undo the last player move (and the bot reply on top of it);
   /// on the analysis board, one ply at a time.
