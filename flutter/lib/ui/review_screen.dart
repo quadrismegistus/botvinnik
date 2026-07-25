@@ -1,22 +1,30 @@
-// Review one stored game: static board with the played move highlighted and
-// the best move as a green arrow, verdict strip, tappable move list,
-// prev/next scrubbing in the bottom bar.
+// Review one stored game: the ANALYSIS BOARD over the record (#194) — square
+// tinting, engine arrows, threat and win glyphs, all live for whichever ply
+// the cursor is on — plus the verdict strip, tappable move list and prev/next
+// scrubbing in the bottom bar.
+//
+// The board is [BoardPane], the same widget the Play tab uses, driven by a
+// [ReviewBoardController] that follows this tab's cursor. Nothing about the
+// overlays is reimplemented here; the board republishes that controller AS the
+// GameController for its subtree, so BoardPane and everything under it resolve
+// to the review board without knowing review exists. What is left in this file
+// is the archive's own furniture: the stored grades, which never cross the
+// engine.
 //
 // A BODY, not a screen: it renders inside the Review tab rather than as a
 // pushed route. A route would cover the shell — which is what made the bottom
 // tabs vanish the moment you opened a game, stranding you in a mode you could
 // only leave with the app bar's back arrow.
 
-import 'package:chessground/chessground.dart';
-import 'package:dartchess/dartchess.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import '../stores/pgn_import.dart';
+import '../stores/game_controller.dart';
+import '../stores/review_tree.dart';
 import '../stores/practice_controller.dart';
 import '../stores/review_controller.dart';
 import '../stores/settings_store.dart';
-import 'board_theme.dart';
+import 'board_pane.dart';
 import 'grade_strip.dart';
 import 'layout.dart';
 import 'review_win_chart.dart';
@@ -33,14 +41,14 @@ class ReviewBody extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final review = context.watch<ReviewController>();
+    final board = context.watch<ReviewBoardController>();
     final table = context.read<ClassTable>();
     final game = review.current;
     if (game == null) return const SizedBox();
-    // An import has no "you" in it, so there is no side to take: show it from
-    // White's, which is how every published game is printed.
-    final youAreWhite =
-        game[kImportedKey] == true || (game['botColor'] as String?) == 'b';
-    final m = review.currentMove;
+    // The archived record for whatever the cursor is on — the BOARD's cursor,
+    // which inside a variation is not on the played game at all and has no
+    // record to show (#196).
+    final m = board.reviewStoredMove;
     // The brain's ranking, not one written out here — the grade strip and the
     // brain both order by LABEL_ORDER, and a second list would drift from it.
     final summary = _summary(game, table, table.labelOrder);
@@ -57,14 +65,24 @@ class ReviewBody extends StatelessWidget {
       child: LayoutBuilder(
         builder: (context, constraints) {
           final settings = context.watch<SettingsStore>();
-          Widget board(double size) => StaticChessboard(
-            settings: staticBoardSettingsFor(settings),
-            size: size,
-            orientation: youAreWhite ? Side.white : Side.black,
-            fen: review.fen,
-            lastMove: m == null ? null : NormalMove.fromUci(m['uci'] as String),
-            shapes: _shapes(m),
-          );
+          // The review board republished as THE GameController for this
+          // subtree: BoardPane, and everything it draws, reads
+          // `context.watch<GameController>()` and must find the review board
+          // here without any of them learning that review exists. Outside this
+          // subtree that read still means the live game.
+          //
+          // Orientation, the played move's highlight and the best-move arrow
+          // all come from the controller now — it knows the reviewed game's
+          // colour, its cursor, and the engine's own top lines — so none of
+          // them are passed in.
+          Widget boardView(double size) => SizedBox(
+                width: size,
+                height: size,
+                child: ChangeNotifierProvider<GameController>.value(
+                  value: board,
+                  child: const BoardPane(),
+                ),
+              );
 
           if (constraints.maxWidth < kWideBreakpoint) {
             final size = panedBoardSize(
@@ -74,10 +92,11 @@ class ReviewBody extends StatelessWidget {
             );
             return Column(
               children: [
-                Center(child: board(size)),
-                _verdictStrip(m, table),
-                Expanded(child: _moveList(review, table, summary, practiseCta)),
-                _scrubBar(review, context),
+                Center(child: boardView(size)),
+                _verdictStrip(m, table, board),
+                Expanded(
+                    child: _moveList(review, board, table, summary, practiseCta)),
+                _scrubBar(board, context),
               ],
             );
           }
@@ -89,13 +108,15 @@ class ReviewBody extends StatelessWidget {
           return Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              board(size),
+              boardView(size),
               Expanded(
                 child: Column(
                   children: [
-                    _verdictStrip(m, table),
-                    Expanded(child: _moveList(review, table, summary, practiseCta)),
-                    _scrubBar(review, context),
+                    _verdictStrip(m, table, board),
+                    Expanded(
+                        child: _moveList(
+                            review, board, table, summary, practiseCta)),
+                    _scrubBar(board, context),
                   ],
                 ),
               ),
@@ -106,26 +127,53 @@ class ReviewBody extends StatelessWidget {
     );
   }
 
-  Set<Shape> _shapes(Map<String, dynamic>? m) {
-    if (m == null) return const {};
-    final bestUci = m['bestUci'] as String?;
-    final label = m['label'] as String?;
-    // show the best-move arrow when the played move wasn't it
-    if (bestUci == null ||
-        label == 'best' ||
-        label == 'brilliant' ||
-        label == 'great') {
-      return const {};
-    }
-    final best = NormalMove.fromUci(bestUci);
-    return {
-      Arrow(color: const Color(0xB33BAB4A), orig: best.from, dest: best.to),
-    };
-  }
+  // The stored best-move arrow that used to be drawn here is GONE, and
+  // deliberately: BoardPane now draws the engine's own top lines for the
+  // position on the board, in the same green. The stored arrow was a
+  // different fact in the same ink — the move you should have played INSTEAD
+  // of the one just made — and it was drawn on the position AFTER that move,
+  // where its from-square may hold nothing or hold something else. Two greens
+  // meaning opposite directions in time is exactly the collision the overlay
+  // grammar exists to prevent. The retrospective advice survives as text, in
+  // the verdict strip's "best: ..." beside the move it belongs to.
 
-  Widget _verdictStrip(Map<String, dynamic>? m, ClassTable table) {
+  Widget _verdictStrip(
+      Map<String, dynamic>? m, ClassTable table, ReviewBoardController board) {
     Widget content;
-    if (m == null) {
+    if (board.inVariation) {
+      // A variation move was never played, so it was never graded and there is
+      // no verdict to give it. Say where you are instead — and offer the way
+      // back, which is the whole reason a variation is safe to start.
+      final node = board.tree?.current;
+      content = Row(
+        children: [
+          Expanded(
+            child: Text(
+              node?.san == null
+                  ? 'Variation'
+                  : 'Variation — ${node!.san} (not played)',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                  color: Color(0xFFE8B44A),
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600),
+            ),
+          ),
+          TextButton(
+            onPressed: board.discardVariation,
+            style: TextButton.styleFrom(
+              foregroundColor: const Color(0xFFE8B44A),
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              // 48dp, per this project's own precedent (#221 enlarged the
+              // review toggle for the same reason).
+              minimumSize: const Size(0, 48),
+            ),
+            child: const Text('Back to the game', style: TextStyle(fontSize: 12)),
+          ),
+        ],
+      );
+    } else if (m == null) {
       content = const Text(
         'Start position',
         style: TextStyle(color: Colors.white38, fontSize: 13),
@@ -379,11 +427,20 @@ class ReviewBody extends StatelessWidget {
   /// column has to be paid for out of the board. The chart is scroll-away
   /// context, not a control — and both it and the summary are cheap to keep in
   /// the header, drawn from stored numbers rather than recomputed on a scrub.
-  Widget _moveList(ReviewController review, ClassTable table, Widget summary,
-      Widget practiseCta) {
+  Widget _moveList(ReviewController review, ReviewBoardController board,
+      ClassTable table, Widget summary, Widget practiseCta) {
     final moves = review.moves;
+    final tree = board.tree;
+    final mainline = tree?.mainline ?? const <ReviewNode>[];
+    // A move played PAST the end of the game replaces ply n+1, which on an
+    // even-length game falls in a row the archive does not reach. Without the
+    // extra row that branch — the "how should it have gone on?" line, the most
+    // natural thing to try — prints nowhere.
+    final trailing = mainline.isNotEmpty &&
+        mainline.length.isEven &&
+        mainline.last.variations.isNotEmpty;
     return ListView.builder(
-      itemCount: (moves.length + 1) ~/ 2 + 1,
+      itemCount: (moves.length + 1) ~/ 2 + 1 + (trailing ? 1 : 0),
       itemBuilder: (context, index) {
         if (index == 0) {
           // The chart hides itself on an ungraded game (fewer than two graded
@@ -397,14 +454,19 @@ class ReviewBody extends StatelessWidget {
           );
         }
         final i = index - 1;
-        final white = moves[i * 2];
+        // Both nullable: the trailing row above has no archived moves in it at
+        // all, only the branch that continues past them.
+        final white = i * 2 < moves.length ? moves[i * 2] : null;
         final black = i * 2 + 1 < moves.length ? moves[i * 2 + 1] : null;
         Widget cell(Map<String, dynamic>? m, int ply) {
           if (m == null) return const SizedBox();
           final label = m['label'] as String?;
-          final active = review.cursor == ply;
+          // Highlighted from the BOARD's cursor, and only when it is actually
+          // on the played game — inside a variation the anchor says which move
+          // the branch hangs off, which is context, not "you are here".
+          final active = board.reviewAnchorPly == ply && !board.inVariation;
           return InkWell(
-            onTap: () => review.goto(ply),
+            onTap: () => board.gotoMainlinePly(ply),
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
               decoration: active
@@ -433,19 +495,46 @@ class ReviewBody extends StatelessWidget {
           );
         }
 
+        // Variations replacing either half of this move pair, printed under it
+        // the way a book does — the played move keeps the row, the
+        // alternatives are indented beneath it (#196).
+        //
+        // A variation hangs off the node BEFORE the move it replaces: it is a
+        // child of the position that move was played from. So an alternative
+        // to ply P is carried by ply P-1, and ply 1's alternatives are carried
+        // by the ROOT. Indexing the carrier instead of the replaced move put
+        // every branch one row too early — an alternative to White's second
+        // move printed above move 1 — and left a branch off the start position
+        // rendered by nothing at all, since no mainline node carries it.
+        final branches = <ReviewNode>[
+          // `<= length + 1`, not `<= length`: the ply one past the end of the
+          // game is a real place to have played something, and its carrier is
+          // the game's last move.
+          for (final ply in [i * 2 + 1, i * 2 + 2])
+            if (ply <= mainline.length + 1)
+              ...(ply == 1 ? tree!.root : mainline[ply - 2]).variations
+        ];
+
         return Padding(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 1),
-          child: Row(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              SizedBox(
-                width: 30,
-                child: Text(
-                  '${i + 1}.',
-                  style: const TextStyle(color: Colors.white38, fontSize: 12),
-                ),
+              Row(
+                children: [
+                  SizedBox(
+                    width: 30,
+                    child: Text(
+                      '${i + 1}.',
+                      style:
+                          const TextStyle(color: Colors.white38, fontSize: 12),
+                    ),
+                  ),
+                  Expanded(child: cell(white, i * 2 + 1)),
+                  Expanded(child: cell(black, i * 2 + 2)),
+                ],
               ),
-              Expanded(child: cell(white, i * 2 + 1)),
-              Expanded(child: cell(black, i * 2 + 2)),
+              for (final b in branches) _variationRow(b, board),
             ],
           ),
         );
@@ -453,7 +542,78 @@ class ReviewBody extends StatelessWidget {
     );
   }
 
-  Widget _scrubBar(ReviewController review, BuildContext context) {
+  /// One variation, printed as its line of moves — and, indented under it,
+  /// any variation branching off THAT line.
+  ///
+  /// The recursion is not a flourish. Without it a second reply to a branch
+  /// move rendered nowhere, and because backing out of a branch deliberately
+  /// forgets the way onward, it was then reachable by no control at all: the
+  /// tree held a line the user had played and could neither see nor return to,
+  /// and the only way to be rid of it was discarding the whole outer branch.
+  ///
+  /// [depth] only sets the indent. Real games do not nest deeply, and a line
+  /// that did would wrap rather than overflow (the moves live in a [Wrap]).
+  Widget _variationRow(ReviewNode branch, ReviewBoardController board,
+      {int depth = 0}) {
+    final line = <ReviewNode>[];
+    for (ReviewNode? n = branch; n != null; n = n.mainChild) {
+      line.add(n);
+    }
+    final current = board.tree?.current;
+    // Numbered like a book — "2." for a White alternative, "2..." for a Black
+    // one. Without it, two branches replacing different moves render as two
+    // identical indented rows in the same group, and nothing says which move
+    // either departs from.
+    final ply = branch.ply;
+    final label =
+        branch.color == 'b' ? '${(ply + 1) ~/ 2}...' : '${(ply + 1) ~/ 2}.';
+    // Sub-branches of every move ON this line, each printed under it.
+    final nested = <ReviewNode>[
+      for (final n in line) ...n.variations,
+    ];
+    return Padding(
+      padding: EdgeInsets.only(left: 30.0 + depth * 12, top: 1, bottom: 2),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Wrap(
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              Padding(
+                padding: const EdgeInsets.only(right: 4),
+                child: Text(label,
+                    style:
+                        const TextStyle(color: Colors.white38, fontSize: 11)),
+              ),
+              for (final n in line)
+                InkWell(
+                  onTap: () => board.gotoNode(n),
+                  child: Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                    decoration: identical(n, current)
+                        ? BoxDecoration(
+                            color: const Color(0xFF3a3733),
+                            borderRadius: BorderRadius.circular(4),
+                          )
+                        : null,
+                    child: Text(
+                      n.san ?? '',
+                      style: const TextStyle(
+                          fontSize: 12, color: Color(0xFFE8B44A)),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          for (final b in nested)
+            _variationRow(b, board, depth: depth + 1),
+        ],
+      ),
+    );
+  }
+
+  Widget _scrubBar(ReviewBoardController board, BuildContext context) {
     return Container(
       padding: EdgeInsets.only(
         top: 4,
@@ -472,27 +632,25 @@ class ReviewBody extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             IconButton(
-              onPressed: review.canPrev ? () => review.goto(0) : null,
+              onPressed: board.canStepBack ? () => board.gotoStart() : null,
               icon: const Icon(Icons.first_page),
               color: Colors.white70,
             ),
             IconButton(
-              onPressed: review.canPrev ? review.prev : null,
+              onPressed: board.canStepBack ? board.stepBack : null,
               icon: const Icon(Icons.chevron_left),
               color: Colors.white70,
               iconSize: 30,
             ),
             const SizedBox(width: 20),
             IconButton(
-              onPressed: review.canNext ? review.next : null,
+              onPressed: board.canStepForward ? board.stepForward : null,
               icon: const Icon(Icons.chevron_right),
               color: Colors.white70,
               iconSize: 30,
             ),
             IconButton(
-              onPressed: review.canNext
-                  ? () => review.goto(review.moves.length)
-                  : null,
+              onPressed: board.canStepForward ? () => board.gotoEnd() : null,
               icon: const Icon(Icons.last_page),
               color: Colors.white70,
             ),

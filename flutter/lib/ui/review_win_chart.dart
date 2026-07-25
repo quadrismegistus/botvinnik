@@ -15,6 +15,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../brain/grading_api.dart';
+import '../stores/game_controller.dart';
 import '../stores/review_controller.dart';
 import 'grade_strip.dart';
 import 'win_chart.dart';
@@ -57,6 +58,8 @@ class _ReviewWinChartState extends State<ReviewWinChart> {
   @override
   Widget build(BuildContext context) {
     final review = context.watch<ReviewController>();
+    // The cursor lives on the board now (#196), not the archive.
+    final board = context.watch<ReviewBoardController>();
     final table = context.read<ClassTable>();
     final id = review.current?['id'] as String?;
     if (id == null) return const SizedBox();
@@ -70,11 +73,13 @@ class _ReviewWinChartState extends State<ReviewWinChart> {
     // or a game one move long. Say nothing rather than show an empty axis.
     if (_points.length < 2) return const SizedBox();
 
-    // The point sitting at the current cursor ply, if any. cursor 0 (the start
-    // position) and any ungraded ply have no dot, so nothing is ringed there.
+    // The point sitting at the cursor's ply on the PLAYED line, if any. The
+    // start position and any ungraded ply have no dot, so nothing is ringed
+    // there — and inside a variation the ring stays on the move the branch
+    // hangs off, which is where the game still is.
     var selected = -1;
     for (var i = 0; i < _points.length; i++) {
-      if (_points[i].ply == review.cursor) {
+      if (_points[i].ply == board.reviewAnchorPly) {
         selected = i;
         break;
       }
@@ -84,7 +89,7 @@ class _ReviewWinChartState extends State<ReviewWinChart> {
       points: _points,
       table: table,
       selected: selected < 0 ? null : selected,
-      onPick: (i) => review.goto(_points[i].ply),
+      onPick: (i) => board.gotoMainlinePly(_points[i].ply),
     );
   }
 }

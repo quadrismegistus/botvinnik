@@ -72,9 +72,14 @@ class _BoardPaneState extends State<BoardPane> {
     return GameData(
       fen: pos.fen,
       lastMove: game.lastMove,
-      playerSide: !game.botEnabled
-          ? PlayerSide.both // analysis board: move either side
-          : game.botBothSides
+      playerSide: game.reviewing
+          // Review takes input like the analysis board does, and a move there
+          // branches the game rather than extending it (#196) — either side,
+          // since exploring an alternative means playing both halves of it.
+          ? PlayerSide.both
+          : !game.botEnabled
+              ? PlayerSide.both // analysis board: move either side
+              : game.botBothSides
               ? PlayerSide.none // bot-vs-bot: you watch, nothing to drag
               : game.playerColor == 'w'
                   ? PlayerSide.white

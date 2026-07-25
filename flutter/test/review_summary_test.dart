@@ -23,6 +23,8 @@ import 'package:botvinnik_mobile/stores/settings_store.dart';
 import 'package:botvinnik_mobile/ui/grade_strip.dart';
 import 'package:botvinnik_mobile/ui/review_screen.dart';
 
+import 'package:botvinnik_mobile/stores/game_controller.dart';
+
 import 'support/game_harness.dart';
 
 /// The brain's LABEL_ORDER (brain/classifications.ts), best-first.
@@ -150,6 +152,8 @@ Future<ReviewController> _pumpReview(
           value: ClassTable(_kClassRaw, labelOrder: order)),
       ChangeNotifierProvider<SettingsStore>.value(value: settings),
       ChangeNotifierProvider<ReviewController>.value(value: review),
+      ChangeNotifierProvider<ReviewBoardController>.value(
+          value: fakeReviewBoard(review, settings)),
     ],
     child: const MaterialApp(home: Scaffold(body: ReviewBody())),
   ));

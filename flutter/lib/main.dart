@@ -226,6 +226,22 @@ class _BootGateState extends State<BootGate> {
             ChangeNotifierProvider(
               create: (_) => ReviewController(booted.db),
             ),
+            // The Review tab's board (#194). A second GameController, in
+            // review mode, so the archive gets the analysis board's overlays
+            // over its positions instead of a static picture of them.
+            //
+            // It subscribes to ReviewController itself — see its doc for why
+            // that is not a sync from a build().
+            ChangeNotifierProvider(
+              create: (ctx) => ReviewBoardController(
+                booted.arbiter,
+                BotApi(booted.bridge),
+                GradingApi(booted.bridge),
+                booted.settings,
+                ctx.read<ReviewController>(),
+                chessApi: ChessApi(booted.bridge),
+              ),
+            ),
             // Cross-device sync (#203). loadCached() reads the device-local
             // secure store — no PBKDF2, no network — so an already-paired device
             // comes up "on" instantly; a fresh one stays off until the user
@@ -294,6 +310,7 @@ class _BootGateState extends State<BootGate> {
                 builder: (context) => KeyboardControls(
                   game: context.read<GameController>(),
                   review: context.read<ReviewController>(),
+                  reviewBoard: context.read<ReviewBoardController>(),
                   practice: context.read<PracticeController>(),
                   settings: context.read<SettingsStore>(),
                   currentTab: () => _tab.value,

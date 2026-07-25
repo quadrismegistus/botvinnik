@@ -1,5 +1,8 @@
-// The review archive: stored games list + the replay cursor for one game.
+// The review archive: the stored games list, and which one is open.
 // Pure reads over AppDb — grading already happened at save time.
+//
+// NAVIGATION WITHIN a game lives in ReviewBoardController's ReviewTree (#196),
+// not here. This owns the archive; that owns where you are in it.
 
 import 'package:flutter/foundation.dart';
 
@@ -12,7 +15,11 @@ class ReviewController extends ChangeNotifier {
   bool loaded = false;
 
   Map<String, dynamic>? current; // the StoredGame under review
-  int cursor = 0; // 0 = start position, n = after ply n
+
+  // There is no cursor here any more (#196). Where you are in a reviewed game
+  // is a node of ReviewBoardController's tree, not a ply of a list: once a
+  // variation can be branched off and walked back into, an integer cannot say
+  // where you are. One owner, so the board and the move list cannot disagree.
 
   ReviewController(this._db);
 
@@ -52,13 +59,6 @@ class ReviewController extends ChangeNotifier {
 
   void open(Map<String, dynamic> game) {
     current = game;
-    // Open at the START, not the end. Reviewing runs forwards — the whole UI
-    // is built around → stepping into the next move's verdict — but this used
-    // to land on the final position, so every review began by scrubbing all
-    // the way back. cursor = 0 is the true start (canPrev is false, the
-    // verdict strip reads "Start position"), which is how lichess and
-    // chess.com open a game too.
-    cursor = 0;
     notifyListeners();
   }
 
@@ -67,36 +67,20 @@ class ReviewController extends ChangeNotifier {
     notifyListeners();
   }
 
-  List<Map<String, dynamic>> get moves =>
-      ((current?['moves'] as List?) ?? const [])
-          .map((m) => (m as Map).cast<String, dynamic>())
-          .toList();
-
-  /// The move the cursor sits AFTER (null at the start position).
-  Map<String, dynamic>? get currentMove =>
-      cursor == 0 ? null : moves[cursor - 1];
-
-  String get fen {
-    if (cursor == 0) {
-      final m = moves;
-      return m.isEmpty
-          ? 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'
-          : m.first['fenBefore'] as String;
-    }
-    return currentMove!['fenAfter'] as String;
+  /// The archived moves, as the move list and the win chart read them.
+  ///
+  /// Filtered, not cast: every consumer here does `m['san'] as String` on the
+  /// way to a row, so one malformed record turned the whole tab into an error
+  /// box — and unlike the board, which degrades to an empty position, a
+  /// ListView itemBuilder throwing takes the pane with it. A row that cannot
+  /// be drawn is dropped; a broken archive shows fewer moves rather than none.
+  List<Map<String, dynamic>> get moves {
+    final raw = current?['moves'];
+    if (raw is! List) return const [];
+    return [
+      for (final e in raw.whereType<Map>())
+        if (e['san'] is String && e['ply'] is num) e.cast<String, dynamic>()
+    ];
   }
 
-  bool get canPrev => cursor > 0;
-  bool get canNext => cursor < moves.length;
-
-  void prev() => _goto(cursor - 1);
-  void next() => _goto(cursor + 1);
-  void goto(int ply) => _goto(ply);
-
-  void _goto(int ply) {
-    final clamped = ply.clamp(0, moves.length);
-    if (clamped == cursor) return;
-    cursor = clamped;
-    notifyListeners();
-  }
 }

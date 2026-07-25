@@ -18,6 +18,7 @@ import 'package:botvinnik_mobile/brain/types.dart';
 import 'package:botvinnik_mobile/engine/arbiter.dart';
 import 'package:botvinnik_mobile/stores/game_controller.dart';
 import 'package:botvinnik_mobile/stores/practice_controller.dart';
+import 'package:botvinnik_mobile/stores/review_controller.dart';
 import 'package:botvinnik_mobile/stores/settings_store.dart';
 
 /// Canned analysis deep enough (depth >= 10) to carry the grading pipeline
@@ -118,10 +119,18 @@ class FakeArbiter implements SearchArbiter {
     return Future<List<EngineMove>?>.delayed(searchDelay, () => lines);
   }
 
+  /// Counts of the two invalidation calls. The review board (#194) shares
+  /// this arbiter with the live game, so which one it reaches for is not a
+  /// detail: bumpGeneration voids EVERY priority, including a bot move in
+  /// flight on the other board.
+  int bumpGenerations = 0;
+  final List<String> cancelledExcept = [];
+
   @override
-  void bumpGeneration() {}
+  void bumpGeneration() => bumpGenerations++;
   @override
-  void cancelAnalyses({required String exceptFen}) {}
+  void cancelAnalyses({required String exceptFen}) =>
+      cancelledExcept.add(exceptFen);
   @override
   Object? get engineError => null;
 
@@ -317,6 +326,18 @@ Future<GameController> makeGame({String? fromFen}) async {
   if (fromFen != null) game.newGame(fromFen: fromFen);
   return game;
 }
+
+/// The Review tab's board (#194), wired to the fakes and following [review].
+///
+/// Any widget test that renders ReviewBody needs one of these in the tree:
+/// the body republishes it as the GameController its BoardPane resolves to,
+/// so without it the board cannot build at all. The fake arbiter's searches
+/// never resolve by default, which is right here — these tests are about the
+/// archive's furniture around the board, not about what the engine says.
+ReviewBoardController fakeReviewBoard(ReviewController review,
+        SettingsStore settings, {FakeArbiter? arbiter}) =>
+    ReviewBoardController(arbiter ?? FakeArbiter(), const FakeBot(),
+        FakeGrading(), settings, review);
 
 /// The standard starting position, for asserting a FEN game did NOT fall back
 /// to it.
