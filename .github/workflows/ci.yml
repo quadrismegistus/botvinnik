@@ -132,6 +132,19 @@ jobs:
       - name: Web build, with the offline manifest
         working-directory: flutter
         run: ./build-web.sh
+      # files_web.dart uses package:web instead of dart:html specifically so
+      # this build stays possible — dart:html has no wasm compiler support,
+      # and that file's header said as much, but nothing ran the build the
+      # comment was claiming. A future dart:html import (direct or pulled in
+      # by a dependency) would fail this silently while the comment kept
+      # reading as though it were checked (#159). Bare `flutter build web`
+      # rather than build-web.sh: this only needs to prove wasm compiles, not
+      # produce a servable bundle, so the service-worker manifest step and its
+      # asset staging would be wasted work. Output goes nowhere — the value
+      # is entirely the exit code.
+      - name: Web build compiles to wasm (dry run, not shipped)
+        working-directory: flutter
+        run: flutter build web --release --wasm
       # The only tests that run the Flutter app in a browser. They matter most
       # for retro, whose every failure path is a silent fallback to Stockfish:
       # a broken retro persona still plays, as somebody else, so nothing short
