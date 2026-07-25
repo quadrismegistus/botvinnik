@@ -310,6 +310,7 @@ class _BootGateState extends State<BootGate> {
                 builder: (context) => KeyboardControls(
                   game: context.read<GameController>(),
                   review: context.read<ReviewController>(),
+                  reviewBoard: context.read<ReviewBoardController>(),
                   practice: context.read<PracticeController>(),
                   settings: context.read<SettingsStore>(),
                   currentTab: () => _tab.value,

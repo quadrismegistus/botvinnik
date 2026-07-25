@@ -7,12 +7,14 @@
 //
 //   cd flutter && flutter test test/review_win_chart_test.dart
 
+import 'package:dartchess/dartchess.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 
 import 'package:botvinnik_mobile/brain/grading_api.dart';
 import 'package:botvinnik_mobile/db/app_db.dart';
+import 'package:botvinnik_mobile/stores/game_controller.dart';
 import 'package:botvinnik_mobile/stores/review_controller.dart';
 import 'package:botvinnik_mobile/ui/grade_strip.dart';
 import 'package:botvinnik_mobile/ui/review_win_chart.dart';
@@ -33,17 +35,36 @@ class _StubDb implements AppDb {
   dynamic noSuchMethod(Invocation invocation) => null;
 }
 
-// The chart never reads the FENs — it plots ply against eval — so placeholders
-// are fine here; only ply/san/color/evalPawns matter.
+// REAL positions, played out rather than typed. The chart itself only plots
+// ply against eval and never looks at a FEN — but the review BOARD loads the
+// same record and puts its positions on a board (#194/#196), so placeholder
+// strings here stopped being harmless the moment the two shared a fixture.
+//
+// 1. e4 e5 2. Nf3 Nc6 3. Bb5 — five plies, which is what the chart tests want.
+final _kLine = ['e2e4', 'e7e5', 'g1f3', 'b8c6', 'f1b5'];
+final _kSans = ['e4', 'e5', 'Nf3', 'Nc6', 'Bb5'];
+
+/// fen before / fen after, per ply, derived by playing [_kLine].
+final List<({String before, String after})> _kFens = () {
+  final out = <({String before, String after})>[];
+  Position pos = Chess.initial;
+  for (final uci in _kLine) {
+    final before = pos.fen;
+    pos = pos.play(NormalMove.fromUci(uci));
+    out.add((before: before, after: pos.fen));
+  }
+  return out;
+}();
+
 Map<String, dynamic> _move(int ply, String color, num? evalPawns,
         {String label = 'best'}) =>
     {
       'ply': ply,
-      'san': ply.isOdd ? 'Nf3' : 'Nc6',
-      'uci': ply.isOdd ? 'g1f3' : 'b8c6',
+      'san': _kSans[ply - 1],
+      'uci': _kLine[ply - 1],
       'color': color,
-      'fenBefore': 'fen$ply-before',
-      'fenAfter': 'fen$ply-after',
+      'fenBefore': _kFens[ply - 1].before,
+      'fenAfter': _kFens[ply - 1].after,
       'evalPawns': ?evalPawns, // omitted when null — an ungraded ply
       'label': label,
     };
@@ -71,15 +92,21 @@ Map<String, dynamic> _ungradedGame() => {
       ],
     };
 
-Future<ReviewController> _pump(
+/// The chart reads the cursor off the BOARD now (#196), so a chart test needs
+/// one in the tree — the archive no longer has a cursor of its own.
+Future<ReviewBoardController> _pump(
     WidgetTester tester, Map<String, dynamic> game) async {
-  final review = ReviewController(_StubDb())..open(game);
+  final settings = await loadSettings();
+  final review = ReviewController(_StubDb());
+  final board = fakeReviewBoard(review, settings);
+  review.open(game);
   await tester.pumpWidget(MultiProvider(
     providers: [
       Provider<ClassTable>.value(
           value: ClassTable(_kClassRaw, labelOrder: _kOrder)),
       Provider<GradingApi>.value(value: FakeGrading()),
       ChangeNotifierProvider<ReviewController>.value(value: review),
+      ChangeNotifierProvider<ReviewBoardController>.value(value: board),
     ],
     child: const MaterialApp(
       home: Scaffold(
@@ -88,7 +115,7 @@ Future<ReviewController> _pump(
     ),
   ));
   await tester.pump();
-  return review;
+  return board;
 }
 
 void main() {
@@ -113,8 +140,8 @@ void main() {
   });
 
   testWidgets('tapping the chart seeks the review cursor', (tester) async {
-    final review = await _pump(tester, _gradedGame());
-    expect(review.cursor, 0, reason: 'opens at the start position');
+    final board = await _pump(tester, _gradedGame());
+    expect(board.reviewAnchorPly, 0, reason: 'opens at the start position');
 
     await tester.tap(find.byType(WinChartCanvas));
     await tester.pump();
@@ -122,7 +149,7 @@ void main() {
     // A tap lands on the nearest graded ply and moves the board there — the
     // exact ply depends on where centre falls, but it must be a real one and
     // never the start.
-    expect(review.cursor, isNot(0));
-    expect([1, 2, 3, 4, 5], contains(review.cursor));
+    expect(board.reviewAnchorPly, isNot(0));
+    expect([1, 2, 3, 4, 5], contains(board.reviewAnchorPly));
   });
 }

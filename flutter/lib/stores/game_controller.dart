@@ -31,6 +31,7 @@ import 'lines_tree_model.dart';
 import 'maia_status.dart';
 import 'practice_controller.dart';
 import 'review_controller.dart';
+import 'review_tree.dart';
 import 'redo_stack.dart';
 import 'chess_clock.dart';
 import 'settings_store.dart';
@@ -897,11 +898,13 @@ class GameController extends ChangeNotifier {
 
   /// The human plays a move (already validated by the board).
   void playerMove(NormalMove move, String san) {
-    // Review is read-only (see [showReview]): `moves` holds the whole archived
-    // game while `position` sits at the cursor, so appending here would splice
-    // a move onto the end of a list the board is not standing at. Branching
-    // into variations from the cursor is #196, and needs truncation first.
-    if (_review) return;
+    // In review a move does not append to the game — it branches the tree
+    // (#196). `moves` stays the archived mainline; the variation lives beside
+    // it and the played line is always still there to come back to.
+    if (_review) {
+      reviewPlay(move, san);
+      return;
+    }
     // _refusalPendingGen == _gen, not just _refusalPending: a stale pending
     // flag left by an abandoned generation's check must not block moves in
     // the CURRENT one (see the field docs on _refusalPending).
@@ -1741,19 +1744,29 @@ class GameController extends ChangeNotifier {
 
   // ---- review: an archived game on the analysis board (#194) ----
 
-  /// The game currently on the review board, by stored id — so a cursor move
-  /// within one game does not rebuild it.
+  /// The game currently on the review board, by stored id — so navigating
+  /// within one game does not rebuild it (and does not throw away the
+  /// variations played into it).
   String? _reviewId;
 
-  /// Where the review cursor sits: 0 = start position, n = after ply n. -1
-  /// only as the "nothing shown yet" sentinel a fresh load seeks out of.
-  int _reviewPly = -1;
+  /// The reviewed game as a TREE (#196): the played line, plus whatever has
+  /// been tried on top of it. Null until a game is opened.
+  ReviewTree? _tree;
+  ReviewTree? get tree => _tree;
 
-  /// The position at [ply] of the loaded game. Same arithmetic as
-  /// [browseFen], over the same records.
-  String _fenAtPly(int ply) => ply == 0 ? _startFen : moves[ply - 1].fenAfter;
+  /// The cursor has left the played game and is in a variation.
+  bool get inVariation => _tree != null && !_tree!.onMainline;
 
-  /// Put the archived [stored] game's position at [ply] on the board.
+  /// Where the PLAYED game sits, for the win chart and the move list — the
+  /// cursor's own ply on the mainline, or the ply a variation departed after.
+  int get reviewAnchorPly => _tree?.anchorPly ?? 0;
+
+  /// The archived record for the move the cursor is on: its grade, label and
+  /// explanation. Null at the start position and throughout a variation,
+  /// where there is no archived move to describe.
+  Map<String, dynamic>? get reviewStoredMove => _tree?.current.stored;
+
+  /// Open [stored] and put its position at mainline [ply] on the board.
   ///
   /// The mechanism here is the point of #194, and it is deliberately NOT
   /// [browseTo]. Browsing leaves `position` on the live game and shows the
@@ -1765,37 +1778,114 @@ class GameController extends ChangeNotifier {
   /// Review instead makes the cursor's position BE `position`. Every one of
   /// those overlays then points at what is on the board with no review-
   /// specific copy of any of them — which is what "Review IS the analysis
-  /// board" has to mean if it is to be worth doing. The tail below is the
-  /// same sequence [undo] runs for the same reason: the board moved, so the
-  /// stale threat goes, the new position gets an analysis, and the tree and
-  /// the probe follow it.
+  /// board" has to mean if it is to be worth doing.
   ///
-  /// [moves] carries the WHOLE game whatever the cursor says — it is the move
-  /// list and the tree's played path — so the usual `position ==
-  /// moves.last.fenAfter` invariant does not hold here. That is safe only
-  /// because review is read-only: [playerMove], [undo] and [redo] all refuse
-  /// in this mode, so nothing can append to or truncate a list the position
-  /// no longer sits at the end of. Turning input ON is #196, and it wants
-  /// truncate-on-divergence at the cursor, not a relaxation of this.
-  void showReview(Map<String, dynamic>? stored, int ply) {
+  /// Called when the archive opens or closes a game. Opening builds the tree
+  /// and lands on the start position; re-notifying about the SAME game does
+  /// nothing, so a variation being explored survives an unrelated rebuild.
+  void showReview(Map<String, dynamic>? stored) {
     if (!_review) return;
     if (stored == null) {
       if (_reviewId == null) return;
       _reviewId = null;
-      _reviewPly = -1;
+      _tree = null;
       moves.clear();
       notifyListeners();
       return;
     }
     final id = stored['id'] as String?;
-    if (id != _reviewId) {
-      _reviewId = id;
-      _reviewPly = -1;
-      _loadReviewMoves(stored);
+    if (id == _reviewId) return;
+    _reviewId = id;
+    _loadReview(stored);
+    // Open at the START. Reviewing runs forwards — the whole UI is built
+    // around stepping into the next move's verdict — and landing on the final
+    // position means every review begins by scrubbing all the way back. Same
+    // rule lichess and chess.com open a game with.
+    _tree!.gotoMainlinePly(0);
+    _syncToTree();
+  }
+
+  /// Go to a ply of the PLAYED line, leaving any variation — what the chart,
+  /// the move list and the jump-to-start button all mean. Naming a move of the
+  /// game is how you say "take me back to what actually happened".
+  void gotoMainlinePly(int ply) {
+    if (_tree == null) return;
+    _tree!.gotoMainlinePly(ply);
+    _syncToTree();
+  }
+
+  /// Rebuild the tree and the move list from a stored game.
+  ///
+  /// [moves] is kept in step with the MAINLINE because the played line is
+  /// what the move list, the chart and the engine-lines tree's played path
+  /// all speak about — a variation is explored on the board, not written into
+  /// the record of the game.
+  void _loadReview(Map<String, dynamic> stored) {
+    _redoStack.clear();
+    _analysis.clear();
+    _partials.clear();
+    _controlCache.clear();
+    _threat = null;
+    _browsePly = null;
+    final raw = [
+      for (final e in (stored['moves'] as List?) ?? const [])
+        (e as Map).cast<String, dynamic>()
+    ];
+    moves
+      ..clear()
+      ..addAll([
+        for (final m in raw)
+          MoveRecord(
+            ply: (m['ply'] as num).toInt(),
+            san: m['san'] as String,
+            uci: m['uci'] as String,
+            color: m['color'] as String,
+            fenBefore: m['fenBefore'] as String,
+            fenAfter: m['fenAfter'] as String,
+          )
+      ]);
+    // A stored record whose fens will not parse must not take down the Review
+    // tab. The save path always writes real ones, but an import, a
+    // hand-edited row or a record from a schema that predates a field can
+    // carry something else — and the ARCHIVE is the one thing here we do not
+    // control. Degrade to an empty board at the start position, which reads as
+    // "nothing to show", rather than throwing a FenException up through a
+    // ChangeNotifier where it surfaces as a blank tab.
+    final usable = raw.isNotEmpty &&
+        raw.every((m) =>
+            _parses(m['fenBefore'] as String?) &&
+            _parses(m['fenAfter'] as String?));
+    if (!usable) {
+      moves.clear();
+      _startFen = Chess.initial.fen;
+      _tree = ReviewTree(_startFen);
+    } else {
+      _startFen = moves.first.fenBefore;
+      _tree = ReviewTree.fromStored(_startFen, raw);
     }
-    final clamped = ply.clamp(0, moves.length);
-    if (clamped == _reviewPly) return;
-    _reviewPly = clamped;
+    // Orientation only. An import has no "you" in it, so it is read from
+    // White's — the same rule ReviewBody applied when it owned the board.
+    final botColor = stored['botColor'] as String?;
+    _reviewColor = botColor == null ? 'w' : (botColor == 'w' ? 'b' : 'w');
+  }
+
+  static bool _parses(String? fen) {
+    if (fen == null) return false;
+    try {
+      Chess.fromSetup(Setup.parseFen(fen));
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Put the board on whatever node the tree's cursor is now at.
+  ///
+  /// The tail is the same sequence [undo] runs, for the same reason: the board
+  /// moved, so the stale threat goes, the new position gets an analysis, and
+  /// the engine-lines tree and the threat probe follow it.
+  void _syncToTree() {
+    final node = _tree!.current;
     _gen++;
     // cancelAnalyses, NOT bumpGeneration — the arbiter is SHARED with the live
     // game. bumpGeneration voids every queued and running search of every
@@ -1808,10 +1898,9 @@ class GameController extends ChangeNotifier {
     // that fen is not this one — an accepted cost of one engine behind two
     // boards, and self-healing: the Play board keeps the partials it had and
     // asks again on its next move.
-    _arbiter.cancelAnalyses(exceptFen: _fenAtPly(clamped));
-    position = Chess.fromSetup(Setup.parseFen(_fenAtPly(clamped)));
-    lastMove =
-        clamped == 0 ? null : NormalMove.fromUci(moves[clamped - 1].uci);
+    _arbiter.cancelAnalyses(exceptFen: node.fen);
+    position = Chess.fromSetup(Setup.parseFen(node.fen));
+    lastMove = node.uci == null ? null : NormalMove.fromUci(node.uci!);
     _threat = null;
     _analysisFor(position.fen);
     _syncTree();
@@ -1819,38 +1908,59 @@ class GameController extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Rebuild [moves] from a stored game's move maps.
+  /// Play a move on the review board (#196).
   ///
-  /// Records, not grades: the grades stay where they already are, read
-  /// straight off the stored maps by ReviewController for the move list, the
-  /// verdict strip and the win chart. This controller is here for the BOARD —
-  /// the positions, and the live engine overlays over them — so rebuilding
-  /// MoveGrade objects it would never read would be work done to be ignored.
-  void _loadReviewMoves(Map<String, dynamic> stored) {
-    moves.clear();
-    _redoStack.clear();
-    _analysis.clear();
-    _partials.clear();
-    _controlCache.clear();
-    _threat = null;
-    _browsePly = null;
-    final raw = (stored['moves'] as List?) ?? const [];
-    for (final e in raw) {
-      final m = (e as Map).cast<String, dynamic>();
-      moves.add(MoveRecord(
-        ply: (m['ply'] as num).toInt(),
-        san: m['san'] as String,
-        uci: m['uci'] as String,
-        color: m['color'] as String,
-        fenBefore: m['fenBefore'] as String,
-        fenAfter: m['fenAfter'] as String,
-      ));
-    }
-    _startFen = moves.isEmpty ? Chess.initial.fen : moves.first.fenBefore;
-    // Orientation only. An import has no "you" in it, so it is read from
-    // White's — the same rule ReviewBody applied when it owned the board.
-    final botColor = stored['botColor'] as String?;
-    _reviewColor = botColor == null ? 'w' : (botColor == 'w' ? 'b' : 'w');
+  /// Off the played line this starts — or continues — a variation; ON it, a
+  /// move that matches what was actually played just walks forward into the
+  /// game rather than cloning it. Either way the archive is untouched: the
+  /// tree keeps the played game as the first child of every node on it, so
+  /// there is always a way back.
+  void reviewPlay(NormalMove move, String san) {
+    final t = _tree;
+    if (t == null || !position.isLegal(move)) return;
+    t.play(
+      uci: move.uci,
+      san: san,
+      color: position.turn == Side.white ? 'w' : 'b',
+      fen: position.playUnchecked(move).fen,
+    );
+    _syncToTree();
+  }
+
+  /// Jump to any node of the tree — a move list tapping a variation move.
+  void gotoNode(ReviewNode node) {
+    if (_tree == null) return;
+    _tree!.goto(node);
+    _syncToTree();
+  }
+
+  /// The start position, and the end of the line the cursor is on (a
+  /// variation's own end when in one, the game's otherwise).
+  void gotoStart() => gotoMainlinePly(0);
+
+  void gotoEnd() {
+    final t = _tree;
+    if (t == null) return;
+    while (t.forward()) {}
+    _syncToTree();
+  }
+
+  bool get canStepBack => _tree?.canBack ?? false;
+  bool get canStepForward => _tree?.canForward ?? false;
+
+  /// One ply back along the line the cursor is on — inside a variation that is
+  /// the variation's own, not the game's.
+  void stepBack() {
+    if (_tree?.back() ?? false) _syncToTree();
+  }
+
+  void stepForward() {
+    if (_tree?.forward() ?? false) _syncToTree();
+  }
+
+  /// Abandon the current variation and return to the move it departed after.
+  void discardVariation() {
+    if (_tree?.discardVariation() != null) _syncToTree();
   }
 
   void toggleFlip() {
@@ -1897,11 +2007,13 @@ class GameController extends ChangeNotifier {
       // archived game while `position` is wherever the cursor sits, so the
       // full list would hand the tree a played path that runs past the fen
       // beside it. Live, _reviewPly is -1 and this is the whole list.
+      // In review this is the path to the CURSOR — including a variation's
+      // own moves — not the whole archived game, whose later moves have
+      // nothing to do with the position beside them. Live, _tree is null and
+      // this is the played list as before.
       playedSans: [
-        for (final m in _review && _reviewPly >= 0
-                ? moves.take(_reviewPly)
-                : moves)
-          m.san
+        for (final m in _review && _tree != null ? _tree!.current.pathFromRoot : moves)
+          (m is MoveRecord ? m.san : (m as ReviewNode).san!)
       ],
       height: 300,
       // Blind must be baked into the LAYOUT, not just the paint: a hidden
@@ -2325,8 +2437,7 @@ class ReviewBoardController extends GameController {
     _follow();
   }
 
-  void _follow() =>
-      showReview(_reviewController.current, _reviewController.cursor);
+  void _follow() => showReview(_reviewController.current);
 
   @override
   void dispose() {

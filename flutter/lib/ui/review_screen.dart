@@ -20,6 +20,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../stores/game_controller.dart';
+import '../stores/review_tree.dart';
 import '../stores/practice_controller.dart';
 import '../stores/review_controller.dart';
 import '../stores/settings_store.dart';
@@ -40,10 +41,14 @@ class ReviewBody extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final review = context.watch<ReviewController>();
+    final board = context.watch<ReviewBoardController>();
     final table = context.read<ClassTable>();
     final game = review.current;
     if (game == null) return const SizedBox();
-    final m = review.currentMove;
+    // The archived record for whatever the cursor is on — the BOARD's cursor,
+    // which inside a variation is not on the played game at all and has no
+    // record to show (#196).
+    final m = board.reviewStoredMove;
     // The brain's ranking, not one written out here — the grade strip and the
     // brain both order by LABEL_ORDER, and a second list would drift from it.
     final summary = _summary(game, table, table.labelOrder);
@@ -70,11 +75,11 @@ class ReviewBody extends StatelessWidget {
           // all come from the controller now — it knows the reviewed game's
           // colour, its cursor, and the engine's own top lines — so none of
           // them are passed in.
-          Widget board(double size) => SizedBox(
+          Widget boardView(double size) => SizedBox(
                 width: size,
                 height: size,
                 child: ChangeNotifierProvider<GameController>.value(
-                  value: context.watch<ReviewBoardController>(),
+                  value: board,
                   child: const BoardPane(),
                 ),
               );
@@ -87,10 +92,11 @@ class ReviewBody extends StatelessWidget {
             );
             return Column(
               children: [
-                Center(child: board(size)),
-                _verdictStrip(m, table),
-                Expanded(child: _moveList(review, table, summary, practiseCta)),
-                _scrubBar(review, context),
+                Center(child: boardView(size)),
+                _verdictStrip(m, table, board),
+                Expanded(
+                    child: _moveList(review, board, table, summary, practiseCta)),
+                _scrubBar(board, context),
               ],
             );
           }
@@ -102,13 +108,15 @@ class ReviewBody extends StatelessWidget {
           return Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              board(size),
+              boardView(size),
               Expanded(
                 child: Column(
                   children: [
-                    _verdictStrip(m, table),
-                    Expanded(child: _moveList(review, table, summary, practiseCta)),
-                    _scrubBar(review, context),
+                    _verdictStrip(m, table, board),
+                    Expanded(
+                        child: _moveList(
+                            review, board, table, summary, practiseCta)),
+                    _scrubBar(board, context),
                   ],
                 ),
               ),
@@ -129,9 +137,42 @@ class ReviewBody extends StatelessWidget {
   // grammar exists to prevent. The retrospective advice survives as text, in
   // the verdict strip's "best: ..." beside the move it belongs to.
 
-  Widget _verdictStrip(Map<String, dynamic>? m, ClassTable table) {
+  Widget _verdictStrip(
+      Map<String, dynamic>? m, ClassTable table, ReviewBoardController board) {
     Widget content;
-    if (m == null) {
+    if (board.inVariation) {
+      // A variation move was never played, so it was never graded and there is
+      // no verdict to give it. Say where you are instead — and offer the way
+      // back, which is the whole reason a variation is safe to start.
+      final node = board.tree?.current;
+      content = Row(
+        children: [
+          Expanded(
+            child: Text(
+              node?.san == null
+                  ? 'Variation'
+                  : 'Variation — ${node!.san} (not played)',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                  color: Color(0xFFE8B44A),
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600),
+            ),
+          ),
+          TextButton(
+            onPressed: board.discardVariation,
+            style: TextButton.styleFrom(
+              foregroundColor: const Color(0xFFE8B44A),
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              minimumSize: const Size(0, 32),
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+            child: const Text('Back to the game', style: TextStyle(fontSize: 12)),
+          ),
+        ],
+      );
+    } else if (m == null) {
       content = const Text(
         'Start position',
         style: TextStyle(color: Colors.white38, fontSize: 13),
@@ -385,9 +426,11 @@ class ReviewBody extends StatelessWidget {
   /// column has to be paid for out of the board. The chart is scroll-away
   /// context, not a control — and both it and the summary are cheap to keep in
   /// the header, drawn from stored numbers rather than recomputed on a scrub.
-  Widget _moveList(ReviewController review, ClassTable table, Widget summary,
-      Widget practiseCta) {
+  Widget _moveList(ReviewController review, ReviewBoardController board,
+      ClassTable table, Widget summary, Widget practiseCta) {
     final moves = review.moves;
+    final tree = board.tree;
+    final mainline = tree?.mainline ?? const <ReviewNode>[];
     return ListView.builder(
       itemCount: (moves.length + 1) ~/ 2 + 1,
       itemBuilder: (context, index) {
@@ -408,9 +451,12 @@ class ReviewBody extends StatelessWidget {
         Widget cell(Map<String, dynamic>? m, int ply) {
           if (m == null) return const SizedBox();
           final label = m['label'] as String?;
-          final active = review.cursor == ply;
+          // Highlighted from the BOARD's cursor, and only when it is actually
+          // on the played game — inside a variation the anchor says which move
+          // the branch hangs off, which is context, not "you are here".
+          final active = board.reviewAnchorPly == ply && !board.inVariation;
           return InkWell(
-            onTap: () => review.goto(ply),
+            onTap: () => board.gotoMainlinePly(ply),
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
               decoration: active
@@ -439,19 +485,34 @@ class ReviewBody extends StatelessWidget {
           );
         }
 
+        // Variations hanging off either half of this move pair, printed under
+        // it the way a book does — the played move keeps the row, the
+        // alternatives are indented beneath it (#196).
+        final branches = <ReviewNode>[
+          for (final ply in [i * 2 + 1, i * 2 + 2])
+            if (ply - 1 < mainline.length) ...mainline[ply - 1].variations
+        ];
+
         return Padding(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 1),
-          child: Row(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              SizedBox(
-                width: 30,
-                child: Text(
-                  '${i + 1}.',
-                  style: const TextStyle(color: Colors.white38, fontSize: 12),
-                ),
+              Row(
+                children: [
+                  SizedBox(
+                    width: 30,
+                    child: Text(
+                      '${i + 1}.',
+                      style:
+                          const TextStyle(color: Colors.white38, fontSize: 12),
+                    ),
+                  ),
+                  Expanded(child: cell(white, i * 2 + 1)),
+                  Expanded(child: cell(black, i * 2 + 2)),
+                ],
               ),
-              Expanded(child: cell(white, i * 2 + 1)),
-              Expanded(child: cell(black, i * 2 + 2)),
+              for (final b in branches) _variationRow(b, board),
             ],
           ),
         );
@@ -459,7 +520,45 @@ class ReviewBody extends StatelessWidget {
     );
   }
 
-  Widget _scrubBar(ReviewController review, BuildContext context) {
+  /// One variation, printed as its line of moves. Each is tappable, so a
+  /// branch you left is a branch you can walk back into rather than one you
+  /// have to replay by hand.
+  Widget _variationRow(ReviewNode branch, ReviewBoardController board) {
+    final line = <ReviewNode>[];
+    for (ReviewNode? n = branch; n != null; n = n.mainChild) {
+      line.add(n);
+    }
+    final current = board.tree?.current;
+    return Padding(
+      padding: const EdgeInsets.only(left: 30, top: 1, bottom: 2),
+      child: Wrap(
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          for (final n in line)
+            InkWell(
+              onTap: () => board.gotoNode(n),
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                decoration: identical(n, current)
+                    ? BoxDecoration(
+                        color: const Color(0xFF3a3733),
+                        borderRadius: BorderRadius.circular(4),
+                      )
+                    : null,
+                child: Text(
+                  n.san ?? '',
+                  style: const TextStyle(
+                      fontSize: 12, color: Color(0xFFE8B44A)),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _scrubBar(ReviewBoardController board, BuildContext context) {
     return Container(
       padding: EdgeInsets.only(
         top: 4,
@@ -478,27 +577,25 @@ class ReviewBody extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             IconButton(
-              onPressed: review.canPrev ? () => review.goto(0) : null,
+              onPressed: board.canStepBack ? () => board.gotoStart() : null,
               icon: const Icon(Icons.first_page),
               color: Colors.white70,
             ),
             IconButton(
-              onPressed: review.canPrev ? review.prev : null,
+              onPressed: board.canStepBack ? board.stepBack : null,
               icon: const Icon(Icons.chevron_left),
               color: Colors.white70,
               iconSize: 30,
             ),
             const SizedBox(width: 20),
             IconButton(
-              onPressed: review.canNext ? review.next : null,
+              onPressed: board.canStepForward ? board.stepForward : null,
               icon: const Icon(Icons.chevron_right),
               color: Colors.white70,
               iconSize: 30,
             ),
             IconButton(
-              onPressed: review.canNext
-                  ? () => review.goto(review.moves.length)
-                  : null,
+              onPressed: board.canStepForward ? () => board.gotoEnd() : null,
               icon: const Icon(Icons.last_page),
               color: Colors.white70,
             ),

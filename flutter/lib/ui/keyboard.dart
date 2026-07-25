@@ -79,6 +79,9 @@ BoardKeyAction? boardActionFor(KeyEvent event) {
 class KeyboardControls extends StatelessWidget {
   final GameController game;
   final ReviewController review;
+
+  /// The Review tab's board — where the cursor actually lives (#196).
+  final ReviewBoardController reviewBoard;
   final PracticeController practice;
   final SettingsStore settings;
 
@@ -93,6 +96,7 @@ class KeyboardControls extends StatelessWidget {
     super.key,
     required this.game,
     required this.review,
+    required this.reviewBoard,
     required this.practice,
     required this.settings,
     required this.currentTab,
@@ -194,20 +198,23 @@ class KeyboardControls extends StatelessWidget {
     }
     if (!_noCommand(HardwareKeyboard.instance)) return KeyEventResult.ignored;
     final key = event.logicalKey;
+    // Through the BOARD, not the archive (#196): inside a variation left and
+    // right have to walk that branch, which a ply of the played game cannot
+    // express.
     if (key == LogicalKeyboardKey.arrowLeft) {
-      if (review.canPrev) review.prev();
+      if (reviewBoard.canStepBack) reviewBoard.stepBack();
       return KeyEventResult.handled;
     }
     if (key == LogicalKeyboardKey.arrowRight) {
-      if (review.canNext) review.next();
+      if (reviewBoard.canStepForward) reviewBoard.stepForward();
       return KeyEventResult.handled;
     }
     if (key == LogicalKeyboardKey.arrowUp || key == LogicalKeyboardKey.home) {
-      review.goto(0);
+      reviewBoard.gotoStart();
       return KeyEventResult.handled;
     }
     if (key == LogicalKeyboardKey.arrowDown || key == LogicalKeyboardKey.end) {
-      review.goto(review.moves.length);
+      reviewBoard.gotoEnd();
       return KeyEventResult.handled;
     }
     return KeyEventResult.ignored; // let other keys scroll the move table

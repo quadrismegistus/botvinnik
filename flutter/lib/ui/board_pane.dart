@@ -73,11 +73,10 @@ class _BoardPaneState extends State<BoardPane> {
       fen: pos.fen,
       lastMove: game.lastMove,
       playerSide: game.reviewing
-          // Review (#194) shows everything the analysis board shows but takes
-          // no input: its `moves` is the archived game, not a line being
-          // built, so a drag here would splice a move onto a list the board is
-          // not standing at. Branching from the cursor is #196.
-          ? PlayerSide.none
+          // Review takes input like the analysis board does, and a move there
+          // branches the game rather than extending it (#196) — either side,
+          // since exploring an alternative means playing both halves of it.
+          ? PlayerSide.both
           : !game.botEnabled
               ? PlayerSide.both // analysis board: move either side
               : game.botBothSides

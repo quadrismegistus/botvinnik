@@ -90,16 +90,16 @@ void main() {
         () async {
       final (review, board) = await _open();
 
-      review.next();
+      board.stepForward();
       expect(board.position.fen, _kAfterE4);
       expect(board.lastMove?.uci, 'e2e4');
       expect(board.browsing, isFalse);
 
-      review.next();
+      board.stepForward();
       expect(board.position.fen, _kAfterE5);
       expect(board.lastMove?.uci, 'e7e5');
 
-      review.goto(0);
+      board.gotoMainlinePly(0);
       expect(board.position.fen, _kStart);
       expect(board.lastMove, isNull, reason: 'nothing has been played yet');
       board.dispose();
@@ -110,14 +110,14 @@ void main() {
       // and they show the whole game from any cursor position.
       final (review, board) = await _open();
       expect(board.moves, hasLength(2));
-      review.next();
+      board.stepForward();
       expect(board.moves, hasLength(2));
       board.dispose();
     });
 
     test('opening a different game rebuilds the board', () async {
       final (review, board) = await _open();
-      review.next();
+      board.stepForward();
       expect(board.position.fen, _kAfterE4);
 
       review.open(_game(id: 'g2'));
@@ -146,9 +146,9 @@ void main() {
       final review = ReviewController(_StubDb());
       final board = fakeReviewBoard(review, settings, arbiter: arbiter);
       review.open(_game());
-      review.next();
-      review.next();
-      review.goto(0);
+      board.stepForward();
+      board.stepForward();
+      board.gotoMainlinePly(0);
 
       expect(arbiter.bumpGenerations, 0,
           reason: 'that would kill a bot move on the other board');
@@ -202,27 +202,127 @@ void main() {
     });
   });
 
-  group('review is read-only until #196', () {
-    test('a move cannot be played onto the archive', () async {
-      // `moves` is the whole archived game while `position` sits at the
-      // cursor, so an append here would splice a move onto the end of a list
-      // the board is not standing at.
-      final (review, board) = await _open();
-      review.goto(1);
-      board.playUci('e7e5');
-      expect(board.moves, hasLength(2), reason: 'nothing appended');
-      expect(board.position.fen, _kAfterE4, reason: 'the board did not move');
-      board.dispose();
+  group('branching on the board (#196)', () {
+    test('an alternative move makes a variation, leaving the game intact',
+        () async {
+      final (_, board) = await _open();
+      board.gotoMainlinePly(1); // after 1. e4
+      board.playUci('c7c5'); // the Sicilian instead of what was played
+
+      expect(board.inVariation, isTrue);
+      expect(board.tree!.current.san, 'c5');
+      expect(board.position.fen, isNot(_kAfterE5),
+          reason: 'the board is on the variation, not the game');
+      expect(board.tree!.mainline.map((n) => n.san), ['e4', 'e5'],
+          reason: 'the archived game is untouched');
+      expect(board.moves, hasLength(2),
+          reason: 'and so is the move list it drives');
     });
 
-    test('undo and redo refuse', () async {
-      final (review, board) = await _open();
-      review.goto(2);
-      expect(board.canUndo, isFalse);
-      expect(board.canRedo, isFalse);
-      board.undo();
-      expect(board.moves, hasLength(2));
+    test('replaying the game\'s own move just walks the game', () async {
+      final (_, board) = await _open();
+      board.gotoMainlinePly(1);
+      board.playUci('e7e5'); // what was actually played
+
+      expect(board.inVariation, isFalse);
       expect(board.position.fen, _kAfterE5);
+      expect(board.tree!.mainline, hasLength(2),
+          reason: 'followed, not cloned beside itself');
+    });
+
+    test('you can go back to the played line and carry on', () async {
+      // The whole point of the issue.
+      final (_, board) = await _open();
+      board.gotoMainlinePly(1);
+      board.playUci('c7c5');
+      expect(board.inVariation, isTrue);
+
+      board.gotoMainlinePly(2);
+      expect(board.inVariation, isFalse);
+      expect(board.position.fen, _kAfterE5);
+    });
+
+    test('the variation survives going back to the game and is walkable again',
+        () async {
+      final (_, board) = await _open();
+      board.gotoMainlinePly(1);
+      board.playUci('c7c5');
+      final branch = board.tree!.current;
+
+      board.gotoMainlinePly(2); // back to the game
+      board.gotoNode(branch); // and into the branch again
+      expect(board.inVariation, isTrue);
+      expect(board.tree!.current.san, 'c5');
+    });
+
+    test('discarding a variation returns to the move it left from', () async {
+      final (_, board) = await _open();
+      board.gotoMainlinePly(1);
+      board.playUci('c7c5');
+      board.discardVariation();
+
+      expect(board.inVariation, isFalse);
+      expect(board.position.fen, _kAfterE4);
+      expect(board.tree!.mainline.first.variations, isEmpty);
+    });
+
+    test('stepping inside a variation walks the VARIATION', () async {
+      final (_, board) = await _open();
+      board.gotoMainlinePly(1);
+      board.playUci('c7c5');
+      final sicilianFen = board.position.fen;
+      board.stepBack();
+      expect(board.position.fen, _kAfterE4);
+      board.stepForward();
+      expect(board.position.fen, sicilianFen,
+          reason: 'not the played game\'s e5');
+    });
+
+    test('anchorPly stays on the game while you are off it', () async {
+      // What the win chart rings and the move list highlights.
+      final (_, board) = await _open();
+      board.gotoMainlinePly(1);
+      board.playUci('c7c5');
+      expect(board.reviewAnchorPly, 1);
+      expect(board.reviewStoredMove, isNull,
+          reason: 'a move never played was never graded');
+    });
+
+    test('an illegal move is refused', () async {
+      final (_, board) = await _open();
+      board.gotoMainlinePly(1);
+      board.playUci('e2e4'); // that pawn is already on e4
+      expect(board.inVariation, isFalse);
+      expect(board.position.fen, _kAfterE4);
+    });
+  });
+
+  group('a malformed archive row cannot take down the tab', () {
+    test('unparseable fens degrade to an empty start position', () async {
+      // The save path always writes real fens, but the archive is the one
+      // thing here we do not control — an import or an older schema can carry
+      // something else, and a FenException thrown inside a ChangeNotifier
+      // notification surfaces as a blank tab.
+      final settings = await loadSettings();
+      final review = ReviewController(_StubDb());
+      final board = fakeReviewBoard(review, settings);
+      review.open({
+        'id': 'bad',
+        'moves': [
+          {
+            'ply': 1,
+            'san': 'e4',
+            'uci': 'e2e4',
+            'color': 'w',
+            'fenBefore': 'not-a-fen',
+            'fenAfter': 'also-not-a-fen',
+          }
+        ],
+      });
+
+      expect(board.moves, isEmpty);
+      expect(board.tree!.mainline, isEmpty);
+      expect(board.position.fen, Chess.initial.fen);
       board.dispose();
     });
   });
