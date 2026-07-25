@@ -311,7 +311,7 @@ void main() {
   });
 
   group('the played-vs-best board', () {
-    testWidgets('draws the played move in red and the engine\'s in blue',
+    testWidgets('draws the played move in red and the engine\'s in green',
         (tester) async {
       final game = await _withGrade(gradeRaw());
       await _pump(tester, game);
@@ -327,11 +327,11 @@ void main() {
       final best = arrows.firstWhere((a) => a.orig == Square.d2);
       expect(played.dest, Square.e4);
       expect(best.dest, Square.d4);
-      // #29's grammar: blue is the engine's move everywhere in this app, red
-      // is the move that costs you. Swapping them is invisible to any
-      // assertion that only counts arrows.
+      // #185's verdict pairing: red is the move that costs you, green is what
+      // the engine wanted. Swapping them is invisible to any assertion that
+      // only counts arrows.
       expect(played.color, kThreatArrowRed.withValues(alpha: 0.85));
-      expect(best.color, kEngineArrowBlue.withValues(alpha: 0.9));
+      expect(best.color, kBestMoveArrowGreen.withValues(alpha: 0.9));
 
       // and the legend that says which is which
       expect(find.text('Played e4'), findsOneWidget);
@@ -351,13 +351,42 @@ void main() {
           Side.black);
     });
 
-    testWidgets('the best move gets no board — there is nothing to compare',
+    testWidgets(
+        'the best move still gets a board — one blue arrow, not overlapping red/green',
         (tester) async {
-      final game = await _withGrade(
-          gradeRaw(isBest: true, label: 'best', evalPawns: 2.0));
+      // isBest means uci === bestUci in the real grader (insights.ts sets
+      // `isBest: idx === 0` from matching uci against the sorted lines), so
+      // the fixture keeps bestUci/bestSan in lockstep with uci/san rather
+      // than leaving them at gradeRaw's mismatched defaults (d2d4/d4) — a
+      // grade the brain could never actually produce.
+      final game = await _withGrade(gradeRaw(
+          isBest: true,
+          label: 'best',
+          evalPawns: 2.0,
+          pctBest: 100.0,
+          bestUci: 'e2e4',
+          bestSan: 'e4'));
       await _pump(tester, game);
-      expect(find.byType(StaticChessboard), findsNothing);
-      expect(find.textContaining('Best was'), findsNothing);
+
+      // #185: a played-best move used to get no board at all.
+      expect(find.byType(StaticChessboard), findsOneWidget);
+
+      final arrows = _shapes(tester).whereType<Arrow>().toList();
+      expect(arrows, hasLength(1),
+          reason: 'one fact — red played + green best would overlap on the '
+              'identical line anyway, just in the wrong colours');
+      final only = arrows.single;
+      expect(only.orig, Square.e2);
+      expect(only.dest, Square.e4);
+      // neither red (played) nor green (best) alone would be honest about a
+      // move that is both at once
+      expect(only.color, kEngineArrowBlue.withValues(alpha: 0.9));
+
+      expect(find.textContaining('Best was'), findsNothing,
+          reason: 'that sentence would read "Best was e4" under a card '
+              'already showing e4 was played — the board replaces it, not '
+              'the other way round');
+      expect(find.textContaining('also the best move'), findsOneWidget);
     });
 
     testWidgets('a promotion differing only in the piece keeps the sentence',

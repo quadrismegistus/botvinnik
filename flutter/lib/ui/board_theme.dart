@@ -175,3 +175,18 @@ Color threatArrowColor(double opacity) =>
 // wood tones and the engine arrows' green.
 const Color kControlOurs = Color(0xFF3FA06E);
 const Color kControlTheirs = Color(0xFFCA3431);
+
+/// The Insights mini-board's "this is what the engine wanted" arrow, when it
+/// differs from the move played (#185) — the ordinary red/green verdict
+/// pairing, rather than this app's usual engine-move blue. Blue stays
+/// reserved, on that one widget, for the case where the played move WAS the
+/// engine's move: a single arrow that is simultaneously "what you played" and
+/// "what wins" cannot honestly be painted either red (that names only the
+/// played half) or this green (that names only the best half).
+///
+/// Reuses [kControlOurs] rather than the class table's best-move green
+/// (0xFF81B64C, used for the label chip elsewhere): that hue is the one this
+/// file already tried and rejected for exactly this kind of overlay — see the
+/// comment above [kControlOurs] — because it loses separation against a warm
+/// board theme, which a user-chosen preset can still be here.
+const Color kBestMoveArrowGreen = kControlOurs;
