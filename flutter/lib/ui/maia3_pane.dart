@@ -41,7 +41,9 @@ class _Maia3PaneState extends State<Maia3Pane> {
     super.initState();
     // Opening the panel is the moment to pay the ~6MB download, so the first
     // position's curves come up in the pause between opening and looking.
-    if (Maia3Store.supported) context.read<Maia3Store>().warmUp();
+    // warmUp is a no-op both when unsupported and when a test has replaced the
+    // transport, so it needs no gate of its own here.
+    context.read<Maia3Store>().warmUp();
   }
 
   @override
@@ -49,7 +51,9 @@ class _Maia3PaneState extends State<Maia3Pane> {
     final game = context.watch<GameController>();
     final store = context.watch<Maia3Store>();
 
-    if (!Maia3Store.supported) {
+    // the store's instance gate, not the static one: a test that injected a
+    // transport HAS a working panel, whatever host it happens to run on
+    if (!store.usable) {
       return const _Note(
           'Maia needs more memory than this browser allows. '
           'The chart works in the desktop app and on desktop browsers.');
