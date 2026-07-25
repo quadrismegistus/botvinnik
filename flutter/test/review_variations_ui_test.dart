@@ -164,6 +164,76 @@ void main() {
     board.dispose();
   });
 
+  testWidgets('a variation OF a variation is printed and reachable',
+      (tester) async {
+    // It used to render nowhere — and since backing out of a branch forgets
+    // the way onward, it was then reachable by no control at all: a line the
+    // user had played, invisible and unreturnable.
+    final board = await _pump(tester);
+    board.gotoMainlinePly(1);
+    board.playUci('c7c5'); // 1...c5, a branch
+    board.playUci('g1f3'); // 2.Nf3 inside it
+    board.stepBack();
+    board.playUci('b1c3'); // 2.Nc3 — a branch OFF the branch
+    await tester.pump();
+
+    expect(board.tree!.current.san, 'Nc3', reason: 'the tree has it');
+    expect(find.text('Nc3'), findsOneWidget, reason: 'and now so does the list');
+    expect(find.text('Nf3'), findsWidgets);
+    board.dispose();
+  });
+
+  testWidgets('a record whose rows cannot be drawn does not break the tab',
+      (tester) async {
+    // The board degrades to an empty position, but the move list reads the RAW
+    // archive and cast it itself — so a malformed row threw inside a ListView
+    // itemBuilder and took the whole pane with it.
+    final settings = await loadSettings();
+    final review = ReviewController(_StubDb());
+    final board = fakeReviewBoard(review, settings);
+    review.open({
+      'id': 'bad',
+      'moves': [
+        {'ply': 1, 'san': 42, 'uci': 'e2e4', 'color': 'w'}, // san not a String
+      ],
+    });
+    await tester.pumpWidget(MultiProvider(
+      providers: [
+        Provider<ClassTable>.value(
+            value: ClassTable(_kClassRaw, labelOrder: const ['best'])),
+        ChangeNotifierProvider<SettingsStore>.value(value: settings),
+        ChangeNotifierProvider<ReviewController>.value(value: review),
+        ChangeNotifierProvider<ReviewBoardController>.value(value: board),
+      ],
+      child: const MaterialApp(home: Scaffold(body: ReviewBody())),
+    ));
+    await tester.pump();
+
+    expect(tester.takeException(), isNull);
+    board.dispose();
+  });
+
+  testWidgets('a moves field that is not a list does not strand the board',
+      (tester) async {
+    // BackupService.importJson validates only id and endedAt, and sync pulls
+    // funnel through it. This used to throw above the guard, leaving the id on
+    // the failed game while the board kept the previous one — permanently,
+    // since re-opening then matched the id and returned early.
+    final settings = await loadSettings();
+    final review = ReviewController(_StubDb());
+    final board = fakeReviewBoard(review, settings);
+
+    review.open({'id': 'ok', 'moves': _game()['moves']});
+    expect(board.tree!.mainline, hasLength(3), reason: 'a good game first');
+
+    review.open({'id': 'broken', 'moves': 'not a list'});
+    expect(board.tree!.mainline, isEmpty);
+    expect(board.position.fen, Chess.initial.fen,
+        reason: 'the previous game is not left on the board');
+    expect(board.moves, isEmpty);
+    board.dispose();
+  });
+
   for (final w in [320.0, 375.0, 800.0]) {
     testWidgets('no overflow at ${w.toInt()}px with variations present',
         (tester) async {

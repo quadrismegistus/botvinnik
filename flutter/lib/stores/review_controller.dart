@@ -67,9 +67,20 @@ class ReviewController extends ChangeNotifier {
     notifyListeners();
   }
 
-  List<Map<String, dynamic>> get moves =>
-      ((current?['moves'] as List?) ?? const [])
-          .map((m) => (m as Map).cast<String, dynamic>())
-          .toList();
+  /// The archived moves, as the move list and the win chart read them.
+  ///
+  /// Filtered, not cast: every consumer here does `m['san'] as String` on the
+  /// way to a row, so one malformed record turned the whole tab into an error
+  /// box — and unlike the board, which degrades to an empty position, a
+  /// ListView itemBuilder throwing takes the pane with it. A row that cannot
+  /// be drawn is dropped; a broken archive shows fewer moves rather than none.
+  List<Map<String, dynamic>> get moves {
+    final raw = current?['moves'];
+    if (raw is! List) return const [];
+    return [
+      for (final e in raw.whereType<Map>())
+        if (e['san'] is String && e['ply'] is num) e.cast<String, dynamic>()
+    ];
+  }
 
 }

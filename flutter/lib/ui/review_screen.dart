@@ -542,10 +542,19 @@ class ReviewBody extends StatelessWidget {
     );
   }
 
-  /// One variation, printed as its line of moves. Each is tappable, so a
-  /// branch you left is a branch you can walk back into rather than one you
-  /// have to replay by hand.
-  Widget _variationRow(ReviewNode branch, ReviewBoardController board) {
+  /// One variation, printed as its line of moves — and, indented under it,
+  /// any variation branching off THAT line.
+  ///
+  /// The recursion is not a flourish. Without it a second reply to a branch
+  /// move rendered nowhere, and because backing out of a branch deliberately
+  /// forgets the way onward, it was then reachable by no control at all: the
+  /// tree held a line the user had played and could neither see nor return to,
+  /// and the only way to be rid of it was discarding the whole outer branch.
+  ///
+  /// [depth] only sets the indent. Real games do not nest deeply, and a line
+  /// that did would wrap rather than overflow (the moves live in a [Wrap]).
+  Widget _variationRow(ReviewNode branch, ReviewBoardController board,
+      {int depth = 0}) {
     final line = <ReviewNode>[];
     for (ReviewNode? n = branch; n != null; n = n.mainChild) {
       line.add(n);
@@ -555,37 +564,50 @@ class ReviewBody extends StatelessWidget {
     // one. Without it, two branches replacing different moves render as two
     // identical indented rows in the same group, and nothing says which move
     // either departs from.
-    final n = branch.ply;
-    final label = branch.color == 'b' ? '${(n + 1) ~/ 2}...' : '${(n + 1) ~/ 2}.';
+    final ply = branch.ply;
+    final label =
+        branch.color == 'b' ? '${(ply + 1) ~/ 2}...' : '${(ply + 1) ~/ 2}.';
+    // Sub-branches of every move ON this line, each printed under it.
+    final nested = <ReviewNode>[
+      for (final n in line) ...n.variations,
+    ];
     return Padding(
-      padding: const EdgeInsets.only(left: 30, top: 1, bottom: 2),
-      child: Wrap(
-        crossAxisAlignment: WrapCrossAlignment.center,
+      padding: EdgeInsets.only(left: 30.0 + depth * 12, top: 1, bottom: 2),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Padding(
-            padding: const EdgeInsets.only(right: 4),
-            child: Text(label,
-                style: const TextStyle(color: Colors.white38, fontSize: 11)),
-          ),
-          for (final n in line)
-            InkWell(
-              onTap: () => board.gotoNode(n),
-              child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                decoration: identical(n, current)
-                    ? BoxDecoration(
-                        color: const Color(0xFF3a3733),
-                        borderRadius: BorderRadius.circular(4),
-                      )
-                    : null,
-                child: Text(
-                  n.san ?? '',
-                  style: const TextStyle(
-                      fontSize: 12, color: Color(0xFFE8B44A)),
-                ),
+          Wrap(
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              Padding(
+                padding: const EdgeInsets.only(right: 4),
+                child: Text(label,
+                    style:
+                        const TextStyle(color: Colors.white38, fontSize: 11)),
               ),
-            ),
+              for (final n in line)
+                InkWell(
+                  onTap: () => board.gotoNode(n),
+                  child: Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                    decoration: identical(n, current)
+                        ? BoxDecoration(
+                            color: const Color(0xFF3a3733),
+                            borderRadius: BorderRadius.circular(4),
+                          )
+                        : null,
+                    child: Text(
+                      n.san ?? '',
+                      style: const TextStyle(
+                          fontSize: 12, color: Color(0xFFE8B44A)),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          for (final b in nested)
+            _variationRow(b, board, depth: depth + 1),
         ],
       ),
     );

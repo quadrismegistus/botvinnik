@@ -620,12 +620,21 @@ class GameController extends ChangeNotifier {
       // opacity sliders notify on every drag frame, and re-probing there
       // queued dozens of engine searches ahead of the position's analysis.
       final overlaySig = '${_settings.showThreats}|${_settings.blind}';
-      // `_tree != null` for the review board: without a game open there is
-      // nothing to probe, and a threat probe OUTRANKS analysis — so toggling
-      // overlays on the Play tab preempted the live board's own search on
-      // behalf of a review board nobody had opened.
-      if (overlaySig != _lastOverlaySig && (!_review || _tree != null)) {
+      if (overlaySig != _lastOverlaySig) {
+        // Recorded BEFORE the skip, not inside it. Gating the bookkeeping too
+        // let the remembered signature go stale on a review board with no game
+        // open: toggle threats off while it is closed and the skip leaves the
+        // old signature, so toggling them back ON later compares equal and
+        // never probes — the arrow stays missing until the cursor moves.
         _lastOverlaySig = overlaySig;
+        // `_tree != null` for the review board: without a game open there is
+        // nothing to probe, and a threat probe OUTRANKS analysis — so toggling
+        // overlays on the Play tab preempted the live board's own search on
+        // behalf of a review board nobody had opened.
+        if (_review && _tree == null) {
+          notifyListeners();
+          return;
+        }
         _probeThreat();
         // Toggling blind changes which nodes the tree lays out (#147). The
         // model only recomputes y on ingest, and analysis stops at depth 22 /
@@ -1856,9 +1865,16 @@ class GameController extends ChangeNotifier {
     _controlCache.clear();
     _threat = null;
     _browsePly = null;
+    // `whereType`, not a cast: `stored['moves']` being something other than a
+    // list of maps is the one shape the field-by-field guard below cannot see,
+    // because the cast that reaches it throws first — and that throw lands
+    // inside a ChangeNotifier notification, which swallows it and leaves
+    // _reviewId on the failed game while the board still shows the previous
+    // one. Re-opening the failed game is then a no-op forever.
+    final movesField = stored['moves'];
     final raw = [
-      for (final e in (stored['moves'] as List?) ?? const [])
-        (e as Map).cast<String, dynamic>()
+      if (movesField is List)
+        for (final e in movesField.whereType<Map>()) e.cast<String, dynamic>()
     ];
     // Checked BEFORE anything is read out, not after — the guard used to sit
     // below the casts it was there to protect, so a record missing a field
