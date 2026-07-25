@@ -351,6 +351,18 @@ class GameController extends ChangeNotifier {
   /// Blind off does not prove the player LOOKED — they may have closed every
   /// panel. It proves the engine was available, which is the most that can
   /// honestly be claimed, and the conservative direction to be wrong in.
+  /// Deliberately [blind], the SETTING, and not [hidingHelp]. The question
+  /// here is whether help was AVAILABLE to you while you played — which is
+  /// what decides whether the game counts for your rating — not whether it
+  /// happened to be on screen at some instant.
+  ///
+  /// Honestly: at the ONLY call site the two are equivalent, so no test can
+  /// tell them apart. [playerMove] returns early on `gameOver`, so the
+  /// `!gameOver` clause is always true where this is read, and the call site
+  /// already guards on `botEnabled` — leaving `!blind` either way. This is
+  /// therefore about keeping two different questions from collapsing into one
+  /// name, not about a live difference. It becomes a real one the moment
+  /// anything reads `_assisted` from somewhere a finished game can reach.
   bool get _assisted => !blind;
 
   GameController(this._arbiter, this._bot, this._grading, this._settings,
@@ -1681,17 +1693,49 @@ class GameController extends ChangeNotifier {
   /// snapshot) — feeds the Lines pane as the search deepens.
   List<EngineMove> get currentLines => _partials[position.fen] ?? const [];
 
-  /// Never in review: blind mode withholds move help while a game is still
-  /// being played, and this game is over. It is read bare (not `blind &&
-  /// botEnabled`) by [engineArrowUcis] and [threat], so leaving it to the
-  /// live setting would silently strip the arrows and threat glyphs off a
-  /// review of a game that has nothing left to spoil.
-  bool get blind => !_review && _settings.blind;
+  /// The blind SETTING — is the switch on. Not the same question as
+  /// [hidingHelp], and the difference is the whole of #148.
+  ///
+  /// Read this only to render or toggle the switch itself, and in
+  /// [_assisted], where the question really is about the setting: whether
+  /// help was AVAILABLE while you were playing is what decides if the game
+  /// counts for your rating, and that must not become "was it on screen at
+  /// this instant".
+  bool get blind => _settings.blind;
+
+  /// Is this board withholding forward-looking help right now — engine
+  /// arrows, the threat, the win rings, square tinting, the Lines/Tree/Book
+  /// panes. THE one predicate; every surface asks this rather than deriving
+  /// its own (#148).
+  ///
+  /// It used to be derived in six places with three different answers: the
+  /// Book and Lines panes said `blind && botEnabled && !gameOver`, the tree
+  /// pane said `blind && botEnabled`, and the board overlays said `blind`
+  /// alone. So on the ANALYSIS board — both sides yours, no opponent, nothing
+  /// to hide from — turning blind on blanked the board while the Lines pane
+  /// beside it went on listing the engine's moves with evals. The app both
+  /// hid and showed the same thing, a few hundred pixels apart, and the tree
+  /// pane's own comment stated the principle the overlays broke.
+  ///
+  /// `botEnabled`: there is no opponent to keep a secret from when both sides
+  /// are you. It is also what stopped a blind game on the Play tab from
+  /// stripping the arrows off an unrelated archived game in Review, which the
+  /// review board previously had to force `blind` false to avoid.
+  ///
+  /// `!gameOver`: the SETTING stays sticky — the New Game sheet relies on
+  /// that, and flipping switches mid-recap would be jarring — but the EFFECT
+  /// lapses the moment the game ends, because there is nothing left to
+  /// protect and reading what just happened is the point of the recap. That
+  /// also removes the trap #212's rematch had to defend against: the reason
+  /// anyone turned blind off after a rated game was to see the analysis, and
+  /// doing so quietly made the next game unratable. Now nobody has to touch
+  /// the switch.
+  bool get hidingHelp => blind && botEnabled && !gameOver;
 
   /// What the panes may show: nothing forward-looking in blind mode during
   /// a live bot game (web: visibleLines).
   List<EngineMove> get visibleLines =>
-      blind && botEnabled ? const [] : currentLines;
+      hidingHelp ? const [] : currentLines;
 
   // ---- overlays: opponent threat (null-move probe) + square control ----
 
@@ -1700,14 +1744,14 @@ class GameController extends ChangeNotifier {
 
   /// Top engine moves for the board's green arrows (web: top-3, fading).
   List<String> get engineArrowUcis {
-    if (!_settings.showArrows || blind) return const [];
+    if (!_settings.showArrows || hidingHelp) return const [];
     return [for (final l in currentLines.take(_settings.arrowCount)) l.uci];
   }
 
   /// The live threat, when it is fresh and wanted — the move the opponent
   /// would play with a free move, and what it nets them.
   Map<String, dynamic>? get threat {
-    if (!_settings.showThreats || blind) return null;
+    if (!_settings.showThreats || hidingHelp) return null;
     final t = _threat;
     return t != null && t['fen'] == position.fen ? t : null;
   }
@@ -1753,7 +1797,7 @@ class GameController extends ChangeNotifier {
   /// the threat (attacked after ply 1, falls in the window, no even trades).
   /// Costs no engine time: the line is the live analysis already streaming.
   Map<String, dynamic>? get tacticalWin {
-    if (!_settings.showThreats || blind) return null;
+    if (!_settings.showThreats || hidingHelp) return null;
     // in a bot game, "your line" only exists on YOUR turn — during the bot's
     // think the streamed lines are ITS tactics, and green rings for them
     // would invert the overlay's meaning (your own king ringed "win")
@@ -1782,7 +1826,7 @@ class GameController extends ChangeNotifier {
 
   /// Square-control tint for the current position, when wanted.
   Map<String, ControlCell>? get controlMap {
-    if (!_settings.showControl || blind) return null;
+    if (!_settings.showControl || hidingHelp) return null;
     final chess = _chess;
     if (chess == null) return null;
     return _controlCache.putIfAbsent(
@@ -1794,7 +1838,7 @@ class GameController extends ChangeNotifier {
 
   Future<void> _probeThreat() async {
     final chess = _chess;
-    if (chess == null || !_settings.showThreats || blind) return;
+    if (chess == null || !_settings.showThreats || hidingHelp) return;
     final fen = position.fen;
     if (_probeInFlightFen == fen) return;
     final probe = chess.threatProbeFen(fen);
@@ -2208,7 +2252,7 @@ class GameController extends ChangeNotifier {
       // node's score-derived y would otherwise displace a visible one and leak
       // the eval through its position (#147). Same predicate the pane paints
       // with — blind only bites in a real bot game.
-      blind: blind && botEnabled,
+      blind: hidingHelp,
     );
   }
 

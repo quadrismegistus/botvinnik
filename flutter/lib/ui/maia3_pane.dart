@@ -58,7 +58,7 @@ class _Maia3PaneState extends State<Maia3Pane> {
           'Maia needs more memory than this browser allows. '
           'The chart works in the desktop app and on desktop browsers.');
     }
-    if (game.blind && game.botEnabled && !game.gameOver) {
+    if (game.hidingHelp) {
       return const _Note('Blind mode — no move help until the game ends.');
     }
 

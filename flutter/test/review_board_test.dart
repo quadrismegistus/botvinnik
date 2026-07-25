@@ -197,15 +197,20 @@ void main() {
     });
 
     test('blind mode never withholds anything from a finished game', () async {
-      // engineArrowUcis and `threat` read `blind` BARE, not `blind &&
-      // botEnabled` — so a live blind game would strip the arrows and the
-      // threat glyphs off an unrelated archived one.
+      // A blind game in progress on the Play tab must not strip the arrows
+      // and threat glyphs off an unrelated ARCHIVED game. The review board
+      // used to force `blind` false to get this; since #148 it falls out of
+      // the one predicate instead — `hidingHelp` carries `botEnabled`, and a
+      // finished game has no opponent to keep a secret from.
       final settings = await loadSettings(black: kTestBotId);
       settings.blind = true;
       final review = ReviewController(_StubDb());
       final board = fakeReviewBoard(review, settings);
       review.open(_game());
-      expect(board.blind, isFalse);
+      expect(board.blind, isTrue, reason: 'the SETTING is shared and still on');
+      expect(board.hidingHelp, isFalse, reason: 'but nothing is withheld here');
+      expect(board.engineArrowUcis, isEmpty,
+          reason: 'empty for want of an analysis, not because blind hid it');
       board.dispose();
     });
 
