@@ -167,6 +167,7 @@ async function main() {
 	console.log(`engine: ${ENGINE} ×${WORKERS} workers, ${NODES} nodes/position\n`);
 
 	let gamesDone = 0;
+	let skipped = 0; // games the per-game try/catch below caught, not an ordinary refusal
 	const t0 = Date.now();
 
 	for (const monthUrl of months) {
@@ -183,9 +184,24 @@ async function main() {
 		for (const cc of ccGames) {
 			if (gamesDone >= MAX_GAMES) break;
 			if (gameIds.has(`chesscom-${cc.uuid}`)) continue;
-			const lichessShaped = await ccGameToAnalysed(cc, evalPosition);
-			if (!lichessShaped) continue;
-			const mapped = analysedGameToStored(lichessShaped, username!, 'chesscom');
+
+			// ccGameToAnalysed guards the shape drift it knows about (a missing
+			// white/black/end_time) and returns null for it, same as any other
+			// refusal below. This try/catch is the backstop for what it did NOT
+			// anticipate — an engine crash mid-analysis, some other drift — mirroring
+			// chesscom_import_api.dart's per-game try/catch (#176): this walk makes
+			// one call per game with no other guard, and months checkpoint on
+			// completion, so an uncaught throw here wouldn't just lose one game —
+			// it would wedge this month and every earlier month behind it, on every
+			// re-run, forever.
+			let mapped: ReturnType<typeof analysedGameToStored> = null;
+			try {
+				const lichessShaped = await ccGameToAnalysed(cc, evalPosition);
+				mapped = lichessShaped ? analysedGameToStored(lichessShaped, username!, 'chesscom') : null;
+			} catch (e) {
+				console.warn(`  skipping ${cc.uuid}: ${e instanceof Error ? e.message : String(e)}`);
+				skipped++;
+			}
 			if (!mapped) continue;
 
 			const stored = mapped.stored;
@@ -225,7 +241,8 @@ async function main() {
 	writeBackup(games, practice);
 	console.log(
 		`\ndone: ${games.length} games, ${practice.length} practice items ` +
-			`(${searched} positions searched, ${cacheHits} dedupe hits = ${Math.round((cacheHits / Math.max(1, searched + cacheHits)) * 100)}%)`
+			`(${searched} positions searched, ${cacheHits} dedupe hits = ${Math.round((cacheHits / Math.max(1, searched + cacheHits)) * 100)}%)` +
+			(skipped ? `, ${skipped} game(s) skipped on error` : '')
 	);
 	console.log(`wrote ${OUT} — use "Import data" in the app to merge it in.`);
 	engines.forEach((e) => e.quit());
