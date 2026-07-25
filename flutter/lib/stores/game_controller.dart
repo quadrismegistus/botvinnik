@@ -894,7 +894,18 @@ class GameController extends ChangeNotifier {
   /// as [gameOver]: analysis (both sides human) has nothing for the sides
   /// swap to do — swapping two nulls is a no-op — and "rematch" promises a
   /// continuation against SOMEONE, which that mode never had.
-  bool get canRematch => !_review && gameOver && botEnabled;
+  ///
+  /// AND the finished game has to be finished with. [newGame] bumps the
+  /// generation, which makes an in-flight [_gradePipeline] return before it
+  /// writes the backfilled label and before the practice-collect guard — so a
+  /// fast tap here threw away the grade and the puzzle for the very move that
+  /// ended the game, which is the one most worth keeping. That race has always
+  /// existed (any New Game does it), but Rematch is the first one-tap path
+  /// sitting directly under the result, which turns it from rare into normal.
+  /// The wait is the length of one grade, and [_saveGame] is already waiting
+  /// on the same futures.
+  bool get canRematch =>
+      !_review && gameOver && botEnabled && _pendingGrades.isEmpty;
 
   /// Undo the last player move (and the bot reply on top of it);
   /// on the analysis board, one ply at a time.
@@ -1208,7 +1219,13 @@ class GameController extends ChangeNotifier {
     _probeThreat();
     late final Future<void> pipeline;
     pipeline = _gradePipeline(record, _gen)
-      ..whenComplete(() => _pendingGrades.remove(pipeline));
+      ..whenComplete(() {
+        _pendingGrades.remove(pipeline);
+        // So [canRematch] can go true again: the recap's button is disabled
+        // while a grade is in flight, and nothing else notifies when the last
+        // one drains.
+        notifyListeners();
+      });
     _pendingGrades.add(pipeline);
     if (gameOver) {
       // The ticker keeps counting otherwise, and eventually flags — rewriting a

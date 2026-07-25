@@ -124,6 +124,45 @@ void main() {
     });
   });
 
+  group('canRematch waits for the finished game to be finalised', () {
+    testWidgets('the button is off while a grade is still in flight',
+        (tester) async {
+      // newGame bumps the generation, which makes an in-flight _gradePipeline
+      // return before the backfilled label and before the practice-collect
+      // guard — so a fast tap threw away the grade AND the puzzle for the move
+      // that ended the game. Rematch is the first one-tap path sitting under
+      // the result, which is what turns that race from rare into normal.
+      final settings = await loadSettings();
+      // An analysis that never resolves: the pipeline for the mating move
+      // stays pending, exactly as a real one does for a beat after the game.
+      final arbiter = FakeArbiter(searchLines: kFakeLines);
+      final game = GameController(arbiter,
+          const FakeBot({kSquareBotId: squareBotPersona}), FakeGrading(), settings);
+      settings.setPlayers(white: kSquareBotId, black: null);
+      game.newGame(fromFen: _mateIn1BlackMates);
+
+      game.playUci('a8a1'); // Ra1#
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(game.gameOver, isTrue, reason: 'precondition');
+      expect(game.canRematch, isFalse,
+          reason: 'the game is over but not yet finished with');
+
+      await _windDown(tester, game, settings);
+    });
+
+    testWidgets('and on once the grades have drained', (tester) async {
+      final (g, settings, _) = await _game();
+      g.playUci('a8a1');
+      await tester.pump(const Duration(milliseconds: 200));
+
+      expect(g.canRematch, isTrue,
+          reason: 'nothing left in flight — the recap is done with the game');
+
+      await _windDown(tester, g, settings);
+    });
+  });
+
   group('rematch()', () {
     testWidgets(
         'swaps the sides and starts one fresh game, not a double reset (#133)',
