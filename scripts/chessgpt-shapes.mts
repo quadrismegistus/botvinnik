@@ -136,9 +136,10 @@ async function main() {
 		await eng.until((l) => l === 'readyok');
 
 		const labels: Record<string, number> = {};
-		let graded = 0, plies = 0, decisive = 0, drawn = 0;
+		let graded = 0, plies = 0, decisive = 0, drawn = 0, refused = 0;
 
 		for (let g = 0; g < GAMES; g++) {
+			const refusedBefore = refused;
 			const chess = new Chess();
 			for (const san of OPENINGS[g % OPENINGS.length].split(' ')) chess.move(san);
 			const modelIsWhite = g % 2 === 0;
@@ -149,11 +150,20 @@ async function main() {
 				const fenBefore = chess.fen();
 				let uci: string | null;
 				if (mine) {
-					eng.send(`position fen ${fenBefore}`);
+					// `startpos moves`, NOT a bare FEN. Chess-GPT's input is
+					// MOVETEXT, so from a position with no history the shim has to
+					// search backwards for a path to the start — and from this
+					// seeded 4-ply opening, playing Black, its first position is 5
+					// plies deep and that search is one ply too shallow. It declined,
+					// the loop broke at ply 0, and the tally below scored the game a
+					// DRAW. Every ChessGPT figure this script produced was half that
+					// artefact and half chess.
+					eng.send(`position startpos moves ${
+						chess.history({ verbose: true }).map((m) => m.lan).join(' ')}`);
 					eng.send('go');
 					const best = await eng.until((l) => l.startsWith('bestmove'));
 					uci = best.split(' ')[1];
-					if (uci === '0000') break;
+					if (uci === '0000') { refused++; break; }
 				} else {
 					const lines = await analyse(sf, fenBefore);
 					uci = shapedBotMove(lines, 1200, undefined, `${name}:${g}`, fenBefore);
@@ -184,16 +194,23 @@ async function main() {
 				try { chess.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci[4] }); } catch { break; }
 				plies++;
 			}
-			if (chess.isCheckmate()) decisive++; else drawn++;
+			// A refusal is not a result. Counting one as a draw is what turned a
+			// real draw rate into the ~60% reported here: the model never got to
+			// play, so the game says nothing about the model. Excluded, not
+			// redistributed — decisive + drawn no longer sums to GAMES, and that
+			// gap is the number worth watching.
+			if (refused > refusedBefore) { /* excluded entirely */ }
+			else if (chess.isCheckmate()) decisive++;
+			else drawn++;
 			out[name] = labels;
-			meta[name] = { graded, plies, decisive, drawn };
+			meta[name] = { graded, plies, decisive, drawn, refused };
 			writeFileSync(OUT, JSON.stringify(
 				{ ranAt: new Date().toISOString(), games: GAMES, depth: DEPTH, labels: out, meta }, null, 2));
-			console.log(`${name}: game ${g + 1}/${GAMES}, ${graded} graded, ${decisive} decisive`);
+			console.log(`${name}: game ${g + 1}/${GAMES}, ${graded} graded, ${decisive} decisive, ${refused} refused`);
 		}
 		eng.quit();
 		out[name] = labels;
-		meta[name] = { graded, plies, decisive, drawn };
+		meta[name] = { graded, plies, decisive, drawn, refused };
 		process.stdout.write('\n');
 	}
 	sf.quit();

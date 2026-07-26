@@ -267,7 +267,11 @@ class Engine {
 				this.start();
 				r?.({ moves: [], bestmove: '', policy: new Map() });
 			}, SEARCH_TIMEOUT_MS);
-			const position = moves
+			// `moves?.length`, not `moves`: an empty array is truthy, and would
+			// emit a trailing-space `position startpos moves ` — a malformed
+			// command for the one case (an unseeded game at ply 0) where the
+			// bare FEN is already exact.
+			const position = moves?.length
 				? `position startpos moves ${moves.join(' ')}`
 				: `position fen ${fen}`;
 			this.proc.stdin.write(`${opts}\n${position}\n${go}\n`);

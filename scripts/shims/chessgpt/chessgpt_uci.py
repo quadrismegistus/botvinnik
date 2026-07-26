@@ -425,6 +425,20 @@ class ChessGPT:
                 # the next `position fen` would extend a history that never
                 # led to it, and answer from the wrong board.
                 self._history = []
+                # _known too. It accumulates MID-GAME positions of the game
+                # just played, and a new game reaching one of them by any
+                # route adopts that whole history — right board, wrong (and
+                # arbitrarily long) movetext, for a model whose input is the
+                # movetext.
+                #
+                # The opening cache deliberately survives: it maps a position
+                # to SOME legal path from the start, and across games that is
+                # a cache rather than a leak. Note what it cannot do, though —
+                # a bare FEN carries no move ORDER, so a transposition is
+                # answered with whichever order was cached first. That is
+                # irreducible on this path, and the reason callers holding the
+                # move list should send `position startpos moves ...`.
+                self._known.clear()
             elif cmd == "position":
                 self._cmd_position(parts)
             elif cmd == "go":
