@@ -67,6 +67,17 @@ MAX_SAN_CHARS = 10
 STEP_PLIES = 2
 OPENING_PLIES = 4
 
+# Why 4 and not more: the search is breadth-first over legal moves, so each
+# extra ply multiplies the frontier by ~30. Depth 5 is minutes and gigabytes,
+# which is not a search, it is a hang with extra steps.
+#
+# The consequence is real and worth naming, because it cost this project a
+# published set of numbers: a caller that hands over a bare FEN more than 4
+# plies from the start, with no path through any position already seen, gets
+# `0000`. It is not a chess judgement — the model was never asked. Callers
+# that HAVE the move list should send `position startpos moves ...`, which is
+# exact and free; both of this repo's harnesses now do.
+
 
 class Block(nn.Module):
     """One nanoGPT transformer block, bias-free (the checkpoints set bias=False)."""
@@ -351,6 +362,13 @@ class ChessGPT:
         cached = self._opening_cache.get(target)
         if cached is None:
             found = self._find_path(chess.Board(), target, OPENING_PLIES)
+            if found is None:
+                # Loud, because the silent version of this was scored as a
+                # draw by two harnesses for the whole of the ChessGPT work.
+                print("info string cannot reconstruct movetext for this "
+                      "position (>%d plies from the start, no known path); "
+                      "send `position startpos moves ...` instead"
+                      % OPENING_PLIES, flush=True)
             if found is not None:
                 cached = [m.uci() for m in found]
                 self._opening_cache[target] = cached
@@ -401,6 +419,12 @@ class ChessGPT:
                 self.board = chess.Board()
                 self.pgn = ";"
                 self.ready = True
+                # _history is the movetext we are standing on, and it is kept
+                # separately from the board (see its definition). Leaving it
+                # set here left the NEW game standing on the OLD game's moves:
+                # the next `position fen` would extend a history that never
+                # led to it, and answer from the wrong board.
+                self._history = []
             elif cmd == "position":
                 self._cmd_position(parts)
             elif cmd == "go":

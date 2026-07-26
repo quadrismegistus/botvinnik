@@ -238,7 +238,16 @@ class Engine {
 	// here — the caller sends the reset block before the next mover's options.
 	// A watchdog respawns the engine and resolves empty if bestmove never
 	// arrives, so a flaky engine can't hang a worker forever.
-	search(fen: string, options: [string, string][], go: string): Promise<SearchOut> {
+	// `moves`, when given, sends the standard `position startpos moves ...`
+	// form instead of a bare FEN. Every engine understands both; the difference
+	// is that the second carries the game's HISTORY, which an engine that
+	// reasons about the sequence rather than the position cannot infer. Chess-GPT
+	// is one — its input is movetext, so from a bare FEN it must reconstruct a
+	// path back to the start, and from the harness's seeded 4-ply opening the
+	// search is one ply too shallow to find one. It then declines the move, and
+	// the game was scored as a DRAW. Half of every ChessGPT run measured that
+	// and not the model. See scripts/shims/chessgpt/chessgpt_uci.py.
+	search(fen: string, options: [string, string][], go: string, moves?: string[]): Promise<SearchOut> {
 		this.busy = true;
 		this.byMultipv = new Map();
 		this.policy = new Map();
@@ -258,7 +267,10 @@ class Engine {
 				this.start();
 				r?.({ moves: [], bestmove: '', policy: new Map() });
 			}, SEARCH_TIMEOUT_MS);
-			this.proc.stdin.write(`${opts}\nposition fen ${fen}\n${go}\n`);
+			const position = moves
+				? `position startpos moves ${moves.join(' ')}`
+				: `position fen ${fen}`;
+			this.proc.stdin.write(`${opts}\n${position}\n${go}\n`);
 		});
 	}
 
@@ -336,10 +348,12 @@ async function shapedMove(
 // samples from lc0's VerboseMoveStats policy priors instead — weighted random
 // over the imitation net's move distribution, which is how the dala lichess
 // bots play (argmax would inflate an imitation net far above its bracket).
-async function extMove(engine: Engine, id: string, fen: string): Promise<string | null> {
+async function extMove(
+	engine: Engine, id: string, fen: string, moves?: string[]
+): Promise<string | null> {
 	const spec = EXT[id];
 	const options = Object.entries(spec.options ?? {}) as [string, string][];
-	const res = await engine.search(fen, options, spec.go ?? 'go movetime 400');
+	const res = await engine.search(fen, options, spec.go ?? 'go movetime 400', moves);
 	if (spec.select === 'policy' && res.policy.size > 0) {
 		const entries = [...res.policy.entries()];
 		const total = entries.reduce((a, [, p]) => a + p, 0);
@@ -394,7 +408,8 @@ async function playGame(
 				: isShapedId(mover)
 					? await shapedMove(engine, chess.fen(), shapedEloOf(mover), `${gameSeed}:${mover}`, chess.history({ verbose: true }).at(-1)?.to)
 					: isExtId(mover)
-						? await extMove(ext(mover), mover, chess.fen())
+						? await extMove(ext(mover), mover, chess.fen(),
+								chess.history({ verbose: true }).map((m) => m.lan))
 						: await botMove(engine, chess.fen(), mover);
 		if (!uci) break;
 		try {

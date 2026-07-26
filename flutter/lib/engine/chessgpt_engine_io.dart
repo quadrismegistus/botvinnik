@@ -8,15 +8,22 @@
 // mistakes are all the same engine's mistakes with the calculation cut short.
 // This one's are its own.
 //
-// Measured in the gym at ~1250 on our ladder, and it draws about six games in
-// ten: it finds the engine's move roughly 40% of the time and then cannot
-// convert. That is the persona, not a defect to tune out — see its blurb.
+// NO STRENGTH FIGURE HERE ON PURPOSE. This file carried "~1250 on our ladder,
+// draws about six games in ten" and both were artefacts of the harness, not
+// measurements of the model. Every run seeded a 4-ply opening and handed the
+// engine a bare FEN; playing Black, the model's first position was 5 plies
+// deep, past what the UCI shim's bounded backward search could reconstruct,
+// so it declined the move — and a declined move was tallied as a DRAW. Half
+// of every run was that, not chess. The harnesses now send `position startpos
+// moves ...`, and a figure goes here when one has been measured through them.
 //
-// THE INPUT IS MOVETEXT, NOT A POSITION. There is no way to hand this model a
-// FEN: a position with no history is off-distribution and it produces noise.
-// That costs nothing here, because [GameController] holds the move list
-// anyway, but it does mean this bot cannot play from an arbitrary FEN — see
-// [movesToPgn] and the null return in [pickMove].
+// THE INPUT IS MOVETEXT, NOT A POSITION — which is the root of the artefact
+// above, and worth stating plainly because it does not look like a constraint
+// until it silently becomes one. There is no way to hand this model a FEN: a
+// position with no history is off-distribution and it produces noise. That
+// costs nothing HERE, because [GameController] holds the move list anyway and
+// [movesToPgn] takes it directly. It costs a great deal at any boundary that
+// speaks FEN, which is most of them.
 
 import 'dart:async';
 import 'dart:math';

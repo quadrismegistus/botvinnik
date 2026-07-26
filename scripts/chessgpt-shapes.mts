@@ -17,7 +17,8 @@
 // Grading is the app's own pipeline (gradeMove → backfillGrade), so the labels
 // mean what they mean everywhere else in the app.
 
-import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import { spawn, type ChildProcessByStdio } from 'node:child_process';
+import type { Readable, Writable } from 'node:stream';
 import { writeFileSync } from 'node:fs';
 import { Chess } from 'chess.js';
 import { gradeMove, backfillGrade } from '../brain/engine/insights';
@@ -47,7 +48,9 @@ const OPENINGS = [
 
 /** A line-buffered UCI process. */
 class Uci {
-	private proc: ChildProcessWithoutNullStreams;
+	// stderr is `ignore`, so this is NOT ChildProcessWithoutNullStreams — that
+	// type promises a Readable stderr and tsc rejects the assignment.
+	private proc: ChildProcessByStdio<Writable, Readable, null>;
 	private buf = '';
 	private waiters: { pred: (l: string) => boolean; res: (l: string) => void }[] = [];
 	lines: EngineMove[] = [];
@@ -207,7 +210,7 @@ async function main() {
 		console.log([lab.padEnd(12), ...row].join(''));
 	}
 	console.log('\n=== games ===');
-	for (const [k, m] of Object.entries(meta)) console.log(`  ${k.padEnd(10)} graded ${m.graded}  decisive ${m.decisive}  drawn ${m.drawn}`);
+	for (const [k, m] of Object.entries(meta)) console.log(`  ${k.padEnd(10)} graded ${m.graded}  decisive ${m.decisive}  drawn ${m.drawn}  refused ${m.refused}`);
 	console.log(`\nwrote ${OUT}`);
 }
 
