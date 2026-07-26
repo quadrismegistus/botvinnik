@@ -11,6 +11,7 @@
 
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 
@@ -19,19 +20,36 @@ class ChessGptWeights {
 
   static bool get supported => Platform.isMacOS || Platform.isIOS;
 
-  /// Where the published net lives.
+  /// Where the published net lives: a botvinnik-engines release, as the UCI
+  /// binaries are. Upstream is MIT (Karvonen set the licence on the model card
+  /// on request, #235); attribution and the terms travel with the release, in
+  /// LICENSE-chessgpt.
+  static const String url =
+      'https://github.com/quadrismegistus/botvinnik-engines/releases/download/'
+      'chessgpt-lichess-8layers-int8/chessgpt-lichess-8layers-int8.onnx';
+
+  /// Lowercase hex SHA-256 of the asset at [url], checked before the bytes are
+  /// kept or returned.
   ///
-  /// TODO(#chessgpt): publish scripts/shims/chessgpt/onnx/*.int8.onnx to the
-  /// botvinnik-engines releases, as the UCI engines are, and point this at it.
-  /// Until then [load] returns null and the roster hides the persona — which
-  /// is the honest failure: a bot that cannot fetch its brain should not be
-  /// offered, not offered and then stall.
-  static const String url = '';
+  /// The engines repo's contract is that every hosted artefact is pinned and a
+  /// mismatch is refused (see EngineCatalogEntry.sha256, which does the same
+  /// for the binaries). This is a 26MB blob fetched over the network and fed
+  /// straight to a native runtime, so "probably fine" is not the standard: a
+  /// truncated download or a substituted asset should fail loudly at the
+  /// fetch, not surface later as a model that plays strange chess.
+  static const String sha256Hex =
+      'dbb0ca62daf05f15363270872337a82265eec3f5c329151d026de4c9f0c54d2b';
 
   /// The lichess-trained net. Structured as a named variant from the start
-  /// because the family has siblings (Stockfish-trained, mixed, >1800-only)
-  /// that the gym measured at the SAME strength — so they are a curiosity to
-  /// add later, not a strength ladder like Maia's bands.
+  /// because the family has siblings (Stockfish-trained, mixed, >1800-only).
+  ///
+  /// They are NOT a strength ladder like Maia's bands — they differ by
+  /// training corpus, not by dialled strength. An earlier note here said the
+  /// gym had measured them at identical strength; that measurement was an
+  /// artefact and is withdrawn (#235). What a clean run does show is that the
+  /// human-trained net makes markedly fewer mistakes than the
+  /// Stockfish-trained one, so the siblings are a genuine curiosity rather
+  /// than three names for one thing.
   static const String variant = 'lichess-8L';
 
   static Future<File> _file() async {
@@ -48,13 +66,21 @@ class ChessGptWeights {
     if (!supported || url.isEmpty) return null;
     final file = await _file();
     try {
-      if (await file.exists()) return await file.readAsBytes();
+      if (await file.exists()) {
+        final cached = await file.readAsBytes();
+        // A cached file is re-verified, not trusted for having arrived once:
+        // it may have been written by an older build, truncated by a full
+        // disk, or touched on disk since.
+        if (_matches(cached)) return cached;
+        await file.delete();
+      }
       await file.parent.create(recursive: true);
       final client = HttpClient();
       try {
         final res = await client.getUrl(Uri.parse(url)).then((r) => r.close());
         if (res.statusCode != 200) return null;
         final bytes = await consolidateHttpClientResponseBytes(res);
+        if (!_matches(bytes)) return null;
         // Written via a temp file and renamed: a half-downloaded net that
         // looks cached is worse than no net, because it fails at session
         // build with nothing to say why.
@@ -69,6 +95,9 @@ class ChessGptWeights {
       return null;
     }
   }
+
+  static bool _matches(Uint8List bytes) =>
+      sha256.convert(bytes).toString() == sha256Hex;
 
   static Future<void> discard() async {
     final f = await _file();
