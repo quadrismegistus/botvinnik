@@ -406,7 +406,23 @@ class ChessGPT:
             elif cmd == "go":
                 t0 = time.time()
                 mv = self.best_move()
-                print("info string %.0fms" % ((time.time() - t0) * 1000), flush=True)
+                ms = int((time.time() - t0) * 1000)
+                print("info string %dms" % ms, flush=True)
+                if mv != "0000":
+                    # A real `info ... pv <move>` line, and it is not decoration:
+                    # botvinnik reads a custom engine's move from the PARSED info
+                    # lines (uci_protocol.dart wants `info ` and ` pv `), not from
+                    # bestmove — custom_engine_runner_io does
+                    # `lines.isEmpty ? null : lines.first.uci`. Emitting only
+                    # bestmove meant every search came back empty and Stockfish
+                    # stood in for every move, while every test that read
+                    # bestmove directly passed.
+                    #
+                    # depth and score are honest placeholders: one forward pass
+                    # has no depth, and this model has no evaluation to report —
+                    # it predicts the next character, not a centipawn value.
+                    print("info depth 1 seldepth 1 multipv 1 score cp 0 "
+                          "nodes 1 time %d pv %s" % (ms, mv), flush=True)
                 print("bestmove %s" % mv, flush=True)
             elif cmd == "quit":
                 return
