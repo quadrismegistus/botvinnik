@@ -207,6 +207,74 @@ void main() {
     }
   });
 
+  // #232: the list is a browser for a find-the-move drill, so it must not
+  // print the answer to a puzzle you have not solved. It printed every one.
+  group('the collection does not spoil its own puzzles', () {
+    testWidgets('an unsolved puzzle does not name its best move or its motif',
+        (tester) async {
+      final h = makePractice([
+        practiceItem(_fenA,
+            bestSan: 'Rxd8+', motifs: ['back-rank mate'], attempts: 3, correct: 0),
+      ]);
+      h.practice.startSession();
+      await _pumpTab(tester, h.practice);
+      await tester.tap(find.byIcon(Icons.format_list_bulleted));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('Rxd8+'), findsNothing,
+          reason: 'the answer');
+      expect(find.textContaining('back-rank mate'), findsNothing,
+          reason: 'the motif names the tactic, which is most of the answer');
+    });
+
+    testWidgets('tried-and-failed still counts as unsolved', (tester) async {
+      // The gate is `correct > 0`, not `attempts > 0`. Having failed three
+      // times is exactly when you most want another go at it unspoiled.
+      final h = makePractice([
+        practiceItem(_fenA, bestSan: 'Rxd8+', attempts: 3, correct: 0),
+      ]);
+      h.practice.startSession();
+      await _pumpTab(tester, h.practice);
+      await tester.tap(find.byIcon(Icons.format_list_bulleted));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('0 of 3 correct'), findsOneWidget,
+          reason: 'precondition: it really has been attempted');
+      expect(find.textContaining('Rxd8+'), findsNothing);
+    });
+
+    testWidgets('a solved puzzle shows its answer again', (tester) async {
+      // The other half: this is a record of work done, not a permanent
+      // blackout, and the assertions above must fail for the reason claimed
+      // rather than because the row never draws a best move at all.
+      final h = makePractice([
+        practiceItem(_fenA,
+            bestSan: 'Rxd8+', motifs: ['back-rank mate'], attempts: 3, correct: 1),
+      ]);
+      h.practice.startSession();
+      await _pumpTab(tester, h.practice);
+      await tester.tap(find.byIcon(Icons.format_list_bulleted));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('Rxd8+'), findsOneWidget);
+      expect(find.textContaining('back-rank mate'), findsOneWidget);
+    });
+
+    testWidgets('your own blunder is shown either way', (tester) async {
+      // `played` is YOUR move — you already know it, and it is what makes a
+      // row recognisable in a long list.
+      final h = makePractice([
+        practiceItem(_fenA, playedSan: 'Qh5??', bestSan: 'Rxd8+', correct: 0),
+      ]);
+      h.practice.startSession();
+      await _pumpTab(tester, h.practice);
+      await tester.tap(find.byIcon(Icons.format_list_bulleted));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('Qh5??'), findsOneWidget);
+    });
+  });
+
   // #49: attempts and correct are counts. `lastResult` is overwritten by every
   // recordResult (brain/practice.ts), so there is no per-attempt trail — a
   // sparkline would be inventing an order. These pin what IS known.
