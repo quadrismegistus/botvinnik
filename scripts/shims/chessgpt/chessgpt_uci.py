@@ -174,6 +174,19 @@ class ChessGPT:
         # in every process otherwise — which IS the missed deadline, so it
         # feeds itself. On disk, the first run of the first game pays and
         # every process afterwards starts warm.
+        # Every position we have ever reconstructed, key -> uci history from
+        # the start. Tracking only the LATEST board is not enough: the caller
+        # can play something other than the move we returned — botvinnik's
+        # controller vetoes a repetition and substitutes — or rewind on an
+        # undo, and from then on its board is unreachable from ours and every
+        # later position is declined. That is the "moved SOME of its moves"
+        # failure. Any position it can reach is a short hop from one of these.
+        self._known: dict[str, list[str]] = {}
+        # The history we are standing on, kept EXPLICITLY rather than read back
+        # off the board: the search copies boards with stack=False for speed,
+        # and a copy without its move stack silently yields an empty history —
+        # which then gets adopted as the whole game.
+        self._history: list[str] = []
         self._cache_path = os.path.join(HERE, "opening-cache.json")
         try:
             with open(self._cache_path) as f:
@@ -208,6 +221,25 @@ class ChessGPT:
                     board.pop()
             frontier = nxt
         return None
+
+    def _board_for(self, history):
+        """A board with `history` played onto it, or None if it will not."""
+        b = chess.Board()
+        try:
+            for u in history:
+                b.push(chess.Move.from_uci(u))
+        except Exception:
+            return None
+        return b
+
+    def _adopt(self, history) -> None:
+        """Make `history` the movetext we are standing on, and remember it."""
+        self.ready = True
+        self.board = chess.Board()
+        self.pgn = ";"
+        self._history = list(history)
+        self._replay([chess.Move.from_uci(u) for u in history])
+        self._known[self._key(self.board)] = list(history)
 
     def _replay(self, moves) -> None:
         """Push `moves`, growing the movetext as PGN as we go."""
@@ -286,6 +318,8 @@ class ChessGPT:
             if "moves" in parts:
                 self._replay([chess.Move.from_uci(u)
                               for u in parts[parts.index("moves") + 1:]])
+            self._history = [m.uci() for m in self.board.move_stack]
+            self._known[self._key(self.board)] = list(self._history)
             return
         if "fen" not in parts:
             return
@@ -293,13 +327,24 @@ class ChessGPT:
         target_board = chess.Board(" ".join(parts[parts.index("fen") + 1:end]))
         target = self._key(target_board)
 
-        # 1. a short step from where we already are — the mid-game case
-        if self.ready:
-            path = self._find_path(self.board.copy(stack=False), target, STEP_PLIES)
+        # 0. somewhere we have already been — an undo, or a position revisited
+        remembered = self._known.get(target)
+        if remembered is not None:
+            self._adopt(remembered)
+            return
+
+        # 1. a short hop from any position we have verified, most recent first.
+        #    Usually that is the current board (our move plus their reply); it
+        #    is a longer hop when the caller substituted for our move.
+        candidates = [(self.board, self._history)]
+        for hist in list(self._known.values())[-12:][::-1]:
+            b = self._board_for(hist)
+            if b is not None:
+                candidates.append((b, hist))
+        for base, hist in candidates:
+            path = self._find_path(base.copy(stack=False), target, STEP_PLIES + 1)
             if path is not None:
-                self._replay(path)
-                self._replay([chess.Move.from_uci(u)
-                              for u in parts[end + 1:]] if end < len(parts) else [])
+                self._adopt(list(hist) + [m.uci() for m in path])
                 return
 
         # 2. the first call of a game: somewhere in the opening book
@@ -319,10 +364,7 @@ class ChessGPT:
                 except Exception:
                     pass
         if cached is not None:
-            self.ready = True
-            self.board = chess.Board()
-            self.pgn = ";"
-            self._replay([chess.Move.from_uci(u) for u in cached])
+            self._adopt(cached)
             return
 
         # 3. a position we cannot honestly account for
