@@ -729,9 +729,18 @@ class _AppShellState extends State<AppShell> {
                   ? Icons.visibility_off
                   : Icons.visibility_outlined),
               color: game.blind ? const Color(0xFF81B64C) : null,
-              tooltip: game.blind
-                  ? 'Blind mode on — no engine help'
-                  : 'Blind mode off',
+              // The icon tracks the SETTING, because that is what the button
+              // writes and a switch that does not move when pressed reads as
+              // broken. The tooltip tracks the EFFECT, which is not the same
+              // thing once the game is over: the setting stays on and sticky
+              // while the veil lifts for the recap (see [hidingHelp]), and a
+              // button captioned "no engine help" over a board full of engine
+              // arrows is the app lying about its own state.
+              tooltip: !game.blind
+                  ? 'Blind mode off'
+                  : game.hidingHelp
+                      ? 'Blind mode on — no engine help'
+                      : 'Blind mode on — help shown, the game is over',
             ),
             // only where there is plausibly a keyboard, and only while the
             // menu bar is not up — there it lives under Help instead

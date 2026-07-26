@@ -200,17 +200,28 @@ void main() {
       // A blind game in progress on the Play tab must not strip the arrows
       // and threat glyphs off an unrelated ARCHIVED game. The review board
       // used to force `blind` false to get this; since #148 it falls out of
-      // the one predicate instead — `hidingHelp` carries `botEnabled`, and a
-      // finished game has no opponent to keep a secret from.
+      // the one predicate instead, via its `!_review` clause. (`botEnabled`
+      // covered this for one commit, when blind required an opponent — but
+      // blind is wanted on the analysis board, which has none either, so the
+      // exclusion had to be named rather than inferred.)
       final settings = await loadSettings(black: kTestBotId);
       settings.blind = true;
       final review = ReviewController(_StubDb());
-      final board = fakeReviewBoard(review, settings);
+      final board = fakeReviewBoard(review, settings,
+          arbiter: FakeArbiter(
+              analysisLines: kFakeLines, streamPartials: true));
       review.open(_game());
+      await Future<void>.delayed(const Duration(milliseconds: 50));
       expect(board.blind, isTrue, reason: 'the SETTING is shared and still on');
       expect(board.hidingHelp, isFalse, reason: 'but nothing is withheld here');
-      expect(board.engineArrowUcis, isEmpty,
-          reason: 'empty for want of an analysis, not because blind hid it');
+      // Not `isEmpty` — that was the assertion here before, and it passed for
+      // want of an analysis rather than for the reason it claimed, so it held
+      // whatever the predicate said. This is the case that separates `blind`
+      // from `hidingHelp` at a BOARD overlay: an overlay that reverts to
+      // asking `blind` goes dark here.
+      expect(board.currentLines, isNotEmpty, reason: 'precondition');
+      expect(board.engineArrowUcis, isNotEmpty);
+      expect(board.visibleLines, isNotEmpty, reason: 'and the panes, likewise');
       board.dispose();
     });
 

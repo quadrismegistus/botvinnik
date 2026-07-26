@@ -46,24 +46,49 @@ Future<GameController> _game({required bool bot, bool blind = true}) async =>
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  group('the analysis board hides nothing, however the switch is set', () {
-    test('hidingHelp is false with no opponent on the board', () async {
-      // Both sides are you. There is nobody to keep the engine a secret from,
-      // which is the reasoning the tree pane already carried and the board
-      // overlays contradicted.
+  group('blind works on the analysis board too', () {
+    // #148 was first resolved the other way — `hidingHelp` required
+    // `botEnabled`, on the reading that there is nobody to keep a secret from
+    // when both sides are you. That made the switch INERT on the analysis
+    // board while leaving its toggle and its "no engine help" tooltip sitting
+    // over a board covered in engine arrows. Blind mode's real use there is
+    // not secrecy but self-testing: guess the move before letting the engine
+    // tell you.
+    test('hidingHelp follows the switch with no opponent on the board', () async {
       final game = await _game(bot: false);
       expect(game.blind, isTrue, reason: 'the switch really is on');
-      expect(game.hidingHelp, isFalse);
+      expect(game.hidingHelp, isTrue);
       game.dispose();
     });
 
-    test('and the overlays are not blanked by it', () async {
+    test('and the BOARD hides, not just the panes', () async {
+      // This assertion is the point of this file. Every earlier version of
+      // it probed `visibleLines`, which is the PANE predicate — so reverting
+      // all five board-overlay call sites to their old `blind` left the suite
+      // green, and the one thing #148 changed had no test at all.
+      // engineArrowUcis is the one board overlay this harness can reach:
+      // `threat`, `tacticalWin` and `controlMap` all short-circuit on a null
+      // ChessApi, which the harness does not wire, so asserting them null
+      // here would pass whatever the predicate said. They share the call
+      // site pattern; only this one is actually pinned.
       final game = await _game(bot: false);
       await Future<void>.delayed(const Duration(milliseconds: 50));
-      // The board's own surfaces read the same predicate now, so none of them
-      // can disagree with the Lines pane beside them.
-      expect(game.visibleLines, isNotEmpty,
-          reason: 'the panes always showed these; now the board agrees');
+      expect(game.currentLines, isNotEmpty,
+          reason: 'precondition: the engine really did stream something to hide');
+
+      expect(game.engineArrowUcis, isEmpty, reason: 'green arrows');
+      expect(game.visibleLines, isEmpty, reason: 'and the panes agree');
+      game.dispose();
+    });
+
+    test('with the switch off, all of it comes back', () async {
+      // The other half: the assertions above must be failing for the reason
+      // claimed, not because this harness never produces overlays.
+      final game = await _game(bot: false, blind: false);
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      expect(game.hidingHelp, isFalse);
+      expect(game.engineArrowUcis, isNotEmpty);
+      expect(game.visibleLines, isNotEmpty);
       game.dispose();
     });
   });
@@ -144,6 +169,48 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 100));
       expect(settings.blind, isTrue);
       game.dispose();
+    });
+
+    test('a rematch does not snapshot the SUPPRESSED switches', () async {
+      // #212's rematch re-applies the preset onto a board that is already
+      // suppressed. Without the guard on the snapshot, that overwrites the
+      // player's values with blind-on/overlays-off — and hands THOSE back at
+      // the end, so the switches are stranded exactly as before, one game
+      // later.
+      final (game, settings) = await ratedGame();
+      game.newGame(fromFen: _mateIn1BlackMates, rated: true); // as rematch does
+      game.playerMove(NormalMove.fromUci('a8a1'), 'Ra1#');
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      expect(settings.blind, isFalse, reason: 'the values from BEFORE the first');
+      expect(settings.showArrows, isTrue);
+      game.dispose();
+    });
+
+    test('the switches survive the app being killed mid-game', () async {
+      // The snapshot is on DISK, not in a field. A field is lost to the one
+      // teardown it cannot see — the process going away — and then blind
+      // stays on with three overlays off forever, the original bug through a
+      // different door. So this reloads the SettingsStore itself from the
+      // same prefs rather than reusing the instance: reusing it would pass
+      // just as well with an in-memory field, and I checked that it does.
+      final (game, settings) = await ratedGame();
+      expect(settings.showArrows, isFalse, reason: 'precondition');
+      game.dispose();
+
+      final relaunched = await SettingsStore.load(); // cold start, same prefs
+      expect(relaunched.showArrows, isFalse,
+          reason: 'precondition: the suppression persisted, as settings do');
+      final revived = GameController(
+          FakeArbiter(analysisLines: kFakeLines),
+          const FakeBot({kSquareBotId: squareBotPersona}),
+          FakeGrading(),
+          relaunched);
+      revived.newGame(); // the player comes back and starts a casual game
+      expect(relaunched.blind, isFalse);
+      expect(relaunched.showArrows, isTrue);
+      expect(relaunched.showThreats, isTrue);
+      expect(relaunched.showControl, isTrue);
+      revived.dispose();
     });
 
     test('starting a casual game hands them back too', () async {

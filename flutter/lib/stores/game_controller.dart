@@ -9,6 +9,7 @@
 // and preempt analysis, so replies stay snappy.
 
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math';
 
 import 'package:dartchess/dartchess.dart';
@@ -715,13 +716,20 @@ class GameController extends ChangeNotifier {
   /// the standard start (an analysis board when both sides are the human) —
   /// the caller must have validated it with [isPlayableFen].
   ///
-  /// [rated] marks the game as one that counts (see [_rated]). It records the
-  /// choice only: turning blind on and the overlays off is the SHEET's job,
-  /// because those are the player's persistent settings and this class does
-  /// not own them. Defaulting to false is what makes every other caller —
-  /// the settings listener no longer restarts on an opponent change; the
-    // New Game sheet does that itself —
-  /// start a casual game, which is the right answer for all of them.
+  /// [rated] marks the game as one that counts (see [_rated]), and applies or
+  /// releases the rated preset — blind on, arrows/threats/control off — via
+  /// [_applyRatedPreset] and [_restoreAfterRated].
+  ///
+  /// That suppression deliberately lives HERE and not at the New Game sheet's
+  /// Start button, where it started. Those are the player's persistent
+  /// settings, so applying them somewhere that never runs again is precisely
+  /// how a single rated game left blind on and three overlays off across the
+  /// whole app, Review included, until the player hunted down four switches.
+  /// This method is the only place that runs at both ends: it also runs when
+  /// the next casual game starts, which is when they can be handed back.
+  ///
+  /// Defaulting to false is what makes every other caller start a casual game
+  /// — which is the right answer for all of them.
   void newGame(
       {String? fromFen,
       bool rated = false,
@@ -787,6 +795,9 @@ class GameController extends ChangeNotifier {
             // A result, so it archives like one. The board is still legal,
             // exactly as with a resignation.
             _flagged = side;
+            // As in [resign]: the veil lifts at gameOver, and #147 bakes blind
+            // into the tree's LAYOUT, which is only recomputed on ingest.
+            _syncTree();
             _gen++;
             _arbiter.bumpGeneration();
             botThinking = false;
@@ -927,6 +938,12 @@ class GameController extends ChangeNotifier {
     // two disagreed about who won.
     if (!botEnabled || gameOver || moves.isEmpty) return;
     _resigned = true;
+    // The veil lifts at gameOver, and #147 bakes blind into the tree's LAYOUT
+    // rather than its paint — the model only recomputes y on ingest. Without
+    // a resync here the pane draws every node at the default y the blind
+    // layout left them on, stacked. _apply does this for mate and the draws;
+    // resign and flag-fall are the two endings that bypass it.
+    _syncTree();
     _clock?.stop();
     _gen++; // a bot turn in flight must not answer a game that has ended
     _arbiter.bumpGeneration();
@@ -1710,26 +1727,31 @@ class GameController extends ChangeNotifier {
   /// It used to be derived in six places with three different answers: the
   /// Book and Lines panes said `blind && botEnabled && !gameOver`, the tree
   /// pane said `blind && botEnabled`, and the board overlays said `blind`
-  /// alone. So on the ANALYSIS board — both sides yours, no opponent, nothing
-  /// to hide from — turning blind on blanked the board while the Lines pane
-  /// beside it went on listing the engine's moves with evals. The app both
-  /// hid and showed the same thing, a few hundred pixels apart, and the tree
-  /// pane's own comment stated the principle the overlays broke.
+  /// alone. So turning blind on at the ANALYSIS board blanked the board while
+  /// the Lines pane beside it went on listing the engine's moves with evals —
+  /// the app hiding and showing the same thing at once, a few hundred pixels
+  /// apart.
   ///
-  /// `botEnabled`: there is no opponent to keep a secret from when both sides
-  /// are you. It is also what stopped a blind game on the Play tab from
-  /// stripping the arrows off an unrelated archived game in Review, which the
-  /// review board previously had to force `blind` false to avoid.
+  /// `botEnabled` is deliberately NOT part of this, and that was tried first.
+  /// Gating on an opponent reads well — there is nobody to keep a secret from
+  /// when both sides are you — but blind mode's real use on the analysis
+  /// board is not secrecy, it is self-testing: guess the move before letting
+  /// the engine tell you. Requiring a bot made the switch INERT there, and
+  /// worse, left the toggle and its "no engine help" tooltip in place over a
+  /// board covered in engine arrows. The inconsistency is now resolved the
+  /// other way: blind hides everything, everywhere it applies.
+  ///
+  /// `!_review` does the one job `botEnabled` was also quietly doing. `blind`
+  /// is a shared SettingsStore flag, so without this a blind game in progress
+  /// on the Play tab would strip the arrows and threat glyphs off an entirely
+  /// unrelated ARCHIVED game in Review. Nothing there is being played, so
+  /// there is nothing to withhold.
   ///
   /// `!gameOver`: the SETTING stays sticky — the New Game sheet relies on
   /// that, and flipping switches mid-recap would be jarring — but the EFFECT
   /// lapses the moment the game ends, because there is nothing left to
-  /// protect and reading what just happened is the point of the recap. That
-  /// also removes the trap #212's rematch had to defend against: the reason
-  /// anyone turned blind off after a rated game was to see the analysis, and
-  /// doing so quietly made the next game unratable. Now nobody has to touch
-  /// the switch.
-  bool get hidingHelp => blind && botEnabled && !gameOver;
+  /// protect and reading what just happened is the point of the recap.
+  bool get hidingHelp => blind && !_review && !gameOver;
 
   /// What the panes may show: nothing forward-looking in blind mode during
   /// a live bot game (web: visibleLines).
@@ -2650,17 +2672,21 @@ class GameController extends ChangeNotifier {
   ///
   /// Applied and restored by [newGame] and by the end of the game, so the
   /// suppression lasts exactly as long as the game that asked for it.
-  Map<String, bool>? _preRated;
-
+  /// The snapshot lives in [SettingsStore.ratedSnapshot] — on DISK, not in a
+  /// field here. A field was the first version, and it loses the switches to
+  /// the one teardown it cannot see: kill the app mid-rated game and blind
+  /// stays on with three overlays off forever, the original bug via a
+  /// different door. Persisted, the next casual game hands them back.
   void _applyRatedPreset() {
-    // `??=`: a rematch of a rated game re-applies without overwriting the
-    // snapshot with the already-suppressed values.
-    _preRated ??= {
+    // Only if nothing is held already: a rematch of a rated game re-applies
+    // the preset, and overwriting here would snapshot the SUPPRESSED values
+    // and hand those back as if they were the player's own.
+    _settings.ratedSnapshot ??= jsonEncode({
       'blind': _settings.blind,
       'arrows': _settings.showArrows,
       'threats': _settings.showThreats,
       'control': _settings.showControl,
-    };
+    });
     _settings.blind = true;
     _settings.showArrows = false;
     _settings.showThreats = false;
@@ -2670,13 +2696,24 @@ class GameController extends ChangeNotifier {
   /// Give the player their switches back. Safe to call at any time; a no-op
   /// when no rated game took them.
   void _restoreAfterRated() {
-    final p = _preRated;
-    if (p == null) return;
-    _preRated = null;
-    _settings.blind = p['blind']!;
-    _settings.showArrows = p['arrows']!;
-    _settings.showThreats = p['threats']!;
-    _settings.showControl = p['control']!;
+    final raw = _settings.ratedSnapshot;
+    if (raw == null) return;
+    _settings.ratedSnapshot = null;
+    final Map<String, dynamic> p;
+    try {
+      p = jsonDecode(raw) as Map<String, dynamic>;
+    } catch (_) {
+      // Unreadable note about the settings. Dropping it is the only safe
+      // move: guessing would write four switches the player never chose.
+      return;
+    }
+    // Defaults matching SettingsStore's own: a snapshot written by an older
+    // build without one of these keys restores the out-of-the-box answer
+    // rather than throwing on a null.
+    _settings.blind = p['blind'] as bool? ?? false;
+    _settings.showArrows = p['arrows'] as bool? ?? true;
+    _settings.showThreats = p['threats'] as bool? ?? true;
+    _settings.showControl = p['control'] as bool? ?? true;
   }
 
   /// Set by [dispose], read by [notifyListeners].
