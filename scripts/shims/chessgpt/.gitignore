@@ -5,3 +5,5 @@ venv/
 # fetched from the author's repo by setup.sh
 meta.pkl
 opening-cache.json
+onnx/
+__pycache__/

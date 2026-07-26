@@ -83,7 +83,13 @@ class Block(nn.Module):
 
     def forward(self, x):
         B, T, C = x.shape
-        q, k, v = self.attn_c_attn(self.ln_1(x)).split(C, dim=2)
+        # Sliced, not .split(): the exporter turns split into an opset-18
+        # `Split` with a `num_outputs` attribute that older ONNX Runtimes
+        # reject outright, and this graph has to run on whatever ORT the app
+        # ships rather than the one on this machine. Slicing is the same
+        # arithmetic in ops that have been universal for years.
+        qkv = self.attn_c_attn(self.ln_1(x))
+        q, k, v = qkv[..., :C], qkv[..., C:2 * C], qkv[..., 2 * C:]
         q = q.view(B, T, self.h, C // self.h).transpose(1, 2)
         k = k.view(B, T, self.h, C // self.h).transpose(1, 2)
         v = v.view(B, T, self.h, C // self.h).transpose(1, 2)
