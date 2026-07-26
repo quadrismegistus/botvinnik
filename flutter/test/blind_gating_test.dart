@@ -93,6 +93,71 @@ void main() {
     });
   });
 
+  group('a rated game borrows the overlay switches and gives them back', () {
+    // Rated mode suppresses blind/arrows/threats/control by writing the real
+    // settings, because those are what the board reads. Nothing put them back,
+    // so ONE rated game silently disabled the engine arrows, threat glyphs and
+    // square tint everywhere — Review and the analysis board included — and
+    // left the next casual game blind.
+    Future<(GameController, SettingsStore)> ratedGame({bool blind = false}) async {
+      final settings = await loadSettings(white: kSquareBotId);
+      settings.blind = blind;
+      settings.showArrows = true;
+      settings.showThreats = true;
+      settings.showControl = true;
+      final game = GameController(
+          FakeArbiter(analysisLines: kFakeLines, streamPartials: true,
+              searchLines: kFakeLines),
+          const FakeBot({kSquareBotId: squareBotPersona}),
+          FakeGrading(), settings);
+      game.newGame(fromFen: _mateIn1BlackMates, rated: true);
+      return (game, settings);
+    }
+
+    test('they go off while it is on', () async {
+      final (game, settings) = await ratedGame();
+      expect(settings.blind, isTrue);
+      expect(settings.showArrows, isFalse);
+      expect(settings.showThreats, isFalse);
+      expect(settings.showControl, isFalse);
+      expect(game.hidingHelp, isTrue);
+      game.dispose();
+    });
+
+    test('and come back when the game ends', () async {
+      final (game, settings) = await ratedGame();
+      game.playerMove(NormalMove.fromUci('a8a1'), 'Ra1#'); // mate
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+
+      expect(game.gameOver, isTrue, reason: 'precondition');
+      expect(settings.blind, isFalse, reason: 'as the player had it');
+      expect(settings.showArrows, isTrue);
+      expect(settings.showThreats, isTrue);
+      expect(settings.showControl, isTrue);
+      game.dispose();
+    });
+
+    test('a player who had blind ON keeps it on afterwards', () async {
+      // Restoring means restoring, not forcing off.
+      final (game, settings) = await ratedGame(blind: true);
+      game.playerMove(NormalMove.fromUci('a8a1'), 'Ra1#');
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      expect(settings.blind, isTrue);
+      game.dispose();
+    });
+
+    test('starting a casual game hands them back too', () async {
+      // Abandoning a rated game mid-way for a casual one must not strand the
+      // switches either.
+      final (game, settings) = await ratedGame();
+      expect(settings.showArrows, isFalse, reason: 'precondition');
+      game.newGame();
+      expect(settings.showArrows, isTrue);
+      expect(settings.blind, isFalse);
+      game.dispose();
+    });
+  });
+
   test('the veil lifting does not retroactively clean or taint a game', () async {
     // What this DOES pin: a game played entirely blind stays clean even
     // though hidingHelp goes false the instant it ends. That guards the

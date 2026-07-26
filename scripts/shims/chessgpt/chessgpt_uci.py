@@ -13,12 +13,26 @@ different kind of player into the same ruler.
   models:  https://huggingface.co/adamkarvonen/chess_llms
   paper:   https://arxiv.org/abs/2403.15498
 
-THE BIG CONSTRAINT, stated up front: this model conditions on MOVETEXT, not on
-a position. Its whole input is a PGN prefix like ";1.e4 e5 2.". There is no way
-to hand it a FEN — a mid-game position with no history is off-distribution and
-it will produce noise. So `position fen ...` is REFUSED loudly (see
-_cmd_position) rather than answered badly. Games must start from the standard
-position. This is a property of the model, not of the shim.
+THE BIG CONSTRAINT: this model conditions on MOVETEXT, not on a position. Its
+whole input is a PGN prefix like ";1.e4 e5 2.". A FEN carries no history, and
+the gym speaks only FEN — `position fen <fen>` at every turn, games seeded from
+a 4-ply opening book (calibrate-bots.mts:261, :383).
+
+So the shim RECONSTRUCTS the history, and does it verifiably: it searches for a
+move sequence that reproduces the exact position it was handed, and only then
+believes it. Two cases, both cheap:
+
+  * mid-game, the usual one — the board has advanced 1-2 plies since we last
+    looked (our move, then theirs), so try those from the position we already
+    know;
+  * the first call of a game, which lands 4 plies in — breadth-first from the
+    standard start, memoised, because the book is small and every later game
+    reuses the answer.
+
+If neither finds the position, we say so and refuse rather than answer from a
+board we are not standing on. That distinction is the point: a reconstructed
+history is one we have CHECKED against the position; a guessed one would be a
+different game wearing this one's name.
 
 UCI subset: uci / isready / setoption name Model|Temperature value X /
 ucinewgame / position startpos [moves ...] / go (search params ignored — a
@@ -27,6 +41,7 @@ forward pass has no depth to vary) / quit.
   scripts/engines/chessgpt/setup.sh          # venv + deps + weights
   scripts/engines/chessgpt/run.sh            # what the gym spawns
 """
+import json
 import os
 import pickle
 import sys
@@ -44,6 +59,13 @@ DEFAULT_MODEL = "lichess_8layers_ckpt_no_optimizer.pt"
 # ("Qa1xb2#" style disambiguation + capture + mate); 10 leaves room and still
 # bounds a runaway sample.
 MAX_SAN_CHARS = 10
+
+# How far to search when reconstructing. 2 covers the ordinary mid-game step
+# (our move plus the reply); OPENING_PLIES covers the harness's opening book,
+# which is 4 plies. Both are bounded on purpose — an unbounded search would
+# turn "I have lost the thread" into a hang.
+STEP_PLIES = 2
+OPENING_PLIES = 4
 
 
 class Block(nn.Module):
@@ -140,6 +162,54 @@ class ChessGPT:
         # a different board, which is the worst kind of wrong: a caller that
         # ignored the refusal would get a plausible reply and never know.
         self.ready = True
+        # fen -> [uci, ...] from the standard start. Persisted to disk, not
+        # just held in memory: a harness that spawns one engine per game (and
+        # respawns on a missed deadline) pays the breadth-first search afresh
+        # in every process otherwise — which IS the missed deadline, so it
+        # feeds itself. On disk, the first run of the first game pays and
+        # every process afterwards starts warm.
+        self._cache_path = os.path.join(HERE, "opening-cache.json")
+        try:
+            with open(self._cache_path) as f:
+                self._opening_cache: dict[str, list[str]] = json.load(f)
+        except Exception:
+            self._opening_cache = {}
+
+    @staticmethod
+    def _key(board: chess.Board) -> str:
+        """Position identity for matching: placement, side, castling, ep.
+
+        Deliberately NOT the full FEN — the halfmove and fullmove counters
+        depend on a history we are in the middle of inferring, so including
+        them would make a correct reconstruction fail to match itself.
+        """
+        return " ".join(board.fen().split()[:4])
+
+    def _find_path(self, start: chess.Board, target: str, depth: int):
+        """Breadth-first for a move sequence from `start` reaching `target`."""
+        if self._key(start) == target:
+            return []
+        frontier = [(start, [])]
+        for _ in range(depth):
+            nxt = []
+            for board, path in frontier:
+                for mv in board.legal_moves:
+                    board.push(mv)
+                    if self._key(board) == target:
+                        board.pop()
+                        return path + [mv]
+                    nxt.append((board.copy(stack=False), path + [mv]))
+                    board.pop()
+            frontier = nxt
+        return None
+
+    def _replay(self, moves) -> None:
+        """Push `moves`, growing the movetext as PGN as we go."""
+        for mv in moves:
+            if self.board.turn == chess.WHITE:
+                self.pgn += f"{self.board.fullmove_number}."
+            self.pgn += self.board.san(mv) + " "
+            self.board.push(mv)
 
     def ensure_loaded(self):
         if self.model is None:
@@ -203,25 +273,59 @@ class ChessGPT:
         return "0000"
 
     def _cmd_position(self, parts: list[str]) -> None:
-        if "fen" in parts:
-            # See the module docstring: there is no honest answer here.
-            print(
-                "info string chessgpt: FEN positions are unsupported — this "
-                "model conditions on movetext, not on a position",
-                flush=True,
-            )
-            self.ready = False
+        if "startpos" in parts:
+            self.ready = True
+            self.board = chess.Board()
+            self.pgn = ";"
+            if "moves" in parts:
+                self._replay([chess.Move.from_uci(u)
+                              for u in parts[parts.index("moves") + 1:]])
             return
-        self.ready = True
-        self.board = chess.Board()
-        self.pgn = ";"
-        if "moves" in parts:
-            for uci in parts[parts.index("moves") + 1:]:
-                move = chess.Move.from_uci(uci)
-                if self.board.turn == chess.WHITE:
-                    self.pgn += f"{self.board.fullmove_number}."
-                self.pgn += self.board.san(move) + " "
-                self.board.push(move)
+        if "fen" not in parts:
+            return
+        end = parts.index("moves") if "moves" in parts else len(parts)
+        target_board = chess.Board(" ".join(parts[parts.index("fen") + 1:end]))
+        target = self._key(target_board)
+
+        # 1. a short step from where we already are — the mid-game case
+        if self.ready:
+            path = self._find_path(self.board.copy(stack=False), target, STEP_PLIES)
+            if path is not None:
+                self._replay(path)
+                self._replay([chess.Move.from_uci(u)
+                              for u in parts[end + 1:]] if end < len(parts) else [])
+                return
+
+        # 2. the first call of a game: somewhere in the opening book
+        cached = self._opening_cache.get(target)
+        if cached is None:
+            found = self._find_path(chess.Board(), target, OPENING_PLIES)
+            if found is not None:
+                cached = [m.uci() for m in found]
+                self._opening_cache[target] = cached
+                # Best-effort: a concurrent writer losing a race costs one
+                # search next time, which is not worth locking for.
+                try:
+                    tmp = self._cache_path + f".{os.getpid()}"
+                    with open(tmp, "w") as f:
+                        json.dump(self._opening_cache, f)
+                    os.replace(tmp, self._cache_path)
+                except Exception:
+                    pass
+        if cached is not None:
+            self.ready = True
+            self.board = chess.Board()
+            self.pgn = ";"
+            self._replay([chess.Move.from_uci(u) for u in cached])
+            return
+
+        # 3. a position we cannot honestly account for
+        print(
+            "info string chessgpt: cannot reconstruct a move history for this "
+            "position — this model conditions on movetext, not on a FEN",
+            flush=True,
+        )
+        self.ready = False
 
     def run(self) -> None:
         for raw in sys.stdin:

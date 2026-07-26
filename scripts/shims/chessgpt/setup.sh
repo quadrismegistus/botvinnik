@@ -51,4 +51,4 @@ name = sys.argv[1]
 shutil.copy(hf_hub_download("adamkarvonen/chess_llms", name), f"weights/{name}")
 PY
 done
-echo ">> ok. smoke test:  bash scripts/engines/chessgpt/run.sh <<< $'uci\nposition startpos\ngo\nquit'"
+echo ">> ok. smoke test:  bash scripts/shims/chessgpt/run.sh <<< $'uci\nposition startpos\ngo\nquit'"

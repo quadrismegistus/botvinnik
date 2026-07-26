@@ -760,6 +760,14 @@ class GameController extends ChangeNotifier {
     _botUndos = 0;
     _botHintsUsed = false;
     _rated = rated;
+    // The preset lives HERE, not at the New Game sheet's Start button, because
+    // this is the only place that also runs when the mode ends — a suppression
+    // applied somewhere that cannot undo it is how the switches got stranded.
+    if (rated) {
+      _applyRatedPreset();
+    } else {
+      _restoreAfterRated();
+    }
     _refuseBlunders = refuseBlunders;
     _refusedMoves = 0;
     _refusalAttempts.clear();
@@ -846,26 +854,12 @@ class GameController extends ChangeNotifier {
     // `rated && timeControl != null` guard) — a casual rematch has nothing
     // to carry regardless of what _clock holds over from before.
     final timeControl = wasRated ? _clock?.control : null;
-    // The rated PRESET, not just the rated flag. The New Game sheet turns
-    // blind on and the three overlays off whenever it starts a rated game,
-    // and deliberately does NOT restore them at game over — restoring them
-    // there would flip the board mid-recap. So the natural thing to do after
-    // a rated game, turning blind off to actually read the analysis of what
-    // you just played, leaves those settings exactly wrong for the next one.
-    //
-    // Without this, a rated rematch is born un-ratable: `_assisted` is
-    // sampled at every human move, so the FIRST move sets botHintsUsed, and
-    // playerElo drops any game carrying it. You would get a game that says
-    // "rated", shows you nothing (the rated shell hides the panels), and
-    // cannot count — with nothing on screen to say so. The sheet's safety
-    // net assumes hints get turned on DURING a game; this path starts one
-    // with them already on.
-    if (wasRated) {
-      _settings.blind = true;
-      _settings.showArrows = false;
-      _settings.showThreats = false;
-      _settings.showControl = false;
-    }
+    // The rated preset comes back with the flag, because newGame applies it
+    // (see _applyRatedPreset). Without that, a rated rematch was born
+    // un-ratable: the switches are handed back when a game ends, so the next
+    // one would start with help on, `_assisted` true at the first move, and
+    // playerElo dropping the game — a game that says "rated", shows nothing,
+    // and cannot count.
     // Before newGame, and newGame last: newGame's own _maybeBotTurn has to
     // see the swapped personas, or the wrong side gets the opening move.
     // (An earlier version of this comment claimed setPlayers itself triggers
@@ -1284,6 +1278,11 @@ class GameController extends ChangeNotifier {
   /// Archive the finished game — the web's saveCurrentGame, same StoredGame
   /// shape (JSON-compatible with the IndexedDB store for future import).
   Future<void> _saveGame() async {
+    // Every path that ends a game funnels through here — mate, resignation and
+    // flag-fall alike — so this is where the rated mode hands the switches
+    // back. Before the early returns below: a casual game, or one with nothing
+    // to archive, still ended.
+    _restoreAfterRated();
     final db = _db;
     if (db == null || moves.isEmpty || _saved) return;
     _saved = true;
@@ -2637,6 +2636,47 @@ class GameController extends ChangeNotifier {
     _clock?.dispose();
     _disposed = true;
     super.dispose();
+  }
+
+  /// The overlay switches as they were BEFORE a rated game turned them off,
+  /// or null when no rated game owns them.
+  ///
+  /// Rated mode suppresses blind/arrows/threats/control by writing the real
+  /// settings, because those are what the board reads. Nothing used to put
+  /// them back, so one rated game silently disabled the engine arrows, the
+  /// threat glyphs and the square tint EVERYWHERE — Review and the analysis
+  /// board included — until the player found four separate switches. And with
+  /// blind left on, the next CASUAL game was blind too.
+  ///
+  /// Applied and restored by [newGame] and by the end of the game, so the
+  /// suppression lasts exactly as long as the game that asked for it.
+  Map<String, bool>? _preRated;
+
+  void _applyRatedPreset() {
+    // `??=`: a rematch of a rated game re-applies without overwriting the
+    // snapshot with the already-suppressed values.
+    _preRated ??= {
+      'blind': _settings.blind,
+      'arrows': _settings.showArrows,
+      'threats': _settings.showThreats,
+      'control': _settings.showControl,
+    };
+    _settings.blind = true;
+    _settings.showArrows = false;
+    _settings.showThreats = false;
+    _settings.showControl = false;
+  }
+
+  /// Give the player their switches back. Safe to call at any time; a no-op
+  /// when no rated game took them.
+  void _restoreAfterRated() {
+    final p = _preRated;
+    if (p == null) return;
+    _preRated = null;
+    _settings.blind = p['blind']!;
+    _settings.showArrows = p['arrows']!;
+    _settings.showThreats = p['threats']!;
+    _settings.showControl = p['control']!;
   }
 
   /// Set by [dispose], read by [notifyListeners].

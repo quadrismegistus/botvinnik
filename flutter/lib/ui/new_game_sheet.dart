@@ -348,19 +348,10 @@ class _NewGameSheetState extends State<_NewGameSheet> {
                 // ticked behind the fold.
                 final rated = _rated && _rateable;
                 final refuseBlunders = _refuseBlunders && _rateable;
-                if (rated) {
-                  // The mode, applied to the settings the board actually
-                  // reads. Persistent on purpose — these are ordinary
-                  // switches the player can turn back on, and restoring them
-                  // at game over would flip the board mid-recap. What stops
-                  // that from quietly rating an assisted game is that
-                  // GameController samples `botHintsUsed` at every human
-                  // move, so turning one back on during the game excludes it.
-                  widget.settings.blind = true;
-                  widget.settings.showArrows = false;
-                  widget.settings.showThreats = false;
-                  widget.settings.showControl = false;
-                }
+                // The rated preset is newGame's job now (#148 follow-up):
+                // applied there and handed back when the game ends, so one
+                // rated game no longer leaves the engine arrows, threat
+                // glyphs and square tint switched off across the whole app.
                 // Before newGame: setPlayers can itself restart the game (the
                 // controller listens and calls newGame() on an opponent
                 // change), and that restart is unrated. The explicit call has
