@@ -13,6 +13,7 @@ import 'dart:async';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:botvinnik_mobile/brain/bot_api.dart';
+import 'package:botvinnik_mobile/brain/chess_api.dart';
 import 'package:botvinnik_mobile/brain/grading_api.dart';
 import 'package:botvinnik_mobile/brain/types.dart';
 import 'package:botvinnik_mobile/engine/arbiter.dart';
@@ -370,4 +371,62 @@ class SavingGrading extends FakeGrading {
   Map<String, dynamic> labelCounts(
           List<Map<String, dynamic>> storedMoves, String color) =>
       const {'blunder': 0, 'mistake': 0, 'inaccuracy': 0};
+}
+
+/// Enough of the brain bridge for the board overlays and the lines tree to
+/// run in a pure-Dart test.
+///
+/// The reason this exists at all is worth stating, because #237 was filed on
+/// the belief that it could not. `linesTree` is only built when a [ChessApi]
+/// is present, and three of the five board overlays (threat, tacticalWin,
+/// controlMap) short-circuit on a null one — and [ChessApi] wraps a concrete
+/// `JsBridge`, which is a conditional export with no interface, so the
+/// conclusion drawn was that the harness needed a production refactor of the
+/// seam the whole brain bridge sits on before any of it could be reached.
+///
+/// It did not. `implements ChessApi` plus `noSuchMethod` supplies the facade
+/// directly, one level above the bridge, and nothing platform-specific is
+/// touched. `chessApi` is an ordinary constructor argument.
+///
+/// Everything not overridden answers null through [noSuchMethod], which is
+/// what each overlay reads as "no data" — so an overlay this test is not
+/// about stays quiet rather than throwing.
+class FakeChess implements ChessApi {
+  @override
+  Map<String, ControlCell> controlSquares(String fen) =>
+      {'e4': const ControlCell('w', 1, true)};
+
+  /// The null-move probe: any fen is fine, it is only fed back to the arbiter.
+  @override
+  String? threatProbeFen(String fen) => fen;
+
+  /// The verdict. `fen` is load-bearing — the getter is fen-gated, so a map
+  /// without it is discarded as stale no matter what the predicate says.
+  @override
+  Map<String, dynamic>? judgeThreat(String fen, Map<String, dynamic> bestLine) =>
+      {'fen': fen, 'uci': 'e2e4', 'san': 'e4', 'gain': 2.0};
+
+  /// The win rings. Any non-null map is enough for a test about the PREDICATE
+  /// in front of the call rather than the judgement behind it.
+  @override
+  Map<String, dynamic>? judgeTacticalWin(
+          String fen, Map<String, dynamic> bestLine) =>
+      {'targets': <String>['e4'], 'gain': 3.0};
+
+  /// The lines tree asks for this on every ingest. Naming each step after its
+  /// own uci is enough — the tree keys nodes by san, and no test here reads
+  /// the name as chess.
+  @override
+  List<Map<String, dynamic>> sanSteps(String fen, List<String> ucis) => [
+        for (var i = 0; i < ucis.length; i++)
+          {
+            'san': ucis[i],
+            'uci': ucis[i],
+            'color': i.isEven ? 'w' : 'b',
+            'piece': 'p'
+          }
+      ];
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => null;
 }
