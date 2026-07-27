@@ -16,6 +16,7 @@
 // tabs vanish the moment you opened a game, stranding you in a mode you could
 // only leave with the app bar's back arrow.
 
+import 'package:dartchess/dartchess.dart' show Side;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -27,6 +28,7 @@ import '../stores/settings_store.dart';
 import 'board_pane.dart';
 import 'grade_strip.dart';
 import 'layout.dart';
+import 'move_preview.dart';
 import 'review_win_chart.dart';
 
 class ReviewBody extends StatelessWidget {
@@ -56,6 +58,11 @@ class ReviewBody extends StatelessWidget {
     // height — Review's board is sized against kReviewFixed, and anything in
     // the fixed column comes straight out of the board.
     final practiseCta = _practiseCta(context, review);
+    // Whether the strip has a mini-board to draw at all, asked of the GAME
+    // rather than of the ply — see [kMovePreview]. An ungraded import has no
+    // best move anywhere in it, so it keeps the board height.
+    final fixed = kReviewFixed +
+        (review.moves.any((m) => m['bestUci'] is String) ? kMovePreview : 0);
 
     return SafeArea(
       bottom: false,
@@ -88,7 +95,7 @@ class ReviewBody extends StatelessWidget {
             final size = panedBoardSize(
               constraints.maxWidth,
               constraints.maxHeight,
-              kReviewFixed,
+              fixed,
             );
             return Column(
               children: [
@@ -134,8 +141,15 @@ class ReviewBody extends StatelessWidget {
   // of the one just made — and it was drawn on the position AFTER that move,
   // where its from-square may hold nothing or hold something else. Two greens
   // meaning opposite directions in time is exactly the collision the overlay
-  // grammar exists to prevent. The retrospective advice survives as text, in
-  // the verdict strip's "best: ..." beside the move it belongs to.
+  // grammar exists to prevent.
+  //
+  // The retrospective advice lives in the verdict strip instead, and since
+  // #233 as a PICTURE rather than a sentence — see [_preview]. That is not the
+  // stored arrow coming back: a mini-board is a separate surface drawn on
+  // `fenBefore`, so the from-square is the one the move actually left and its
+  // red/green pair cannot be mistaken for the engine's own green lines on the
+  // live board. Both objections above are about drawing it HERE.
+
 
   Widget _verdictStrip(
       Map<String, dynamic>? m, ClassTable table, ReviewBoardController board) {
@@ -183,6 +197,10 @@ class ReviewBody extends StatelessWidget {
       final expl = (m['explanation'] as Map?)?.cast<String, dynamic>();
       final prose =
           expl?['playedIssue'] ?? expl?['playedPoint'] ?? expl?['bestPoint'];
+      // The picture, when there is one to draw. Its legend already says
+      // "Best was e4", so the sentence below is the FALLBACK rather than a
+      // caption — printing both would name the same move twice in one strip.
+      final preview = _preview(m, board);
       content = Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -211,7 +229,7 @@ class ReviewBody extends StatelessWidget {
                   ),
                 ),
               const Spacer(),
-              if (m['bestSan'] != null && label != 'best')
+              if (preview == null && m['bestSan'] != null && label != 'best')
                 Text(
                   'best: ${m['bestSan']}',
                   style: const TextStyle(color: Colors.white38, fontSize: 12),
@@ -232,14 +250,84 @@ class ReviewBody extends StatelessWidget {
                 ),
               ),
             ),
+          if (preview != null)
+            Padding(padding: const EdgeInsets.only(top: 8), child: preview),
         ],
       );
     }
     return Container(
+      // Keyed so a test can measure the strip's own height against what
+      // [kMovePreview] reserves for it — there is no other way to address it,
+      // and an unmeasured reservation is the one that silently goes stale.
+      key: const ValueKey('review-verdict'),
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
       color: const Color(0xFF262421),
       child: content,
+    );
+  }
+
+  /// The move played and the move the engine wanted, drawn on the position the
+  /// move was chosen in (#233) — the same [MovePreview] the Insight card has
+  /// used since #185 and Practice since #215, so Review is the third consumer
+  /// of one widget rather than a fourth way of saying the same thing.
+  ///
+  /// Review is the mode where this matters most. Insights speaks about a move
+  /// you played a moment ago and still have in your head; Review is where you
+  /// come back to a game from last week, and "best: Nf3" asks you to find Nf3
+  /// on the board yourself.
+  ///
+  /// Null for anything it cannot draw honestly, and the caller falls back to
+  /// the sentence: a move with no grade, an archive written before `uci` was
+  /// stored, or a promotion differing only in the piece chosen — for which
+  /// [MovePreview.arrowsFor] returns null, since the two arrows would land on
+  /// the identical line and only a sentence can tell e8=Q from e8=N.
+  Widget? _preview(Map<String, dynamic> m, ReviewBoardController board) {
+    final fen = m['fenBefore'];
+    final uci = m['uci'];
+    final bestUci = m['bestUci'];
+    final bestSan = m['bestSan'];
+    final san = m['san'];
+    if (fen is! String ||
+        uci is! String ||
+        bestUci is! String ||
+        bestSan is! String ||
+        san is! String) {
+      return null;
+    }
+    // Oriented like the board above it, not like the mover. The analysis board
+    // is fixed to the reviewed game's colour (and to any flip the user has
+    // asked for), so a mini-board that turned over every half-move would be a
+    // second, contradicting frame of reference two inches below the first.
+    // That is the one place this departs from the Insight card, which only
+    // ever describes a single move and has no board of its own to agree with.
+    final orientation = board.whiteAtBottom ? Side.white : Side.black;
+    // `uci == bestUci`, NOT `label == 'best'`. backfillGrade widens isBest to
+    // any move that scores 100% under the deeper post-move search, while
+    // bestUci stays pinned to the pre-move MultiPV winner — so a move labelled
+    // best is regularly not the move bestUci names. Keyed off the label, this
+    // would draw the played move in the engine's blue, captioned "also the
+    // best move", for a move the engine did not pick. insight_card.dart makes
+    // the same choice, at more length, for the same reason.
+    if (uci == bestUci) {
+      final solo = MovePreview.soleMoveFor(uci);
+      if (solo == null) return null;
+      return MovePreview.same(
+        fen: fen,
+        move: solo,
+        san: san,
+        orientation: orientation,
+      );
+    }
+    final arrows = MovePreview.arrowsFor(uci, bestUci);
+    if (arrows == null) return null;
+    return MovePreview(
+      fen: fen,
+      played: arrows.$1,
+      best: arrows.$2,
+      playedSan: san,
+      bestSan: bestSan,
+      orientation: orientation,
     );
   }
 

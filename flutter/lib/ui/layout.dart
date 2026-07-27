@@ -75,6 +75,22 @@ const double kPracticeChrome = 56 + 48;
 /// Review's fixed furniture: the verdict strip and the scrub bar.
 const double kReviewFixed = kGradeStrip + 52;
 
+/// The move-comparison mini-board in Review's verdict strip (#233): the
+/// [MovePreview] board plus the gap above it.
+///
+/// Added to [kReviewFixed] only for a game that carries grades. An import has
+/// no best move to compare anything against, so its strip stays one line and
+/// reserving for a board it will never draw would cost it board height for
+/// nothing. That predicate is a property of the GAME, not of the ply, so it
+/// cannot change under a scrub — which is what keeps the board a fixed size
+/// while the strip's own height varies with what each move has to show.
+///
+/// Measured rather than assumed, as [kClockFace] is: review_preview_test.dart
+/// pumps the real strip with the real Roboto and asserts the height fits, so a
+/// style change that grows the preview reddens a test instead of quietly
+/// eating the move list.
+const double kMovePreview = 112;
+
 /// Review, plus enough move list to be worth showing — the list is Expanded,
 /// so without a reserve the board would eat it entirely on a short window.
 const double kReviewChrome = kReviewFixed + kPaneReserve;
