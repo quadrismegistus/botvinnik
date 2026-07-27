@@ -31,6 +31,23 @@ class _FakeChess implements ChessApi {
   Map<String, ControlCell> controlSquares(String fen) =>
       {'e4': const ControlCell('w', 1, true)};
 
+  /// The null-move probe: any fen is fine, it is only fed back to the arbiter.
+  @override
+  String? threatProbeFen(String fen) => fen;
+
+  /// The verdict. `fen` is load-bearing — the getter is fen-gated, so a map
+  /// without it is discarded as stale no matter what the predicate says.
+  @override
+  Map<String, dynamic>? judgeThreat(String fen, Map<String, dynamic> bestLine) =>
+      {'fen': fen, 'uci': 'e2e4', 'san': 'e4', 'gain': 2.0};
+
+  /// The win rings. Any non-null map is enough — this test is about the
+  /// PREDICATE in front of the call, not the judgement behind it.
+  @override
+  Map<String, dynamic>? judgeTacticalWin(
+          String fen, Map<String, dynamic> bestLine) =>
+      {'targets': <String>['e4'], 'gain': 3.0};
+
   /// Needed because wiring a ChessApi also builds the lines tree, which asks
   /// for this on every ingest. Naming each step after its uci is enough.
   @override
@@ -121,16 +138,20 @@ void main() {
     // a noSuchMethod fallthrough is enough. Without this, reverting
     // `controlMap`, `threat` and `tacticalWin` to the old `blind` left the
     // whole 772-test suite green — three of the five sites #148 changed.
-    Future<GameController> withChess({required bool blind}) async {
+    Future<GameController> withChess({required bool blind, bool bot = true}) async {
       // Starts on the mate-in-1 so a test can end the game and reach the case
       // where `blind` and `hidingHelp` DIFFER. Without that case, a live blind
       // game makes the two predicates identical and the mutation survives —
       // which it did, on the first version of these tests.
-      final settings = await loadSettings(white: kSquareBotId);
+      final settings = await loadSettings(white: bot ? kSquareBotId : null);
       settings.blind = blind;
       settings.showControl = true;
+      settings.showThreats = true;
       final game = GameController(
-        FakeArbiter(analysisLines: kFakeLines, streamPartials: true),
+        FakeArbiter(
+            analysisLines: kFakeLines,
+            streamPartials: true,
+            searchLines: kFakeLines),
         FakeBot({kSquareBotId: squareBotPersona}),
         FakeGrading(),
         settings,
@@ -154,6 +175,47 @@ void main() {
       // not because this harness never produces a control map.
       final game = await withChess(blind: false);
       expect(game.controlMap, isNotNull);
+    });
+
+    test('the win rings are withheld while blind, and return when it ends',
+        () async {
+      // tacticalWin was the last board overlay still reading the old
+      // predicate with no test — mutating it to `blind` left all 779 green.
+      //
+      // On an ANALYSIS board, because this overlay needs the player to be on
+      // move (`botEnabled && !isPlayerTurn` returns null otherwise) and in a
+      // BOT game that is never true at game over: your mating move hands the
+      // turn to the bot. With no bot the guard is vacuous, so the same
+      // position gives the case where `blind` and `hidingHelp` disagree.
+      final blindGame = await withChess(blind: true, bot: false);
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      expect(blindGame.currentLines, isNotEmpty, reason: 'precondition');
+      expect(blindGame.tacticalWin, isNull, reason: 'hidden mid-game');
+
+      blindGame.playUci('a8a1'); // Ra1#
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      expect(blindGame.gameOver, isTrue, reason: 'precondition');
+      expect(blindGame.blind, isTrue, reason: 'the switch is untouched');
+      expect(blindGame.tacticalWin, isNotNull,
+          reason: 'the veil lifts for the recap — an overlay that reverted to '
+              'reading `blind` stays dark here');
+    });
+
+    test('the threat glyph is withheld while blind, and returns when it ends',
+        () async {
+      // The fifth and last overlay site. Two guards read the predicate here —
+      // the getter, and _probeThreat itself, which does not even run while
+      // hidden — so this covers both.
+      final game = await withChess(blind: true, bot: false);
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      expect(game.threat, isNull, reason: 'hidden mid-game');
+
+      game.playUci('a8a1'); // Ra1#
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      expect(game.gameOver, isTrue, reason: 'precondition');
+      expect(game.blind, isTrue, reason: 'the switch is untouched');
+      expect(game.threat, isNotNull,
+          reason: 'the probe runs and the glyph draws once the veil lifts');
     });
 
     test('and drawn again once the game is over, with blind still on', () async {

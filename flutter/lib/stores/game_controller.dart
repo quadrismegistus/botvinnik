@@ -1660,7 +1660,12 @@ class GameController extends ChangeNotifier {
           );
         }
       }
-      debugPrint('[bot] chessgpt had no move; falling back to the engine');
+      if (!fromStart) {
+        debugPrint('[bot] chessgpt needs movetext, and this game began from a '
+            'FEN — playing the stand-in instead');
+      } else {
+        debugPrint('[bot] chessgpt had no move; falling back to the engine');
+      }
     }
     if (p.family == 'custom') {
       // A player-added UCI engine, in its own process — never the arbiter's
