@@ -45,6 +45,50 @@ const _afterD4Fen =
   );
 }
 
+/// A revealed answer must not survive into the NEXT puzzle (#232's class of
+/// bug, reached by a different door). `_serve` resets `revealBest`, and
+/// nothing tested it: deleting that line left every test here green while the
+/// puzzle after a reveal opened with its own answer already on screen.
+///
+/// It matters more since #214 than it did before, because revealing is now the
+/// third rung of the primary button rather than a buried control — so the
+/// state this clears is one most sessions will now enter.
+void _revealLeakTests() {
+  test('a revealed answer does not follow you to the next puzzle', () {
+    final t = _twoPuzzles();
+    t.practice.reveal();
+    expect(t.practice.revealBest, isTrue, reason: 'precondition');
+    expect(t.practice.primaryAction, PracticePrimary.next,
+        reason: 'precondition: the ladder is at the top');
+
+    t.practice.doPrimary(); // Next
+
+    expect(t.practice.current!['id'], isNot(t.served),
+        reason: 'precondition: it really did advance');
+    expect(t.practice.revealBest, isFalse,
+        reason: 'the new puzzle opened with its answer showing');
+    expect(t.practice.hintTier, 0);
+    expect(t.practice.primaryAction, PracticePrimary.hint,
+        reason: 'a fresh puzzle starts at the bottom of the ladder');
+  });
+
+  test('and neither does a spent hint tier', () {
+    // The same leak one rung down: tier 2 draws a circle on the best move's
+    // origin square, which is most of the answer on a tactic.
+    final t = _twoPuzzles();
+    t.practice.hint();
+    t.practice.hint();
+    expect(t.practice.hintTier, 2, reason: 'precondition');
+
+    t.practice.doPrimary(); // showBest
+    t.practice.doPrimary(); // next
+
+    expect(t.practice.current!['id'], isNot(t.served));
+    expect(t.practice.hintTier, 0);
+    expect(t.practice.revealBest, isFalse);
+  });
+}
+
 const _failedNf3 = AttemptOutcome(
   san: 'Nf3',
   uci: 'g1f3',
@@ -56,6 +100,8 @@ const _failedNf3 = AttemptOutcome(
 );
 
 void main() {
+  group('a served puzzle starts clean', _revealLeakTests);
+
   group('the primary never advances before the answer (#214)', () {
     test('a fresh puzzle climbs hint, another hint, show best, then Next', () {
       final h = _twoPuzzles();
