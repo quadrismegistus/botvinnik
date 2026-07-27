@@ -109,6 +109,10 @@ class GameController extends ChangeNotifier {
   // the deepest streamed snapshot per fen — grading falls back to these when
   // an analysis was cancelled because the board moved on
   final Map<String, List<EngineMove>> _partials = {};
+  // fens whose analysis future has RESOLVED — see [analysisSettled]. Cleared
+  // wherever _analysis is, and only wherever _analysis is: an entry here is a
+  // claim about the future held there, so the two must never disagree.
+  final Set<String> _settledFens = {};
   // grade pipelines still in flight — save waits for them (bounded)
   final Set<Future<void>> _pendingGrades = {};
   int _gen = 0;
@@ -881,6 +885,7 @@ class GameController extends ChangeNotifier {
     _lastSavedGame = null;
     gameSeed = _newSeed();
     _analysis.clear();
+    _settledFens.clear();
     _partials.clear();
     _controlCache.clear(); // per-fen maps would accrete for the process life
     // Not a correctness fix — the memo is keyed on the grade object and the
@@ -1971,6 +1976,23 @@ class GameController extends ChangeNotifier {
   /// snapshot) — feeds the Lines pane as the search deepens.
   List<EngineMove> get currentLines => _partials[position.fen] ?? const [];
 
+  /// Has the search of the position on the board FINISHED — a different
+  /// question from how deep it got, and one depth cannot answer (#95).
+  ///
+  /// An analysis ends at [kAnalysisDepth] OR [kAnalysisMovetimeMs], whichever
+  /// comes first, and is also stopped short when the board moves on
+  /// (`cancelAnalyses`, which resolves it with its partials). So a finished
+  /// search routinely sits below the target for good, and a bare "depth 19" is
+  /// ambiguous between "still climbing" and "this is all it will ever say".
+  ///
+  /// Only the arbiter's future knows which, so the answer is recorded when it
+  /// resolves rather than guessed in the pane. The alternative considered was
+  /// leaving it to the UI to notice the depth had stopped changing for a
+  /// second or two — which is a timer racing a search whose whole point is
+  /// that its pace is unpredictable, and would have shown "finished" every
+  /// time a deep ply took a while.
+  bool get analysisSettled => _settledFens.contains(position.fen);
+
   /// The blind SETTING — is the switch on. Not the same question as
   /// [hidingHelp], and the difference is the whole of #148.
   ///
@@ -2281,6 +2303,7 @@ class GameController extends ChangeNotifier {
   void _loadReview(Map<String, dynamic> stored) {
     _redoStack.clear();
     _analysis.clear();
+    _settledFens.clear();
     _partials.clear();
     _controlCache.clear();
     _threat = null;
@@ -2578,6 +2601,19 @@ class GameController extends ChangeNotifier {
         // it would re-search a terminal position forever.
         if (lines == null && identical(_analysis[fen], mine)) {
           _analysis.remove(fen);
+        } else if (lines != null) {
+          // The search is over — at the target, at the movetime backstop, or
+          // stopped early by the board moving on, all three of which end it
+          // for good because the memo above means this fen is never searched
+          // again. A NULL resolution is the one case that is not settled: the
+          // entry is evicted a line above precisely so the position gets
+          // analysed afresh, and marking it final would park the pane's
+          // progress bar on a search that has not run.
+          _settledFens.add(fen);
+          // The last streamed partial notified; this resolution is a separate
+          // event after it, and without its own notify the pane keeps drawing
+          // a search that is still going.
+          if (fen == position.fen) notifyListeners();
         }
         return lines;
       });
