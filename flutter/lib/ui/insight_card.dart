@@ -40,9 +40,26 @@ class InsightCard extends StatelessWidget {
     // when there is no grade yet to display.
     final refusal = game.refusalMessage;
     if (refusal != null) {
+      // The WHY, where help is not being withheld: the move the opponent
+      // would answer with. Non-null only in a casual, non-blind game — see
+      // GameController.refusalRefutationUci — so this line simply is not there
+      // when the mode says it should not be, rather than being blanked here.
+      final punish = game.refusalRefutationSan;
       return _CardShell(
-        child: Text(refusal,
-            style: TextStyle(color: table.color('blunder'), fontSize: 13)),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(refusal,
+                style: TextStyle(color: table.color('blunder'), fontSize: 13)),
+            if (punish != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 3),
+                child: Text('$punish is the answer to it',
+                    style: const TextStyle(color: Colors.white54, fontSize: 12)),
+              ),
+          ],
+        ),
       );
     }
 

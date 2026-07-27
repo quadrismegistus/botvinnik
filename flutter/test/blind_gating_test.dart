@@ -407,4 +407,5 @@ void main() {
     expect(game.botHintsUsed, isTrue);
     game.dispose();
   });
+
 }

@@ -10,6 +10,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:botvinnik_mobile/brain/types.dart';
 import 'package:botvinnik_mobile/engine/arbiter.dart'
     show SearchPriority, kRefusalCheckDepth;
+import 'package:botvinnik_mobile/brain/chess_api.dart';
 import 'package:botvinnik_mobile/stores/game_controller.dart';
 import 'package:botvinnik_mobile/stores/settings_store.dart';
 
@@ -193,17 +194,28 @@ void main() {
     double winChanceOf(double? eval, int? mate) =>
         eval == null ? 20 : 80; // drop = 60
 
-    Future<(GameController, FakePractice)> newRefusalGame() async {
+    // The refutation must come from the AFTER-position search, never from the
+    // pre-move lines the best move is read off. Giving the two fakes different
+    // pvs is what makes those distinguishable: with both `d2d4`, swapping the
+    // refutation for `grade.bestUci` — exactly the leak this feature must not
+    // have — passed every assertion.
+    final childLines = [
+      EngineMove(pv: ['h7h5'], score: -0.9, mate: null, depth: 10, multipv: 1),
+    ];
+
+    Future<(GameController, FakePractice)> newRefusalGame(
+        {bool rated = false, ChessApi? chess}) async {
       final settings = await loadSettings(black: kTestBotId);
       final practice = FakePractice();
       final game = GameController(
-          FakeArbiter(analysisLines: kFakeLines),
+          FakeArbiter(analysisLines: kFakeLines, searchLines: childLines),
           FakeBot({kTestBotId: testBotPersona}),
           FakeGrading(winChanceOf: winChanceOf),
           settings,
           null,
-          practice);
-      game.newGame(refuseBlunders: true);
+          practice,
+          chess);
+      game.newGame(refuseBlunders: true, rated: rated);
       return (game, practice);
     }
 
@@ -218,6 +230,64 @@ void main() {
       expect(practice.collected, hasLength(1),
           reason: 'still queued as a puzzle even though it was never played');
       expect(practice.collected.single['san'], 'e4');
+      game.dispose();
+    });
+
+    // #231. The message renders in exactly one widget — the Insights card —
+    // and a rated game has no panels, so refusing was completely silent in the
+    // mode where it is arguably most useful. Two halves: WHAT IT COST, said
+    // everywhere, and WHY, said only where help is not being withheld.
+    test('the message names what the move cost', () async {
+      final (game, _) = await newRefusalGame();
+      game.playUci('e2e4');
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+
+      // The harness is rigged for a 60-point drop (see winChanceOf above).
+      expect(game.refusalDrop, closeTo(60, 0.5));
+      expect(game.refusalMessage, contains('60%'),
+          reason: 'refusing without saying how bad is the least useful half');
+      game.dispose();
+    });
+
+    test('and says so in a RATED game too, where there are no panels',
+        () async {
+      final (game, _) = await newRefusalGame(rated: true);
+      game.playUci('e2e4');
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+
+      expect(game.refusedMoves, 1, reason: 'precondition: really refused');
+      expect(game.refusalMessage, contains('60%'));
+      game.dispose();
+    });
+
+    test('but never what to play instead while help is withheld', () async {
+      // Rated forces blind on, and blind exists so the engine cannot advise.
+      // The cost is a judgement about the move you chose; the refutation is
+      // engine analysis of the position, which is the line rated must not
+      // cross.
+      final (game, _) = await newRefusalGame(rated: true, chess: _RefuteChess());
+      game.playUci('e2e4');
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+
+      expect(game.refusedMoves, 1, reason: 'precondition: really refused');
+      expect(game.refusalRefutationUci, isNull);
+      expect(game.refusalRefutationSan, isNull);
+      game.dispose();
+    });
+
+    test('and does say it in a casual, non-blind game', () async {
+      // The other half — so the assertion above fails for the reason claimed
+      // rather than because nothing ever populates it.
+      final (game, _) = await newRefusalGame(chess: _RefuteChess());
+      game.playUci('e2e4');
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+
+      expect(game.refusedMoves, 1, reason: 'precondition: really refused');
+      expect(game.refusalRefutationUci, 'h7h5',
+          reason: "the after-position search's reply, i.e. what it runs into");
+      expect(game.refusalRefutationUci, isNot(kFakeLines.first.pv.first),
+          reason: 'NEVER the best move — that is what practice withholds too');
+      expect(game.refusalRefutationSan, 'SAN(h7h5)');
       game.dispose();
     });
 
@@ -697,4 +767,22 @@ class _CountingArbiter extends FakeArbiter {
   int resets = 0;
   @override
   void bumpGeneration() => resets++;
+}
+
+/// Names the refutation move so a test can tell it from the best move.
+class _RefuteChess implements ChessApi {
+  @override
+  String san(String fen, String uci) => 'SAN($uci)';
+
+  /// Wiring a ChessApi also builds the lines tree, which calls this on every
+  /// ingest; a noSuchMethod null throws a type error and takes the whole
+  /// refusal flow down before it can set anything.
+  @override
+  List<Map<String, dynamic>> sanSteps(String fen, List<String> ucis) => [
+        for (var i = 0; i < ucis.length; i++)
+          {'san': ucis[i], 'uci': ucis[i], 'color': i.isEven ? 'w' : 'b', 'piece': 'p'}
+      ];
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => null;
 }
