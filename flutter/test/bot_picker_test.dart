@@ -51,8 +51,8 @@ final _roster = <String, Persona>{
   'retro-bernstein': _p('retro-bernstein', 'Bernstein', 900, 'retro'),
   'retro-sargon': _p('retro-sargon', 'Sargon', 1100, 'retro'),
   'chessgpt-mix': _p('chessgpt-mix', 'ChessGPT (both)', 1225, 'chessgpt'),
-  'chessgpt-lichess': _p('chessgpt-lichess', 'ChessGPT (human)', 1244, 'chessgpt'),
-  'chessgpt-stockfish': _p('chessgpt-stockfish', 'ChessGPT (engine)', 1303, 'chessgpt'),
+  'chessgpt-lichess': _p('chessgpt-lichess', 'ChessGPT (lichess)', 1244, 'chessgpt'),
+  'chessgpt-stockfish': _p('chessgpt-stockfish', 'ChessGPT (stockfish)', 1303, 'chessgpt'),
 };
 
 Future<CustomEngineStore> _loaded(MemoryDb db) async {
@@ -357,8 +357,8 @@ void main() {
 
       // The row is "<name>  ·  <elo>", so match on the name.
       for (final name in [
-        'ChessGPT (human)',
-        'ChessGPT (engine)',
+        'ChessGPT (lichess)',
+        'ChessGPT (stockfish)',
         'ChessGPT (both)'
       ]) {
         expect(find.textContaining(name), findsOneWidget,
@@ -374,7 +374,7 @@ void main() {
 
       await tester.tap(find.text('ChessGPT'));
       await tester.pumpAndSettle();
-      await tester.tap(find.textContaining('ChessGPT (engine)'));
+      await tester.tap(find.textContaining('ChessGPT (stockfish)'));
       await tester.pumpAndSettle();
 
       expect(result(), 'chessgpt-stockfish');

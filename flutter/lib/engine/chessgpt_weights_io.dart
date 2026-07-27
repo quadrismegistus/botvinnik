@@ -35,26 +35,25 @@ import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 
-/// One published net: what taught it, where it lives, and what it should be.
+/// One published net: where it lives, and what it should be.
+///
+/// Carries NO display strings. It held a `name` and a `teacher` and nothing
+/// ever read them: the roster shows the PERSONA's name and blurb, from
+/// brain/bots.ts, which is the source of truth for everything a player sees.
+/// Two copies of a label that only one side renders do not stay equal — the
+/// first rename of a variant had to touch both, and would have silently
+/// diverged the moment one was missed.
 @immutable
 class ChessGptVariant {
   const ChessGptVariant({
     required this.id,
-    required this.name,
-    required this.teacher,
     required this.sha256,
     required this.bytes,
   });
 
-  /// Stable key. It is the filename, the persona id and the stored setting, so
-  /// it must not change once shipped.
+  /// Stable key. It is the filename, the persona id suffix and the stored
+  /// setting, so it must not change once shipped.
   final String id;
-
-  /// Display name of the style in the roster.
-  final String name;
-
-  /// One line on what it learned from — the whole reason these are separate.
-  final String teacher;
 
   /// Lowercase hex SHA-256 of the asset, checked before the bytes are kept or
   /// returned.
@@ -82,31 +81,23 @@ class ChessGptWeights {
   /// ORT's native library, so the same platforms Maia runs on.
   static bool get supported => Platform.isMacOS || Platform.isIOS;
 
-  /// The three published nets.
-  ///
-  /// Order is roster order, deliberately: the human-trained net first, because
-  /// its premise needs no explaining and it is the most accurate of the three.
+  /// The three published nets. Names, blurbs and roster order come from the
+  /// personas in brain/bots.ts; this is only what to fetch and how to check it.
   static const List<ChessGptVariant> variants = [
     ChessGptVariant(
       id: 'lichess',
-      name: 'ChessGPT (human)',
-      teacher: 'a million human games on Lichess',
       sha256:
           '738ef5734a143740403069386da835c206739193141db89c69024e30da10a796',
       bytes: 25808998,
     ),
     ChessGptVariant(
       id: 'stockfish',
-      name: 'ChessGPT (engine)',
-      teacher: 'Stockfish playing itself',
       sha256:
           '57e0285a7f571ef8aaad348446bc7ebe1d73bcfd15373a44111ac45a8a4e5521',
       bytes: 25808998,
     ),
     ChessGptVariant(
       id: 'mix',
-      name: 'ChessGPT (both)',
-      teacher: 'human games and Stockfish self-play together',
       sha256:
           '4b828ec44060fb94465714e3ac2118851c61e74ce3360f2d7ccccf9f4e82dc5e',
       bytes: 25808998,

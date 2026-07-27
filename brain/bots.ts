@@ -266,14 +266,14 @@ export const PERSONAS: BotPersona[] = [
 	chessgpt(
 		1244,
 		'lichess',
-		'ChessGPT (human)',
+		'ChessGPT (lichess)',
 		"A language model that learned chess by reading a million human games — no search, no evaluation, just what a move usually looks like. The most accurate of the three, and the most human in its errors."
 	),
 	chessgpt(
 		1303,
 		'stockfish',
-		'ChessGPT (engine)',
-		'The same model taught on Stockfish playing itself. Strongest of the three and also the wildest — it blunders nearly twice as often as its human-taught sibling, and wins anyway.'
+		'ChessGPT (stockfish)',
+		'The same model taught on Stockfish playing itself. Strongest of the three and also the wildest — it blunders nearly twice as often as its Lichess-taught sibling, and wins anyway.'
 	),
 	GARBO,
 	...[1800, 1900, 2000, 2100, 2200, 2300, 2400, 2500].map(fish)
