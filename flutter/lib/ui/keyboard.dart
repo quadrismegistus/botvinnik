@@ -129,10 +129,17 @@ class KeyboardControls extends StatelessWidget {
         (
           'Practice',
           [
-            ('? or /', 'hint — escalates: think → square → best'),
+            // The arrows this line used to draw the escalation with (U+2192)
+            // are in none of the bundled Roboto faces — checked, not assumed —
+            // so the help sheet was itself the font-fetch bug the comment
+            // above warns about.
+            ('? or /', 'hint — escalates: think, then the square, then best'),
             ('b', 'reveal the best move'),
             ('r', 'retry the puzzle'),
-            ('n', 'next puzzle'),
+            // Deliberately the button and not "next puzzle": while the puzzle
+            // is unanswered the green button is a hint, and n is whatever it
+            // says (#214). Skip has no key on purpose.
+            ('n', 'the green button: hint, then show best, then next puzzle'),
           ],
         ),
         (
@@ -231,7 +238,12 @@ class KeyboardControls extends StatelessWidget {
       return KeyEventResult.handled;
     }
     if (key == LogicalKeyboardKey.keyN) {
-      practice.nextPuzzle();
+      // n IS the green button, whatever it currently says (#214) — never a
+      // straight `nextPuzzle`. It sits one key from `r`, and the reported bug
+      // was reaching for retry, hitting this, and losing an unsolved puzzle
+      // with no answer ever shown. Now the worst a stray press can do is give
+      // you a hint you did not ask for; the puzzle stays on the board.
+      practice.doPrimary();
       return KeyEventResult.handled;
     }
     if (key == LogicalKeyboardKey.keyB) {
