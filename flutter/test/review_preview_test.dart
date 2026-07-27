@@ -106,6 +106,26 @@ Map<String, dynamic> _game({String? botColor = 'b'}) => {
       ],
     };
 
+/// The same game with an explanation on ply 1 — the TALLEST real strip, and
+/// the state every height assertion here used to miss. `_game()` carries no
+/// 'explanation' key, so `prose` was null at every ply and the strip was
+/// measured in its easiest form.
+Map<String, dynamic> _withProse() {
+  final g = _game();
+  // A fresh list, not a write through `.cast()`: `_game()`'s moves literal
+  // infers as List<Map<String, Object>>, so assigning a Map<String, dynamic>
+  // back into a cast view of it throws at the reverse check.
+  final ms = <Map<String, dynamic>>[
+    for (final m in (g['moves'] as List).cast<Map<String, dynamic>>())
+      <String, dynamic>{...m}
+  ];
+  ms[0]['explanation'] = <String, dynamic>{
+    'playedIssue': 'It drops the e-pawn to a knight fork that also hits the '
+        'queen, and there is no way to hold both.'
+  };
+  return {...g, 'moves': ms};
+}
+
 /// The same shape with every grade stripped: what `gameFromPgn` writes, and
 /// the game that must not pay for a mini-board it can never draw.
 Map<String, dynamic> _ungraded() {
@@ -382,35 +402,93 @@ void main() {
       // measures goes stale the first time the preview grows. Budget: the
       // strip's own share of kReviewFixed (which also covers the 52px scrub
       // bar) plus kMovePreview.
-      final board = await _pump(tester, _game());
+      // At the NARROWEST width and WITH prose, which is where the strip is
+      // tallest — 184px, against the 178 the first version of this reserved.
+      // Measured at 390pt with no explanation, 112 looked like plenty.
       const budget = kReviewFixed - 52 + kMovePreview;
-      for (final ply in [0, 1, 2, 3]) {
-        await _goto(tester, board, ply);
-        final h = tester
-            .getSize(find.byKey(const ValueKey('review-verdict')))
-            .height;
-        expect(h, lessThanOrEqualTo(budget),
-            reason: 'the verdict strip is ${h}px at ply $ply, budget $budget');
+      for (final (label, w, h) in [
+        ('390pt', 390.0, 844.0),
+        ('320pt', 320.0, 900.0), // tall enough that the preview is still drawn
+      ]) {
+        final board = await _pump(tester, _withProse(), width: w, height: h);
+        expect(reviewShowsPreview(w, h), isTrue, reason: 'precondition at $label');
+        for (final ply in [0, 1, 2, 3]) {
+          await _goto(tester, board, ply);
+          final got = tester
+              .getSize(find.byKey(const ValueKey('review-verdict')))
+              .height;
+          expect(got, lessThanOrEqualTo(budget),
+              reason: 'strip is ${got}px at ply $ply, $label; budget $budget');
+        }
       }
     });
 
+    // Every phone the app targets, in the state that costs the most: a graded
+    // move whose explanation wraps. This is the assertion that "a phone pays
+    // nothing at all" should have been. That one measured the BOARD, which
+    // genuinely does not move on a phone — because the 120px comes out of the
+    // move list instead, and Expanded absorbs it silently down to zero. At
+    // 320x568 with prose the list was 8px.
     for (final (label, width, height) in [
-      ('phone', 390.0, 844.0),
-      ('phone, tiny', 320.0, 568.0),
-      ('narrow window, short', 620.0, 520.0),
-      ('at the breakpoint', 720.0, 620.0),
-      // The wide layout's pane at its narrowest: the strip is ~172px wide
-      // there, and the mini-board alone is 104 of it.
-      ('desktop, pane squeezed', 800.0, 600.0),
+      ('320x568, the SE', 320.0, 568.0),
+      ('375x667', 375.0, 667.0),
+      ('390x844', 390.0, 844.0),
+      ('620x520, narrow and short', 620.0, 520.0),
+      ('720x620, at the breakpoint', 720.0, 620.0),
+      ('800x600, desktop', 800.0, 600.0),
     ]) {
-      testWidgets('no overflow with a preview on screen ($label)',
+      testWidgets('the move list survives a graded move with prose ($label)',
           (tester) async {
-        final board = await _pump(tester, _game(), width: width, height: height);
+        final board =
+            await _pump(tester, _withProse(), width: width, height: height);
         await _goto(tester, board, 1);
-        expect(find.byType(MovePreview), findsOneWidget,
-            reason: 'the widget under test must be on screen');
+
+        expect(tester.getSize(find.byType(ListView)).height,
+            greaterThanOrEqualTo(kMinMoveList),
+            reason: 'the move list was squeezed out at $label');
         expect(tester.takeException(), isNull, reason: 'overflowed at $label');
       });
     }
+
+    testWidgets('a viewport too short for the mini-board falls back to words',
+        (tester) async {
+      // The mini-board yields, not the list and not the board. The strip keeps
+      // its fallback sentence, which is the same one a promotion gets.
+      final board = await _pump(tester, _withProse(), width: 320, height: 568);
+      await _goto(tester, board, 1);
+
+      expect(reviewShowsPreview(320, 568), isFalse, reason: 'precondition');
+      expect(find.byType(MovePreview), findsNothing);
+      expect(find.text('best: d4'), findsOneWidget,
+          reason: 'the fact is still there, just not as a picture');
+    });
+
+    testWidgets('and a viewport with room for it draws it', (tester) async {
+      // The control: without it, "never draw the preview" passes the test
+      // above and every list-height assertion in this file.
+      final board = await _pump(tester, _withProse(), width: 390, height: 844);
+      await _goto(tester, board, 1);
+
+      expect(reviewShowsPreview(390, 844), isTrue, reason: 'precondition');
+      expect(find.byType(MovePreview), findsOneWidget);
+      expect(find.text('best: d4'), findsNothing);
+    });
+
+    testWidgets('whether it is drawn cannot change under a scrub',
+        (tester) async {
+      // A per-ply answer would make the board resize as the player steps
+      // through the game. It is per viewport and per game, so stepping across
+      // a ply that HAS prose and one that has not cannot flip it.
+      final board = await _pump(tester, _withProse(), width: 390, height: 844);
+      final seen = <bool>{};
+      final sizes = <Size>{};
+      for (final ply in [0, 1, 2, 3, 1, 0]) {
+        await _goto(tester, board, ply);
+        seen.add(find.byType(MovePreview).evaluate().isNotEmpty || ply == 0);
+        sizes.add(tester.getSize(find.byType(BoardPane)));
+      }
+      expect(seen, {true});
+      expect(sizes, hasLength(1));
+    });
   });
 }

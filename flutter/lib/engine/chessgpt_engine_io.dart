@@ -31,6 +31,7 @@ import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:onnxruntime/onnxruntime.dart';
 
+import 'chessgpt_context.dart';
 import 'chessgpt_weights.dart';
 
 /// The 32 characters the model was trained on: SAN, and nothing else.
@@ -40,13 +41,18 @@ import 'chessgpt_weights.dart';
 /// in the wrong order encodes silently wrong instead of failing.
 const String kChessGptVocab = ' #+-.0123456789;=BKNOQRabcdefghx';
 
-/// The longest SAN is 7 characters ("Qa1xb2#"); 10 leaves room and still
-/// bounds a runaway sample.
-const int _kMaxSanChars = 10;
-
-/// Trained context. A game long enough to overflow it is already off the
-/// distribution, so the tail is kept and the head dropped.
-const int _kBlockSize = 1023;
+/// How long one forward pass may take before it is written off.
+///
+/// Belt and braces beside [contextWindow], and independently necessary: the
+/// overflow above was one way `runAsync` could fail without ever completing,
+/// and it will not be the last. A null here reaches GameController as "use the
+/// Stockfish stand-in", which is a bot that is not the one you picked — bad,
+/// and enormously better than a board that never moves again.
+///
+/// Generous, because a near-full context genuinely is slow: ~30s measured at
+/// 1010 tokens on an M1. A move this engine has not answered in a minute is
+/// not coming.
+const Duration kInferenceTimeout = Duration(seconds: 60);
 
 class _Net {
   _Net(this.session, this.tokensName, this.logitsName);
@@ -176,7 +182,10 @@ class ChessGptEngine {
     final input = OrtValueTensor.createTensorWithDataList(t, [1, ids.length]);
     final run = OrtRunOptions();
     try {
-      final outs = await net.session.runAsync(run, {net.tokensName: input}, [net.logitsName]);
+      final pass = net.session
+          .runAsync(run, {net.tokensName: input}, [net.logitsName]);
+      final outs = await (pass?.timeout(kInferenceTimeout) ??
+          Future<List<OrtValue?>?>.value());
       if (outs == null || outs.isEmpty) return null;
       final v = outs.first?.value;
       outs.first?.release();
@@ -184,6 +193,13 @@ class ChessGptEngine {
         return Float32List.fromList(
             (v.first as List).map((e) => (e as num).toDouble()).toList());
       }
+      return null;
+    } on TimeoutException {
+      // Not merely slow: `package:onnxruntime` reports some native failures by
+      // throwing on the callback side, where the catch below cannot see them
+      // and the future never completes. Without this the await never returns
+      // and neither does the bot's turn.
+      debugPrint('[chessgpt] inference timed out after $kInferenceTimeout');
       return null;
     } catch (e) {
       debugPrint('[chessgpt] inference failed: $e');
@@ -221,12 +237,17 @@ class ChessGptEngine {
         if (id != null) ids.add(id);
       }
       if (ids.isEmpty) return null;
-      final ctx = ids.length > _kBlockSize ? ids.sublist(ids.length - _kBlockSize) : ids;
+      // Room reserved for the characters the loop below is about to append:
+      // see chessgpt_context.dart for what pinning this AT kBlockSize did.
+      final ctx = contextWindow(ids, reserve: kMaxSanChars);
 
       final san = StringBuffer();
       final work = List<int>.of(ctx);
-      for (var i = 0; i < _kMaxSanChars; i++) {
-        final logits = await _logits(net, work);
+      for (var i = 0; i < kMaxSanChars; i++) {
+        // A second guard on the same invariant, so a change to kMaxSanChars
+        // cannot reintroduce the overflow: never hand the model more
+        // positions than it was trained to have.
+        final logits = await _logits(net, contextWindow(work));
         if (logits == null) return null;
         final next = temp <= 0 ? _argmax(logits) : _sample(logits, temp, rng);
         final ch = kChessGptVocab[next];

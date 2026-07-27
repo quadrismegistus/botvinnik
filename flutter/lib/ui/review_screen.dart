@@ -58,11 +58,17 @@ class ReviewBody extends StatelessWidget {
     // height — Review's board is sized against kReviewFixed, and anything in
     // the fixed column comes straight out of the board.
     final practiseCta = _practiseCta(context, review);
-    // Whether the strip has a mini-board to draw at all, asked of the GAME
-    // rather than of the ply — see [kMovePreview]. An ungraded import has no
-    // best move anywhere in it, so it keeps the board height.
-    final fixed = kReviewFixed +
-        (review.moves.any((m) => m['bestUci'] is String) ? kMovePreview : 0);
+    // Whether a mini-board is drawn at all. Two independent questions, both
+    // answered per GAME or per VIEWPORT rather than per ply, so neither can
+    // change under a scrub and make the board resize in the player's hand:
+    //
+    //   * has this game got a best move to compare against? An ungraded
+    //     import has none anywhere in it, so it keeps the height rather than
+    //     paying for a widget it can never draw.
+    //   * can this viewport afford one? See [reviewShowsPreview] — on a small
+    //     phone the 120px comes out of the move list, not the board, and the
+    //     list absorbs it silently down to nothing.
+    final graded = review.moves.any((m) => m['bestUci'] is String);
 
     return SafeArea(
       bottom: false,
@@ -72,6 +78,11 @@ class ReviewBody extends StatelessWidget {
       child: LayoutBuilder(
         builder: (context, constraints) {
           final settings = context.watch<SettingsStore>();
+          // One answer, read by BOTH the board's sizing and the strip's
+          // content. Split, they disagree about who is paying for the
+          // mini-board's height and the difference comes out of the move list.
+          final preview = graded &&
+              reviewShowsPreview(constraints.maxWidth, constraints.maxHeight);
           // The review board republished as THE GameController for this
           // subtree: BoardPane, and everything it draws, reads
           // `context.watch<GameController>()` and must find the review board
@@ -95,12 +106,12 @@ class ReviewBody extends StatelessWidget {
             final size = panedBoardSize(
               constraints.maxWidth,
               constraints.maxHeight,
-              fixed,
+              kReviewFixed + (preview ? kMovePreview : 0),
             );
             return Column(
               children: [
                 Center(child: boardView(size)),
-                _verdictStrip(m, table, board),
+                _verdictStrip(m, table, board, preview),
                 Expanded(
                     child: _moveList(review, board, table, summary, practiseCta)),
                 _scrubBar(board, context),
@@ -119,7 +130,7 @@ class ReviewBody extends StatelessWidget {
               Expanded(
                 child: Column(
                   children: [
-                    _verdictStrip(m, table, board),
+                    _verdictStrip(m, table, board, preview),
                     Expanded(
                         child: _moveList(
                             review, board, table, summary, practiseCta)),
@@ -151,8 +162,8 @@ class ReviewBody extends StatelessWidget {
   // live board. Both objections above are about drawing it HERE.
 
 
-  Widget _verdictStrip(
-      Map<String, dynamic>? m, ClassTable table, ReviewBoardController board) {
+  Widget _verdictStrip(Map<String, dynamic>? m, ClassTable table,
+      ReviewBoardController board, bool showPreview) {
     Widget content;
     if (board.inVariation) {
       // A variation move was never played, so it was never graded and there is
@@ -200,7 +211,7 @@ class ReviewBody extends StatelessWidget {
       // The picture, when there is one to draw. Its legend already says
       // "Best was e4", so the sentence below is the FALLBACK rather than a
       // caption — printing both would name the same move twice in one strip.
-      final preview = _preview(m, board);
+      final preview = showPreview ? _preview(m, board) : null;
       content = Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [

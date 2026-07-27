@@ -72,9 +72,14 @@ const _familyNeeds = <String, String>{
   'horizon': 'always',
   'retro': 'retro',
   'garbo': 'garbo',
-  // Maia and ChessGPT are both onnxruntime over FFI, on the same platforms.
-  'maia': 'ort',
-  'chessgpt': 'ort',
+  // Maia and ChessGPT are the same onnxruntime, but NOT the same capability
+  // — and collapsing them cost Maia the entire web build once. Native runs
+  // both over FFI; on the web Maia has a wasm worker and ChessGPT has nothing,
+  // so `ort` as one flag meant `true && false` and BOTH families vanished
+  // wherever they disagreed. They stay two keys precisely because the two
+  // getters are allowed to differ.
+  'maia': 'maia',
+  'chessgpt': 'chessgpt',
   'custom': 'process',
   // Styled engines (Rodent, BrainLearn) are `custom`-store families too,
   // offered wherever a process engine can run.
@@ -94,14 +99,16 @@ const _familyNeeds = <String, String>{
 /// matters.
 @visibleForTesting
 Set<String> familiesFor({
-  required bool ort,
+  required bool maia,
+  required bool chessgpt,
   required bool retro,
   required bool garbo,
   required bool process,
 }) {
   final have = {
     'always': true,
-    'ort': ort,
+    'maia': maia,
+    'chessgpt': chessgpt,
     'retro': retro,
     'garbo': garbo,
     'process': process,
@@ -113,7 +120,8 @@ Set<String> familiesFor({
 }
 
 final Set<String> _realPlayableFamilies = familiesFor(
-  ort: MaiaEngine.supported && ChessGptEngine.supported,
+  maia: MaiaEngine.supported,
+  chessgpt: ChessGptEngine.supported,
   retro: RetroEngine.supported,
   garbo: GarboEngine.supported,
   process: CustomEngineRunner.supported,

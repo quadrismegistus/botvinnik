@@ -132,6 +132,48 @@ void main() {
         reason: 'three nets should give three answers here, got $answers');
   }, timeout: const Timeout(Duration(minutes: 10)));
 
+  test('a long game does not hang the board', () async {
+    // The failure this replaces was a HANG, not a wrong move. The prompt was
+    // truncated to exactly the model's 1023-position embedding and the
+    // sampling loop then appended to it, so the second forward pass was 1024
+    // long. ORT rejects that ("cannot broadcast 1023 by 1024") — and
+    // package:onnxruntime raises it on the native-callback side, outside the
+    // engine's catch, so the future never completed. GameController awaits
+    // pickMove with no timeout of its own: the board sat with ChessGPT to
+    // move, nothing thinking, input refused, until the app was killed. At 0%
+    // CPU, for as long as you cared to wait.
+    //
+    // Reached at ply 183-185 — move 92-93 — of an ordinary game, and past it
+    // EVERY move hung, because the truncation pins the context at the ceiling
+    // on every attempt.
+    //
+    // Only an integration test can see it: the arithmetic is pinned in pure
+    // Dart by chessgpt_context_test.dart, but "does the FFI future actually
+    // complete" is a question about the runtime.
+    final engine = ChessGptEngine(ChessGptWeights.variants.first.id);
+    addTearDown(engine.dispose);
+
+    // Well past the ceiling, so the window is doing real work. Legality is not
+    // the claim — the prompt is synthetic and the model may answer with
+    // anything — only that it ANSWERS.
+    final long = ';1.${'e4 e5 Nf3 Nc6 Bc4 Bc5 ' * 200}';
+    expect(long.length, greaterThan(1023), reason: 'precondition');
+
+    var returned = false;
+    final move = await engine
+        .pickMove(long, isLegalSan: (_) => true)
+        .then((v) {
+      returned = true;
+      return v;
+    }).timeout(const Duration(minutes: 3), onTimeout: () => '(hung)');
+
+    expect(returned, isTrue,
+        reason: 'pickMove never completed — the board would be dead');
+    expect(move, isNot('(hung)'));
+    expect(move, isNotNull,
+        reason: 'a null here is the Stockfish stand-in, i.e. still broken');
+  }, timeout: const Timeout(Duration(minutes: 10)));
+
   test('a variant nobody publishes is unavailable, not a crash', () async {
     // GameController falls through to the Stockfish stand-in on a null, which
     // is the right answer for an id that does not exist — a persona from a

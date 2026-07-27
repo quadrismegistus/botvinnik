@@ -22,6 +22,10 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:botvinnik_mobile/brain/types.dart';
 import 'package:botvinnik_mobile/engine/chessgpt_engine.dart';
+import 'package:botvinnik_mobile/engine/custom_engine_runner.dart';
+import 'package:botvinnik_mobile/engine/garbo_engine.dart';
+import 'package:botvinnik_mobile/engine/maia_engine.dart';
+import 'package:botvinnik_mobile/engine/retro_engine.dart';
 import 'package:botvinnik_mobile/engine/playable_families.dart';
 import 'package:botvinnik_mobile/stores/game_controller.dart';
 
@@ -58,39 +62,107 @@ void main() {
     // version of this file passed on CI with the bug it exists to catch.
     // familiesFor takes the capabilities as arguments, which makes the claim
     // checkable on any machine.
-    test('ORT brings both onnxruntime families and nothing else', () {
-      final with_ = familiesFor(ort: true, retro: false, garbo: false, process: false);
-      final without =
-          familiesFor(ort: false, retro: false, garbo: false, process: false);
-      expect(with_.difference(without), {'maia', 'chessgpt'});
-      expect(without, isNot(contains('chessgpt')),
-          reason: 'deleting the chessgpt clause is the whole bug, restored');
-    });
+    const off = <String, bool>{
+      'maia': false,
+      'chessgpt': false,
+      'retro': false,
+      'garbo': false,
+      'process': false,
+    };
+    Set<String> only(String capability) => familiesFor(
+          maia: capability == 'maia',
+          chessgpt: capability == 'chessgpt',
+          retro: capability == 'retro',
+          garbo: capability == 'garbo',
+          process: capability == 'process',
+        );
+    final none = familiesFor(
+      maia: off['maia']!,
+      chessgpt: off['chessgpt']!,
+      retro: off['retro']!,
+      garbo: off['garbo']!,
+      process: off['process']!,
+    );
 
     test('the always-on families never depend on a capability', () {
-      final none =
-          familiesFor(ort: false, retro: false, garbo: false, process: false);
       expect(none, {'squarefish', 'stockfish', 'horizon'});
     });
 
-    test('a process engine brings custom and its styled siblings', () {
-      final p = familiesFor(ort: false, retro: false, garbo: false, process: true)
-          .difference(
-              familiesFor(ort: false, retro: false, garbo: false, process: false));
-      expect(p, {'custom', 'rodent', 'brainlearn'});
+    // One case per capability, and every family in the map appears in exactly
+    // one of them. Without the retro and garbo rows, DELETING either family
+    // from `_familyNeeds` was caught by nothing in either language — the Dart
+    // suite stayed green and so did brain/familyParity.test.ts, while the
+    // family vanished from both pickers on the platforms that can play it.
+    for (final (capability, families) in [
+      ('maia', {'maia'}),
+      ('chessgpt', {'chessgpt'}),
+      ('retro', {'retro'}),
+      ('garbo', {'garbo'}),
+      ('process', {'custom', 'rodent', 'brainlearn'}),
+    ]) {
+      test('$capability brings exactly $families', () {
+        expect(only(capability).difference(none), families);
+      });
+    }
+
+    test('every family the app knows is reachable by some capability', () {
+      // The other direction, so a family added to the map with a capability
+      // name nothing supplies — a typo, or a key renamed on one side — is not
+      // silently unplayable everywhere.
+      final all = familiesFor(
+          maia: true, chessgpt: true, retro: true, garbo: true, process: true);
+      expect(all.length, greaterThan(none.length));
+      expect(
+          all,
+          {
+            'squarefish', 'stockfish', 'horizon', 'maia', 'chessgpt',
+            'retro', 'garbo', 'custom', 'rodent', 'brainlearn',
+          },
+          reason: 'a family here that no capability turns on can never be '
+              'played, and nothing else would say so');
+    });
+
+    test('Maia and ChessGPT are INDEPENDENT capabilities', () {
+      // They are the same onnxruntime on native, which is why they were one
+      // `ort` flag — and that cost Maia the entire web build. On the web
+      // MaiaEngine.supported is true (a wasm worker) while
+      // ChessGptEngine.supported is hardcoded false, so `ort: maia && chessgpt`
+      // was false and BOTH families dropped out of every picker on
+      // botvinnik.app. Neither the macOS suite (both true) nor CI's Linux
+      // (both false) could see it.
+      expect(familiesFor(
+              maia: true,
+              chessgpt: false,
+              retro: false,
+              garbo: false,
+              process: false),
+          contains('maia'));
+      expect(familiesFor(
+              maia: false,
+              chessgpt: true,
+              retro: false,
+              garbo: false,
+              process: false),
+          contains('chessgpt'));
     });
 
     test('the real whitelist is that function, applied to this platform', () {
       // Ties the pure function to what actually ships, so the two cannot
-      // drift. Host-independent: both sides move together.
+      // drift. Every argument is read from the ENGINE, not from the value
+      // under test: three of the five used to be `playableFamilies.contains(…)`,
+      // which made those legs tautologies. Hardcoding retro/garbo/process to
+      // false in playable_families.dart then left all 812 tests green on
+      // macOS, where that mutation deletes Garbo and every user-added engine
+      // from the roster sheet.
       debugPlayableFamilies = null;
       expect(
           playableFamilies,
           familiesFor(
-            ort: ChessGptEngine.supported,
-            retro: playableFamilies.contains('retro'),
-            garbo: playableFamilies.contains('garbo'),
-            process: playableFamilies.contains('custom'),
+            maia: MaiaEngine.supported,
+            chessgpt: ChessGptEngine.supported,
+            retro: RetroEngine.supported,
+            garbo: GarboEngine.supported,
+            process: CustomEngineRunner.supported,
           ));
     });
   });

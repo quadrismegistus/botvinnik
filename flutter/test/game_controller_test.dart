@@ -12,6 +12,7 @@ import 'package:botvinnik_mobile/engine/arbiter.dart'
     show SearchPriority, kRefusalCheckDepth;
 import 'package:botvinnik_mobile/brain/chess_api.dart';
 import 'package:botvinnik_mobile/stores/game_controller.dart';
+import 'package:botvinnik_mobile/stores/practice_controller.dart' show CollectOutcome;
 import 'package:botvinnik_mobile/stores/settings_store.dart';
 
 import 'support/fake_db.dart';
@@ -289,6 +290,114 @@ void main() {
           reason: 'NEVER the best move — that is what practice withholds too');
       expect(game.refusalRefutationSan, 'SAN(h7h5)');
       game.dispose();
+    });
+
+    test('and not in a rated game even with blind turned back OFF', () async {
+      // The half the previous two could not separate. `newGame(rated: true)`
+      // applies the rated preset, which forces blind ON — so hidingHelp is
+      // already true and `!_rated` never gets a chance to matter. Deleting it
+      // left all 812 tests green while the commit claimed the mutation died.
+      //
+      // The separating state is reachable: the app-bar eye button writes
+      // settings.blind unconditionally and is not disabled during a rated
+      // game, so a player can turn blind off mid-rated-game. Rated must still
+      // withhold the refutation there — being rated is the reason, not the
+      // blindfold.
+      // Built inline rather than through newRefusalGame, because this test
+      // needs to keep hold of the SettingsStore to flip the switch.
+      final settings = await loadSettings(black: kTestBotId);
+      final game = GameController(
+          FakeArbiter(analysisLines: kFakeLines, searchLines: childLines),
+          FakeBot({kTestBotId: testBotPersona}),
+          FakeGrading(winChanceOf: winChanceOf),
+          settings,
+          null,
+          FakePractice(),
+          _RefuteChess());
+      game.newGame(refuseBlunders: true, rated: true);
+      settings.blind = false;
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      expect(game.hidingHelp, isFalse,
+          reason: 'precondition: the blind clause can no longer carry this');
+      expect(game.rated, isTrue);
+
+      game.playUci('e2e4');
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+
+      expect(game.refusedMoves, 1, reason: 'precondition: really refused');
+      expect(game.refusalRefutationUci, isNull);
+      game.dispose();
+    });
+
+    // The check crosses the JS bridge and the arbiter on every await, and this
+    // method is fire-and-forget with no zone guard. Before the catch, a throw
+    // skipped _apply and the `finally` then cleared pendingFen on the way out:
+    // the piece snapped home with no message and nothing counted, which is
+    // indistinguishable from a misclick — and with a dead engine EVERY move
+    // vanished, while the same dead engine with refusal mode off still let the
+    // game be played.
+    group('a failed check fails OPEN', () {
+      Future<GameController> throwing({required bool refuse}) async {
+        final settings = await loadSettings(black: kTestBotId);
+        final game = GameController(
+            FakeArbiter(analysisLines: kFakeLines, searchLines: childLines),
+            FakeBot({kTestBotId: testBotPersona}),
+            _ThrowingGrading(winChanceOf: winChanceOf),
+            settings);
+        game.newGame(refuseBlunders: refuse);
+        return game;
+      }
+
+      test('a throwing bridge lets the move through', () async {
+        final game = await throwing(refuse: true);
+        game.playUci('e2e4');
+        await Future<void>.delayed(const Duration(milliseconds: 150));
+
+        expect(game.moves.map((m) => m.san), ['e4'],
+            reason: 'the move must not vanish');
+        expect(game.pendingFen, isNull, reason: 'and must not stay hovering');
+        expect(game.refusalMessage, isNull);
+        expect(game.refusedMoves, 0, reason: 'nothing was actually refused');
+        game.dispose();
+      });
+
+      test('but a throw AFTER the refusal must not undo it', () async {
+        // The other side of the guard, and the one a blanket catch gets
+        // wrong. The refusal path awaits a database write — maybeCollect —
+        // AFTER the message is on screen and the board has snapped back. A
+        // catch that failed open there would apply the very move it had just
+        // refused, under its own "that costs 60%" message.
+        final settings = await loadSettings(black: kTestBotId);
+        final game = GameController(
+            FakeArbiter(analysisLines: kFakeLines, searchLines: childLines),
+            FakeBot({kTestBotId: testBotPersona}),
+            FakeGrading(winChanceOf: winChanceOf),
+            settings,
+            null,
+            _ThrowingPractice());
+        game.newGame(refuseBlunders: true);
+
+        game.playUci('e2e4');
+        await Future<void>.delayed(const Duration(milliseconds: 150));
+
+        expect(game.moves, isEmpty,
+            reason: 'the refused move must stay refused');
+        expect(game.refusedMoves, 1);
+        expect(game.refusalMessage, contains('60%'),
+            reason: 'and the message it was refused with must stand');
+        game.dispose();
+      });
+
+      test('which is what the same throw does with refusal mode off', () async {
+        // The control, and the comparison that makes the bug a bug: without
+        // refusal mode the identical failure costs only the grade.
+        final game = await throwing(refuse: false);
+        game.playUci('e2e4');
+        await Future<void>.delayed(const Duration(milliseconds: 150));
+
+        expect(game.moves.map((m) => m.san), ['e4']);
+        game.dispose();
+      });
     });
 
     test('relents on the 4th attempt at the same position', () async {
@@ -770,6 +879,35 @@ class _CountingArbiter extends FakeArbiter {
 }
 
 /// Names the refutation move so a test can tell it from the best move.
+/// Collection fails, AFTER the refusal has already been decided and painted.
+/// The database is the one dependency in [_maybeRefuse] that is touched past
+/// the point of no return.
+class _ThrowingPractice extends FakePractice {
+  @override
+  Future<CollectOutcome> maybeCollect(Map<String, dynamic> storedMove,
+          {String? setupUci, int minDepth = 8}) async =>
+      throw StateError('the practice store is unwritable');
+}
+
+/// A grading facade whose bridge is dead. `gradeMove` is the first call
+/// `_maybeRefuse` makes across it, so this is the earliest and commonest shape
+/// of the failure — a bridge StateError, exactly what `_maybeBotTurn` has
+/// caught since it was written.
+class _ThrowingGrading extends FakeGrading {
+  _ThrowingGrading({super.winChanceOf});
+
+  @override
+  MoveGrade gradeMove({
+    required int ply,
+    required String fenBefore,
+    required String san,
+    required String uci,
+    required String color,
+    required List<EngineMove> preLines,
+  }) =>
+      throw StateError('brain.gradeMove failed: the bridge is dead');
+}
+
 class _RefuteChess implements ChessApi {
   @override
   String san(String fen, String uci) => 'SAN($uci)';

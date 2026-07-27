@@ -89,7 +89,53 @@ const double kReviewFixed = kGradeStrip + 52;
 /// pumps the real strip with the real Roboto and asserts the height fits, so a
 /// style change that grows the preview reddens a test instead of quietly
 /// eating the move list.
-const double kMovePreview = 112;
+///
+/// 120, not the 112 first shipped: the tallest real strip is the one at 320pt
+/// carrying an explanation, where the prose wraps to two lines. 112 was
+/// measured without any prose at 390pt, which is the easy case.
+const double kMovePreview = 120;
+
+/// The least move list worth calling a move list: two rows plus their padding.
+///
+/// Smaller than [kPaneReserve], and deliberately — that reserve exists to keep
+/// a GLANCE of a scrollable pane on screen on a desktop window, and layout.dart
+/// already declines to spend it on a phone. This is the harder floor: below it
+/// the Review tab is a board and a verdict with no game attached.
+const double kMinMoveList = 56;
+
+/// Whether Review can afford the move-comparison mini-board here (#233).
+///
+/// The reservation alone was not enough, and the way it failed is worth
+/// keeping. [kMovePreview] comes out of the BOARD only where the board is
+/// height-limited. On a phone the board is width-limited, so the strip growing
+/// took its 120px out of the move list instead — and the list is `Expanded`,
+/// which absorbs it silently and clamps at zero rather than overflowing. On a
+/// 320x568 phone, a graded move carrying an explanation left the list **8px
+/// tall**: a board, a verdict, and no game. The test that was supposed to
+/// cover this asserted the board had not moved, which was true and beside the
+/// point.
+///
+/// So the mini-board is the thing that yields. It is the luxury of the three —
+/// the board, the verdict and the list are all load-bearing — and the strip
+/// already has a fallback for the case where it cannot draw one, the "best:
+/// d4" sentence a promotion falls back to.
+///
+/// A property of the VIEWPORT, not of the ply, so it cannot change under a
+/// scrub. [fixedFor] must be fed the same answer or the board and the strip
+/// will disagree about who is paying.
+bool reviewShowsPreview(double width, double height) {
+  final fixed = kReviewFixed + kMovePreview;
+  // In the wide layout the board sits BESIDE the column, so it costs the
+  // column no height at all.
+  final board = width < kWideBreakpoint
+      ? panedBoardSize(width, height, fixed)
+      : 0.0;
+  return height - board - fixed >= kMinMoveList;
+}
+
+/// Review's fixed furniture at this viewport, mini-board included or not.
+double fixedFor(double width, double height) =>
+    kReviewFixed + (reviewShowsPreview(width, height) ? kMovePreview : 0);
 
 /// Review, plus enough move list to be worth showing — the list is Expanded,
 /// so without a reserve the board would eat it entirely on a short window.

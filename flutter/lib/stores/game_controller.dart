@@ -1139,6 +1139,13 @@ class GameController extends ChangeNotifier {
     final gen = _gen;
     _refusalPending = true;
     _refusalPendingGen = gen;
+    // Whether this move's fate is settled — refused, or handed to [_apply].
+    // Read by the catch below, which must fail open on a move nothing has
+    // decided yet and MUST NOT touch one that is already decided: the refusal
+    // path awaits a database write after the refusal is on screen, and
+    // applying the move there would commit the very move it just refused,
+    // under its own "that costs -18%" message.
+    var decided = false;
     try {
       final fenBefore = position.fen;
       final uci = move.uci;
@@ -1179,6 +1186,7 @@ class GameController extends ChangeNotifier {
       if (grade != null &&
           drop >= _settings.collectThreshold &&
           attempts < kMaxRefusalAttempts) {
+        decided = true;
         _refusalAttempts[fenBefore] = attempts + 1;
         _refusedMoves++;
         final left = kMaxRefusalAttempts - attempts - 1;
@@ -1239,8 +1247,36 @@ class GameController extends ChangeNotifier {
       // Cleared before [_apply], not after: _apply notifies, and it must not
       // paint a frame in which the move is both committed and still pending.
       _clearRefusalUi();
+      // Before the call, not after: a throw from inside [_apply] leaves the
+      // move half-applied, and re-applying it is worse than not.
+      decided = true;
       _apply(move, san);
       _maybeBotTurn();
+    } catch (e, st) {
+      // FAIL OPEN, and this is the whole point of the branch. Every await
+      // above crosses the JS bridge or the arbiter, and this method is
+      // fire-and-forget with no zone guard — so a throw skipped _apply
+      // entirely and the `finally` then cleared pendingFen on the way out.
+      // The piece snapped home, no message, no attempt counted: the player's
+      // move simply vanished, which is indistinguishable from a misclick and
+      // is exactly what pendingFen exists to prevent. With a dead engine EVERY
+      // move vanished, for as long as it stayed dead — while the same dead
+      // engine with refusal mode OFF still let the game be played.
+      //
+      // _maybeBotTurn has carried this catch since it was written, for the
+      // same reason and with the same wording. This one was missing it.
+      //
+      // The move goes through. Refusing needs a number, and a thrown search
+      // has not got one — the doc above already commits to letting a move
+      // through rather than refusing on a number we do not actually have, and
+      // there is no weaker version of that promise for the case where the
+      // engine threw instead of merely being slow.
+      debugPrint('[refuse] check failed, letting the move through: $e\n$st');
+      if (!decided) {
+        _clearRefusalUi();
+        _apply(move, san);
+        _maybeBotTurn();
+      }
     } finally {
       // Only release the flag if this call still owns it for the CURRENT
       // generation — a stale call for an abandoned generation must not clear
@@ -2658,6 +2694,22 @@ class GameController extends ChangeNotifier {
   }
 
   Future<void> _gradePipeline(MoveRecord record, int gen) async {
+    try {
+      await _gradePipelineInner(record, gen);
+    } catch (e, st) {
+      // Contained for the same reason [_maybeBotTurn] and [_maybeRefuse]
+      // contain theirs: this is fire-and-forget from [_apply] and the app
+      // installs no zone guard, so a bridge StateError here became an
+      // unhandled async error. The move itself is already committed by this
+      // point, so the honest cost of a dead grading bridge is the GRADE, not
+      // the move — which is precisely the difference the refusal path's own
+      // catch exists to restore, and it would have led straight back into
+      // this one.
+      debugPrint('[grade] pipeline failed for ${record.san}: $e\n$st');
+    }
+  }
+
+  Future<void> _gradePipelineInner(MoveRecord record, int gen) async {
     final grade = await _computeGrade(
       ply: record.ply,
       fenBefore: record.fenBefore,
