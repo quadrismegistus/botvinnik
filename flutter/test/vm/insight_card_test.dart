@@ -27,7 +27,7 @@ import 'package:botvinnik_mobile/ui/board_theme.dart';
 import 'package:botvinnik_mobile/ui/grade_strip.dart';
 import 'package:botvinnik_mobile/ui/insight_card.dart';
 
-import 'support/game_harness.dart';
+import '../support/game_harness.dart';
 
 /// The brain's CLASS table, as it crosses the bridge (the three labels whose
 /// glyphs are drawn as icons are in here for the same reason as in

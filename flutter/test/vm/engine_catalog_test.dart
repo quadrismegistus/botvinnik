@@ -16,7 +16,7 @@ import 'package:botvinnik_mobile/stores/custom_engine.dart';
 import 'package:botvinnik_mobile/stores/engine_catalog.dart';
 import 'package:botvinnik_mobile/ui/engines_screen.dart';
 
-import 'support/memory_db.dart';
+import '../support/memory_db.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

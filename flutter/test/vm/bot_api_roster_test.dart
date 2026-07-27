@@ -23,7 +23,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:botvinnik_mobile/brain/bot_api.dart';
 
-import 'support/node_brain.dart';
+import '../support/node_brain.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

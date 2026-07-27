@@ -25,7 +25,7 @@ import 'package:botvinnik_mobile/ui/review_screen.dart';
 
 import 'package:botvinnik_mobile/stores/game_controller.dart';
 
-import 'support/game_harness.dart';
+import '../support/game_harness.dart';
 
 /// The brain's LABEL_ORDER (brain/classifications.ts), best-first.
 const _kLabelOrder = [

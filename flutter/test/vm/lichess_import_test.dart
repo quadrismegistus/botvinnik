@@ -22,8 +22,8 @@ import 'package:http/testing.dart';
 
 import 'package:botvinnik_mobile/brain/lichess_import_api.dart';
 
-import 'support/lichess_fixture.dart';
-import 'support/node_brain.dart';
+import '../support/lichess_fixture.dart';
+import '../support/node_brain.dart';
 
 /// A client that answers every request with [body] and records what it was
 /// asked for.

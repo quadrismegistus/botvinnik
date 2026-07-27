@@ -25,8 +25,8 @@ import 'package:botvinnik_mobile/stores/practice_controller.dart';
 import 'package:botvinnik_mobile/stores/settings_store.dart';
 import 'package:botvinnik_mobile/ui/practice_tab.dart';
 
-import 'support/game_harness.dart';
-import 'support/practice_harness.dart';
+import '../support/game_harness.dart';
+import '../support/practice_harness.dart';
 
 // Four distinct legal positions, so each row has its own board and its own id.
 const _fenA = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';

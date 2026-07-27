@@ -25,8 +25,8 @@ import 'package:botvinnik_mobile/brain/rating_api.dart';
 import 'package:botvinnik_mobile/stores/player_rating_store.dart';
 import 'package:botvinnik_mobile/ui/player_rating_card.dart';
 
-import 'support/fake_db.dart';
-import 'support/node_brain.dart';
+import '../support/fake_db.dart';
+import '../support/node_brain.dart';
 
 /// The narrow phone the app is laid out against elsewhere (see layout_test).
 const Size _phone = Size(375, 812);

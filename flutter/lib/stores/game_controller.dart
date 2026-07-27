@@ -860,7 +860,20 @@ class GameController extends ChangeNotifier {
             _arbiter.bumpGeneration();
             botThinking = false;
             notifyListeners();
-            _saveGame();
+            // NOT while a move is being applied. [_apply] presses the clock
+            // after the move is on the board (#238) but BEFORE it registers
+            // that move's grade pipeline in _pendingGrades — and _saveGame
+            // waits on exactly that list for the labels. Saving from here
+            // therefore archived the flagging move with `label` absent and
+            // `depth: 0`, while the live record got its grade a moment later,
+            // and the accuracy figures were computed over the blank. It is
+            // the only ending that got this wrong: mate and the draws save
+            // from _apply's own tail, which runs below the registration, and
+            // an ordinary ticker flag is not inside _apply at all.
+            //
+            // _apply's tail saves for us — it already does, on `gameOver`,
+            // which this has just made true.
+            if (!_applying) _saveGame();
           })
         : null;
     _undoWasCounted.clear();
@@ -1319,18 +1332,35 @@ class GameController extends ChangeNotifier {
   // ---- internals ----
 
   void _apply(NormalMove move, String san) {
-    // The clock, before anything else touches the position: the side that just
-    // moved is the one whose turn it currently IS, and playUnchecked below
-    // flips that. First move starts it rather than pressing — there is nothing
-    // to bank yet.
-    final c = _clock;
-    if (c != null) {
-      final mover = ClockSide.fromChar(position.turn == Side.white ? 'w' : 'b');
-      if (moves.isEmpty) {
-        c.start(mover);
-      }
-      c.press(mover);
+    _applying = true;
+    try {
+      _applyInner(move, san);
+    } finally {
+      _applying = false;
     }
+  }
+
+  void _applyInner(NormalMove move, String san) {
+    // Who will have pressed, read BEFORE playUnchecked flips the turn — but
+    // the press itself happens after the move is on the board, further down.
+    //
+    // It used to press here, first thing, and that was the bug in #238.
+    // [ChessClock.press] calls `_fall` SYNCHRONOUSLY when the mover is already
+    // through zero (the <=100ms window between the time running out and the
+    // ticker polling), and `_fall` runs `onFlag`, which archives the game. All
+    // of it ran while the move that triggered it was still unplayed: `moves`
+    // did not have it and `position` had not advanced, so the archive was
+    // written one move short of the board in front of the player — and `_saved`
+    // was then true, so the `_saveGame()` at the bottom of this method, which
+    // would have written the right thing, returned early. The board said Nf3;
+    // the archive said the game ended after e5. Results feed
+    // brain/playerElo.ts, so that is a game rated on a position that never
+    // happened.
+    final c = _clock;
+    final mover = c == null
+        ? null
+        : ClockSide.fromChar(position.turn == Side.white ? 'w' : 'b');
+    final firstMove = moves.isEmpty;
     stopPreview();
     // a new move makes the undone future unreachable — without this, redo
     // after a divergent move replayed a stale record onto the wrong position
@@ -1348,6 +1378,28 @@ class GameController extends ChangeNotifier {
       fenAfter: position.fen,
     );
     moves.add(record);
+    // NOW the clock, with the move on the board — see the note at the top of
+    // this method. First move starts it rather than pressing: there is nothing
+    // banked yet.
+    //
+    // A second consequence, and an improvement rather than a side effect: a
+    // move that ENDS THE GAME now ends it, rather than being overwritten by a
+    // flag arriving in the same instant. `onFlag` opens with `if (gameOver)
+    // return`, and by this point `position.isGameOver` — and `_drawByRule` —
+    // are already computed against the new position. Pressed before the move,
+    // gameOver was still false and the flag always won.
+    //
+    // For mate, stalemate and insufficient material this is simply the rule
+    // (FIDE 5.2, 6.9): a move completed before the flag falls is a move, and
+    // it ends the game. For threefold and the 50-move rule it is arguable —
+    // both are CLAIMS under FIDE, and a fallen flag would ordinarily beat an
+    // unclaimed one — but this app auto-enforces them by an explicit decision
+    // (see _ruleDrawReason), so treating them as ending the game here is
+    // consistent with that choice rather than a new one.
+    if (c != null && mover != null) {
+      if (firstMove) c.start(mover);
+      c.press(mover);
+    }
     _syncTree(); // extend the played path (and prune the old anchor's churn)
     notifyListeners();
     // the board moved on: older analyses wrap up at depth 12 and yield the
@@ -2429,6 +2481,15 @@ class GameController extends ChangeNotifier {
     _browsePly = null;
     notifyListeners();
   }
+
+  /// True while [_apply] is running, so a flag falling INSIDE it can tell that
+  /// a move is mid-flight.
+  ///
+  /// Only [onFlag] reads it, and only to skip its own `_saveGame()`. See the
+  /// call site: saving from there archives the game before [_apply] has
+  /// registered the flagging move's grade pipeline, so the move that ended the
+  /// game is the one move in the archive with no label.
+  bool _applying = false;
 
   /// The game-long exploration map (null until wired with a ChessApi).
   LinesTreeModel? linesTree;

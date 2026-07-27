@@ -19,7 +19,7 @@ import 'package:botvinnik_mobile/stores/game_controller.dart';
 import 'package:botvinnik_mobile/stores/settings_store.dart';
 import 'package:botvinnik_mobile/ui/player_plate.dart';
 
-import 'support/game_harness.dart';
+import '../support/game_harness.dart';
 
 /// The longest name on the roster (`brain/bots.ts`), on the family that has no
 /// engine of its own — so the badge is showing at the same time.

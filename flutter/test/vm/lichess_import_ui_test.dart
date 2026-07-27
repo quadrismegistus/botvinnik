@@ -29,10 +29,10 @@ import 'package:botvinnik_mobile/stores/practice_controller.dart';
 import 'package:botvinnik_mobile/stores/review_controller.dart';
 import 'package:botvinnik_mobile/ui/games_list.dart';
 
-import 'support/game_harness.dart';
-import 'support/lichess_fixture.dart';
-import 'support/memory_db.dart';
-import 'support/node_brain.dart';
+import '../support/game_harness.dart';
+import '../support/lichess_fixture.dart';
+import '../support/memory_db.dart';
+import '../support/node_brain.dart';
 
 Future<void> _loadRoboto() async {
   for (final w in ['Regular', 'Medium', 'Bold']) {
