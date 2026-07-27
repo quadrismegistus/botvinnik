@@ -94,4 +94,7 @@ class Persona {
   int? get maiaBand => raw['maiaBand'] as int?;
   /// maia: policy-sampling temperature; absent or 0 means play the argmax
   double? get maiaTemp => (raw['maiaTemp'] as num?)?.toDouble();
+  /// chessgpt: which published net — 'lichess' | 'stockfish' | 'mix'.
+  /// NOT a strength dial: the three sit inside 78 Elo and differ by teacher.
+  String? get chessgptVariant => raw['chessgptVariant'] as String?;
 }

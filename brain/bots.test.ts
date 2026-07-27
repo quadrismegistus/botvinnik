@@ -2,14 +2,15 @@ import { describe, it, expect } from 'vitest';
 import { availablePersonas, PERSONAS, personaById, personaInternalElo, SCALE_OFFSET } from './bots';
 
 describe('bot roster', () => {
-	it('has 35 personas: 2 Horizons + 12 Squares + 3 retros + 3 Dalas + 6 Maias + Garbo + 8 Fish', () => {
-		expect(PERSONAS.length).toBe(35);
+	it('has 38 personas: 2 Horizons + 12 Squares + 3 retros + 3 Dalas + 6 Maias + 3 ChessGPT + Garbo + 8 Fish', () => {
+		expect(PERSONAS.length).toBe(38);
 		expect(PERSONAS.filter((p) => p.family === 'garbo').length).toBe(1);
 		expect(PERSONAS.filter((p) => p.family === 'horizon').length).toBe(2);
 		expect(PERSONAS.filter((p) => p.family === 'squarefish').length).toBe(12);
 		expect(PERSONAS.filter((p) => p.family === 'retro').length).toBe(3);
 		expect(PERSONAS.filter((p) => p.family === 'dala').length).toBe(3);
 		expect(PERSONAS.filter((p) => p.family === 'maia').length).toBe(6);
+		expect(PERSONAS.filter((p) => p.family === 'chessgpt').length).toBe(3);
 		expect(PERSONAS.filter((p) => p.family === 'stockfish').length).toBe(8);
 	});
 
@@ -21,10 +22,25 @@ describe('bot roster', () => {
 		expect(personaById('maia-1100')?.maiaTemp).toBeUndefined(); // argmax untouched
 	});
 
-	it('dala is native-only: hidden from the web roster, present on desktop', () => {
+	it('dala and chessgpt are native-only: hidden from the web roster', () => {
 		expect(availablePersonas(false).filter((p) => p.family === 'dala').length).toBe(0);
+		expect(availablePersonas(false).filter((p) => p.family === 'chessgpt').length).toBe(0);
 		expect(availablePersonas(false).length).toBe(32);
-		expect(availablePersonas(true).length).toBe(35);
+		expect(availablePersonas(true).length).toBe(38);
+	});
+
+	// The three are NOT a strength ladder — that is the whole shape of the
+	// family, and the reason they are three personas rather than three rungs.
+	// If a future net widened this to a real ladder, the blurbs would be lying
+	// about what choosing between them means.
+	it('the ChessGPT nets differ by teacher, not by strength', () => {
+		const gpt = PERSONAS.filter((p) => p.family === 'chessgpt');
+		const elos = gpt.map((p) => p.elo);
+		expect(Math.max(...elos) - Math.min(...elos)).toBeLessThan(100);
+		expect(new Set(gpt.map((p) => p.chessgptVariant)).size).toBe(3);
+		expect(personaById('chessgpt-lichess')?.elo).toBe(1244);
+		expect(personaById('chessgpt-stockfish')?.elo).toBe(1303);
+		expect(personaById('chessgpt-mix')?.elo).toBe(1225);
 	});
 
 	it('dala personas carry the dala lichess bots real human-pool ratings', () => {
@@ -41,7 +57,16 @@ describe('bot roster', () => {
 
 	it('binds each family to exactly one mechanism', () => {
 		for (const p of PERSONAS) {
-			const bindings = [p.shapedLabel, p.maiaBand, p.numericElo, p.retro, p.dalaBand, p.jsceLevel, p.garboMs].filter(
+			const bindings = [
+				p.shapedLabel,
+				p.maiaBand,
+				p.numericElo,
+				p.retro,
+				p.dalaBand,
+				p.jsceLevel,
+				p.garboMs,
+				p.chessgptVariant
+			].filter(
 				(x) => x !== undefined
 			).length;
 			expect(bindings, p.id).toBe(1);
@@ -52,6 +77,7 @@ describe('bot roster', () => {
 			if (p.family === 'dala') expect(p.dalaBand).toBeDefined();
 			if (p.family === 'horizon') expect(p.jsceLevel).toBeDefined();
 			if (p.family === 'garbo') expect(p.garboMs).toBeDefined();
+			if (p.family === 'chessgpt') expect(p.chessgptVariant).toBeDefined();
 		}
 	});
 

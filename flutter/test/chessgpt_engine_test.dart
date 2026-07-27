@@ -44,26 +44,51 @@ void main() {
     });
   });
 
-  group('the published net is pinned', () {
-    // Not a verification of the ARTEFACT — a unit test cannot fetch 26MB — but
-    // of the two constants that address it. Both were pasted by hand, and the
-    // failure mode of a typo in either is a persona that silently never loads,
+  group('the published nets are pinned', () {
+    // Not a verification of the ARTEFACTS — a unit test cannot fetch 78MB —
+    // but of the constants that address them. Every one was pasted by hand,
+    // and the failure mode of a typo is a persona that silently never loads,
     // because [load] treats every error as "unavailable".
     //
-    // The artefact itself was verified by downloading the published asset and
-    // comparing digests; that check lives in the release, not here.
-    test('the url points at a botvinnik-engines release asset', () {
-      expect(ChessGptWeights.url, isNotEmpty,
-          reason: 'empty is the pre-publication state and disables the persona');
-      expect(ChessGptWeights.url, startsWith('https://'));
-      expect(ChessGptWeights.url,
-          contains('botvinnik-engines/releases/download/'));
-      expect(ChessGptWeights.url, endsWith('.onnx'));
+    // The artefacts themselves were verified by downloading each published
+    // asset and comparing digests; that check lives in the release notes.
+    test('there are three, and their ids are distinct and stable', () {
+      // The id is the filename, the persona id AND the stored setting, so a
+      // rename silently orphans a player's downloaded net and their choice of
+      // opponent.
+      expect(ChessGptWeights.variants.map((v) => v.id),
+          containsAll(['lichess', 'stockfish', 'mix']));
+      expect(ChessGptWeights.variants.map((v) => v.id).toSet().length,
+          ChessGptWeights.variants.length);
     });
 
-    test('the checksum is a lowercase hex sha-256', () {
-      expect(ChessGptWeights.sha256Hex, matches(RegExp(r'^[0-9a-f]{64}$')),
-          reason: 'uppercase or a truncated paste would reject every download');
+    test('each url points at the family release asset for its own id', () {
+      for (final v in ChessGptWeights.variants) {
+        expect(v.url, startsWith('https://'));
+        expect(v.url, contains('botvinnik-engines/releases/download/'));
+        expect(v.url, endsWith('chessgpt-${v.id}-8layers-int8.onnx'),
+            reason: 'a url pointing at another variant is the one mistake '
+                'here that still downloads, runs, and plays the wrong bot');
+      }
+    });
+
+    test('each checksum is a distinct lowercase hex sha-256', () {
+      final seen = <String>{};
+      for (final v in ChessGptWeights.variants) {
+        expect(v.sha256, matches(RegExp(r'^[0-9a-f]{64}$')),
+            reason: 'uppercase or a truncated paste rejects every download');
+        expect(seen.add(v.sha256), isTrue,
+            reason: 'two variants sharing a checksum means one was copied and '
+                'not updated — and then one of them can never validate');
+      }
+    });
+
+    test('variantFor round-trips every id and rejects an unknown one', () {
+      for (final v in ChessGptWeights.variants) {
+        expect(ChessGptWeights.variantFor(v.id)?.id, v.id);
+      }
+      expect(ChessGptWeights.variantFor('no-such-net'), isNull);
+      expect(ChessGptWeights.variantFor(null), isNull);
     });
   });
 

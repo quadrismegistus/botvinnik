@@ -12,6 +12,16 @@ Two decisions worth stating:
     next character and nothing else, so returning the full (1, T, 32) tensor
     would ship T-1 rows across the FFI boundary to be thrown away.
 
+  * IR version pinned to 9. This is the one that will bite you. torch.onnx
+    emits IR 10, the app's package:onnxruntime accepts at most 9, and the
+    failure is `Unsupported model IR version: 10` at SESSION BUILD — which
+    ChessGptEngine turns into a null, which GameController turns into a
+    Stockfish stand-in. So the app plays on, wearing the persona's name, and
+    nothing anywhere says the model never loaded. Worse, a desktop
+    onnxruntime installed via pip is usually NEWER than the one the app
+    bundles, so verifying the export locally passes while the shipped artefact
+    cannot open at all. IR 9 and 10 differ in nothing this graph uses.
+
   * Dynamic sequence length. The prompt grows by a few characters per move and
     a game can reach the full 1023-token context, so a fixed-length graph would
     mean padding every call to the maximum — paying full context cost from move
@@ -39,6 +49,25 @@ class LastLogits(torch.nn.Module):
 
     def forward(self, idx: torch.Tensor) -> torch.Tensor:
         return self.gpt(idx)[:, -1, :]
+
+
+MAX_IR_VERSION = 9
+
+
+def _pin_ir_version(path: str) -> None:
+    """Rewrite the model's IR version down to what the app's runtime accepts."""
+    import onnx
+
+    model = onnx.load(path, load_external_data=False)
+    if model.ir_version <= MAX_IR_VERSION:
+        return
+    was = model.ir_version
+    model.ir_version = MAX_IR_VERSION
+    # load_external_data=False on the way in, so the initializers still point
+    # at the sidecar already on disk; re-saving would otherwise either inline
+    # 100MB or rewrite a file we never read.
+    onnx.save(model, path)
+    print(f"  ir_version {was} -> {MAX_IR_VERSION} (the app's runtime caps there)")
 
 
 def main() -> None:
@@ -71,6 +100,12 @@ def main() -> None:
         opset_version=17,
         do_constant_folding=True,
     )
+    # See the module docstring: torch emits IR 10 and the app's runtime caps at
+    # 9. Downgrading the field is sufficient — nothing in this graph uses an
+    # IR-10 feature — and it must happen BEFORE the quantised copy is derived
+    # from it, or only the fp32 file is loadable.
+    _pin_ir_version(out)
+
     size = os.path.getsize(out) / 1e6
     print(f"exported {out}  ({size:.1f} MB)")
 
@@ -101,6 +136,9 @@ def main() -> None:
 
             q = out.replace(".onnx", ".int8.onnx")
             quantize_dynamic(out, q, weight_type=QuantType.QInt8)
+            # The quantiser rebuilds the model, so it can reintroduce the very
+            # IR version we just pinned on the source.
+            _pin_ir_version(q)
             print(f"quantized {q}  ({os.path.getsize(q)/1e6:.1f} MB)")
         except ImportError:
             print("  (onnxruntime.quantization unavailable; skipped)")

@@ -21,6 +21,7 @@ import '../brain/grading_api.dart';
 import '../brain/types.dart';
 import '../db/app_db.dart';
 import '../engine/arbiter.dart';
+import '../engine/chessgpt_engine.dart';
 import '../engine/custom_engine_runner.dart';
 import '../engine/garbo_engine.dart';
 import '../engine/maia_engine.dart';
@@ -119,6 +120,12 @@ class GameController extends ChangeNotifier {
   // maia likewise: the worker holds one ort session per band, so a single
   // engine serves all six personas without reloading between them
   MaiaEngine? _maia;
+
+  /// One ChessGPT engine per VARIANT, because each holds an OrtSession over
+  /// its own 26MB net. Keyed rather than single so that a game against one
+  /// variant does not tear down and rebuild the session when the next game
+  /// picks another — the same reasoning as _customRunners.
+  final Map<String, ChessGptEngine> _chessGpt = {};
 
   /// Per-band Maia load state, watched by the roster picker and New Game sheet
   /// so a download, a compile, and — the point — a FAILURE with its reason are
@@ -1597,6 +1604,45 @@ class GameController extends ChangeNotifier {
       }
       debugPrint('[bot] maia had no move after a retry; falling back');
     }
+    if (p.family == 'chessgpt') {
+      // A language model over MOVETEXT. It cannot be handed a FEN — a position
+      // with no history is off its distribution and it answers with noise — so
+      // this passes the SAN list, which is the one thing this controller has
+      // and the arbiter's engines never need.
+      final variant = p.chessgptVariant;
+      if (ChessGptEngine.supported && variant != null) {
+        final engine = _chessGpt[variant] ??= ChessGptEngine(variant);
+        // Snapshot the position: pickMove awaits a native session build and up
+        // to six sampling rounds, and `position` is mutable state that an undo
+        // or a new game can move under us. Parsing the answer against the
+        // board it was asked about is the difference between a stale move and
+        // an illegal one.
+        final at = position;
+        final pgn = ChessGptEngine.movesToPgn(
+          [for (final m in moves) m.san],
+          whiteToMove: at.turn == Side.white,
+          fullmove: at.fullmoves,
+        );
+        // Legality is the caller's job: the model emits characters, and
+        // nothing in its objective distinguishes a legal move from a
+        // plausible-looking illegal one. An illegal sample is retried with
+        // temperature inside pickMove, never swapped for a random legal move —
+        // a random move is a different player wearing this one's name.
+        //
+        // parseSan answers both questions at once — null is "not legal here",
+        // and a Move is already the thing the rest of this wants.
+        final san = await engine.pickMove(pgn,
+            isLegalSan: (s) => at.parseSan(s) != null);
+        final uci = san == null ? null : at.parseSan(san)?.uci;
+        if (uci != null) {
+          return (
+            uci: _bot.avoidRepetition(uci, _fenHistory(), currentLines),
+            standIn: false
+          );
+        }
+      }
+      debugPrint('[bot] chessgpt had no move; falling back to the engine');
+    }
     if (p.family == 'custom') {
       // A player-added UCI engine, in its own process — never the arbiter's
       // queue, like retro/garbo. Its config (path, movetime, whether to cap its
@@ -2648,6 +2694,9 @@ class GameController extends ChangeNotifier {
     _retro?.dispose();
     _garbo?.dispose();
     _maia?.dispose();
+    for (final e in _chessGpt.values) {
+      e.dispose();
+    }
     for (final r in _customRunners.values) {
       r.dispose();
     }

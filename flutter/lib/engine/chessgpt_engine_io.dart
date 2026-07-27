@@ -27,8 +27,8 @@
 
 import 'dart:async';
 import 'dart:math';
-import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart';
 import 'package:onnxruntime/onnxruntime.dart';
 
 import 'chessgpt_weights.dart';
@@ -62,7 +62,14 @@ class _Net {
 }
 
 class ChessGptEngine {
-  ChessGptEngine();
+  /// One engine per VARIANT. The net is chosen at construction rather than per
+  /// move because [_Net] holds an OrtSession over 26MB of weights: switching
+  /// variants means a different session, not a different argument, and making
+  /// that look like a parameter invites a caller to alternate them move by
+  /// move and pay a full session build each time.
+  ChessGptEngine(this.variantId);
+
+  final String variantId;
 
   /// ORT's native library, so the same platforms Maia runs on. The web build
   /// returns false — see chessgpt_engine_web.dart for why this one is not
@@ -99,7 +106,7 @@ class ChessGptEngine {
 
   Future<_Net?> _load() async {
     if (!supported) return null;
-    final bytes = await ChessGptWeights.load();
+    final bytes = await ChessGptWeights.load(variantId);
     if (bytes == null) return null;
     if (!_envReady) {
       OrtEnv.instance.init();
@@ -116,7 +123,11 @@ class ChessGptEngine {
       final outName = session.outputNames.first;
       _net = _Net(session, inName, outName);
       return _net;
-    } catch (_) {
+    } catch (e) {
+      // Logged, not swallowed. Every failure here becomes a null that
+      // GameController reads as "use the Stockfish stand-in", so a broken
+      // runtime is indistinguishable from a slow network unless it says so.
+      debugPrint('[chessgpt] session build failed for $variantId: $e');
       return null;
     } finally {
       options.release();
@@ -142,7 +153,8 @@ class ChessGptEngine {
             (v.first as List).map((e) => (e as num).toDouble()).toList());
       }
       return null;
-    } catch (_) {
+    } catch (e) {
+      debugPrint('[chessgpt] inference failed: $e');
       return null;
     } finally {
       input.release();

@@ -13,7 +13,9 @@ import 'dart:math';
 const String kChessGptVocab = ' #+-.0123456789;=BKNOQRabcdefghx';
 
 class ChessGptEngine {
-  ChessGptEngine();
+  ChessGptEngine(this.variantId);
+
+  final String variantId;
 
   static bool get supported => false;
 
