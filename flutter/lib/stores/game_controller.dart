@@ -1319,18 +1319,26 @@ class GameController extends ChangeNotifier {
   // ---- internals ----
 
   void _apply(NormalMove move, String san) {
-    // The clock, before anything else touches the position: the side that just
-    // moved is the one whose turn it currently IS, and playUnchecked below
-    // flips that. First move starts it rather than pressing — there is nothing
-    // to bank yet.
+    // Who will have pressed, read BEFORE playUnchecked flips the turn — but
+    // the press itself happens after the move is on the board, further down.
+    //
+    // It used to press here, first thing, and that was the bug in #238.
+    // [ChessClock.press] calls `_fall` SYNCHRONOUSLY when the mover is already
+    // through zero (the <=100ms window between the time running out and the
+    // ticker polling), and `_fall` runs `onFlag`, which archives the game. All
+    // of it ran while the move that triggered it was still unplayed: `moves`
+    // did not have it and `position` had not advanced, so the archive was
+    // written one move short of the board in front of the player — and `_saved`
+    // was then true, so the `_saveGame()` at the bottom of this method, which
+    // would have written the right thing, returned early. The board said Nf3;
+    // the archive said the game ended after e5. Results feed
+    // brain/playerElo.ts, so that is a game rated on a position that never
+    // happened.
     final c = _clock;
-    if (c != null) {
-      final mover = ClockSide.fromChar(position.turn == Side.white ? 'w' : 'b');
-      if (moves.isEmpty) {
-        c.start(mover);
-      }
-      c.press(mover);
-    }
+    final mover = c == null
+        ? null
+        : ClockSide.fromChar(position.turn == Side.white ? 'w' : 'b');
+    final firstMove = moves.isEmpty;
     stopPreview();
     // a new move makes the undone future unreachable — without this, redo
     // after a divergent move replayed a stale record onto the wrong position
@@ -1348,6 +1356,20 @@ class GameController extends ChangeNotifier {
       fenAfter: position.fen,
     );
     moves.add(record);
+    // NOW the clock, with the move on the board — see the note at the top of
+    // this method. First move starts it rather than pressing: there is nothing
+    // banked yet.
+    //
+    // A second consequence, and an improvement rather than a side effect: a
+    // move that DELIVERS MATE now stands as mate. `onFlag` opens with `if
+    // (gameOver) return`, and by this point `position.isGameOver` is already
+    // true, so a flag arriving in the same instant no longer overwrites the
+    // mate with a loss on time. Pressed before the move, gameOver was still
+    // false and the flag won — which is not the rule anywhere.
+    if (c != null && mover != null) {
+      if (firstMove) c.start(mover);
+      c.press(mover);
+    }
     _syncTree(); // extend the played path (and prune the old anchor's churn)
     notifyListeners();
     // the board moved on: older analyses wrap up at depth 12 and yield the
