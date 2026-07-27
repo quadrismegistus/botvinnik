@@ -353,48 +353,33 @@ void main() {
       expect(sizes.toSet(), hasLength(1), reason: 'the board moved: $sizes');
     });
 
-    testWidgets('an ungraded import keeps the height a preview would cost',
-        (tester) async {
-      // The reservation is asked of the GAME, not the ply. An import has no
-      // best move anywhere in it, so reserving unconditionally would shrink
-      // its board by 112px for a widget it can never draw.
-      // Both controllers stay alive to the end of the test — addTearDown
-      // disposes them, and disposing one here would be a second dispose.
-      await _pump(tester, _game(), width: 620, height: 560);
-      final graded = tester.getSize(find.byType(BoardPane));
+    // The rule this replaced was weaker AND wrong-shaped: it asserted that an
+    // ungraded import keeps the 120px a graded game spends on the preview,
+    // which was true when the preview could cost board height. Since #239 it
+    // cannot — `reviewShowsPreview` draws it if and only if it is FREE — so
+    // the honest claim is stronger and covers every viewport rather than one.
+    for (final (label, w, h) in [
+      ('320x480, portrait and cramped', 320.0, 480.0),
+      ('320x568, the SE', 320.0, 568.0),
+      ('390x844', 390.0, 844.0),
+      ('568x320, landscape', 568.0, 320.0),
+      ('620x520, narrow and short', 620.0, 520.0),
+      ('800x600, desktop', 800.0, 600.0),
+    ]) {
+      testWidgets('the preview costs the board nothing ($label)',
+          (tester) async {
+        // Both controllers stay alive to the end — addTearDown disposes them,
+        // and disposing one here would be a second dispose.
+        await _pump(tester, _game(), width: w, height: h);
+        final graded = tester.getSize(find.byType(BoardPane));
 
-      await _pump(tester, _ungraded(), width: 620, height: 560);
-      final imported = tester.getSize(find.byType(BoardPane));
+        await _pump(tester, _ungraded(), width: w, height: h);
+        final imported = tester.getSize(find.byType(BoardPane));
 
-      expect(imported.height, graded.height + kMovePreview);
-    });
-
-    testWidgets('a phone pays nothing at all', (tester) async {
-      // Height is plentiful there, so the board stays width-limited and the
-      // reservation comes out of slack rather than out of the board. Worth
-      // pinning: it is the reason this was affordable.
-      await _pump(tester, _game());
-      final graded = tester.getSize(find.byType(BoardPane));
-
-      await _pump(tester, _ungraded());
-      expect(tester.getSize(find.byType(BoardPane)), graded);
-      expect(graded.width, 390);
-    });
-
-    testWidgets('the move list survives the strip growing', (tester) async {
-      // What going unreserved actually costs, and it is not an overflow: the
-      // list is Expanded, so it absorbs the taller strip by shrinking, and
-      // Expanded clamps at zero rather than painting stripes. Unreserved, this
-      // window renders a board, a strip and NO MOVE LIST, silently, with the
-      // suite green — which is why kPaneReserve exists and why it has to be
-      // asserted on rather than assumed.
-      final board = await _pump(tester, _game(), width: 620, height: 520);
-      await _goto(tester, board, 1);
-      expect(find.byType(MovePreview), findsOneWidget, reason: 'precondition');
-
-      expect(tester.getSize(find.byType(ListView)).height,
-          greaterThanOrEqualTo(kPaneReserve));
-    });
+        expect(graded, imported,
+            reason: 'a graded game got a smaller board than an import at $label');
+      });
+    }
 
     testWidgets('the strip fits what layout.dart reserves for it',
         (tester) async {
@@ -430,6 +415,10 @@ void main() {
     // move list instead, and Expanded absorbs it silently down to zero. At
     // 320x568 with prose the list was 8px.
     for (final (label, width, height) in [
+      // The two #239 was filed about. 568x320 stacked a 202px board over the
+      // furniture and left the list at 8px; 320x480 left it at 42.
+      ('568x320, landscape', 568.0, 320.0),
+      ('320x480, portrait and cramped', 320.0, 480.0),
       ('320x568, the SE', 320.0, 568.0),
       ('375x667', 375.0, 667.0),
       ('390x844', 390.0, 844.0),
@@ -449,6 +438,39 @@ void main() {
         expect(tester.takeException(), isNull, reason: 'overflowed at $label');
       });
     }
+
+    testWidgets('a landscape phone puts the board BESIDE the list (#239)',
+        (tester) async {
+      // The shape, not just the floor. Stacked at 568x320 the list came out at
+      // 8px — a board, a verdict and no game — and because the list is
+      // `Expanded` it absorbed that silently instead of overflowing. Landscape
+      // is the case where the width exists and the height does not, so the Row
+      // the wide layout already uses is the answer rather than another
+      // subtraction.
+      final board = await _pump(tester, _withProse(), width: 568, height: 320);
+      await _goto(tester, board, 1);
+
+      final b = tester.getRect(find.byType(BoardPane));
+      final list = tester.getRect(find.byType(ListView));
+      expect(b.right, lessThanOrEqualTo(list.left),
+          reason: 'the board is still stacked above the list');
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('but a cramped PORTRAIT one keeps stacking', (tester) async {
+      // The control, and it is the reason the rule is `width > height` rather
+      // than "small". Side by side at 320pt the board takes 240 and the list
+      // gets 80 wide, which is not a move list — so 320x480 must stay stacked
+      // and pay for its list out of board HEIGHT instead (reviewStackedBoard).
+      final board = await _pump(tester, _withProse(), width: 320, height: 480);
+      await _goto(tester, board, 1);
+
+      final b = tester.getRect(find.byType(BoardPane));
+      final list = tester.getRect(find.byType(ListView));
+      expect(b.bottom, lessThanOrEqualTo(list.top),
+          reason: 'a narrow portrait viewport must not go side by side');
+      expect(list.width, greaterThan(300), reason: 'the list has the full width');
+    });
 
     testWidgets('a viewport too short for the mini-board falls back to words',
         (tester) async {

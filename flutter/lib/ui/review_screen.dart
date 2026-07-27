@@ -102,8 +102,8 @@ class ReviewBody extends StatelessWidget {
                 ),
               );
 
-          if (constraints.maxWidth < kWideBreakpoint) {
-            final size = panedBoardSize(
+          if (!reviewSideBySide(constraints.maxWidth, constraints.maxHeight)) {
+            final size = reviewStackedBoard(
               constraints.maxWidth,
               constraints.maxHeight,
               kReviewFixed + (preview ? kMovePreview : 0),
@@ -118,6 +118,8 @@ class ReviewBody extends StatelessWidget {
               ],
             );
           }
+          // Beside the list: either a genuinely wide window, or a landscape
+          // phone with no height to stack in (#239).
           final size = wideBoardSize(
             constraints.maxWidth,
             constraints.maxHeight,

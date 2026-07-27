@@ -72,8 +72,18 @@ const double kClockMinWidth = 96;
 /// Practice: the prompt strip (two lines) plus the hint/retry action row.
 const double kPracticeChrome = 56 + 48;
 
+/// Review's verdict strip at its tallest WITHOUT a mini-board: the move, its
+/// label, and an explanation wrapping to two lines at 320pt.
+///
+/// Measured (72) plus a small margin, not borrowed. This used to be
+/// [kGradeStrip], which is 66 and was measured for the Play tab's grade strip —
+/// a widget that no longer exists, and never had prose wrapping at a phone's
+/// narrowest width. Six pixels of under-reservation cost the move list ten, and
+/// on a 320x480 viewport ten was the difference between 46 and the 56 floor.
+const double kReviewVerdict = 76;
+
 /// Review's fixed furniture: the verdict strip and the scrub bar.
-const double kReviewFixed = kGradeStrip + 52;
+const double kReviewFixed = kReviewVerdict + 52;
 
 /// The move-comparison mini-board in Review's verdict strip (#233): the
 /// [MovePreview] board plus the gap above it.
@@ -103,6 +113,41 @@ const double kMovePreview = 120;
 /// the Review tab is a board and a verdict with no game attached.
 const double kMinMoveList = 56;
 
+/// Whether Review should put the board BESIDE the move list rather than above.
+///
+/// Wider than [kWideBreakpoint] has always meant yes. The addition is LANDSCAPE
+/// (#239): a 568x320 phone on its side stacked a 202px board over a verdict
+/// strip and a scrub bar and had nothing left — the move list came out at 8px,
+/// and because the list is `Expanded` it absorbed that silently rather than
+/// overflowing. A board with no game beside it.
+///
+/// `width > height` is load-bearing and not a proxy for "small". A narrow
+/// PORTRAIT viewport that is also cramped (320x480) must keep stacking: laid
+/// out side by side at 320pt the board takes 240 and the list gets 80, which is
+/// not a move list. Landscape is the case where the width exists and the height
+/// does not, which is exactly when the Row helps. Portrait-and-cramped is
+/// handled instead by [reviewStackedBoard] reserving list height.
+bool reviewSideBySide(double width, double height) {
+  if (width >= kWideBreakpoint) return true;
+  if (width <= height) return false;
+  final board = panedBoardSize(width, height, kReviewFixed);
+  return height - board - kReviewFixed < kMinMoveList;
+}
+
+/// Review's board when it IS stacked, reserving room for a usable move list.
+///
+/// [panedBoardSize] deliberately declines to hold back [kPaneReserve] on a
+/// phone — there the reserve costs board width the screen plainly has, to
+/// protect a glance at content one flick away. Review is the exception: its
+/// pane is not a glance, it is the game, and a phone short enough for the board
+/// to be height-limited (320x480) was otherwise left 42px of it. So a phone
+/// reserves the smaller [kMinMoveList] instead of nothing, and anything wider
+/// keeps the [kPaneReserve] it already had — not both, which would double-count
+/// and shrink the desktop board for no reason.
+double reviewStackedBoard(double width, double height, double fixed) =>
+    stackedBoardSize(width, height,
+        fixed + (width < kPhoneWidth ? kMinMoveList : kPaneReserve));
+
 /// Whether Review can afford the move-comparison mini-board here (#233).
 ///
 /// The reservation alone was not enough, and the way it failed is worth
@@ -126,13 +171,23 @@ const double kMinMoveList = 56;
 /// difference comes out of the move list — which is the bug itself, one level
 /// down.
 bool reviewShowsPreview(double width, double height) {
-  final fixed = kReviewFixed + kMovePreview;
-  // In the wide layout the board sits BESIDE the column, so it costs the
-  // column no height at all.
-  final board = width < kWideBreakpoint
-      ? panedBoardSize(width, height, fixed)
-      : 0.0;
-  return height - board - fixed >= kMinMoveList;
+  // Side by side the board costs the column no height at all, so the only
+  // question is whether the strip and a usable list both fit.
+  if (reviewSideBySide(width, height)) {
+    return height - kReviewFixed - kMovePreview >= kMinMoveList;
+  }
+  // Stacked, the mini-board must cost NOTHING — neither the list its floor
+  // (which [reviewStackedBoard] now protects) nor the board any size. Stated
+  // as a comparison rather than an arithmetic threshold because that is the
+  // actual rule: draw it if and only if it is free.
+  //
+  // It is the luxury of the four. The board, the verdict and the list are all
+  // load-bearing, and the strip already has a fallback for when it cannot draw
+  // a comparison — the "best: d4" sentence a promotion gets. On a 320x568 SE
+  // the preview would cost 46px of board; on a 620x520 window it would drive
+  // the board to kMinBoard. Both take the sentence instead.
+  return reviewStackedBoard(width, height, kReviewFixed + kMovePreview) ==
+      reviewStackedBoard(width, height, kReviewFixed);
 }
 
 
