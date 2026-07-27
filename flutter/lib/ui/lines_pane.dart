@@ -287,7 +287,13 @@ class _AnalysisProgress extends StatelessWidget {
     // to freeze the bar at its true fraction and grey it out: honest about the
     // depth, but it reads as a stalled download, and it would have made the
     // ordinary case look like a failure.
-    final fraction = settled ? 1.0 : (depth / kAnalysisDepth).clamp(0.0, 1.0);
+    // No clamp: [FractionallySizedBox] constrains the child to the incoming
+    // constraints, so a factor above 1 is bounded by the track anyway —
+    // measured, with the clamp removed, at exactly the track width. A guard
+    // that cannot fire reads as the thing keeping the invariant when the real
+    // keeper is elsewhere. Stockfish's last info line CAN report past the
+    // depth it was asked for, so the case is real; it is just already handled.
+    final fraction = settled ? 1.0 : depth / kAnalysisDepth;
     return Padding(
       padding: const EdgeInsets.fromLTRB(14, 8, 14, 4),
       child: Column(

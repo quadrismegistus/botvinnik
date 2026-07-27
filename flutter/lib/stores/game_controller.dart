@@ -2605,10 +2605,18 @@ class GameController extends ChangeNotifier {
           // The search is over — at the target, at the movetime backstop, or
           // stopped early by the board moving on, all three of which end it
           // for good because the memo above means this fen is never searched
-          // again. A NULL resolution is the one case that is not settled: the
-          // entry is evicted a line above precisely so the position gets
-          // analysed afresh, and marking it final would park the pane's
-          // progress bar on a search that has not run.
+          // again.
+          //
+          // `lines != null` is narrower than it looks, and the comment here
+          // used to claim more. The ORDINARY null resolution never reaches
+          // this branch at all: it is caught above and evicts the memo. What
+          // this guard actually excludes is a null from a SUPERSEDED analysis
+          // — one whose entry has already been replaced, so `identical` fails
+          // — which would otherwise mark a fen final while a live search for
+          // it is still running. That case is real but narrow, and it is NOT
+          // covered by a test: reaching it needs an analysis to outlive an
+          // `_analysis.clear()` and a re-request for the same fen. Said here
+          // rather than left as apparent coverage.
           _settledFens.add(fen);
           // The last streamed partial notified; this resolution is a separate
           // event after it, and without its own notify the pane keeps drawing

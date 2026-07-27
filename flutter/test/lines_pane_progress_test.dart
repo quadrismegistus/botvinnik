@@ -60,6 +60,24 @@ class _StillThinkingArbiter extends FakeArbiter {
   }
 }
 
+/// An analysis that resolves with NULL — the engine declined, or the position
+/// is terminal and there is nothing to search.
+///
+/// The distinction that makes this worth a fixture: `_analysisFor` EVICTS the
+/// memo on a null so the position can be analysed afresh, which means the
+/// search has not finished, it has not happened. Marking such a fen settled
+/// parks a full bar on a search that never ran.
+class _DeclinedArbiter extends FakeArbiter {
+  _DeclinedArbiter() : super(analysisLines: _kLines, streamPartials: true);
+
+  @override
+  Future<List<EngineMove>?> analysis(String fen,
+      {void Function(List<EngineMove>)? onUpdate}) {
+    onUpdate?.call(_kLines); // partials arrive, then the search yields nothing
+    return Future<List<EngineMove>?>.value(null);
+  }
+}
+
 const _kPaneWidth = 300.0;
 
 /// The pane's own horizontal padding, which the bar sits inside.
@@ -166,6 +184,64 @@ void main() {
     expect(_fillWidth(tester), greaterThan(_kTrackWidth / 2),
         reason: 'the settled bar did not grow — there is nothing to quieten');
     expect(settled.a, lessThan(running.a));
+  });
+
+  testWidgets('a search that resolved NULL is not settled', (tester) async {
+    // The case the production comment argues for and nothing checked — found
+    // by mutating `else if (lines != null)` to `else if (true)`, which left
+    // the whole file green. A null resolution evicts the memo so the position
+    // is searched again; calling that "final" fills the bar for a search that
+    // has not run.
+    final game = await _pump(tester, arbiter: _DeclinedArbiter());
+    await tester.pump(const Duration(milliseconds: 50));
+
+    expect(game.currentLines, isNotEmpty,
+        reason: 'precondition: partials did arrive, so the pane is drawn');
+    expect(game.analysisSettled, isFalse);
+    expect(find.textContaining('final'), findsNothing);
+    expect(_fillWidth(tester), closeTo(_kTrackWidth / 2, 0.5),
+        reason: 'still the running fraction, not a full bar');
+  });
+
+  testWidgets('a search deeper than the budget does not overflow the track',
+      (tester) async {
+    // The clamp. Stockfish's last info line can report past the depth it was
+    // asked for, and a fraction above 1 in a FractionallySizedBox paints
+    // outside its parent. Found by deleting `.clamp(0.0, 1.0)`, which nothing
+    // else noticed.
+    final deep = [
+      EngineMove(
+          pv: const ['e2e4'],
+          score: 0.3,
+          mate: null,
+          depth: kAnalysisDepth + 8,
+          multipv: 1),
+    ];
+    final settings = await loadSettings();
+    final game = GameController(
+        FakeArbiter(analysisLines: deep, streamPartials: true),
+        FakeBot(),
+        FakeGrading(),
+        settings);
+    await tester.pumpWidget(MultiProvider(
+      providers: [
+        ChangeNotifierProvider<GameController>.value(value: game),
+        Provider<ChessApi>.value(value: FakeChess()),
+      ],
+      child: MaterialApp(
+        home: Scaffold(
+          body: Align(
+            alignment: Alignment.topLeft,
+            child: SizedBox(width: _kPaneWidth, child: const LinesPane()),
+          ),
+        ),
+      ),
+    ));
+    await tester.pump();
+
+    expect(_fillWidth(tester), lessThanOrEqualTo(_kTrackWidth + 0.5));
+    expect(tester.takeException(), isNull);
+    game.dispose();
   });
 
   testWidgets('the empty state is untouched — no header, no bar',
