@@ -993,6 +993,56 @@ class _PlayTabState extends State<PlayTab> {
   ///           board, flanking it top and bottom, spending the ample width.
   ///   narrow — width is the constraint, so the clock goes in the plate strips
   ///           above and below, spending height.
+  /// The board, plus the one thing a rated game had no way to say (#231).
+  ///
+  /// Refuse-blunders rejects a move by setting [GameController.refusalMessage],
+  /// which renders in exactly one widget — the Insights card. A rated game has
+  /// no panels, so in the mode where refusing is arguably most useful the whole
+  /// feature was SILENT: the piece snapped back and nothing said why, which is
+  /// indistinguishable from a misclick or a broken board, and the remaining
+  /// attempts were invisible too.
+  ///
+  /// Drawn as a banner OVER the board rather than a row beneath it, because a
+  /// strip that appears and disappears would resize the board under the
+  /// player's hand — mid-game, in a timed game, exactly as they are reaching
+  /// for the piece again.
+  ///
+  /// The message names what the move cost but never what to play instead: blind
+  /// mode is on in rated precisely so the engine cannot advise, and
+  /// [GameController.refusalRefutationUci] is null here for the same reason.
+  Widget _ratedBoard(GameController game, double size) => SizedBox(
+        width: size,
+        height: size,
+        child: Stack(
+          children: [
+            const Positioned.fill(child: BoardPane()),
+            if (game.refusalMessage != null)
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                child: IgnorePointer(
+                  child: Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    color: const Color(0xCC1F1D1B),
+                    child: Text(
+                      game.refusalMessage!,
+                      textAlign: TextAlign.center,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                          color: Color(0xFFE0908E),
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500),
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      );
+
   Widget _ratedShell(
       BuildContext context, GameController game, BoxConstraints c) {
     final clock = game.clock;
@@ -1028,7 +1078,7 @@ class _PlayTabState extends State<PlayTab> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 plate(topSide, below: false),
-                SizedBox(width: board, height: board, child: const BoardPane()),
+                _ratedBoard(game, board),
                 plate(botSide, below: true),
               ],
             ),
@@ -1080,7 +1130,7 @@ class _PlayTabState extends State<PlayTab> {
         mainAxisSize: MainAxisSize.min,
         children: [
           strip(topSide, below: false),
-          SizedBox(width: board, height: board, child: const BoardPane()),
+          _ratedBoard(game, board),
           strip(botSide, below: true),
         ],
       ),

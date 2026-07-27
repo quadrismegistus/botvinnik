@@ -321,8 +321,52 @@ class GameController extends ChangeNotifier {
   /// would leave the board showing a move that never happened.
   void _clearRefusalUi() {
     refusalMessage = null;
+    refusalDrop = null;
+    refusalRefutationUci = null;
+    _refusalAfterFen = null;
     pendingFen = null;
     pendingMove = null;
+  }
+
+  /// What the refused move would have cost, in win chance. Set on every
+  /// refusal, in every mode — it is the number the refusal is a judgement
+  /// about, and withholding it while still refusing tells the player the move
+  /// is bad without telling them how bad, which is the least useful half.
+  double? refusalDrop;
+
+  /// The opponent's punishing reply to the refused move, as a uci — the "why".
+  ///
+  /// Set ONLY when help is not being withheld and the game is not rated. It is
+  /// the same bargain practice strikes with its refutation preview (#215): it
+  /// names what the wrong move RUNS INTO, never what the right move is, so it
+  /// answers "why not" without answering "what instead".
+  ///
+  /// Deliberately NOT the grade's bestPv, which is exactly the best move.
+  String? refusalRefutationUci;
+
+  /// The position the refused move would have REACHED, kept because
+  /// [refusalRefutationSan] has to render the reply against it.
+  ///
+  /// Not [pendingFen], which is cleared the moment the board snaps back — so a
+  /// getter reading that resolved to null every time, in exactly the state the
+  /// message is on screen.
+  String? _refusalAfterFen;
+
+  /// [refusalRefutationUci] as SAN, for a line a player can read.
+  ///
+  /// Rendered from the position the refused move would have REACHED, not the
+  /// live one — the refutation is the opponent's reply there, and naming it
+  /// against the current board would print a different move or none at all.
+  String? get refusalRefutationSan {
+    final uci = refusalRefutationUci;
+    final after = _refusalAfterFen;
+    final chess = _chess;
+    if (uci == null || after == null || chess == null) return null;
+    try {
+      return chess.san(after, uci);
+    } catch (_) {
+      return null;
+    }
   }
 
   /// The clock, in a rated game that was given a time control. Null otherwise —
@@ -1095,6 +1139,13 @@ class GameController extends ChangeNotifier {
     final gen = _gen;
     _refusalPending = true;
     _refusalPendingGen = gen;
+    // Whether this move's fate is settled — refused, or handed to [_apply].
+    // Read by the catch below, which must fail open on a move nothing has
+    // decided yet and MUST NOT touch one that is already decided: the refusal
+    // path awaits a database write after the refusal is on screen, and
+    // applying the move there would commit the very move it just refused,
+    // under its own "that costs -18%" message.
+    var decided = false;
     try {
       final fenBefore = position.fen;
       final uci = move.uci;
@@ -1111,6 +1162,7 @@ class GameController extends ChangeNotifier {
       pendingMove = move;
       notifyListeners();
 
+      List<EngineMove>? refutation;
       final grade = await _computeGrade(
         ply: moves.length + 1,
         fenBefore: fenBefore,
@@ -1119,6 +1171,7 @@ class GameController extends ChangeNotifier {
         color: color,
         fenAfter: candidateFen,
         gen: gen,
+        onChild: (c) => refutation = c,
         cap: const Duration(milliseconds: 2500),
       );
       if (gen != _gen) return; // superseded (undo/new game) while we waited
@@ -1133,12 +1186,30 @@ class GameController extends ChangeNotifier {
       if (grade != null &&
           drop >= _settings.collectThreshold &&
           attempts < kMaxRefusalAttempts) {
+        decided = true;
         _refusalAttempts[fenBefore] = attempts + 1;
         _refusedMoves++;
         final left = kMaxRefusalAttempts - attempts - 1;
+        refusalDrop = drop;
+        // The cost is named in every mode, rated and blind included. The
+        // refusal already tells the player the move is bad; withholding the
+        // size of it tells them that and nothing more, which is the least
+        // useful half of the judgement. It is also what makes the message
+        // worth showing at all in the rated shell, where there are no panels
+        // and this line is all there is (#231).
+        final cost = '−${drop.round()}%';
         refusalMessage = left > 0
-            ? 'That loses too much — try again ($left left)'
-            : 'That loses too much — one more try lets it through';
+            ? 'That costs $cost — try again ($left left)'
+            : 'That costs $cost — one more try lets it through';
+        // The WHY, and only where help is not being withheld. The first ply of
+        // the opponent's best line from the position the move would have
+        // reached: what it runs into, never what to play instead.
+        _refusalAfterFen = candidateFen;
+        refusalRefutationUci = (!hidingHelp && !_rated)
+            ? (refutation?.isNotEmpty ?? false)
+                ? refutation!.first.pv.firstOrNull
+                : null
+            : null;
         // Snap the board back NOW, with the message — not after the collect
         // below, which is a database write the player should not be watching
         // their own piece hover through.
@@ -1176,8 +1247,44 @@ class GameController extends ChangeNotifier {
       // Cleared before [_apply], not after: _apply notifies, and it must not
       // paint a frame in which the move is both committed and still pending.
       _clearRefusalUi();
+      // Before the call, not after: a throw from inside [_apply] leaves the
+      // move half-applied, and re-applying it is worse than not.
+      decided = true;
       _apply(move, san);
       _maybeBotTurn();
+    } catch (e, st) {
+      // FAIL OPEN, and this is the whole point of the branch. Every await
+      // above crosses the JS bridge or the arbiter, and this method is
+      // fire-and-forget with no zone guard — so a throw skipped _apply
+      // entirely and the `finally` then cleared pendingFen on the way out.
+      // The piece snapped home, no message, no attempt counted: the player's
+      // move simply vanished, which is indistinguishable from a misclick and
+      // is exactly what pendingFen exists to prevent. With a dead engine EVERY
+      // move vanished, for as long as it stayed dead — while the same dead
+      // engine with refusal mode OFF still let the game be played.
+      //
+      // _maybeBotTurn has carried this catch since it was written, for the
+      // same reason and with the same wording. This one was missing it.
+      //
+      // The move goes through. Refusing needs a number, and a thrown search
+      // has not got one — the doc above already commits to letting a move
+      // through rather than refusing on a number we do not actually have, and
+      // there is no weaker version of that promise for the case where the
+      // engine threw instead of merely being slow.
+      debugPrint('[refuse] check failed, letting the move through: $e\n$st');
+      // `gen == _gen` as well as `!decided`, and the success path has had that
+      // guard all along (see the `if (gen != _gen) return` above). Failing
+      // open must not open onto a DIFFERENT game: a throw landing after
+      // newGame or undo would otherwise apply a move from the abandoned
+      // generation to the live board, and call _maybeBotTurn so the bot
+      // answers it. Reachable in exactly the situation that makes this catch
+      // necessary — a dead engine means moves keep failing, which is what
+      // makes a player start a new game in the middle of a check.
+      if (!decided && gen == _gen) {
+        _clearRefusalUi();
+        _apply(move, san);
+        _maybeBotTurn();
+      }
     } finally {
       // Only release the flag if this call still owns it for the CURRENT
       // generation — a stale call for an abandoned generation must not clear
@@ -2513,6 +2620,10 @@ class GameController extends ChangeNotifier {
     required String fenAfter,
     required int gen,
     void Function(MoveGrade partial)? onGraded,
+    /// The analysis of [fenAfter] — i.e. what the OPPONENT gets to do next.
+    /// Its first pv is the refutation, which is the one thing a refused move
+    /// can be explained with that does not give away the best move.
+    void Function(List<EngineMove> child)? onChild,
     Duration? cap,
   }) async {
     // pre-lines: the completed (or cancelled-with-partials) analysis of the
@@ -2577,6 +2688,10 @@ class GameController extends ChangeNotifier {
           .timeout(cap, onTimeout: () => null);
       if (child == null || child.isEmpty) child = _partials[fenAfter];
     }
+    // AFTER both branches, deliberately. Hanging this off the post-commit one
+    // alone meant the refusal path — the only caller that wants it — never
+    // fired it, and the feature was silently absent rather than broken.
+    if (child != null && child.isNotEmpty) onChild?.call(child);
     if (gen != _gen ||
         child == null ||
         child.isEmpty ||
@@ -2587,6 +2702,22 @@ class GameController extends ChangeNotifier {
   }
 
   Future<void> _gradePipeline(MoveRecord record, int gen) async {
+    try {
+      await _gradePipelineInner(record, gen);
+    } catch (e, st) {
+      // Contained for the same reason [_maybeBotTurn] and [_maybeRefuse]
+      // contain theirs: this is fire-and-forget from [_apply] and the app
+      // installs no zone guard, so a bridge StateError here became an
+      // unhandled async error. The move itself is already committed by this
+      // point, so the honest cost of a dead grading bridge is the GRADE, not
+      // the move — which is precisely the difference the refusal path's own
+      // catch exists to restore, and it would have led straight back into
+      // this one.
+      debugPrint('[grade] pipeline failed for ${record.san}: $e\n$st');
+    }
+  }
+
+  Future<void> _gradePipelineInner(MoveRecord record, int gen) async {
     final grade = await _computeGrade(
       ply: record.ply,
       fenBefore: record.fenBefore,

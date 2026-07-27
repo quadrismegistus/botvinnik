@@ -213,4 +213,73 @@ void main() {
     await tester.pumpAndSettle();
   });
 
+  // #231: refuse-blunders rejects a move by setting refusalMessage, which
+  // renders in exactly ONE widget — the Insights card. The rated shell has no
+  // panels, so in the mode where refusing is arguably most useful the feature
+  // was completely silent: the piece snapped back and nothing said why, which
+  // is indistinguishable from a misclick or a broken board.
+  group('a refused move says so, even with no panels', () {
+    testWidgets('the message is on screen in the rated shell', (tester) async {
+      final (g, s) = await _game();
+      addTearDown(g.dispose);
+      g.newGame(
+          rated: true,
+          refuseBlunders: true,
+          timeControl: TimeControl.parse('5+0'));
+      await _pump(tester, g, s);
+
+      g.refusalMessage = 'That costs −18% — try again (2 left)';
+      // ignore: invalid_use_of_protected_member
+      g.notifyListeners();
+      await tester.pump();
+
+      expect(find.textContaining('That costs −18%'), findsOneWidget);
+
+      g.newGame(); // wind the clock down
+      await tester.pumpAndSettle();
+    });
+
+    testWidgets('and nothing is drawn when there is no refusal',
+        (tester) async {
+      // So the assertion above fails for the reason claimed, rather than
+      // because some other widget happens to carry that text.
+      final (g, s) = await _game();
+      addTearDown(g.dispose);
+      g.newGame(
+          rated: true,
+          refuseBlunders: true,
+          timeControl: TimeControl.parse('5+0'));
+      await _pump(tester, g, s);
+
+      expect(find.textContaining('try again'), findsNothing);
+
+      g.newGame();
+      await tester.pumpAndSettle();
+    });
+
+    testWidgets('it does not resize the board under the player', (tester) async {
+      // Drawn as a banner OVER the board rather than a row beneath it: a strip
+      // that appears and disappears would resize the board mid-game, in a
+      // timed game, exactly as the player reaches for the piece again.
+      final (g, s) = await _game();
+      addTearDown(g.dispose);
+      g.newGame(
+          rated: true,
+          refuseBlunders: true,
+          timeControl: TimeControl.parse('5+0'));
+      await _pump(tester, g, s);
+      final before = tester.getSize(find.byType(BoardPane));
+
+      g.refusalMessage = 'That costs −18% — try again (2 left)';
+      // ignore: invalid_use_of_protected_member
+      g.notifyListeners();
+      await tester.pump();
+
+      expect(tester.getSize(find.byType(BoardPane)), before);
+
+      g.newGame();
+      await tester.pumpAndSettle();
+    });
+  });
+
 }

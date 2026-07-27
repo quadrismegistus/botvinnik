@@ -19,46 +19,13 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:botvinnik_mobile/stores/game_controller.dart';
 import 'package:botvinnik_mobile/stores/settings_store.dart';
 
-import 'package:botvinnik_mobile/brain/chess_api.dart';
 
 import 'support/game_harness.dart';
 
-/// Enough of the bridge for the square-control overlay. `noSuchMethod` answers
-/// everything else with null, which is what the other overlays read as "no
-/// data" — so they stay quiet without being the thing under test.
-class _FakeChess implements ChessApi {
-  @override
-  Map<String, ControlCell> controlSquares(String fen) =>
-      {'e4': const ControlCell('w', 1, true)};
-
-  /// The null-move probe: any fen is fine, it is only fed back to the arbiter.
-  @override
-  String? threatProbeFen(String fen) => fen;
-
-  /// The verdict. `fen` is load-bearing — the getter is fen-gated, so a map
-  /// without it is discarded as stale no matter what the predicate says.
-  @override
-  Map<String, dynamic>? judgeThreat(String fen, Map<String, dynamic> bestLine) =>
-      {'fen': fen, 'uci': 'e2e4', 'san': 'e4', 'gain': 2.0};
-
-  /// The win rings. Any non-null map is enough — this test is about the
-  /// PREDICATE in front of the call, not the judgement behind it.
-  @override
-  Map<String, dynamic>? judgeTacticalWin(
-          String fen, Map<String, dynamic> bestLine) =>
-      {'targets': <String>['e4'], 'gain': 3.0};
-
-  /// Needed because wiring a ChessApi also builds the lines tree, which asks
-  /// for this on every ingest. Naming each step after its uci is enough.
-  @override
-  List<Map<String, dynamic>> sanSteps(String fen, List<String> ucis) => [
-        for (var i = 0; i < ucis.length; i++)
-          {'san': ucis[i], 'uci': ucis[i], 'color': i.isEven ? 'w' : 'b', 'piece': 'p'}
-      ];
-
-  @override
-  dynamic noSuchMethod(Invocation invocation) => null;
-}
+// The fake bridge now lives in the harness (#237): a second file needed the
+// same thing, and the fake being local to this one is a large part of why the
+// belief that the harness "cannot wire a ChessApi" outlived its own
+// refutation two comments below.
 
 /// White king boxed in by its own pawns, Black rook on a8: Ra1# is mate.
 const _mateIn1BlackMates = 'r3k3/8/8/8/8/8/5PPP/6K1 b - - 0 1';
@@ -157,7 +124,7 @@ void main() {
         settings,
         null,
         null,
-        _FakeChess(),
+        FakeChess(),
       );
       game.newGame(fromFen: _mateIn1BlackMates);
       addTearDown(game.dispose);
@@ -407,4 +374,5 @@ void main() {
     expect(game.botHintsUsed, isTrue);
     game.dispose();
   });
+
 }
