@@ -37,7 +37,7 @@ import 'support/game_harness.dart';
 /// enough that a 60ms pause runs it out.
 const _blitz = TimeControl(Duration(milliseconds: 40), Duration.zero);
 
-Future<(GameController, FakeDb)> _game() async {
+Future<(GameController, FakeDb)> _game({String? fromFen}) async {
   // Analysis mode — both sides human. The bug is about the clock and the
   // archive, and a bot turn would only add a timer to outlive the test.
   final settings = await loadSettings();
@@ -48,7 +48,7 @@ Future<(GameController, FakeDb)> _game() async {
       SavingGrading(),
       settings,
       db);
-  g.newGame(rated: true, timeControl: _blitz);
+  g.newGame(fromFen: fromFen, rated: true, timeControl: _blitz);
   return (g, db);
 }
 
@@ -82,6 +82,54 @@ void main() {
     expect(saved['moveCount'], 3,
         reason: 'the archive is short of the board it was written from');
     expect((saved['moves'] as List).map((m) => m['san']), ['e4', 'e5', 'Nf3']);
+
+    g.dispose();
+  });
+
+  test('and the flagging move is GRADED in the archive', () async {
+    // The move that ends the game is still a move, and Review draws its label
+    // and its best-move comparison from the archive. This one was uniquely
+    // blank: `onFlag` saved from inside `_apply`, above the point where
+    // `_apply` registers the move's grade pipeline in `_pendingGrades` — and
+    // `_saveGame` waits on exactly that list. So the last move archived with
+    // `label` absent and `depth: 0`, while the live record had it, and the
+    // accuracy figures were computed over the blank.
+    //
+    // Every other ending saves from below that registration, which is why
+    // this was the only one affected. Both controls are below.
+    final (g, db) = await _game();
+
+    g.playUci('e2e4');
+    g.playUci('e7e5');
+    await Future<void>.delayed(const Duration(milliseconds: 60));
+    g.playUci('g1f3');
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+
+    final moves = (db.saved.single['moves'] as List);
+    expect(moves.map((m) => m['label']).toList(),
+        everyElement(isNotNull),
+        reason: 'the move that ended the game has no grade');
+    expect(moves.map((m) => m['depth']).toList(), everyElement(greaterThan(0)));
+    // And it agrees with what the player was shown.
+    expect(moves.map((m) => m['label']).toList(),
+        g.moves.map((m) => m.grade?.label).toList());
+
+    g.dispose();
+  });
+
+  test('as a mate-ending move already was', () async {
+    // The control that shows the bug was specific to the flag path rather
+    // than to terminal moves in general.
+    final (g, db) = await _game(
+        fromFen: '6k1/p4ppp/8/8/8/8/5PPP/Q5K1 w - - 0 1');
+
+    g.playUci('a1b1');
+    g.playUci('a7a6');
+    g.playUci('b1b8'); // Qb8#, no flag involved
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+
+    expect((db.saved.single['moves'] as List).map((m) => m['label']).toList(),
+        everyElement(isNotNull));
 
     g.dispose();
   });
@@ -145,6 +193,15 @@ void main() {
 
     expect(g.position.isCheckmate, isTrue, reason: 'the fixture really mates');
     expect(g.gameOver, isTrue);
+    // THE PRECONDITION, and without it this test is worth nothing: its whole
+    // power rests on White actually being out of time when the mating move
+    // presses. Drop the 60ms wait to 5ms and every assertion below still
+    // passes with the bug reintroduced, because no flag is involved at all.
+    // The other tests here pin it implicitly — they need `gameOver` for the
+    // archive to exist — and this one is the exception because MATE makes
+    // gameOver true on its own.
+    expect(g.clock!.flagged, ClockSide.white,
+        reason: 'the clock must really have fallen, or this proves nothing');
 
     // The CLOCK does flag — `_fall` sets its own `_flagged` before it calls
     // back, and that is not the controller's business to prevent. What
@@ -162,24 +219,4 @@ void main() {
     g.dispose();
   });
 
-  test('the flagging move is not counted twice', () async {
-    // The obvious wrong fix — press after playing, and let the flag path
-    // archive whatever it finds — would archive the move; the risk on that
-    // side is a duplicate, since _apply's own tail calls _saveGame() again
-    // once gameOver is true.
-    final (g, db) = await _game();
-
-    g.playUci('e2e4');
-    g.playUci('e7e5');
-    await Future<void>.delayed(const Duration(milliseconds: 60));
-    g.playUci('g1f3');
-    await Future<void>.delayed(const Duration(milliseconds: 50));
-
-    expect(db.saved, hasLength(1), reason: 'archived once, not twice');
-    final moves = (db.saved.single['moves'] as List).map((m) => m['san']);
-    expect(moves.toList(), ['e4', 'e5', 'Nf3'],
-        reason: 'and not with Nf3 repeated');
-
-    g.dispose();
-  });
 }

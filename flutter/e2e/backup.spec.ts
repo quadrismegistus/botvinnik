@@ -28,6 +28,23 @@ import { controls, enableSemantics, tap, waitForControl } from './semantics';
 test('backing up produces a real download of the real archive', async ({
 	page
 }) => {
+	// The Blob's MIME type is not on Playwright's `download` object and the
+	// blob URL is revoked before anything can read it, so the only place to
+	// observe it is where it is CONSTRUCTED. Wrapping the constructor is a
+	// test-only hook in the page, not a change to the app.
+	await page.addInitScript(() => {
+		(window as unknown as { __blobTypes: string[] }).__blobTypes = [];
+		const Original = window.Blob;
+		window.Blob = class extends Original {
+			constructor(parts?: BlobPart[], options?: BlobPropertyBag) {
+				super(parts, options);
+				(window as unknown as { __blobTypes: string[] }).__blobTypes.push(
+					options?.type ?? ''
+				);
+			}
+		} as typeof Blob;
+	});
+
 	await loadSettled(page);
 	await enableSemantics(page);
 
@@ -46,10 +63,15 @@ test('backing up produces a real download of the real archive', async ({
 	await tap(page, 'Back up everything');
 	const file = await download;
 
-	// The filename the app builds (backup.dart's backupFilename), not a
-	// browser-invented one. A Blob URL downloads as a uuid unless the anchor's
-	// `download` attribute is set, so this is the assertion that the attribute
-	// is both set and carrying the right value.
+	// The filename the app builds (backup.dart's backupFilename).
+	//
+	// Removing `..download = filename` does not merely rename the file, which
+	// is what this comment used to claim: in Chromium a blob-URL anchor
+	// without the attribute NAVIGATES instead of downloading, so no download
+	// event fires at all and the `await` above times out. Either way the
+	// assertion holds, but the mechanism is worth stating correctly — a
+	// reviewer checking this against Chromium's behaviour would otherwise find
+	// the comment wrong.
 	expect(file.suggestedFilename()).toMatch(
 		/^botvinnik-backup-\d{4}-\d{2}-\d{2}\.json$/
 	);
@@ -61,6 +83,15 @@ test('backing up produces a real download of the real archive', async ({
 	const chunks: Buffer[] = [];
 	for await (const c of stream) chunks.push(c as Buffer);
 	const text = Buffer.concat(chunks).toString('utf8');
+
+	// The MIME type the app asked for. `contains` rather than equality:
+	// Flutter and CanvasKit build Blobs of their own, and this only claims
+	// that ours is among them with the right type.
+	expect(
+		await page.evaluate(
+			() => (window as unknown as { __blobTypes: string[] }).__blobTypes
+		)
+	).toContain('application/json');
 
 	expect(text.length).toBeGreaterThan(2);
 	const parsed = JSON.parse(text);
@@ -103,7 +134,8 @@ test('the anchor does not outlive the download it was made for', async ({
 //
 // Mutation-tested against files_web.dart. These three die:
 //
-//   * `..download = filename` removed — the browser names the file a uuid.
+//   * `..download = filename` removed — in Chromium the anchor navigates
+//     instead of downloading, so no download event fires at all.
 //   * the Blob built from '' instead of the export — a download that succeeds
 //     and contains nothing.
 //   * `anchor.remove()` removed — a node accumulates per backup.
@@ -116,5 +148,14 @@ test('the anchor does not outlive the download it was made for', async ({
 // tested here. Firefox and WebKit projects would cover it; that is a bigger
 // change than this issue, and worth noting rather than quietly implying.
 //
+// Appending at all is unobservable for the same reason: removing
+// `body.append(anchor)` entirely also passes, because Chromium downloads from
+// a never-attached anchor. That is the confirmation that D survives for the
+// stated reason rather than by luck.
+//
 // `revokeObjectURL` is likewise unobservable from outside: a leaked Blob URL
 // still works, which is exactly why leaking one is easy to do.
+//
+// The MIME type IS covered, via the Blob constructor hook above — it was in
+// the list of unguarded things at the top of this file and a mutation to
+// 'text/plain' used to pass.
