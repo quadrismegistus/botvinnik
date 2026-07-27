@@ -23,7 +23,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:botvinnik_mobile/stores/practice_controller.dart';
-import 'package:botvinnik_mobile/stores/settings_store.dart';
 
 import 'support/game_harness.dart' show loadSettings;
 import 'support/practice_harness.dart';
