@@ -102,11 +102,43 @@ class ChessGptEngine {
     return b.toString();
   }
 
-  Future<_Net?> _ensure() => _loading ??= _load();
+  /// The session, built once.
+  ///
+  /// A FAILURE IS NOT MEMOISED. `_loading ??= _load()` latched it: one move
+  /// attempted offline made this persona a Stockfish stand-in for the life of
+  /// the process, across new games, rematches and opponent switches, because
+  /// GameController keeps one engine per variant and never evicts it. Land,
+  /// reconnect, start a fresh game — still a stand-in, until the app is
+  /// killed. ChessGptWeights.load goes out of its way to avoid exactly this
+  /// and says so; this re-introduced it one layer up.
+  Future<_Net?> _ensure() {
+    final inFlight = _loading;
+    if (inFlight != null) return inFlight;
+    late final Future<_Net?> started;
+    started = _load().then((net) {
+      // Cleared on failure only: a successful build is worth keeping, and a
+      // null means "try again next move", which is what a returning network
+      // deserves.
+      if (net == null && identical(_loading, started)) _loading = null;
+      return net;
+    });
+    return _loading = started;
+  }
 
   Future<_Net?> _load() async {
     if (!supported) return null;
-    final bytes = await ChessGptWeights.load(variantId);
+    // Inside the try: ChessGptWeights.load can THROW rather than return null
+    // when there is no path_provider to answer (a widget test, a stripped
+    // shell). Escaping here propagates out of pickMove and past
+    // GameController's stand-in fallback into its catch-all, which leaves the
+    // board silently dead — bot on turn, nothing thinking, input refused.
+    final Uint8List? bytes;
+    try {
+      bytes = await ChessGptWeights.load(variantId);
+    } catch (e) {
+      debugPrint('[chessgpt] weights unavailable for $variantId: $e');
+      return null;
+    }
     if (bytes == null) return null;
     if (!_envReady) {
       OrtEnv.instance.init();

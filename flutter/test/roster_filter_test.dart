@@ -51,28 +51,80 @@ void main() {
     FakeBot.lastNativeRequest = null;
   });
 
-  test('the roster is requested for THIS runtime, not always the web one',
-      () async {
-    // The whole bug in one assertion. `availablePersonas(false)` returns the
+  group('the whitelist is built from capabilities, not from this host', () {
+    // CI is ubuntu-latest, where every `supported` getter is false. A test
+    // phrased against those getters cannot tell a correct whitelist from one
+    // with a family deleted — both answer the same on Linux — so the previous
+    // version of this file passed on CI with the bug it exists to catch.
+    // familiesFor takes the capabilities as arguments, which makes the claim
+    // checkable on any machine.
+    test('ORT brings both onnxruntime families and nothing else', () {
+      final with_ = familiesFor(ort: true, retro: false, garbo: false, process: false);
+      final without =
+          familiesFor(ort: false, retro: false, garbo: false, process: false);
+      expect(with_.difference(without), {'maia', 'chessgpt'});
+      expect(without, isNot(contains('chessgpt')),
+          reason: 'deleting the chessgpt clause is the whole bug, restored');
+    });
+
+    test('the always-on families never depend on a capability', () {
+      final none =
+          familiesFor(ort: false, retro: false, garbo: false, process: false);
+      expect(none, {'squarefish', 'stockfish', 'horizon'});
+    });
+
+    test('a process engine brings custom and its styled siblings', () {
+      final p = familiesFor(ort: false, retro: false, garbo: false, process: true)
+          .difference(
+              familiesFor(ort: false, retro: false, garbo: false, process: false));
+      expect(p, {'custom', 'rodent', 'brainlearn'});
+    });
+
+    test('the real whitelist is that function, applied to this platform', () {
+      // Ties the pure function to what actually ships, so the two cannot
+      // drift. Host-independent: both sides move together.
+      debugPlayableFamilies = null;
+      expect(
+          playableFamilies,
+          familiesFor(
+            ort: ChessGptEngine.supported,
+            retro: playableFamilies.contains('retro'),
+            garbo: playableFamilies.contains('garbo'),
+            process: playableFamilies.contains('custom'),
+          ));
+    });
+  });
+
+  group('the roster is requested for the runtime, not always the web one', () {
+    // The whole bug in two assertions. `availablePersonas(false)` returns the
     // web roster on every platform, so a native-only family is unreachable
     // even where it runs — and because the pickers are tested against a fake
     // roster, everything downstream stays green while the app offers nothing.
-    final game = await _game({'squarefish-1200': _p('squarefish-1200', 'squarefish')});
-    game.rosterPersonas; // ignore: unnecessary_statements — the call is the test
+    //
+    // Driven through debugPlayableFamilies rather than through the platform,
+    // because wantsNativeRoster now derives from the same set. That is what
+    // makes these two die on Linux, where the old assertion could not.
+    test('asks for the native roster when a native-only family is playable',
+        () async {
+      debugPlayableFamilies = {'squarefish', 'chessgpt'};
+      final game =
+          await _game({'squarefish-1200': _p('squarefish-1200', 'squarefish')});
+      game.rosterPersonas;
 
-    expect(FakeBot.lastNativeRequest, isNotNull,
-        reason: 'personas() was never called');
-    expect(FakeBot.lastNativeRequest, wantsNativeRoster,
-        reason: 'a constant here makes native-only families unreachable '
-            'wherever it disagrees with the runtime');
-  });
+      expect(FakeBot.lastNativeRequest, isTrue,
+          reason: 'a hardcoded false here makes ChessGPT unreachable');
+    });
 
-  test('wantsNativeRoster tracks whether a native-only family can actually run',
-      () {
-    // Not `Platform.isMacOS`: the flag should mean "there is a native-only
-    // family worth asking for", so that asking is never a wider door than the
-    // filter behind it.
-    expect(wantsNativeRoster, ChessGptEngine.supported);
+    test('and does not when none is', () async {
+      // Asking for personas we would only filter out again is a wider door
+      // than it needs to be.
+      debugPlayableFamilies = {'squarefish'};
+      final game =
+          await _game({'squarefish-1200': _p('squarefish-1200', 'squarefish')});
+      game.rosterPersonas;
+
+      expect(FakeBot.lastNativeRequest, isFalse);
+    });
   });
 
   group('a family this runtime cannot play never reaches a picker', () {

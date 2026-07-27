@@ -1617,7 +1617,19 @@ class GameController extends ChangeNotifier {
       // this passes the SAN list, which is the one thing this controller has
       // and the arbiter's engines never need.
       final variant = p.chessgptVariant;
-      if (ChessGptEngine.supported && variant != null) {
+      // Only from the standard start. movesToPgn numbers from 1 and takes
+      // index 0 to be White, so a game begun at an arbitrary FEN — newGame's
+      // fromFen, which the New Game sheet offers for any legal position — is
+      // rendered as a fabricated game: a board 21 moves deep with Black to
+      // move gets prompted ";1.Nxd4 Bxd4 ", wrong side, wrong number, a game
+      // that never happened. The model answers plausibly-looking nonsense,
+      // fails legality six times and becomes a Stockfish stand-in with nothing
+      // saying why. Falling through here reaches the same stand-in, honestly.
+      //
+      // This is the boundary chessgpt_engine_io's header warns about at
+      // length: the input is MOVETEXT, and a position is not one.
+      final fromStart = _startFen == Chess.initial.fen;
+      if (ChessGptEngine.supported && variant != null && fromStart) {
         final engine = _chessGpt[variant] ??= ChessGptEngine(variant);
         // Snapshot the position: pickMove awaits a native session build and up
         // to six sampling rounds, and `position` is mutable state that an undo

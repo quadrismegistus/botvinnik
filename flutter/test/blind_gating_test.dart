@@ -19,7 +19,29 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:botvinnik_mobile/stores/game_controller.dart';
 import 'package:botvinnik_mobile/stores/settings_store.dart';
 
+import 'package:botvinnik_mobile/brain/chess_api.dart';
+
 import 'support/game_harness.dart';
+
+/// Enough of the bridge for the square-control overlay. `noSuchMethod` answers
+/// everything else with null, which is what the other overlays read as "no
+/// data" — so they stay quiet without being the thing under test.
+class _FakeChess implements ChessApi {
+  @override
+  Map<String, ControlCell> controlSquares(String fen) =>
+      {'e4': const ControlCell('w', 1, true)};
+
+  /// Needed because wiring a ChessApi also builds the lines tree, which asks
+  /// for this on every ingest. Naming each step after its uci is enough.
+  @override
+  List<Map<String, dynamic>> sanSteps(String fen, List<String> ucis) => [
+        for (var i = 0; i < ucis.length; i++)
+          {'san': ucis[i], 'uci': ucis[i], 'color': i.isEven ? 'w' : 'b', 'piece': 'p'}
+      ];
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => null;
+}
 
 /// White king boxed in by its own pawns, Black rook on a8: Ra1# is mate.
 const _mateIn1BlackMates = 'r3k3/8/8/8/8/8/5PPP/6K1 b - - 0 1';
@@ -66,11 +88,11 @@ void main() {
       // it probed `visibleLines`, which is the PANE predicate — so reverting
       // all five board-overlay call sites to their old `blind` left the suite
       // green, and the one thing #148 changed had no test at all.
-      // engineArrowUcis is the one board overlay this harness can reach:
-      // `threat`, `tacticalWin` and `controlMap` all short-circuit on a null
-      // ChessApi, which the harness does not wire, so asserting them null
-      // here would pass whatever the predicate said. They share the call
-      // site pattern; only this one is actually pinned.
+      //
+      // A previous comment here claimed the other overlays were unreachable
+      // because the harness wires no ChessApi. That was an excuse, and wrong:
+      // chessApi is a constructor argument and this suite already had a
+      // FakeChess. `controlMap` is now covered below.
       final game = await _game(bot: false);
       await Future<void>.delayed(const Duration(milliseconds: 50));
       expect(game.currentLines, isNotEmpty,
@@ -90,6 +112,61 @@ void main() {
       expect(game.engineArrowUcis, isNotEmpty);
       expect(game.visibleLines, isNotEmpty);
       game.dispose();
+    });
+  });
+
+  group('the board overlays that need a ChessApi', () {
+    // The excuse this file used to carry was that these could not be reached.
+    // They can: chessApi is a positional constructor argument, and a fake with
+    // a noSuchMethod fallthrough is enough. Without this, reverting
+    // `controlMap`, `threat` and `tacticalWin` to the old `blind` left the
+    // whole 772-test suite green — three of the five sites #148 changed.
+    Future<GameController> withChess({required bool blind}) async {
+      // Starts on the mate-in-1 so a test can end the game and reach the case
+      // where `blind` and `hidingHelp` DIFFER. Without that case, a live blind
+      // game makes the two predicates identical and the mutation survives —
+      // which it did, on the first version of these tests.
+      final settings = await loadSettings(white: kSquareBotId);
+      settings.blind = blind;
+      settings.showControl = true;
+      final game = GameController(
+        FakeArbiter(analysisLines: kFakeLines, streamPartials: true),
+        FakeBot({kSquareBotId: squareBotPersona}),
+        FakeGrading(),
+        settings,
+        null,
+        null,
+        _FakeChess(),
+      );
+      game.newGame(fromFen: _mateIn1BlackMates);
+      addTearDown(game.dispose);
+      return game;
+    }
+
+    test('square tinting is withheld while blind', () async {
+      final game = await withChess(blind: true);
+      expect(game.hidingHelp, isTrue, reason: 'precondition');
+      expect(game.controlMap, isNull);
+    });
+
+    test('and drawn when it is off', () async {
+      // The other half: the assertion above must fail for the reason claimed,
+      // not because this harness never produces a control map.
+      final game = await withChess(blind: false);
+      expect(game.controlMap, isNotNull);
+    });
+
+    test('and drawn again once the game is over, with blind still on', () async {
+      // THE case that separates the two predicates. `blind` stays true here,
+      // so an overlay that reverted to reading it keeps the board dark through
+      // the recap — and every other assertion in this group would still pass.
+      final game = await withChess(blind: true);
+      game.playUci('a8a1'); // Ra1#
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      expect(game.gameOver, isTrue, reason: 'precondition');
+      expect(game.blind, isTrue, reason: 'the switch is untouched');
+      expect(game.controlMap, isNotNull, reason: 'but the veil is up');
     });
   });
 
@@ -114,6 +191,11 @@ void main() {
       expect(game.gameOver, isTrue, reason: 'precondition');
       expect(game.blind, isTrue, reason: 'the switch is untouched');
       expect(game.hidingHelp, isFalse, reason: 'but the veil is up');
+      // The BOARD, not just the predicate: `engineArrowUcis` dropping its
+      // !gameOver clause left the whole suite green, so half of "the board
+      // hides, not just the panes" was unpinned at the end of a game.
+      expect(game.engineArrowUcis, isNotEmpty,
+          reason: 'the arrows come back for the recap');
       game.dispose();
     });
   });

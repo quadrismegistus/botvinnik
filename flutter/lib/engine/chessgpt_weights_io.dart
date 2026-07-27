@@ -129,6 +129,14 @@ class ChessGptWeights {
   /// prevent.
   static final Map<String, Future<Uint8List?>> _inFlight = {};
 
+  /// Applied to the connect, the response, and the body separately, as Maia
+  /// does. Without it a connection that is accepted and never answered leaves
+  /// load() pending for ever; the engine memoises that pending future and
+  /// GameController awaits pickMove with no timeout of its own, so the board
+  /// reads "thinking" until the app is killed. 60s rather than Maia's 30s
+  /// because this is 26MB, not 3.5.
+  static const Duration kLoadTimeout = Duration(seconds: 60);
+
   @visibleForTesting
   static Directory? debugDirectory;
 
@@ -144,11 +152,27 @@ class ChessGptWeights {
       File('${(await _dir()).path}/chessgpt/$id.int8.onnx');
 
   /// Which variants are already downloaded. Cheap, and it never fetches.
+  /// Never throws: in a widget test there is no path_provider plugin to
+  /// answer, and this is called from initState where nothing awaits it.
+  ///
+  /// A cheap check — the file is there and the right SIZE. Not the digest:
+  /// hashing 78MB every time the sheet opens to render one line is not a
+  /// trade worth making. Size catches the common corruption (a truncated
+  /// download, a full disk) and [load] still verifies the digest before any
+  /// bytes are used, so this is an optimistic claim backed by a real one.
   static Future<Set<String>> refresh() async {
     final found = <String>{};
     if (supported) {
-      for (final v in variants) {
-        if (await (await fileFor(v.id)).exists()) found.add(v.id);
+      try {
+        for (final v in variants) {
+          final f = await fileFor(v.id);
+          if (await f.exists() && await f.length() == v.bytes) found.add(v.id);
+        }
+      } catch (_) {
+        // no plugin, or an unreadable directory: "we do not know" is the
+        // honest answer, and it is what the null below renders.
+        _cached.value = null;
+        return const {};
       }
     }
     _cached.value = found;
@@ -158,7 +182,11 @@ class ChessGptWeights {
   static void _markCached(String id) {
     final now = _cached.value;
     if (now == null) {
-      _cached.value = {id};
+      // "Nobody has looked" is not "only this one is here". Inventing {id}
+      // told the roster the OTHER two were absent when they may be on disk —
+      // reachable whenever a move loads a net before the sheet has opened.
+      // refresh() answers properly; Maia's does the same and says so.
+      refresh();
     } else if (!now.contains(id)) {
       _cached.value = {...now, id};
     }
@@ -184,8 +212,11 @@ class ChessGptWeights {
   }
 
   static Future<Uint8List?> _load(ChessGptVariant variant) async {
-    final file = await fileFor(variant.id);
+    // Inside the try: fileFor reaches path_provider, which throws rather than
+    // returning null where the plugin is absent. Every caller of load() treats
+    // null as "unavailable" and nothing is prepared for a throw.
     try {
+      final file = await fileFor(variant.id);
       if (await file.exists()) {
         final cached = await file.readAsBytes();
         // Re-verified, not trusted for having arrived once: it may have been
@@ -195,22 +226,38 @@ class ChessGptWeights {
           _markCached(variant.id);
           return cached;
         }
+        // Deleted AND un-advertised. Dropping only the file left the notifier
+        // holding the id, so the roster went on promising "downloaded — plays
+        // offline" for a file that no longer existed.
         await file.delete();
+        _unmarkCached(variant.id);
       }
       await file.parent.create(recursive: true);
       final client = HttpClient();
       try {
-        final res =
-            await client.getUrl(Uri.parse(variant.url)).then((r) => r.close());
+        final res = await client
+            .getUrl(Uri.parse(variant.url))
+            .timeout(kLoadTimeout)
+            .then((r) => r.close().timeout(kLoadTimeout));
         if (res.statusCode != 200) return null;
-        final bytes = await consolidateHttpClientResponseBytes(res);
+        final bytes = await consolidateHttpClientResponseBytes(res)
+            .timeout(kLoadTimeout);
         if (!_matches(bytes, variant)) return null;
         // Written via a temp file and renamed: a half-downloaded net that
         // looks cached is worse than no net, because it fails at session build
         // with nothing to say why.
         final tmp = File('${file.path}.part');
-        await tmp.writeAsBytes(bytes, flush: true);
-        await tmp.rename(file.path);
+        try {
+          await tmp.writeAsBytes(bytes, flush: true);
+          await tmp.rename(file.path);
+        } catch (_) {
+          // A full or read-only disk. Without this the 26MB .part is orphaned
+          // and nothing ever collects it.
+          try {
+            if (await tmp.exists()) await tmp.delete();
+          } catch (_) {/* nothing better to do */}
+          return null;
+        }
         _markCached(variant.id);
         return bytes;
       } finally {
@@ -221,11 +268,26 @@ class ChessGptWeights {
     }
   }
 
+  static void _unmarkCached(String id) {
+    final now = _cached.value;
+    if (now != null && now.contains(id)) {
+      _cached.value = {...now}..remove(id);
+    }
+  }
+
   static bool _matches(Uint8List bytes, ChessGptVariant variant) =>
       sha256.convert(bytes).toString() == variant.sha256;
 
-  static Future<bool> isCached(String id) async =>
-      supported && await (await fileFor(id)).exists();
+  static Future<bool> isCached(String id) async {
+    if (!supported) return false;
+    try {
+      final v = variantFor(id);
+      final f = await fileFor(id);
+      return await f.exists() && (v == null || await f.length() == v.bytes);
+    } catch (_) {
+      return false;
+    }
+  }
 
   /// Throw away a variant's cached weights — ORT would not open them.
   static Future<void> discard(String id) async {

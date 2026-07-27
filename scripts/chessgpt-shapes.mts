@@ -1,10 +1,11 @@
 // Do models that learned chess from different teachers make different-SHAPED
 // mistakes at the same strength?
 //
-// The gym answered the strength half: human-trained, Stockfish-trained and
-// mixed Chess-GPT all land within 21 points of each other, just above
-// shaped:1200. That null result is what makes this question askable — strength
-// is controlled for, so any difference in the LABELS is about the teacher.
+// The gym answers the strength half, and the answer moved: on clean data the
+// three land at 1225 / 1244 / 1303 — a 78-point spread, not the 21 first
+// reported, which was measured over games half of which the model never
+// played. So strength is NOT fully controlled for, and the label differences
+// below should be read alongside it rather than as the teacher alone.
 //
 // Deliberately not run through calibrate-bots: that harness spawns an engine
 // per game and respawns on a missed deadline, and a respawn mid-game costs a
@@ -163,6 +164,8 @@ async function main() {
 					eng.send('go');
 					const best = await eng.until((l) => l.startsWith('bestmove'));
 					uci = best.split(' ')[1];
+					// Not "the model was never asked" — on this path it was. See the
+					// tally below.
 					if (uci === '0000') { refused++; break; }
 				} else {
 					const lines = await analyse(sf, fenBefore);
@@ -194,12 +197,20 @@ async function main() {
 				try { chess.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci[4] }); } catch { break; }
 				plies++;
 			}
-			// A refusal is not a result. Counting one as a draw is what turned a
-			// real draw rate into the ~60% reported here: the model never got to
-			// play, so the game says nothing about the model. Excluded, not
-			// redistributed — decisive + drawn no longer sums to GAMES, and that
-			// gap is the number worth watching.
-			if (refused > refusedBefore) { /* excluded entirely */ }
+			// A refusal is not a DRAW — counting it as one is what turned a real
+			// ~29% draw rate into the ~60% first reported here.
+			//
+			// But it is no longer a harness artefact either, and the first
+			// version of this comment said it was. On the `position startpos
+			// moves` path the shim's reconstruction cannot fail (it is handed
+			// the history), so a `0000` now means the model exhausted six
+			// sampling attempts without producing a legal move — a real failure
+			// by a real player. Discarding those games would flatter the weaker
+			// nets and erase an untrained control entirely.
+			//
+			// So: scored as a LOSS for the model, and counted separately so the
+			// rate is visible rather than blended into the decisive column.
+			if (refused > refusedBefore) decisive++;
 			else if (chess.isCheckmate()) decisive++;
 			else drawn++;
 			out[name] = labels;

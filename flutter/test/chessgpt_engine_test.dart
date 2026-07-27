@@ -65,7 +65,11 @@ void main() {
     test('each url points at the family release asset for its own id', () {
       for (final v in ChessGptWeights.variants) {
         expect(v.url, startsWith('https://'));
-        expect(v.url, contains('botvinnik-engines/releases/download/'));
+        // The TAG, not just the path. It is the only hand-pasted segment left
+        // in the url, and getting it wrong 404s all three downloads while
+        // every assertion about the filename still passes.
+        expect(v.url,
+            contains('botvinnik-engines/releases/download/chessgpt-8layers-int8/'));
         expect(v.url, endsWith('chessgpt-${v.id}-8layers-int8.onnx'),
             reason: 'a url pointing at another variant is the one mistake '
                 'here that still downloads, runs, and plays the wrong bot');

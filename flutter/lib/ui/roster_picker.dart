@@ -37,7 +37,12 @@ import '../stores/player_rating_store.dart';
 // Was a second, drifting copy of this list; it now defers to the one place
 // that answers the question (engine/playable_families.dart), which every
 // picker and the roster itself read.
-final _playableFamilies = playableFamilies;
+//
+// A GETTER, not a `final`. As a lazily-initialised top-level final it
+// snapshotted the set on first read and then ignored debugPlayableFamilies for
+// the life of the isolate — so whichever test touched it first silently fixed
+// the answer for every test after it.
+Set<String> get _playableFamilies => playableFamilies;
 
 /// One family's personas, as a group renders: members ascending by elo, and
 /// the group's own place in the sheet set by [averageElo].
@@ -73,7 +78,11 @@ class RosterGroup {
   /// be a second table of family strings to fall out of step with
   /// `brain/bots.ts`, and every family's personas are already named with this
   /// exact capitalisation ("Squarefish 900", "Maia II", "Garbo 2011").
-  String get label => family[0].toUpperCase() + family.substring(1);
+  /// Capitalising the id is right for most families and wrong for the ones
+  /// whose names carry internal capitals — this said "Chessgpt" beside a New
+  /// Game row saying "ChessGPT". Shared with bot_picker so the two cannot
+  /// disagree again.
+  String get label => familyLabel(family);
 }
 
 /// Group [personas] by family for the sheet: drop what this platform cannot
@@ -520,6 +529,8 @@ class _RosterSheetState extends State<RosterSheet> {
       'garbo' => (Icons.data_object, const Color(0xFF6f9e8a)),
       // a net trained on people
       'maia' => (Icons.psychology_outlined, const Color(0xFFb06f8a)),
+      // a speech bubble: the one opponent here that plays by predicting text
+      'chessgpt' => (Icons.chat_bubble_outline, const Color(0xFF8a9ab0)),
       'custom' => (Icons.terminal, const Color(0xFF7d8fa0)),
       // masks — one engine, many playing characters
       'rodent' => (Icons.theater_comedy_outlined, const Color(0xFFc98a52)),

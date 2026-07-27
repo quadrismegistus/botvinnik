@@ -21,6 +21,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../brain/types.dart';
+import '../engine/playable_families.dart';
 import '../stores/custom_engine.dart';
 import '../stores/engine_catalog.dart';
 import '../stores/game_controller.dart';
@@ -528,17 +529,9 @@ class _FamilyPickerState extends State<_FamilyPicker> {
       .toList()
     ..sort((a, b) => a.elo.compareTo(b.elo));
 
-  /// Capitalising the family id is right for most of them — squarefish,
-  /// stockfish, maia, retro, rodent, horizon all read correctly — and wrong
-  /// for the ones whose names carry internal capitals. "Chessgpt" and
-  /// "Brainlearn" are not what either project calls itself.
-  static const _familyNames = <String, String>{
-    'chessgpt': 'ChessGPT',
-    'brainlearn': 'BrainLearn',
-  };
-
-  static String _familyLabel(String f) =>
-      _familyNames[f] ?? (f.isEmpty ? f : f[0].toUpperCase() + f.substring(1));
+  /// Shared with roster_picker (engine/playable_families.dart) so the family
+  /// row and the roster heading cannot disagree about a name again.
+  static String _familyLabel(String f) => familyLabel(f);
 }
 
 enum _Kind { slider, list, direct, moreEngines }
