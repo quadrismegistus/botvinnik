@@ -1202,7 +1202,10 @@ class GameController extends ChangeNotifier {
       // luck, not by construction. Spelling it out means the `grade!`
       // unwraps below stay safe even if that floor is ever lowered.
       if (grade != null &&
-          drop >= _settings.collectThreshold &&
+          // refuseThreshold, NOT collectThreshold: one number used to do both
+          // jobs, so the Practice tab's bar silently decided when a rated game
+          // refused a move (#213).
+          drop >= _settings.refuseThreshold &&
           attempts < kMaxRefusalAttempts) {
         decided = true;
         _refusalAttempts[fenBefore] = attempts + 1;

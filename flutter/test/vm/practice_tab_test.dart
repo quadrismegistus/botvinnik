@@ -411,7 +411,12 @@ void main() {
       h.practice.startGameSession({_forkFen});
       await _pumpTab(tester, h.practice);
 
-      expect(find.text("Practising this game's mistakes"), findsOneWidget,
+      // The banner now also states WHICH mistakes — #197 decided a game
+      // session ignores the practice bar and did it silently, so a player with
+      // the bar at 20% met 6% inaccuracies with nothing on screen explaining
+      // why (#213).
+      expect(find.text("Practising this game's mistakes — all of them"),
+          findsOneWidget,
           reason: 'nothing else on the tab says the queue is narrowed');
 
       // "Practise all" returns to the full queue; the banner goes with it.
@@ -419,7 +424,8 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(h.practice.inGameSession, isFalse);
-      expect(find.text("Practising this game's mistakes"), findsNothing);
+      expect(find.textContaining("Practising this game's mistakes"),
+          findsNothing);
     });
 
     testWidgets('a normal session shows no banner', (tester) async {

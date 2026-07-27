@@ -215,6 +215,7 @@ class _PracticeTabState extends State<PracticeTab> {
                     style: const TextStyle(
                         fontWeight: FontWeight.w600, fontSize: 14)),
               ),
+              _thresholdMenu(practice),
               _motifMenu(practice),
               // Only when there is a drill to go back to. With nothing
               // servable the list IS the tab, and a close button would put you
@@ -699,11 +700,35 @@ class _PracticeTabState extends State<PracticeTab> {
         children: [
           const Icon(Icons.history, size: 15, color: Color(0xFF81B64C)),
           const SizedBox(width: 6),
-          const Expanded(
-            child: Text("Practising this game's mistakes",
+          Expanded(
+            child: Text(
+                context.watch<SettingsStore>().gameSessionAllDrops
+                    ? "Practising this game's mistakes — all of them"
+                    : "Practising this game's mistakes over the bar",
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: TextStyle(color: Colors.white54, fontSize: 12)),
+                style: const TextStyle(color: Colors.white54, fontSize: 12)),
+          ),
+          // #197 decided a game session ignores the practice bar — you picked
+          // the game — and did it silently, so a player with the bar at 20%
+          // met 6% inaccuracies with no way to tell why. The rule is unchanged
+          // by default; it is just legible now, and reversible from where you
+          // notice it (#213).
+          IconButton(
+            tooltip: context.watch<SettingsStore>().gameSessionAllDrops
+                ? 'Drilling every mistake — tap to apply the bar'
+                : 'Applying the bar — tap to drill every mistake',
+            icon: Icon(Icons.rule,
+                size: 18,
+                color: context.watch<SettingsStore>().gameSessionAllDrops
+                    ? Colors.white38
+                    : const Color(0xFF81B64C)),
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+            onPressed: () {
+              final s = context.read<SettingsStore>();
+              s.gameSessionAllDrops = !s.gameSessionAllDrops;
+            },
           ),
           TextButton(
             onPressed: practice.exitGameSession,
@@ -899,6 +924,57 @@ class _PracticeTabState extends State<PracticeTab> {
   /// carry, so every option serves something. Hidden entirely when there are
   /// none — an untagged collection gets a menu with one item saying "all",
   /// which is furniture pretending to be a feature.
+  /// The drop a puzzle needs before practice will serve it (#213).
+  ///
+  /// Here rather than in Settings, beside the motif filter, because it is the
+  /// same KIND of control — "narrow what I am being asked" — and because it is
+  /// only legible where you feel it. In Settings it was a number two screens
+  /// away from the queue it governs, and the collection browser was already
+  /// labelling rows "not queued — under N%" against a bar the player could not
+  /// see.
+  ///
+  /// The percentages match the ones Settings offered, and 5 is [kCollectMin] —
+  /// the floor everything is collected at, so "5%" really does mean "serve me
+  /// everything", not "serve me most of it".
+  Widget _thresholdMenu(PracticeController practice) {
+    final settings = context.watch<SettingsStore>();
+    final at = settings.collectThreshold;
+    final below = practice.items.length - practice.servable.length;
+    return PopupMenuButton<int>(
+      tooltip: 'How bad a mistake has to be',
+      // A label, not an icon: two filter funnels side by side would be a
+      // guessing game, and the number IS the state — an icon would need a
+      // badge to say the same thing.
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+        child: Text('$at%',
+            style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: at == kCollectMin.round()
+                    ? Colors.white70
+                    : const Color(0xFF81B64C))),
+      ),
+      onSelected: (v) => settings.collectThreshold = v,
+      itemBuilder: (context) => [
+        for (final v in const [5, 10, 15, 20, 30])
+          CheckedPopupMenuItem<int>(
+            value: v,
+            checked: at == v,
+            child: Text(v == kCollectMin.round()
+                ? 'Everything collected'
+                : 'Losing at least $v%'),
+          ),
+        if (below > 0)
+          PopupMenuItem<int>(
+            enabled: false,
+            child: Text('$below below the current bar',
+                style: const TextStyle(fontSize: 11.5, color: Colors.white38)),
+          ),
+      ],
+    );
+  }
+
   Widget _motifMenu(PracticeController practice) {
     final counts = practice.motifCounts;
     final active = practice.motifFilter;

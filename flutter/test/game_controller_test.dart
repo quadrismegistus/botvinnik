@@ -428,6 +428,58 @@ void main() {
       });
     });
 
+    // #213 split one number into two: the practice bar and the refusal bar.
+    // They had been the same field, set by a control labelled "Practice
+    // mistakes losing at least" that said nothing about rated games — so
+    // lowering your practice bar made refusal reject far more.
+    //
+    // Tested through the CONTROLLER, not the store. A store-level test that
+    // the two fields are independent passes happily while game_controller
+    // still reads the wrong one, which is exactly what a mutation showed.
+    group('refusal reads its OWN bar (#213)', () {
+      Future<GameController> refusalGame(
+          {required int practice, required int refuse}) async {
+        final settings = await loadSettings(black: kTestBotId);
+        settings.collectThreshold = practice;
+        settings.refuseThreshold = refuse;
+        final game = GameController(
+            FakeArbiter(analysisLines: kFakeLines, searchLines: childLines),
+            FakeBot({kTestBotId: testBotPersona}),
+            FakeGrading(winChanceOf: winChanceOf), // rigged for a 60-pt drop
+            settings,
+            null,
+            FakePractice());
+        game.newGame(refuseBlunders: true);
+        return game;
+      }
+
+      test('refuses on the refusal bar even with the practice bar above it',
+          () async {
+        final game = await refusalGame(practice: 90, refuse: 10);
+        game.playUci('e2e4');
+        await Future<void>.delayed(const Duration(milliseconds: 150));
+
+        expect(game.refusedMoves, 1,
+            reason: 'a 60-point drop clears the 10% refusal bar');
+        expect(game.moves, isEmpty);
+        game.dispose();
+      });
+
+      test('and lets a move through when only the PRACTICE bar is below it',
+          () async {
+        // The other direction, and the one that makes the pair a claim about
+        // WHICH field is read rather than about thresholds in general.
+        final game = await refusalGame(practice: 10, refuse: 90);
+        game.playUci('e2e4');
+        await Future<void>.delayed(const Duration(milliseconds: 150));
+
+        expect(game.refusedMoves, 0,
+            reason: 'a 60-point drop does not clear the 90% refusal bar');
+        expect(game.moves.map((m) => m.san), ['e4']);
+        game.dispose();
+      });
+    });
+
     test('relents on the 4th attempt at the same position', () async {
       final (game, practice) = await newRefusalGame();
       for (var i = 0; i < GameController.kMaxRefusalAttempts; i++) {

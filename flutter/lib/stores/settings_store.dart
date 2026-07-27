@@ -66,6 +66,23 @@ class SettingsStore extends ChangeNotifier {
   String? _whitePersonaId;
   String? _blackPersonaId;
   int _collectThreshold; // practice serves puzzles with drop ≥ this
+  // The drop at which refuse-blunders refuses a move. SEPARATE from the
+  // practice threshold since #213, and the split is the point: those were one
+  // number doing two jobs, and the Settings control that set it was labelled
+  // "Practice mistakes losing at least" and said nothing about rated games. So
+  // lowering your practice bar to 5% also made refusal mode reject every 5%
+  // mistake in a rated game, from a control that never mentioned it — and #213
+  // moves that control to the Practice tab, which would have hidden the
+  // coupling further still.
+  int _refuseThreshold;
+  // Whether a "practise this game's mistakes" session drills EVERY collected
+  // mistake in the game, or only those over the practice bar (#213). Default
+  // true, which is what #197 decided and did without saying so: you picked the
+  // game deliberately, so the queue's bar is not the question you asked. The
+  // setting exists because that answer is defensible rather than obvious — a
+  // player with the bar at 20% may well not want a 6% inaccuracy back — and
+  // because it was previously invisible.
+  bool _gameSessionAllDrops;
   bool _easeIn; // practice biases each session toward easier puzzles first
   int _botDelayMs; // pause between moves when a bot plays both sides
   bool _showArrows; // top-3 engine arrows on the board
@@ -96,6 +113,8 @@ class SettingsStore extends ChangeNotifier {
     required String? whitePersonaId,
     required String? blackPersonaId,
     required int collectThreshold,
+    required int refuseThreshold,
+    required bool gameSessionAllDrops,
     required bool easeIn,
     required int botDelayMs,
     required bool showArrows,
@@ -119,6 +138,8 @@ class SettingsStore extends ChangeNotifier {
         _whitePersonaId = whitePersonaId,
         _blackPersonaId = blackPersonaId,
         _collectThreshold = collectThreshold,
+        _refuseThreshold = refuseThreshold,
+        _gameSessionAllDrops = gameSessionAllDrops,
         _easeIn = easeIn,
         _botDelayMs = botDelayMs,
         _showArrows = showArrows,
@@ -176,12 +197,23 @@ class SettingsStore extends ChangeNotifier {
     final threshold =
         int.tryParse(prefs.getString('botvinnik-collect-threshold') ?? '') ??
             15;
+    // Falls back to the PRACTICE number, not to the default, and that matters
+    // for anyone upgrading: the two were one setting until #213, so a player
+    // who had moved their bar to 5% chose that for refusals too, whether they
+    // knew it or not. Defaulting to 15 here would silently loosen refusal for
+    // them on first launch after the split.
+    final refuse =
+        int.tryParse(prefs.getString('botvinnik-refuse-threshold') ?? '') ??
+            threshold;
     return SettingsStore._(
       prefs: prefs,
       personaId: personaId,
       whitePersonaId: whitePersonaId,
       blackPersonaId: blackPersonaId,
       collectThreshold: threshold,
+      refuseThreshold: refuse,
+      gameSessionAllDrops:
+          prefs.getString('botvinnik-game-session-all') != '0',
       // ON out of the box, like the web ('!= 0'): a warm-up on-ramp is kinder
       // to start a session; '0' is the serious driller opting into strict due
       // order, which is what spaced repetition actually asks for.
@@ -478,6 +510,27 @@ class SettingsStore extends ChangeNotifier {
     final bot = white ?? black;
     if (bot != null) _personaId = bot;
     _persistBot();
+    notifyListeners();
+  }
+
+  /// The drop at which refuse-blunders refuses a move (#213). Not the practice
+  /// bar — see [_refuseThreshold] for why they are two numbers now.
+  int get refuseThreshold => _refuseThreshold;
+
+  /// See [_gameSessionAllDrops].
+  bool get gameSessionAllDrops => _gameSessionAllDrops;
+
+  set gameSessionAllDrops(bool all) {
+    if (all == _gameSessionAllDrops) return;
+    _gameSessionAllDrops = all;
+    _prefs.setString('botvinnik-game-session-all', all ? '1' : '0');
+    notifyListeners();
+  }
+
+  set refuseThreshold(int pct) {
+    if (pct == _refuseThreshold) return;
+    _refuseThreshold = pct;
+    _prefs.setString('botvinnik-refuse-threshold', '$pct');
     notifyListeners();
   }
 

@@ -536,10 +536,18 @@ class PracticeController extends ChangeNotifier {
   void _serveNextInGame() {
     final scope = gameScope;
     if (scope == null) return;
+    // The bar applies here only if the player has asked it to (#213). Default
+    // off — #197's rule, now visible in the session banner instead of implied:
+    // you picked this game, so the queue's threshold is not the question you
+    // asked. `_gameServed` is still marked for the ones skipped this way, so a
+    // session with the bar on still ENDS rather than looping on items it will
+    // never serve.
+    final all = settings?.gameSessionAllDrops ?? true;
     final remaining = items
         .where((i) =>
             scope.contains(i['id'] as String) &&
-            !_gameServed.contains(i['id'] as String))
+            !_gameServed.contains(i['id'] as String) &&
+            (all || ((i['drop'] as num?)?.toDouble() ?? 0) >= threshold))
         .toList();
     final next = _api.nextItem(remaining, easyFirst: _easeIn);
     if (next == null) {
