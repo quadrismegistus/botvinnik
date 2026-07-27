@@ -9,6 +9,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 
 import 'package:botvinnik_mobile/brain/types.dart';
+import 'package:botvinnik_mobile/engine/playable_families.dart';
 import 'package:botvinnik_mobile/stores/custom_engine.dart';
 import 'package:botvinnik_mobile/stores/game_controller.dart';
 import 'package:botvinnik_mobile/ui/bot_picker.dart';
@@ -18,6 +19,26 @@ import 'support/memory_db.dart';
 
 Persona _p(String id, String name, int elo, String family) => Persona(
     {'id': id, 'name': name, 'elo': elo, 'family': family, 'blurb': 'blurb'});
+
+/// The picker only offers families this runtime can PLAY, and several
+/// `supported` getters check for real artefacts rather than the platform —
+/// RetroEngine.supported on macOS wants staged binaries that a `flutter test`
+/// run does not have. Pinning the set here keeps these assertions about the
+/// PICKER rather than about whether someone built the app recently.
+void _pinFamilies() {
+  setUp(() => debugPlayableFamilies = {
+        'squarefish',
+        'stockfish',
+        'horizon',
+        'retro',
+        'maia',
+        'chessgpt',
+        'custom',
+        'rodent',
+        'brainlearn',
+      });
+  tearDown(() => debugPlayableFamilies = null);
+}
 
 final _roster = <String, Persona>{
   'squarefish-1000': _p('squarefish-1000', 'Squarefish 1000', 1000, 'squarefish'),
@@ -29,6 +50,9 @@ final _roster = <String, Persona>{
   'retro-turochamp': _p('retro-turochamp', 'Turochamp', 700, 'retro'),
   'retro-bernstein': _p('retro-bernstein', 'Bernstein', 900, 'retro'),
   'retro-sargon': _p('retro-sargon', 'Sargon', 1100, 'retro'),
+  'chessgpt-mix': _p('chessgpt-mix', 'ChessGPT (both)', 1225, 'chessgpt'),
+  'chessgpt-lichess': _p('chessgpt-lichess', 'ChessGPT (human)', 1244, 'chessgpt'),
+  'chessgpt-stockfish': _p('chessgpt-stockfish', 'ChessGPT (engine)', 1303, 'chessgpt'),
 };
 
 Future<CustomEngineStore> _loaded(MemoryDb db) async {
@@ -80,6 +104,8 @@ Future<String? Function()> _open(WidgetTester tester,
 }
 
 void main() {
+  _pinFamilies();
+
   testWidgets('Maia and Retro are families now, not loose members', (tester) async {
     await _open(tester);
 
@@ -313,5 +339,45 @@ void main() {
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull,
         reason: 'the cap-page back bar must ellipsize a long name, not overflow');
+  });
+
+  // #235. Three near-identical elos, which is the whole reason this needs a
+  // test: `_entries` gives any family with 2+ members a strength SLIDER, and a
+  // slider between 1225 and 1303 would present a choice of teacher as a choice
+  // of strength.
+  group('ChessGPT is a list of teachers, not a strength slider', () {
+    testWidgets('the family is one row, and opens a list of the three',
+        (tester) async {
+      await _open(tester);
+
+      expect(find.text('ChessGPT'), findsOneWidget,
+          reason: 'one family row, not three loose members');
+      await tester.tap(find.text('ChessGPT'));
+      await tester.pumpAndSettle();
+
+      // The row is "<name>  ·  <elo>", so match on the name.
+      for (final name in [
+        'ChessGPT (human)',
+        'ChessGPT (engine)',
+        'ChessGPT (both)'
+      ]) {
+        expect(find.textContaining(name), findsOneWidget,
+            reason: 'missing $name');
+      }
+      expect(find.byType(Slider), findsNothing,
+          reason: 'a slider would call a choice of teacher a choice of '
+              'strength — the three sit inside 78 elo');
+    });
+
+    testWidgets('picking one returns that net', (tester) async {
+      final result = await _open(tester);
+
+      await tester.tap(find.text('ChessGPT'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.textContaining('ChessGPT (engine)'));
+      await tester.pumpAndSettle();
+
+      expect(result(), 'chessgpt-stockfish');
+    });
   });
 }

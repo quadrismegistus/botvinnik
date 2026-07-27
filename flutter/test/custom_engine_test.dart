@@ -200,7 +200,7 @@ void main() {
         id: 'v', name: 'Viridithas', path: '/bin/viri', elo: 2500));
     final settings = await loadSettings();
 
-    final g = GameController(FakeArbiter(), const FakeBot(), FakeGrading(),
+    final g = GameController(FakeArbiter(), FakeBot(), FakeGrading(),
         settings, db, null, null, engines);
     addTearDown(g.dispose);
 

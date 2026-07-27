@@ -26,6 +26,7 @@ import '../engine/custom_engine_runner.dart';
 import '../engine/garbo_engine.dart';
 import '../engine/maia_engine.dart';
 import '../engine/maia_progress.dart';
+import '../engine/playable_families.dart';
 import '../engine/retro_engine.dart';
 import 'custom_engine.dart';
 import 'engine_catalog.dart';
@@ -428,7 +429,13 @@ class GameController extends ChangeNotifier {
   /// but only where they can actually run (native desktop), so the picker never
   /// offers one it would have to stand in for.
   List<Persona> get rosterPersonas => [
-        ..._bot.personas(),
+        // Filtered by family, not merely by the brain's nativeOnly flag: that
+        // flag says "needs the native shell", and Dala needs one AND has no
+        // implementation. Offering it would put three personas in the sheet
+        // that quietly play as a Stockfish stand-in.
+        ..._bot
+            .personas(native: wantsNativeRoster)
+            .where((p) => playableFamilies.contains(p.family)),
         if (_customEngines != null && CustomEngineRunner.supported)
           ..._customEngines.personas,
       ];

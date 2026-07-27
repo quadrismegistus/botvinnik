@@ -157,7 +157,7 @@ Future<GameController> _controller({
     // and a widget test advances fake timers, not the clock. Without it the
     // timer is still pending when the tree is disposed, which is a failure.
     FakeArbiter(analysisLines: analysisLines, streamPartials: true),
-    const FakeBot({kTestBotId: testBotPersona}),
+    FakeBot({kTestBotId: testBotPersona}),
     _Grading(),
     settings,
     null,

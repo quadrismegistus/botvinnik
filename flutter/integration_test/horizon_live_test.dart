@@ -41,7 +41,7 @@ void main() {
   });
 
   test('internalElo is defined for a family that carries no numericElo', () {
-    final horizon = bot.personas().firstWhere((p) => p.family == 'horizon');
+    final horizon = bot.personas(native: false).firstWhere((p) => p.family == 'horizon');
     expect(horizon.numericElo, isNull, reason: 'precondition for the fallback');
     expect(bot.internalElo(horizon), horizon.elo + 240);
   });

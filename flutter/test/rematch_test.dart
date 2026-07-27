@@ -64,7 +64,7 @@ Future<(GameController, SettingsStore, FakeArbiter)> _game(
       streamPartials: true,
       searchLines: kFakeLines);
   final game = GameController(arbiter,
-      const FakeBot({kSquareBotId: squareBotPersona}), FakeGrading(), settings);
+      FakeBot({kSquareBotId: squareBotPersona}), FakeGrading(), settings);
   settings.setPlayers(white: kSquareBotId, black: null);
   game.newGame(
       fromFen: _mateIn1BlackMates,
@@ -137,7 +137,7 @@ void main() {
       // stays pending, exactly as a real one does for a beat after the game.
       final arbiter = FakeArbiter(searchLines: kFakeLines);
       final game = GameController(arbiter,
-          const FakeBot({kSquareBotId: squareBotPersona}), FakeGrading(), settings);
+          FakeBot({kSquareBotId: squareBotPersona}), FakeGrading(), settings);
       settings.setPlayers(white: kSquareBotId, black: null);
       game.newGame(fromFen: _mateIn1BlackMates);
 

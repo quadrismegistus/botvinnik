@@ -33,7 +33,7 @@ Future<(GameController, SettingsStore)> _gameAndSettings(
           analysisLines: kFakeLines,
           streamPartials: true,
           searchLines: kFakeLines),
-      const FakeBot({kSquareBotId: squareBotPersona}),
+      FakeBot({kSquareBotId: squareBotPersona}),
       FakeGrading(),
       settings);
   game.newGame(fromFen: _mateIn1BlackMates);
@@ -133,7 +133,7 @@ void main() {
       final game = GameController(
           FakeArbiter(analysisLines: kFakeLines, streamPartials: true,
               searchLines: kFakeLines),
-          const FakeBot({kSquareBotId: squareBotPersona}),
+          FakeBot({kSquareBotId: squareBotPersona}),
           FakeGrading(), settings);
       game.newGame(fromFen: _mateIn1BlackMates, rated: true);
       return (game, settings);
@@ -202,7 +202,7 @@ void main() {
           reason: 'precondition: the suppression persisted, as settings do');
       final revived = GameController(
           FakeArbiter(analysisLines: kFakeLines),
-          const FakeBot({kSquareBotId: squareBotPersona}),
+          FakeBot({kSquareBotId: squareBotPersona}),
           FakeGrading(),
           relaunched);
       revived.newGame(); // the player comes back and starts a casual game

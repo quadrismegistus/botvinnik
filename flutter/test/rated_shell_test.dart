@@ -36,7 +36,7 @@ class _StubRating implements RatingApi {
 
 Future<(GameController, SettingsStore)> _game() async {
   final settings = await loadSettings(black: kTestBotId);
-  final g = GameController(FakeArbiter(), const FakeBot({kTestBotId: testBotPersona}),
+  final g = GameController(FakeArbiter(), FakeBot({kTestBotId: testBotPersona}),
       FakeGrading(), settings);
   return (g, settings);
 }

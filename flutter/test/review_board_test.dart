@@ -448,7 +448,7 @@ void main() {
     // The same getters, on the ordinary controller, still read the settings.
     final settings = await loadSettings(black: kTestBotId);
     final game =
-        GameController(FakeArbiter(), const FakeBot({kTestBotId: testBotPersona}),
+        GameController(FakeArbiter(), FakeBot({kTestBotId: testBotPersona}),
             FakeGrading(), settings);
     expect(game.reviewing, isFalse);
     expect(game.botEnabled, isTrue);

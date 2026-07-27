@@ -60,7 +60,7 @@ Future<(GameController, SettingsStore, FakeDb)> _botGame({
   final db = FakeDb();
   final game = GameController(
       arbiter ?? FakeArbiter(),
-      const FakeBot({kTestBotId: testBotPersona}),
+      FakeBot({kTestBotId: testBotPersona}),
       SavingGrading(),
       settings,
       db,
@@ -276,7 +276,7 @@ void main() {
       final settings = await loadSettings(); // both sides human
       final db = FakeDb();
       final game = GameController(
-          noLines(), const FakeBot(), SavingGrading(), settings, db);
+          noLines(), FakeBot(), SavingGrading(), settings, db);
       game.newGame(fromFen: _mateIn1);
       _mate(game);
       game.undo();

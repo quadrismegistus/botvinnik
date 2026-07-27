@@ -15,11 +15,11 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../brain/types.dart';
-import '../engine/custom_engine_runner.dart';
-import '../engine/garbo_engine.dart';
 import '../engine/maia_engine.dart';
+import '../engine/chessgpt_engine.dart';
+import '../engine/chessgpt_weights.dart';
 import '../engine/maia_weights.dart';
-import '../engine/retro_engine.dart';
+import '../engine/playable_families.dart';
 import '../stores/bot_record_store.dart';
 import '../stores/game_controller.dart';
 import '../stores/maia_status.dart';
@@ -34,19 +34,10 @@ import '../stores/player_rating_store.dart';
 //
 // Dala is on no branch at all: it needs the lc0 sidecar and #45 was never
 // implemented, so it renders nowhere.
-final _playableFamilies = {
-  'squarefish',
-  'stockfish',
-  'horizon',
-  if (RetroEngine.supported) 'retro',
-  if (GarboEngine.supported) 'garbo',
-  if (MaiaEngine.supported) 'maia',
-  if (CustomEngineRunner.supported) 'custom',
-  // Styled engines (Rodent, BrainLearn) are `custom`-store families too,
-  // offered where a process engine can run.
-  if (CustomEngineRunner.supported) 'rodent',
-  if (CustomEngineRunner.supported) 'brainlearn',
-};
+// Was a second, drifting copy of this list; it now defers to the one place
+// that answers the question (engine/playable_families.dart), which every
+// picker and the roster itself read.
+final _playableFamilies = playableFamilies;
 
 /// One family's personas, as a group renders: members ascending by elo, and
 /// the group's own place in the sheet set by [averageElo].
@@ -215,6 +206,11 @@ class _RosterSheetState extends State<RosterSheet> {
       MaiaWeights.refresh();
       MaiaWeights.prefetch();
     }
+    // refresh only — there is deliberately no ChessGPT prefetch. The marks
+    // below are a claim about the disk, so the disk is read every time the
+    // sheet opens; but 78MB pulled in the background for personas nobody has
+    // chosen is the opposite of Maia's 10.5MB bargain.
+    if (ChessGptEngine.supported) ChessGptWeights.refresh();
   }
 
   @override
@@ -223,11 +219,17 @@ class _RosterSheetState extends State<RosterSheet> {
       // So a band that lands while the sheet is open stops asking to be
       // downloaded — the prefetch this sheet just started can finish under it.
       valueListenable: MaiaWeights.cached,
-      builder: (context, cached, _) => _sheet(cached),
+      builder: (context, cached, _) => ValueListenableBuilder<Set<String>?>(
+        // Nested rather than combined: two independent families, each of whose
+        // downloads can land while this sheet is open, and neither should have
+        // to know the other exists.
+        valueListenable: ChessGptWeights.cached,
+        builder: (context, gptCached, _) => _sheet(cached, gptCached),
+      ),
     );
   }
 
-  Widget _sheet(Set<int>? cached) {
+  Widget _sheet(Set<int>? cached, Set<String>? gptCached) {
     final game = widget.game;
     final groups = groupRoster(game.rosterPersonas, playable: widget.playable);
     // Flattened once rather than indexed into with arithmetic per row: the
@@ -276,6 +278,8 @@ class _RosterSheetState extends State<RosterSheet> {
                     style:
                         const TextStyle(fontSize: 11.5, color: Colors.white38)),
                 if (p.maiaBand != null) _maiaNote(p.maiaBand!, cached),
+                if (p.chessgptVariant != null)
+                  _chessGptNote(p.chessgptVariant!, gptCached),
               ],
             ),
             onTap: () => Navigator.pop(context, p.id),
@@ -311,6 +315,64 @@ class _RosterSheetState extends State<RosterSheet> {
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
         style: const TextStyle(fontSize: 11, color: Color(0xFFbfae7a)),
+      ),
+    );
+  }
+
+  /// What a ChessGPT row says about its net.
+  ///
+  /// Same three states as [_maiaNote] and the same reasoning, with one
+  /// difference that earns its own method rather than a parameter: the SIZE is
+  /// named. Maia can stay vague ("a short download") because its bands are
+  /// 3.5MB and already prefetched in the background, so by the time anyone
+  /// reads the line the wait is usually over. ChessGPT is 26MB per net and
+  /// deliberately NOT prefetched — choosing the persona IS the download — so
+  /// the number is the one fact a player needs before tapping, on a phone or a
+  /// hotel connection especially.
+  ///
+  /// No confirmation dialog: it downloads silently on selection like Maia. A
+  /// modal for every first game against a bot is a worse trade than a number
+  /// in a line of description.
+  ///
+  /// Material [Icon]s only, never a Unicode arrow or cloud — those live in no
+  /// bundled font, so drawing one makes Flutter web fetch from
+  /// fonts.gstatic.com, a request the offline build cannot serve.
+  Widget _chessGptNote(String variant, Set<String>? cached) {
+    final ready = cached?.contains(variant);
+    final (IconData icon, String text, Color color) = switch (ready) {
+      true => (
+          Icons.offline_pin_outlined,
+          'downloaded — plays offline',
+          const Color(0xFF7f9a72),
+        ),
+      false => (
+          Icons.file_download_outlined,
+          'a 26 MB download the first time — then plays offline',
+          const Color(0xFF9a8f7a),
+        ),
+      null => (
+          Icons.file_download_outlined,
+          'a 26 MB download the first time — then plays offline',
+          const Color(0xFF9a8f7a),
+        ),
+    };
+    return Padding(
+      padding: const EdgeInsets.only(top: 3),
+      child: Row(
+        children: [
+          Icon(icon, size: 12, color: color),
+          const SizedBox(width: 4),
+          // Expanded, because these wrap on a narrow phone and a Row that
+          // overflows is a runtime error the analyzer cannot see.
+          Expanded(
+            child: Text(
+              text,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontSize: 11, color: color),
+            ),
+          ),
+        ],
       ),
     );
   }

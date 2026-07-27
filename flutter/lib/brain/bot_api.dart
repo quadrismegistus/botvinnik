@@ -109,9 +109,16 @@ class BotApi {
   /// is what a fallback search should use.
   int internalElo(Persona p) => p.elo + _scaleOffset;
 
-  /// The roster available on this runtime (native=false: no lc0 sidecar).
-  List<Persona> personas() {
-    final list = _bridge.call('availablePersonas', args: [false]) as List;
+  /// The roster available on this runtime.
+  ///
+  /// [native] was hardcoded false, which was right while Dala — unimplemented,
+  /// needing an lc0 sidecar nobody built — was the only `nativeOnly` family.
+  /// ChessGPT is native-only too and IS implemented, so a constant false meant
+  /// it never reached a picker on any platform. The caller decides now, and
+  /// GameController filters the answer again through playableFamilies, which
+  /// is what keeps Dala out on its own terms.
+  List<Persona> personas({required bool native}) {
+    final list = _bridge.call('availablePersonas', args: [native]) as List;
     return list.map((p) => Persona((p as Map).cast<String, dynamic>())).toList();
   }
 

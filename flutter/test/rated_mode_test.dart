@@ -56,7 +56,7 @@ FakeArbiter _noLines() => FakeArbiter(analysisLines: const []);
 Future<(GameController, SettingsStore, FakeDb)> _botGame() async {
   final settings = await loadSettings(black: kTestBotId);
   final db = FakeDb();
-  final game = GameController(_noLines(), const FakeBot({kTestBotId: testBotPersona}),
+  final game = GameController(_noLines(), FakeBot({kTestBotId: testBotPersona}),
       SavingGrading(), settings, db);
   return (game, settings, db);
 }
@@ -235,7 +235,7 @@ void main() {
       final db = FakeDb();
       final g = GameController(
           FakeArbiter(analysisLines: kFakeLines, streamPartials: true),
-          const FakeBot({kTestBotId: testBotPersona}),
+          FakeBot({kTestBotId: testBotPersona}),
           SavingGrading(),
           settings,
           db,
@@ -274,7 +274,7 @@ void main() {
 
       final settings = await loadSettings(white: white, black: black);
       final game = GameController(arbiter ?? _noLines(),
-          const FakeBot({kTestBotId: testBotPersona}), FakeGrading(), settings);
+          FakeBot({kTestBotId: testBotPersona}), FakeGrading(), settings);
       await tester.pumpWidget(MultiProvider(
         providers: [
           ChangeNotifierProvider<SettingsStore>.value(value: settings),
