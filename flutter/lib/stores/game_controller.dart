@@ -1446,6 +1446,39 @@ class GameController extends ChangeNotifier {
     notifyListeners();
   }
 
+  // ---- app lifecycle (#234) ----
+
+  /// The app stopped being the active window — another tab, another app, a
+  /// locked phone. Freeze a running clock.
+  ///
+  /// DECIDED (Ryan, 2026-07-27): pause generously. "This is just a practice
+  /// app." There is no opponent to wrong here — the rating is the player's own
+  /// estimate of themselves — and losing on time because a phone call arrived
+  /// measures the phone call. So this fires on every state that is not
+  /// `resumed`, including a mere window blur, rather than only on a hard
+  /// suspend. It reverses what chess_clock.dart's header used to argue; that
+  /// paragraph has been rewritten rather than left contradicting this.
+  ///
+  /// Time already spent still counts: [ChessClock.pause] banks the running
+  /// side first, and falls the flag if it had already run out before we got
+  /// here. Backgrounding cannot rescue a game that was already lost.
+  ///
+  /// No `gameOver` guard, and that is deliberate rather than an omission. Both
+  /// of these had one; a mutation showed neither could ever fire, because
+  /// every path that ends a game already stops the clock (`_apply`'s tail,
+  /// [resign], and `_fall` for a flag) and [ChessClock] then refuses both calls
+  /// on `_running == null`. A guard that cannot be reached is worse than none:
+  /// it reads as the thing keeping the invariant when the real keeper is
+  /// somewhere else.
+  void pauseForBackground() => _clock?.pause();
+
+  /// Back in front of the player: unfreeze.
+  ///
+  /// Resumes immediately rather than waiting for a move, which is what every
+  /// other clock does on return. No UI indication of the paused state is
+  /// needed — by definition nobody is looking at it while it holds.
+  void resumeFromBackground() => _clock?.resume();
+
   /// Debug/self-test only: archive the game regardless of game-over state.
   Future<void> debugForceSave() => _saveGame();
 

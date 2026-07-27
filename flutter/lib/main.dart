@@ -34,6 +34,7 @@ import 'stores/background_grader.dart';
 import 'stores/book_store.dart';
 import 'stores/bot_record_store.dart';
 import 'stores/custom_engine.dart';
+import 'stores/clock_lifecycle.dart';
 import 'stores/game_controller.dart';
 import 'stores/maia3_store.dart';
 import 'stores/pgn_import.dart';
@@ -306,7 +307,8 @@ class _BootGateState extends State<BootGate> {
             title: 'botvinnik',
             theme: _theme(),
             home: SyncTriggers(
-              child: Builder(
+              child: ClockLifecycle(
+                child: Builder(
                 builder: (context) => KeyboardControls(
                   game: context.read<GameController>(),
                   review: context.read<ReviewController>(),
@@ -314,7 +316,8 @@ class _BootGateState extends State<BootGate> {
                   practice: context.read<PracticeController>(),
                   settings: context.read<SettingsStore>(),
                   currentTab: () => _tab.value,
-                  child: AppShell(tab: _tab),
+                    child: AppShell(tab: _tab),
+                  ),
                 ),
               ),
             ),
