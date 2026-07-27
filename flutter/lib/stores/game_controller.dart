@@ -1272,7 +1272,15 @@ class GameController extends ChangeNotifier {
       // there is no weaker version of that promise for the case where the
       // engine threw instead of merely being slow.
       debugPrint('[refuse] check failed, letting the move through: $e\n$st');
-      if (!decided) {
+      // `gen == _gen` as well as `!decided`, and the success path has had that
+      // guard all along (see the `if (gen != _gen) return` above). Failing
+      // open must not open onto a DIFFERENT game: a throw landing after
+      // newGame or undo would otherwise apply a move from the abandoned
+      // generation to the live board, and call _maybeBotTurn so the bot
+      // answers it. Reachable in exactly the situation that makes this catch
+      // necessary — a dead engine means moves keep failing, which is what
+      // makes a player start a new game in the middle of a check.
+      if (!decided && gen == _gen) {
         _clearRefusalUi();
         _apply(move, san);
         _maybeBotTurn();

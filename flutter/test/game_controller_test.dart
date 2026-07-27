@@ -5,6 +5,7 @@
 //
 //   cd flutter && flutter test test/game_controller_test.dart
 
+import 'package:dartchess/dartchess.dart' show Chess;
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:botvinnik_mobile/brain/types.dart';
@@ -385,6 +386,33 @@ void main() {
         expect(game.refusedMoves, 1);
         expect(game.refusalMessage, contains('60%'),
             reason: 'and the message it was refused with must stand');
+        game.dispose();
+      });
+
+      test('and a throw that lands after the game moved on applies nothing',
+          () async {
+        // The generation guard the SUCCESS path has had all along (`if (gen !=
+        // _gen) return`) and the catch was missing. Reachable exactly in the
+        // scenario that makes the catch necessary: a dead bridge means moves
+        // keep failing, which is what makes a player start a new game in the
+        // middle of a check. The stale move then landed in the FRESH game —
+        // and _maybeBotTurn was called on it, so the bot answered it.
+        final settings = await loadSettings(black: kTestBotId);
+        final game = GameController(
+            _ThrowingSearchArbiter(),
+            FakeBot({kTestBotId: testBotPersona}),
+            FakeGrading(winChanceOf: winChanceOf),
+            settings);
+        game.newGame(refuseBlunders: true);
+
+        game.playUci('e2e4');
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        game.newGame(refuseBlunders: true); // bumps the generation mid-check
+        await Future<void>.delayed(const Duration(milliseconds: 200));
+
+        expect(game.moves, isEmpty,
+            reason: 'a move from the abandoned game landed in the new one');
+        expect(game.position.fen, Chess.initial.fen);
         game.dispose();
       });
 
@@ -879,6 +907,31 @@ class _CountingArbiter extends FakeArbiter {
 }
 
 /// Names the refutation move so a test can tell it from the best move.
+/// The CHILD search fails, after a delay.
+///
+/// The one throw site that survives [_computeGrade]'s own `gen != _gen` guard:
+/// analysis resolves normally, the generation check passes, and the refusal
+/// check's own search then throws — which is where a real dead engine reports
+/// itself, since that search is the only thing refusal mode asks for that the
+/// position's analysis has not already answered.
+class _ThrowingSearchArbiter extends FakeArbiter {
+  _ThrowingSearchArbiter() : super(analysisLines: kFakeLines);
+
+  @override
+  Future<List<EngineMove>?> search({
+    required String fen,
+    String? ownerFen,
+    required int depth,
+    required int multiPv,
+    int? movetimeMs,
+    List<List<String>> extraOptions = const [],
+    required SearchPriority priority,
+    void Function(List<EngineMove>)? onUpdate,
+  }) =>
+      Future<List<EngineMove>?>.delayed(const Duration(milliseconds: 80),
+          () => throw StateError('the engine died mid-search'));
+}
+
 /// Collection fails, AFTER the refusal has already been decided and painted.
 /// The database is the one dependency in [_maybeRefuse] that is touched past
 /// the point of no return.

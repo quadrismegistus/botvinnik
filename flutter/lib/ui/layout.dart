@@ -121,8 +121,10 @@ const double kMinMoveList = 56;
 /// d4" sentence a promotion falls back to.
 ///
 /// A property of the VIEWPORT, not of the ply, so it cannot change under a
-/// scrub. [fixedFor] must be fed the same answer or the board and the strip
-/// will disagree about who is paying.
+/// scrub. The board's sizing and the strip's content must be fed the SAME
+/// answer, or the two disagree about who is paying for the height and the
+/// difference comes out of the move list — which is the bug itself, one level
+/// down.
 bool reviewShowsPreview(double width, double height) {
   final fixed = kReviewFixed + kMovePreview;
   // In the wide layout the board sits BESIDE the column, so it costs the
@@ -133,9 +135,6 @@ bool reviewShowsPreview(double width, double height) {
   return height - board - fixed >= kMinMoveList;
 }
 
-/// Review's fixed furniture at this viewport, mini-board included or not.
-double fixedFor(double width, double height) =>
-    kReviewFixed + (reviewShowsPreview(width, height) ? kMovePreview : 0);
 
 /// Review, plus enough move list to be worth showing — the list is Expanded,
 /// so without a reserve the board would eat it entirely on a short window.
