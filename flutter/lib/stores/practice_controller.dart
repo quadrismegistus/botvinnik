@@ -58,6 +58,32 @@ const Map<Role, String> _kRoleNoun = {
 ///                 too shallow to trust — so nothing was collected
 enum CollectOutcome { added, duplicate, notEligible }
 
+/// What the Practice tab's primary (green) button does right now — and,
+/// identically, what the `n` key does (#214).
+///
+/// One definition for both, so the key can never do something other than what
+/// the button on screen is offering. The shape is a ladder that NEVER throws a
+/// puzzle away: it escalates until the answer is on screen, and only then does
+/// it mean "next". The reported bug was reaching for `r` (retry), hitting the
+/// `n` beside it, and losing the puzzle with no answer ever shown.
+///
+/// Leaving a puzzle unanswered is still possible — that is the Skip button
+/// beside this one — but it is a deliberate tap on a control that says so, and
+/// it is bound to no key.
+enum PracticePrimary {
+  /// Tier 1: the motifs, as "think: fork".
+  hint,
+
+  /// Tier 2: a circle on the square the best move starts from.
+  anotherHint,
+
+  /// Tier 3: the best move itself, as an arrow (and named in the prompt).
+  showBest,
+
+  /// The answer is on screen — now, and only now, this advances.
+  next,
+}
+
 class AttemptOutcome {
   final String san;
   final String uci;
@@ -647,7 +673,52 @@ class PracticeController extends ChangeNotifier {
 
   void reveal() {
     revealBest = true;
+    // The reveal IS the top of the hint ladder — [hintTier]'s own comment says
+    // so — and [checkAttempt] judges a pass by `hintTier > 0`. Left at 0,
+    // asking to be shown the best move and then playing it promoted the Leitner
+    // box and extended the streak as if you had found it cold. Pre-existing,
+    // but #214 puts this on the primary button and the `n` key, where it is
+    // reached far more often than the old third tap of a buried hint button.
+    hintTier = 3;
     notifyListeners();
+  }
+
+  /// The answer is on screen: you solved it, or you asked to be shown it.
+  ///
+  /// A pass counts even when the move you found was not the engine's first
+  /// choice — the drill asks for a strong move, and finding one is answering
+  /// it. (The "Show best" control stays available in that state for the better
+  /// move you did not play; it is just no longer the thing standing between you
+  /// and the next puzzle.)
+  bool get solvedOrRevealed => revealBest || (attempt?.pass ?? false);
+
+  /// See [PracticePrimary]. The tab renders the label; the keyboard calls
+  /// [doPrimary]; neither decides anything.
+  PracticePrimary get primaryAction {
+    if (solvedOrRevealed) return PracticePrimary.next;
+    // Once a move is committed the "what to look for" rungs are spent: you have
+    // answered the position, wrongly, and the only help left is the move
+    // itself. They would also be dead presses — the tier-1 motif line lives in
+    // the prompt strip's unattempted branch, which a verdict has replaced.
+    if (attempt != null) return PracticePrimary.showBest;
+    return switch (hintTier) {
+      0 => PracticePrimary.hint,
+      1 => PracticePrimary.anotherHint,
+      _ => PracticePrimary.showBest,
+    };
+  }
+
+  /// Fire whatever [primaryAction] currently is.
+  void doPrimary() {
+    switch (primaryAction) {
+      case PracticePrimary.hint:
+      case PracticePrimary.anotherHint:
+        hint();
+      case PracticePrimary.showBest:
+        reveal();
+      case PracticePrimary.next:
+        nextPuzzle();
+    }
   }
 
   /// The user played [uci] from the puzzle position. Checks it against the

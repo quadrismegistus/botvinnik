@@ -189,6 +189,43 @@ void main() {
         reason: 'only the stored puzzle moves a Leitner box');
   });
 
+  test('the continued position is guarded like any other puzzle (#214)',
+      () async {
+    // The continuation installs a fresh target by hand rather than through
+    // `_serve`, so it is its own chance to leave the primary button saying
+    // "Next" over a position nobody has answered — one press of `n` past a
+    // whole line.
+    final arbiter = ScriptedArbiter([
+      [_line('b8c6')],
+      [_line('f1c4', score: 0.5)],
+    ]);
+    final item = practiceItem(_puzzleFen, bestUci: 'g1f3', bestSan: 'Nf3');
+    final h = makePractice([item], arbiter: arbiter);
+    h.practice.startSession();
+
+    await _passWithBest(h.practice, item);
+    h.practice.reveal(); // and the parent's answer is up, both flags set
+    expect(h.practice.revealBest, isTrue, reason: 'precondition');
+    expect(h.practice.primaryAction, PracticePrimary.next,
+        reason: 'precondition: the PASS is answered, so Next is offered');
+
+    await h.practice.continueLine();
+    expect(h.practice.lineDepth, 1, reason: 'precondition: a target was served');
+
+    expect(h.practice.solvedOrRevealed, isFalse);
+    expect(h.practice.primaryAction, PracticePrimary.hint,
+        reason: 'a fresh target is unanswered, whatever came before it');
+
+    // And the ladder there does not throw the line away either.
+    final target = h.practice.current!['fen'];
+    h.practice.doPrimary();
+    h.practice.doPrimary();
+    h.practice.doPrimary();
+    expect(h.practice.current!['fen'], target);
+    expect(h.practice.revealBest, isTrue);
+    expect(h.practice.primaryAction, PracticePrimary.next);
+  });
+
   test('a mate reached in the line ends the drill with a note', () async {
     // Fool's mate. After 1.f3 e5 the player (White) "passes" by playing 2.g4
     // (the best-move branch grades a stored best as a pass regardless of its

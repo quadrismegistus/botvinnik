@@ -20,6 +20,7 @@ import 'package:provider/provider.dart';
 import '../stores/practice_controller.dart';
 import '../stores/settings_store.dart';
 import 'board_theme.dart';
+import 'keyboard.dart' show showKeyboardHelp;
 import 'layout.dart';
 import 'move_preview.dart';
 
@@ -751,6 +752,29 @@ class _PracticeTabState extends State<PracticeTab> {
         ],
       );
 
+  /// The best move NAMED, for the states with no verdict line to carry it —
+  /// an untouched puzzle you asked to be shown, or a line continuation.
+  ///
+  /// Without it a reveal there is an arrow and nothing else, and "the answer is
+  /// on screen" — the condition the primary button now gates advancing on
+  /// (#214) — would only be half true.
+  ///
+  /// Gated on [PracticeController.revealBest], which nothing sets except a
+  /// deliberate reveal or the top of the hint ladder: this must never name the
+  /// move before the player has looked for it (#232).
+  Widget _revealedBest(
+      Map<String, dynamic> item, PracticeController practice) {
+    if (!practice.revealBest) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(top: 3),
+      child: Text('best is ${item['bestSan']}',
+          style: const TextStyle(
+              color: Color(0xFF81B64C),
+              fontSize: 12,
+              fontWeight: FontWeight.w600)),
+    );
+  }
+
   Widget _promptStrip(Map<String, dynamic> item, PracticeController practice,
       String sideToMove) {
     final attempt = practice.attempt;
@@ -772,6 +796,7 @@ class _PracticeTabState extends State<PracticeTab> {
                   const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
           const Text('find the strong move here too',
               style: TextStyle(color: Colors.white38, fontSize: 12)),
+          _revealedBest(item, practice),
         ],
       );
     } else if (attempt == null) {
@@ -788,6 +813,7 @@ class _PracticeTabState extends State<PracticeTab> {
             '${practice.hintTier >= 1 && motifs.isNotEmpty ? ' · think: ${motifs.join(', ')}' : ''}',
             style: const TextStyle(color: Colors.white38, fontSize: 12),
           ),
+          _revealedBest(item, practice),
         ],
       );
     } else if (attempt.pass) {
@@ -941,10 +967,42 @@ class _PracticeTabState extends State<PracticeTab> {
     if (ok == true) await practice.remove(id);
   }
 
+  /// The primary button's words. The controller decides what it DOES
+  /// ([PracticeController.primaryAction]); only the wording lives here, so the
+  /// keyboard and the button cannot drift apart.
+  static String _primaryLabel(PracticePrimary p) => switch (p) {
+        PracticePrimary.hint => 'Hint',
+        PracticePrimary.anotherHint => 'Another hint',
+        PracticePrimary.showBest => 'Show best',
+        PracticePrimary.next => 'Next',
+      };
+
+  /// …and its tooltip, which is where the shortcuts get said out loud (#214).
+  /// The bindings existed and were folklore: a "Keyboard shortcuts" button in
+  /// the app bar, on wide layouts only, three taps from the hint you wanted.
+  static String _primaryTip(PracticePrimary p) => switch (p) {
+        PracticePrimary.hint ||
+        PracticePrimary.anotherHint =>
+          'Hint — press ? or / (or n)',
+        PracticePrimary.showBest => 'Show the best move — press b (or n)',
+        PracticePrimary.next => 'Next puzzle — press n',
+      };
+
   Widget _actionRow(BuildContext context, PracticeController practice) {
     final attempt = practice.attempt;
     final current = practice.current;
     final bestUci = current?['bestUci'] as String?;
+    // The green button is a LADDER, not a "move on" (#214): hint, another hint,
+    // show best, and only then Next. It sits one key from Retry, and losing an
+    // unsolved puzzle to a stray `n` — no answer, no record of what the move
+    // was — was the whole complaint. Nothing here advances until the answer is
+    // on screen.
+    //
+    // Rejected: a confirm dialog on Skip. It leaves the primary meaning "move
+    // on", so the muscle memory that caused the bug keeps being rewarded, and
+    // it taxes every DELIBERATE skip with a modal — the one case that was never
+    // broken. The ladder taxes nothing: solve it and the first press is Next.
+    final primary = practice.primaryAction;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       color: const Color(0xFF1f1e1b),
@@ -961,27 +1019,19 @@ class _PracticeTabState extends State<PracticeTab> {
             child: SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               child: Row(children: [
-                if (attempt == null && practice.hintTier < 3)
-                  TextButton(
-                    onPressed: practice.hint,
-                    child: Text(
-                      practice.hintTier == 0
-                          ? 'Hint'
-                          : practice.hintTier == 1
-                              ? 'Another hint'
-                              : 'Show best',
-                      style: const TextStyle(color: Colors.white70),
-                    ),
-                  ),
-                // pass or fail: retry to hunt the best, reveal if you haven't
-                // found it (a "good enough" pass still has a better move to see)
+                // pass or fail: retry to hunt the best move again
                 if (attempt != null)
                   TextButton(
                     onPressed: practice.retry,
                     child: const Text('Retry',
                         style: TextStyle(color: Colors.white70)),
                   ),
+                // A "good enough" pass still has a better move to see. PASS
+                // only now — every other unrevealed state has "Show best" as
+                // the primary button, and the same words twice in one row is
+                // two controls where there is one action.
                 if (attempt != null &&
+                    attempt.pass &&
                     !practice.revealBest &&
                     attempt.uci != bestUci)
                   TextButton(
@@ -1014,6 +1064,19 @@ class _PracticeTabState extends State<PracticeTab> {
                     child: const Text('Continue the line',
                         style: TextStyle(color: Color(0xFF81B64C))),
                   ),
+                // Leaving a puzzle unanswered, kept and demoted rather than
+                // removed: "not this one, not now" is a real thing to want, and
+                // the alternative — reveal or nothing — spoils a position you
+                // will be served again. Deliberately plain, deliberately last,
+                // and deliberately bound to NO key; a stray keystroke reaching
+                // it is the bug. Dropped once the answer is up, where the
+                // primary already means the same thing.
+                if (!practice.solvedOrRevealed)
+                  TextButton(
+                    onPressed: practice.nextPuzzle,
+                    child: const Text('Skip',
+                        style: TextStyle(color: Colors.white38)),
+                  ),
               ]),
             ),
           ),
@@ -1036,15 +1099,38 @@ class _PracticeTabState extends State<PracticeTab> {
               onPressed: () =>
                   _confirmDelete(context, practice, current['id'] as String),
             ),
+          // At EVERY width, unlike the app bar's copy of this (main.dart gates
+          // that one on a wide viewport). Width is a poor proxy for "has a
+          // keyboard" — a tablet with one, a narrow desktop window — and the
+          // Practice bindings are the set players actually went looking for.
+          IconButton(
+            tooltip: 'Keyboard shortcuts',
+            icon: const Icon(Icons.keyboard_outlined,
+                size: 20, color: Colors.white70),
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+            onPressed: () => showKeyboardHelp(context),
+          ),
           const SizedBox(width: 6),
-          FilledButton(
-            onPressed: practice.nextPuzzle,
-            style: FilledButton.styleFrom(
-              backgroundColor: const Color(0xFF81B64C),
-              foregroundColor: const Color(0xFF161512),
+          Tooltip(
+            message: _primaryTip(primary),
+            child: FilledButton(
+              onPressed: practice.doPrimary,
+              style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xFF81B64C),
+                foregroundColor: const Color(0xFF161512),
+                // Tighter than the 24-a-side default: the label is a ladder
+                // now, and the fixed half of this row cannot scroll. Measured
+                // under the real Roboto at 320 logical pixels, which is where
+                // the widest rung ('Another hint') has to fit — the default
+                // overflowed, and even 12 a side was still 0.9px over. An
+                // overflow is a runtime error that neither the analyzer nor a
+                // green suite says anything about, hence the test beside it.
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+              ),
+              child: Text(_primaryLabel(primary),
+                  style: const TextStyle(fontWeight: FontWeight.w600)),
             ),
-            child: Text(attempt == null ? 'Skip' : 'Next',
-                style: const TextStyle(fontWeight: FontWeight.w600)),
           ),
         ],
       ),
