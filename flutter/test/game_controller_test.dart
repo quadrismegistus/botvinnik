@@ -157,7 +157,7 @@ void main() {
       final practice = FakePractice();
       final game = GameController(
           FakeArbiter(analysisLines: kFakeLines),
-          const FakeBot({kTestBotId: testBotPersona}),
+          FakeBot({kTestBotId: testBotPersona}),
           FakeGrading(),
           settings,
           null,
@@ -198,7 +198,7 @@ void main() {
       final practice = FakePractice();
       final game = GameController(
           FakeArbiter(analysisLines: kFakeLines),
-          const FakeBot({kTestBotId: testBotPersona}),
+          FakeBot({kTestBotId: testBotPersona}),
           FakeGrading(winChanceOf: winChanceOf),
           settings,
           null,
@@ -283,7 +283,7 @@ void main() {
       final settings = await loadSettings(black: kTestBotId);
       final game = GameController(
           FakeArbiter(analysisLines: kFakeLines, streamPartials: true),
-          const FakeBot({kTestBotId: testBotPersona}),
+          FakeBot({kTestBotId: testBotPersona}),
           SavingGrading(winChanceOf: winChanceOf),
           settings,
           db);
@@ -315,7 +315,7 @@ void main() {
       final settings = await loadSettings(black: kTestBotId);
       final game = GameController(
           arbiter,
-          const FakeBot({kTestBotId: testBotPersona}),
+          FakeBot({kTestBotId: testBotPersona}),
           FakeGrading(winChanceOf: winChanceOf),
           settings,
           null,
@@ -349,7 +349,7 @@ void main() {
             streamPartials: true,
             analysisDelay: const Duration(seconds: 30),
           ),
-          const FakeBot({kTestBotId: testBotPersona}),
+          FakeBot({kTestBotId: testBotPersona}),
           FakeGrading(winChanceOf: winChanceOf),
           settings,
           null,
@@ -373,7 +373,7 @@ void main() {
           FakeArbiter(
               analysisLines: kFakeLines,
               searchDelay: const Duration(milliseconds: 100)),
-          const FakeBot({kTestBotId: testBotPersona}),
+          FakeBot({kTestBotId: testBotPersona}),
           FakeGrading(winChanceOf: winChanceOf),
           settings,
           null,
@@ -403,7 +403,7 @@ void main() {
           FakeArbiter(
               analysisLines: kFakeLines,
               searchDelay: const Duration(seconds: 30)),
-          const FakeBot({kTestBotId: testBotPersona}),
+          FakeBot({kTestBotId: testBotPersona}),
           FakeGrading(winChanceOf: winChanceOf),
           settings,
           null,
@@ -444,7 +444,7 @@ void main() {
       // starts a bot turn in its constructor.
       final settings = await loadSettings(white: kTestBotId);
       final game = GameController(FakeArbiter(),
-          const FakeBot({kTestBotId: testBotPersona}), FakeGrading(), settings);
+          FakeBot({kTestBotId: testBotPersona}), FakeGrading(), settings);
       expect(game.botThinking, isTrue, reason: 'the bot turn should have begun');
 
       // a new game bumps the generation and starts a FRESH bot turn
@@ -551,7 +551,7 @@ void main() {
               analysisLines: kFakeLines,
               streamPartials: true,
               searchLines: kFakeLines),
-          const FakeBot({
+          FakeBot({
             kFallbackBotId: fallbackBotPersona,
             kSquareBotId: squareBotPersona,
           }),
@@ -589,7 +589,7 @@ void main() {
               searchLines: kFakeLines,
               // the window the new game lands in
               searchDelay: const Duration(milliseconds: 500)),
-          const FakeBot({
+          FakeBot({
             kFallbackBotId: fallbackBotPersona,
             kTestBotId: testBotPersona,
           }),
@@ -654,7 +654,7 @@ void main() {
       final settings = await loadSettings(); // both null: analysis
       final game = GameController(
           arbiter,
-          const FakeBot({
+          FakeBot({
             kTestBotId: testBotPersona,
             kSquareBotId: squareBotPersona,
           }),

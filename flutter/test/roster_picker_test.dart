@@ -111,7 +111,7 @@ final _smallRoster = <Persona>[
 /// tile is found by resolving them — not by comparing the raw string.
 class _RenamingBot extends FakeBot {
   final Map<String, String> aliases;
-  const _RenamingBot(super.byId, this.aliases);
+  _RenamingBot(super.byId, this.aliases);
   @override
   Persona? personaById(String id) => byId[aliases[id] ?? id];
 }

@@ -79,7 +79,7 @@ void main() {
         (tester) async {
       final settings = await loadSettings(white: kTestBotId);
       final game = GameController(FakeArbiter(),
-          const FakeBot({kTestBotId: testBotPersona}), FakeGrading(), settings);
+          FakeBot({kTestBotId: testBotPersona}), FakeGrading(), settings);
       await pumpPlate(tester, game: game, settings: settings);
 
       expect(find.text('Test Bot'), findsOneWidget);
@@ -98,7 +98,7 @@ void main() {
               analysisLines: kFakeLines,
               streamPartials: true,
               searchLines: kFakeLines),
-          const FakeBot({kFallbackBotId: fallbackBotPersona}),
+          FakeBot({kFallbackBotId: fallbackBotPersona}),
           FakeGrading(),
           settings);
       await tester.pump(const Duration(seconds: 2));

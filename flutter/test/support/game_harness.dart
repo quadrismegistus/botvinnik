@@ -194,9 +194,20 @@ const fishBotPersona = Persona({
 
 class FakeBot implements BotApi {
   final Map<String, Persona> byId;
-  const FakeBot([this.byId = const {}]);
+
+  /// What [personas] was last asked for. The real BotApi passes this to the
+  /// brain's `availablePersonas`, which drops every `nativeOnly` family when
+  /// it is false — so a caller that hardcodes false makes a whole family
+  /// unreachable, and nothing downstream of a fake roster can notice. Recorded
+  /// so a test can.
+  static bool? lastNativeRequest;
+
+  FakeBot([this.byId = const {}]);
   @override
-  List<Persona> personas() => byId.values.toList(growable: false);
+  List<Persona> personas({bool native = false}) {
+    lastNativeRequest = native;
+    return byId.values.toList(growable: false);
+  }
   @override
   Persona? personaById(String id) => byId[id];
 
@@ -322,7 +333,7 @@ Future<SettingsStore> loadSettings({String? white, String? black}) async {
 Future<GameController> makeGame({String? fromFen}) async {
   final settings = await loadSettings(); // both null: analysis
   final game =
-      GameController(FakeArbiter(), const FakeBot(), FakeGrading(), settings);
+      GameController(FakeArbiter(), FakeBot(), FakeGrading(), settings);
   if (fromFen != null) game.newGame(fromFen: fromFen);
   return game;
 }
@@ -336,7 +347,7 @@ Future<GameController> makeGame({String? fromFen}) async {
 /// archive's furniture around the board, not about what the engine says.
 ReviewBoardController fakeReviewBoard(ReviewController review,
         SettingsStore settings, {FakeArbiter? arbiter}) =>
-    ReviewBoardController(arbiter ?? FakeArbiter(), const FakeBot(),
+    ReviewBoardController(arbiter ?? FakeArbiter(), FakeBot(),
         FakeGrading(), settings, review);
 
 /// The standard starting position, for asserting a FEN game did NOT fall back

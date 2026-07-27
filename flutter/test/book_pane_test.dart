@@ -162,7 +162,7 @@ Future<(GameController, _FakeExplorer)> _pump(WidgetTester tester,
   final settings = await loadSettings(); // both human: analysis mode
   final game = GameController(
       FakeArbiter(analysisLines: lines, streamPartials: true),
-      const FakeBot(),
+      FakeBot(),
       FakeGrading(),
       settings);
   if (fromFen != null) game.newGame(fromFen: fromFen);

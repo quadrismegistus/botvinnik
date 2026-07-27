@@ -68,7 +68,7 @@ void main() {
             analysisLines: kFakeLines,
             streamPartials: true,
             searchLines: kFakeLines),
-        const FakeBot({_kLongBotId: _longNameBot}),
+        FakeBot({_kLongBotId: _longNameBot}),
         FakeGrading(),
         settings);
     game.newGame(fromFen: _fiveCaptures);
@@ -119,7 +119,7 @@ void main() {
               analysisLines: kFakeLines,
               streamPartials: true,
               searchLines: kFakeLines),
-          const FakeBot({_kLongBotId: _longNameBot}),
+          FakeBot({_kLongBotId: _longNameBot}),
           FakeGrading(),
           settings);
       game.newGame(fromFen: fen);

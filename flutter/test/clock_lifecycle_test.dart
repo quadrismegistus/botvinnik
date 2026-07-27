@@ -24,7 +24,7 @@ Future<(GameController, SettingsStore)> _rated({String fromFen = _mateIn1}) asyn
   final settings = await loadSettings(black: kTestBotId);
   final g = GameController(
       FakeArbiter(analysisLines: kFakeLines, streamPartials: true, searchLines: kFakeLines),
-      const FakeBot({kTestBotId: testBotPersona}),
+      FakeBot({kTestBotId: testBotPersona}),
       SavingGrading(), settings, FakeDb());
   g.newGame(fromFen: fromFen, rated: true, timeControl: TimeControl.parse('5+0'));
   return (g, settings);
@@ -124,7 +124,7 @@ void main() {
     final g = GameController(
         FakeArbiter(
             analysisLines: kFakeLines, streamPartials: true, searchLines: kFakeLines),
-        const FakeBot({kTestBotId: testBotPersona}), FakeGrading(), settings);
+        FakeBot({kTestBotId: testBotPersona}), FakeGrading(), settings);
     return g;
   }
 

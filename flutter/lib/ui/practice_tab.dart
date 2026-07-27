@@ -479,9 +479,26 @@ class _PracticeTabState extends State<PracticeTab> {
     final motifs = (item['motifs'] as List?)?.cast<String>() ?? const [];
     final queued = drop >= practice.threshold;
 
-    final detail = StringBuffer('played ${item['playedSan']}')
-      ..write(' · best ${item['bestSan']}');
-    if (motifs.isNotEmpty) detail.write(' · ${motifs.join(', ')}');
+    // Practice is a find-the-move drill, so the collection list must not name
+    // the answers to puzzles you have not solved yet — scrolling it was
+    // reading the solutions to everything still queued (#232).
+    //
+    // The gate is `correct > 0`, not `attempts > 0`: having tried and failed
+    // is exactly the state in which you most want another go at it.
+    //
+    // The motifs go behind the same gate, which the report did not ask for.
+    // They are not a category here, they are the tactic — "back-rank mate" or
+    // "knight fork" tells you what to look for as surely as the move does.
+    //
+    // `played` stays visible throughout. That is YOUR move, the blunder that
+    // collected the puzzle in the first place; you already know it, and it is
+    // what makes a row recognisable in a long list.
+    final solved = correct > 0;
+    final detail = StringBuffer('played ${item['playedSan']}');
+    if (solved) {
+      detail.write(' · best ${item['bestSan']}');
+      if (motifs.isNotEmpty) detail.write(' · ${motifs.join(', ')}');
+    }
 
     final status = queued
         ? _dueLabel(_dueAt(item))

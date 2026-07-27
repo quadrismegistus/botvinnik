@@ -8806,6 +8806,17 @@ var brain = (() => {
       maiaTemp: 1
     };
   }
+  function chessgpt(displayElo, variant, name, blurb) {
+    return {
+      id: `chessgpt-${variant}`,
+      name,
+      elo: displayElo,
+      family: "chessgpt",
+      blurb,
+      chessgptVariant: variant,
+      nativeOnly: true
+    };
+  }
   function fish(displayElo) {
     return {
       id: `stockfish-${displayElo}`,
@@ -8885,6 +8896,26 @@ var brain = (() => {
     maia(1570, 1100, "I"),
     maia(1640, 1500, "V"),
     maia(1700, 1900, "IX"),
+    // Elos measured over 720 gym games; the error rates are from ~450-520
+    // graded moves each, labelled by the app's own grader.
+    chessgpt(
+      1225,
+      "mix",
+      "ChessGPT (both)",
+      "A language model taught on human games and engine self-play together \u2014 and it lands between the two, in accuracy as in temperament."
+    ),
+    chessgpt(
+      1244,
+      "lichess",
+      "ChessGPT (lichess)",
+      "A language model that learned chess by reading a million human games \u2014 no search, no evaluation, just what a move usually looks like. The most accurate of the three, and the most human in its errors."
+    ),
+    chessgpt(
+      1303,
+      "stockfish",
+      "ChessGPT (stockfish)",
+      "The same model taught on Stockfish playing itself. Strongest of the three and also the wildest \u2014 it blunders nearly twice as often as its Lichess-taught sibling, and wins anyway."
+    ),
     GARBO,
     ...[1800, 1900, 2e3, 2100, 2200, 2300, 2400, 2500].map(fish)
   ].sort((a, b) => a.elo - b.elo || a.name.localeCompare(b.name));

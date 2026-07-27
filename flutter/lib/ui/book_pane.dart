@@ -77,7 +77,7 @@ class _BookPaneState extends State<BookPane> {
     final game = context.watch<GameController>();
     final book = context.watch<BookStore>();
 
-    if (game.blind && game.botEnabled && !game.gameOver) {
+    if (game.hidingHelp) {
       return const Padding(
         padding: EdgeInsets.all(14),
         child: Text('Blind mode — the book reopens when the game ends.',

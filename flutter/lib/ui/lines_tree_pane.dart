@@ -61,7 +61,7 @@ class _LinesTreePaneState extends State<LinesTreePane> {
     final playable = tree.playableUci();
     // Blind only bites in a real game: on the analysis board both sides are the
     // player and there is no opponent to hide the engine from.
-    final blind = game.blind && game.botEnabled;
+    final blind = game.hidingHelp;
     return SizedBox(
       height: _kHeight,
       child: SingleChildScrollView(

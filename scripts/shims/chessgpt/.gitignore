@@ -1,0 +1,9 @@
+# 100MB+ each, fetched by setup.sh
+weights/
+# carries torch
+venv/
+# fetched from the author's repo by setup.sh
+meta.pkl
+opening-cache.json
+onnx/
+__pycache__/

@@ -423,6 +423,26 @@ class SettingsStore extends ChangeNotifier {
   bool get showThreats => _showThreats;
   bool get showControl => _showControl;
 
+  /// The overlay switches as they stood before a rated game borrowed them,
+  /// as JSON — or null when no rated game is holding them.
+  ///
+  /// Deliberately straight to prefs, with no backing field and no notify:
+  /// this is not settings state, it is a note about settings state, and
+  /// nothing renders it. It is PERSISTED rather than held in memory because
+  /// the failure it exists for is losing the memory — kill the app mid-rated
+  /// game and, without this, blind stays on and three overlays stay off
+  /// forever, which is the very bug the snapshot was added to fix, reached by
+  /// a different door. The next casual game (or the end of the resumed one)
+  /// hands them back.
+  String? get ratedSnapshot => _prefs.getString('botvinnik-pre-rated');
+  set ratedSnapshot(String? json) {
+    if (json == null) {
+      _prefs.remove('botvinnik-pre-rated');
+    } else {
+      _prefs.setString('botvinnik-pre-rated', json);
+    }
+  }
+
   set blind(bool on) {
     if (on == _blind) return;
     _blind = on;

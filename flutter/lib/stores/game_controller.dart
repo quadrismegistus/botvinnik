@@ -9,6 +9,7 @@
 // and preempt analysis, so replies stay snappy.
 
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math';
 
 import 'package:dartchess/dartchess.dart';
@@ -20,10 +21,12 @@ import '../brain/grading_api.dart';
 import '../brain/types.dart';
 import '../db/app_db.dart';
 import '../engine/arbiter.dart';
+import '../engine/chessgpt_engine.dart';
 import '../engine/custom_engine_runner.dart';
 import '../engine/garbo_engine.dart';
 import '../engine/maia_engine.dart';
 import '../engine/maia_progress.dart';
+import '../engine/playable_families.dart';
 import '../engine/retro_engine.dart';
 import 'custom_engine.dart';
 import 'engine_catalog.dart';
@@ -118,6 +121,12 @@ class GameController extends ChangeNotifier {
   // maia likewise: the worker holds one ort session per band, so a single
   // engine serves all six personas without reloading between them
   MaiaEngine? _maia;
+
+  /// One ChessGPT engine per VARIANT, because each holds an OrtSession over
+  /// its own 26MB net. Keyed rather than single so that a game against one
+  /// variant does not tear down and rebuild the session when the next game
+  /// picks another — the same reasoning as _customRunners.
+  final Map<String, ChessGptEngine> _chessGpt = {};
 
   /// Per-band Maia load state, watched by the roster picker and New Game sheet
   /// so a download, a compile, and — the point — a FAILURE with its reason are
@@ -351,6 +360,18 @@ class GameController extends ChangeNotifier {
   /// Blind off does not prove the player LOOKED — they may have closed every
   /// panel. It proves the engine was available, which is the most that can
   /// honestly be claimed, and the conservative direction to be wrong in.
+  /// Deliberately [blind], the SETTING, and not [hidingHelp]. The question
+  /// here is whether help was AVAILABLE to you while you played — which is
+  /// what decides whether the game counts for your rating — not whether it
+  /// happened to be on screen at some instant.
+  ///
+  /// Honestly: at the ONLY call site the two are equivalent, so no test can
+  /// tell them apart. [playerMove] returns early on `gameOver`, so the
+  /// `!gameOver` clause is always true where this is read, and the call site
+  /// already guards on `botEnabled` — leaving `!blind` either way. This is
+  /// therefore about keeping two different questions from collapsing into one
+  /// name, not about a live difference. It becomes a real one the moment
+  /// anything reads `_assisted` from somewhere a finished game can reach.
   bool get _assisted => !blind;
 
   GameController(this._arbiter, this._bot, this._grading, this._settings,
@@ -408,7 +429,13 @@ class GameController extends ChangeNotifier {
   /// but only where they can actually run (native desktop), so the picker never
   /// offers one it would have to stand in for.
   List<Persona> get rosterPersonas => [
-        ..._bot.personas(),
+        // Filtered by family, not merely by the brain's nativeOnly flag: that
+        // flag says "needs the native shell", and Dala needs one AND has no
+        // implementation. Offering it would put three personas in the sheet
+        // that quietly play as a Stockfish stand-in.
+        ..._bot
+            .personas(native: wantsNativeRoster)
+            .where((p) => playableFamilies.contains(p.family)),
         if (_customEngines != null && CustomEngineRunner.supported)
           ..._customEngines.personas,
       ];
@@ -703,13 +730,20 @@ class GameController extends ChangeNotifier {
   /// the standard start (an analysis board when both sides are the human) —
   /// the caller must have validated it with [isPlayableFen].
   ///
-  /// [rated] marks the game as one that counts (see [_rated]). It records the
-  /// choice only: turning blind on and the overlays off is the SHEET's job,
-  /// because those are the player's persistent settings and this class does
-  /// not own them. Defaulting to false is what makes every other caller —
-  /// the settings listener no longer restarts on an opponent change; the
-    // New Game sheet does that itself —
-  /// start a casual game, which is the right answer for all of them.
+  /// [rated] marks the game as one that counts (see [_rated]), and applies or
+  /// releases the rated preset — blind on, arrows/threats/control off — via
+  /// [_applyRatedPreset] and [_restoreAfterRated].
+  ///
+  /// That suppression deliberately lives HERE and not at the New Game sheet's
+  /// Start button, where it started. Those are the player's persistent
+  /// settings, so applying them somewhere that never runs again is precisely
+  /// how a single rated game left blind on and three overlays off across the
+  /// whole app, Review included, until the player hunted down four switches.
+  /// This method is the only place that runs at both ends: it also runs when
+  /// the next casual game starts, which is when they can be handed back.
+  ///
+  /// Defaulting to false is what makes every other caller start a casual game
+  /// — which is the right answer for all of them.
   void newGame(
       {String? fromFen,
       bool rated = false,
@@ -748,6 +782,14 @@ class GameController extends ChangeNotifier {
     _botUndos = 0;
     _botHintsUsed = false;
     _rated = rated;
+    // The preset lives HERE, not at the New Game sheet's Start button, because
+    // this is the only place that also runs when the mode ends — a suppression
+    // applied somewhere that cannot undo it is how the switches got stranded.
+    if (rated) {
+      _applyRatedPreset();
+    } else {
+      _restoreAfterRated();
+    }
     _refuseBlunders = refuseBlunders;
     _refusedMoves = 0;
     _refusalAttempts.clear();
@@ -767,6 +809,9 @@ class GameController extends ChangeNotifier {
             // A result, so it archives like one. The board is still legal,
             // exactly as with a resignation.
             _flagged = side;
+            // As in [resign]: the veil lifts at gameOver, and #147 bakes blind
+            // into the tree's LAYOUT, which is only recomputed on ingest.
+            _syncTree();
             _gen++;
             _arbiter.bumpGeneration();
             botThinking = false;
@@ -834,26 +879,12 @@ class GameController extends ChangeNotifier {
     // `rated && timeControl != null` guard) — a casual rematch has nothing
     // to carry regardless of what _clock holds over from before.
     final timeControl = wasRated ? _clock?.control : null;
-    // The rated PRESET, not just the rated flag. The New Game sheet turns
-    // blind on and the three overlays off whenever it starts a rated game,
-    // and deliberately does NOT restore them at game over — restoring them
-    // there would flip the board mid-recap. So the natural thing to do after
-    // a rated game, turning blind off to actually read the analysis of what
-    // you just played, leaves those settings exactly wrong for the next one.
-    //
-    // Without this, a rated rematch is born un-ratable: `_assisted` is
-    // sampled at every human move, so the FIRST move sets botHintsUsed, and
-    // playerElo drops any game carrying it. You would get a game that says
-    // "rated", shows you nothing (the rated shell hides the panels), and
-    // cannot count — with nothing on screen to say so. The sheet's safety
-    // net assumes hints get turned on DURING a game; this path starts one
-    // with them already on.
-    if (wasRated) {
-      _settings.blind = true;
-      _settings.showArrows = false;
-      _settings.showThreats = false;
-      _settings.showControl = false;
-    }
+    // The rated preset comes back with the flag, because newGame applies it
+    // (see _applyRatedPreset). Without that, a rated rematch was born
+    // un-ratable: the switches are handed back when a game ends, so the next
+    // one would start with help on, `_assisted` true at the first move, and
+    // playerElo dropping the game — a game that says "rated", shows nothing,
+    // and cannot count.
     // Before newGame, and newGame last: newGame's own _maybeBotTurn has to
     // see the swapped personas, or the wrong side gets the opening move.
     // (An earlier version of this comment claimed setPlayers itself triggers
@@ -921,6 +952,12 @@ class GameController extends ChangeNotifier {
     // two disagreed about who won.
     if (!botEnabled || gameOver || moves.isEmpty) return;
     _resigned = true;
+    // The veil lifts at gameOver, and #147 bakes blind into the tree's LAYOUT
+    // rather than its paint — the model only recomputes y on ingest. Without
+    // a resync here the pane draws every node at the default y the blind
+    // layout left them on, stacked. _apply does this for mate and the draws;
+    // resign and flag-fall are the two endings that bypass it.
+    _syncTree();
     _clock?.stop();
     _gen++; // a bot turn in flight must not answer a game that has ended
     _arbiter.bumpGeneration();
@@ -1272,6 +1309,11 @@ class GameController extends ChangeNotifier {
   /// Archive the finished game — the web's saveCurrentGame, same StoredGame
   /// shape (JSON-compatible with the IndexedDB store for future import).
   Future<void> _saveGame() async {
+    // Every path that ends a game funnels through here — mate, resignation and
+    // flag-fall alike — so this is where the rated mode hands the switches
+    // back. Before the early returns below: a casual game, or one with nothing
+    // to archive, still ended.
+    _restoreAfterRated();
     final db = _db;
     if (db == null || moves.isEmpty || _saved) return;
     _saved = true;
@@ -1569,6 +1611,62 @@ class GameController extends ChangeNotifier {
       }
       debugPrint('[bot] maia had no move after a retry; falling back');
     }
+    if (p.family == 'chessgpt') {
+      // A language model over MOVETEXT. It cannot be handed a FEN — a position
+      // with no history is off its distribution and it answers with noise — so
+      // this passes the SAN list, which is the one thing this controller has
+      // and the arbiter's engines never need.
+      final variant = p.chessgptVariant;
+      // Only from the standard start. movesToPgn numbers from 1 and takes
+      // index 0 to be White, so a game begun at an arbitrary FEN — newGame's
+      // fromFen, which the New Game sheet offers for any legal position — is
+      // rendered as a fabricated game: a board 21 moves deep with Black to
+      // move gets prompted ";1.Nxd4 Bxd4 ", wrong side, wrong number, a game
+      // that never happened. The model answers plausibly-looking nonsense,
+      // fails legality six times and becomes a Stockfish stand-in with nothing
+      // saying why. Falling through here reaches the same stand-in, honestly.
+      //
+      // This is the boundary chessgpt_engine_io's header warns about at
+      // length: the input is MOVETEXT, and a position is not one.
+      final fromStart = _startFen == Chess.initial.fen;
+      if (ChessGptEngine.supported && variant != null && fromStart) {
+        final engine = _chessGpt[variant] ??= ChessGptEngine(variant);
+        // Snapshot the position: pickMove awaits a native session build and up
+        // to six sampling rounds, and `position` is mutable state that an undo
+        // or a new game can move under us. Parsing the answer against the
+        // board it was asked about is the difference between a stale move and
+        // an illegal one.
+        final at = position;
+        final pgn = ChessGptEngine.movesToPgn(
+          [for (final m in moves) m.san],
+          whiteToMove: at.turn == Side.white,
+          fullmove: at.fullmoves,
+        );
+        // Legality is the caller's job: the model emits characters, and
+        // nothing in its objective distinguishes a legal move from a
+        // plausible-looking illegal one. An illegal sample is retried with
+        // temperature inside pickMove, never swapped for a random legal move —
+        // a random move is a different player wearing this one's name.
+        //
+        // parseSan answers both questions at once — null is "not legal here",
+        // and a Move is already the thing the rest of this wants.
+        final san = await engine.pickMove(pgn,
+            isLegalSan: (s) => at.parseSan(s) != null);
+        final uci = san == null ? null : at.parseSan(san)?.uci;
+        if (uci != null) {
+          return (
+            uci: _bot.avoidRepetition(uci, _fenHistory(), currentLines),
+            standIn: false
+          );
+        }
+      }
+      if (!fromStart) {
+        debugPrint('[bot] chessgpt needs movetext, and this game began from a '
+            'FEN — playing the stand-in instead');
+      } else {
+        debugPrint('[bot] chessgpt had no move; falling back to the engine');
+      }
+    }
     if (p.family == 'custom') {
       // A player-added UCI engine, in its own process — never the arbiter's
       // queue, like retro/garbo. Its config (path, movetime, whether to cap its
@@ -1681,17 +1779,54 @@ class GameController extends ChangeNotifier {
   /// snapshot) — feeds the Lines pane as the search deepens.
   List<EngineMove> get currentLines => _partials[position.fen] ?? const [];
 
-  /// Never in review: blind mode withholds move help while a game is still
-  /// being played, and this game is over. It is read bare (not `blind &&
-  /// botEnabled`) by [engineArrowUcis] and [threat], so leaving it to the
-  /// live setting would silently strip the arrows and threat glyphs off a
-  /// review of a game that has nothing left to spoil.
-  bool get blind => !_review && _settings.blind;
+  /// The blind SETTING — is the switch on. Not the same question as
+  /// [hidingHelp], and the difference is the whole of #148.
+  ///
+  /// Read this only to render or toggle the switch itself, and in
+  /// [_assisted], where the question really is about the setting: whether
+  /// help was AVAILABLE while you were playing is what decides if the game
+  /// counts for your rating, and that must not become "was it on screen at
+  /// this instant".
+  bool get blind => _settings.blind;
+
+  /// Is this board withholding forward-looking help right now — engine
+  /// arrows, the threat, the win rings, square tinting, the Lines/Tree/Book
+  /// panes. THE one predicate; every surface asks this rather than deriving
+  /// its own (#148).
+  ///
+  /// It used to be derived in six places with three different answers: the
+  /// Book and Lines panes said `blind && botEnabled && !gameOver`, the tree
+  /// pane said `blind && botEnabled`, and the board overlays said `blind`
+  /// alone. So turning blind on at the ANALYSIS board blanked the board while
+  /// the Lines pane beside it went on listing the engine's moves with evals —
+  /// the app hiding and showing the same thing at once, a few hundred pixels
+  /// apart.
+  ///
+  /// `botEnabled` is deliberately NOT part of this, and that was tried first.
+  /// Gating on an opponent reads well — there is nobody to keep a secret from
+  /// when both sides are you — but blind mode's real use on the analysis
+  /// board is not secrecy, it is self-testing: guess the move before letting
+  /// the engine tell you. Requiring a bot made the switch INERT there, and
+  /// worse, left the toggle and its "no engine help" tooltip in place over a
+  /// board covered in engine arrows. The inconsistency is now resolved the
+  /// other way: blind hides everything, everywhere it applies.
+  ///
+  /// `!_review` does the one job `botEnabled` was also quietly doing. `blind`
+  /// is a shared SettingsStore flag, so without this a blind game in progress
+  /// on the Play tab would strip the arrows and threat glyphs off an entirely
+  /// unrelated ARCHIVED game in Review. Nothing there is being played, so
+  /// there is nothing to withhold.
+  ///
+  /// `!gameOver`: the SETTING stays sticky — the New Game sheet relies on
+  /// that, and flipping switches mid-recap would be jarring — but the EFFECT
+  /// lapses the moment the game ends, because there is nothing left to
+  /// protect and reading what just happened is the point of the recap.
+  bool get hidingHelp => blind && !_review && !gameOver;
 
   /// What the panes may show: nothing forward-looking in blind mode during
   /// a live bot game (web: visibleLines).
   List<EngineMove> get visibleLines =>
-      blind && botEnabled ? const [] : currentLines;
+      hidingHelp ? const [] : currentLines;
 
   // ---- overlays: opponent threat (null-move probe) + square control ----
 
@@ -1700,14 +1835,14 @@ class GameController extends ChangeNotifier {
 
   /// Top engine moves for the board's green arrows (web: top-3, fading).
   List<String> get engineArrowUcis {
-    if (!_settings.showArrows || blind) return const [];
+    if (!_settings.showArrows || hidingHelp) return const [];
     return [for (final l in currentLines.take(_settings.arrowCount)) l.uci];
   }
 
   /// The live threat, when it is fresh and wanted — the move the opponent
   /// would play with a free move, and what it nets them.
   Map<String, dynamic>? get threat {
-    if (!_settings.showThreats || blind) return null;
+    if (!_settings.showThreats || hidingHelp) return null;
     final t = _threat;
     return t != null && t['fen'] == position.fen ? t : null;
   }
@@ -1753,7 +1888,7 @@ class GameController extends ChangeNotifier {
   /// the threat (attacked after ply 1, falls in the window, no even trades).
   /// Costs no engine time: the line is the live analysis already streaming.
   Map<String, dynamic>? get tacticalWin {
-    if (!_settings.showThreats || blind) return null;
+    if (!_settings.showThreats || hidingHelp) return null;
     // in a bot game, "your line" only exists on YOUR turn — during the bot's
     // think the streamed lines are ITS tactics, and green rings for them
     // would invert the overlay's meaning (your own king ringed "win")
@@ -1782,7 +1917,7 @@ class GameController extends ChangeNotifier {
 
   /// Square-control tint for the current position, when wanted.
   Map<String, ControlCell>? get controlMap {
-    if (!_settings.showControl || blind) return null;
+    if (!_settings.showControl || hidingHelp) return null;
     final chess = _chess;
     if (chess == null) return null;
     return _controlCache.putIfAbsent(
@@ -1794,7 +1929,7 @@ class GameController extends ChangeNotifier {
 
   Future<void> _probeThreat() async {
     final chess = _chess;
-    if (chess == null || !_settings.showThreats || blind) return;
+    if (chess == null || !_settings.showThreats || hidingHelp) return;
     final fen = position.fen;
     if (_probeInFlightFen == fen) return;
     final probe = chess.threatProbeFen(fen);
@@ -2208,7 +2343,7 @@ class GameController extends ChangeNotifier {
       // node's score-derived y would otherwise displace a visible one and leak
       // the eval through its position (#147). Same predicate the pane paints
       // with — blind only bites in a real bot game.
-      blind: blind && botEnabled,
+      blind: hidingHelp,
     );
   }
 
@@ -2583,6 +2718,9 @@ class GameController extends ChangeNotifier {
     _retro?.dispose();
     _garbo?.dispose();
     _maia?.dispose();
+    for (final e in _chessGpt.values) {
+      e.dispose();
+    }
     for (final r in _customRunners.values) {
       r.dispose();
     }
@@ -2593,6 +2731,62 @@ class GameController extends ChangeNotifier {
     _clock?.dispose();
     _disposed = true;
     super.dispose();
+  }
+
+  /// The overlay switches as they were BEFORE a rated game turned them off,
+  /// or null when no rated game owns them.
+  ///
+  /// Rated mode suppresses blind/arrows/threats/control by writing the real
+  /// settings, because those are what the board reads. Nothing used to put
+  /// them back, so one rated game silently disabled the engine arrows, the
+  /// threat glyphs and the square tint EVERYWHERE — Review and the analysis
+  /// board included — until the player found four separate switches. And with
+  /// blind left on, the next CASUAL game was blind too.
+  ///
+  /// Applied and restored by [newGame] and by the end of the game, so the
+  /// suppression lasts exactly as long as the game that asked for it.
+  /// The snapshot lives in [SettingsStore.ratedSnapshot] — on DISK, not in a
+  /// field here. A field was the first version, and it loses the switches to
+  /// the one teardown it cannot see: kill the app mid-rated game and blind
+  /// stays on with three overlays off forever, the original bug via a
+  /// different door. Persisted, the next casual game hands them back.
+  void _applyRatedPreset() {
+    // Only if nothing is held already: a rematch of a rated game re-applies
+    // the preset, and overwriting here would snapshot the SUPPRESSED values
+    // and hand those back as if they were the player's own.
+    _settings.ratedSnapshot ??= jsonEncode({
+      'blind': _settings.blind,
+      'arrows': _settings.showArrows,
+      'threats': _settings.showThreats,
+      'control': _settings.showControl,
+    });
+    _settings.blind = true;
+    _settings.showArrows = false;
+    _settings.showThreats = false;
+    _settings.showControl = false;
+  }
+
+  /// Give the player their switches back. Safe to call at any time; a no-op
+  /// when no rated game took them.
+  void _restoreAfterRated() {
+    final raw = _settings.ratedSnapshot;
+    if (raw == null) return;
+    _settings.ratedSnapshot = null;
+    final Map<String, dynamic> p;
+    try {
+      p = jsonDecode(raw) as Map<String, dynamic>;
+    } catch (_) {
+      // Unreadable note about the settings. Dropping it is the only safe
+      // move: guessing would write four switches the player never chose.
+      return;
+    }
+    // Defaults matching SettingsStore's own: a snapshot written by an older
+    // build without one of these keys restores the out-of-the-box answer
+    // rather than throwing on a null.
+    _settings.blind = p['blind'] as bool? ?? false;
+    _settings.showArrows = p['arrows'] as bool? ?? true;
+    _settings.showThreats = p['threats'] as bool? ?? true;
+    _settings.showControl = p['control'] as bool? ?? true;
   }
 
   /// Set by [dispose], read by [notifyListeners].

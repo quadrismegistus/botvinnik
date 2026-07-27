@@ -24,7 +24,7 @@ void main() {
     final db = FakeDb();
     final g = GameController(
         FakeArbiter(analysisLines: kFakeLines, streamPartials: true),
-        const FakeBot({kTestBotId: testBotPersona}),
+        FakeBot({kTestBotId: testBotPersona}),
         SavingGrading(),
         settings,
         db);

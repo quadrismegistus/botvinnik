@@ -22,6 +22,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:botvinnik_mobile/brain/types.dart';
 import 'package:botvinnik_mobile/engine/maia_weights_io.dart';
+import 'package:botvinnik_mobile/engine/playable_families.dart';
 import 'package:botvinnik_mobile/stores/game_controller.dart';
 import 'package:botvinnik_mobile/ui/roster_picker.dart';
 
@@ -58,6 +59,13 @@ Persona _maia(String id, String name, int elo, int band) => Persona({
 
 /// The real families, injected: CI is Linux, where `MaiaEngine.supported` is
 /// false and every Maia row — and so every assertion here — would vanish.
+///
+/// Injected in TWO places now, and both are needed. `RosterSheet(playable:)`
+/// filters what the sheet draws; `debugPlayableFamilies` filters what
+/// `GameController.rosterPersonas` hands it, which is where a family this
+/// runtime cannot play is dropped so no picker can offer it. The sheet's
+/// filter can only narrow what it is given, so without the second the rows
+/// never arrive and this file fails on Linux while passing on a Mac.
 const _playable = {'stockfish', 'maia'};
 
 Future<void> _loadRoboto() async {
@@ -89,9 +97,13 @@ void main() {
     // give up, whatever this machine's Application Support looks like.
     MaiaWeights.debugOpen = (uri) async =>
         throw StateError('a widget test must not reach the network: $uri');
+    debugPlayableFamilies = _playable;
   });
 
-  tearDown(MaiaWeights.debugReset);
+  tearDown(() {
+    MaiaWeights.debugReset();
+    debugPlayableFamilies = null;
+  });
 
   Future<void> pumpSheet(WidgetTester tester, {double width = 375}) async {
     tester.view.physicalSize = Size(width, 900);

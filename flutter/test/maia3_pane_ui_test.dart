@@ -43,7 +43,7 @@ Future<(GameController, Maia3Store, List<String>)> _pump(
     {bool blind = false}) async {
   final settings = await loadSettings();
   final game =
-      GameController(FakeArbiter(), const FakeBot(), FakeGrading(), settings);
+      GameController(FakeArbiter(), FakeBot(), FakeGrading(), settings);
   if (blind) settings.blind = true;
   final analyzed = <String>[];
   final store = _fakeStore(analyzed);
@@ -82,7 +82,7 @@ void main() {
   testWidgets('blind mode with a bot hides the curves', (tester) async {
     final settings = await loadSettings(black: kTestBotId);
     final game = GameController(
-        FakeArbiter(), const FakeBot(), FakeGrading(), settings);
+        FakeArbiter(), FakeBot(), FakeGrading(), settings);
     settings.blind = true;
     final analyzed = <String>[];
     final store = _fakeStore(analyzed);
@@ -107,7 +107,7 @@ void main() {
       (tester) async {
     final settings = await loadSettings();
     final game = GameController(
-        FakeArbiter(), const FakeBot(), FakeGrading(), settings);
+        FakeArbiter(), FakeBot(), FakeGrading(), settings);
     final fenBeforeMove = game.position.fen;
     game.playUci('e2e4');
     final analyzed = <String>[];
@@ -143,7 +143,7 @@ void main() {
       (tester) async {
     final settings = await loadSettings(black: kTestBotId);
     final game = GameController(
-        FakeArbiter(), const FakeBot(), FakeGrading(), settings);
+        FakeArbiter(), FakeBot(), FakeGrading(), settings);
     final fenBeforeHumanMove = game.position.fen;
     game.playUci('e2e4'); // the human (White) move
     final fenAfterHumanMove = game.position.fen;

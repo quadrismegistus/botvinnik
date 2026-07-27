@@ -31,7 +31,8 @@ export type BotFamily =
 	| 'retro'
 	| 'dala'
 	| 'horizon'
-	| 'garbo';
+	| 'garbo'
+	| 'chessgpt';
 
 export interface BotPersona {
 	id: string; // stable key: persisted in settings and stored games
@@ -61,6 +62,12 @@ export interface BotPersona {
 	jsceLevel?: number;
 	/** garbo: Garbochess-JS movetime in ms */
 	garboMs?: number;
+	/** chessgpt: which published net (lichess | stockfish | mix).
+	 *
+	 * NOT a strength dial. The three measure 1225/1244/1303 on our own gym —
+	 * inside 78 points — and differ by the corpus that TAUGHT them. Maia's
+	 * maiaBand is a rung on a ladder and this deliberately is not one. */
+	chessgptVariant?: string;
 	/** persona needs the native shell (lc0 sidecar); hidden in the web roster */
 	nativeOnly?: boolean;
 }
@@ -104,6 +111,32 @@ function maiaSampled(displayElo: number, band: number, roman: string): BotPerson
 		blurb: `The same net as Maia ${roman}, but drawing from its whole move distribution instead of the consensus move — weaker, moodier, more like one player than an average. Rating estimated.`,
 		maiaBand: band,
 		maiaTemp: 1
+	};
+}
+
+// ChessGPT: a language model as an opponent. Karvonen's nanoGPT over PGN
+// movetext, no search of any kind — so unlike every other bot on this roster
+// its mistakes are not one strong engine's mistakes with the calculation cut
+// short. Native only: three ~26MB ONNX nets, fetched on demand (#235).
+//
+// Three personas at nearly the same strength, which reads oddly in an
+// elo-sorted roster and is the honest presentation anyway: the axis here is
+// the TEACHER, not strength. Their blurbs carry that, because the elo column
+// cannot.
+function chessgpt(
+	displayElo: number,
+	variant: string,
+	name: string,
+	blurb: string
+): BotPersona {
+	return {
+		id: `chessgpt-${variant}`,
+		name,
+		elo: displayElo,
+		family: 'chessgpt',
+		blurb,
+		chessgptVariant: variant,
+		nativeOnly: true
 	};
 }
 
@@ -222,6 +255,26 @@ export const PERSONAS: BotPersona[] = [
 	maia(1570, 1100, 'I'),
 	maia(1640, 1500, 'V'),
 	maia(1700, 1900, 'IX'),
+	// Elos measured over 720 gym games; the error rates are from ~450-520
+	// graded moves each, labelled by the app's own grader.
+	chessgpt(
+		1225,
+		'mix',
+		'ChessGPT (both)',
+		'A language model taught on human games and engine self-play together — and it lands between the two, in accuracy as in temperament.'
+	),
+	chessgpt(
+		1244,
+		'lichess',
+		'ChessGPT (lichess)',
+		"A language model that learned chess by reading a million human games — no search, no evaluation, just what a move usually looks like. The most accurate of the three, and the most human in its errors."
+	),
+	chessgpt(
+		1303,
+		'stockfish',
+		'ChessGPT (stockfish)',
+		'The same model taught on Stockfish playing itself. Strongest of the three and also the wildest — it blunders nearly twice as often as its Lichess-taught sibling, and wins anyway.'
+	),
 	GARBO,
 	...[1800, 1900, 2000, 2100, 2200, 2300, 2400, 2500].map(fish)
 ].sort((a, b) => a.elo - b.elo || a.name.localeCompare(b.name));
