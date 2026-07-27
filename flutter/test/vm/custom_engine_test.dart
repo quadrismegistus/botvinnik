@@ -13,8 +13,8 @@ import 'package:botvinnik_mobile/stores/custom_engine.dart';
 import 'package:botvinnik_mobile/stores/engine_catalog.dart';
 import 'package:botvinnik_mobile/stores/game_controller.dart';
 
-import 'support/game_harness.dart';
-import 'support/memory_db.dart';
+import '../support/game_harness.dart';
+import '../support/memory_db.dart';
 
 /// Let the store's constructor read from disk (it fires _load, not awaitable).
 /// Drains MICROTASKS, not timers, so it works the same under a widget test's

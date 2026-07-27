@@ -23,8 +23,8 @@ import 'package:botvinnik_mobile/stores/pgn_import.dart';
 import 'package:botvinnik_mobile/stores/review_controller.dart';
 import 'package:botvinnik_mobile/ui/games_list.dart';
 
-import 'support/fake_db.dart';
-import 'support/game_harness.dart';
+import '../support/fake_db.dart';
+import '../support/game_harness.dart';
 
 /// A stored bot game. The human is White (`botColor: 'b'`), so '1-0' is a win
 /// for the human and '0-1' a loss. [hints] is deliberately three-valued: null

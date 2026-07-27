@@ -31,7 +31,7 @@ import 'package:botvinnik_mobile/stores/settings_store.dart';
 import 'package:botvinnik_mobile/ui/grade_strip.dart';
 import 'package:botvinnik_mobile/ui/review_screen.dart';
 
-import 'support/game_harness.dart';
+import '../support/game_harness.dart';
 
 const _kClassRaw = {
   'best': {'glyph': '*', 'color': '#81b64c', 'noun': 'Best'},

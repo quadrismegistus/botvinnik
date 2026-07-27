@@ -25,8 +25,8 @@ import 'package:botvinnik_mobile/ui/grade_strip.dart';
 import 'package:botvinnik_mobile/brain/rating_api.dart';
 import 'package:botvinnik_mobile/stores/player_rating_store.dart';
 
-import 'support/fake_db.dart';
-import 'support/game_harness.dart';
+import '../support/fake_db.dart';
+import '../support/game_harness.dart';
 
 /// Never answers, so the card stays in its loading state and the recap builds.
 class _StubRating implements RatingApi {

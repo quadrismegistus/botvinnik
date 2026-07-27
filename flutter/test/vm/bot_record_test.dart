@@ -23,8 +23,8 @@ import 'package:botvinnik_mobile/brain/bot_api.dart';
 import 'package:botvinnik_mobile/brain/types.dart';
 import 'package:botvinnik_mobile/stores/bot_record_store.dart';
 
-import 'support/fake_db.dart';
-import 'support/node_brain.dart';
+import '../support/fake_db.dart';
+import '../support/node_brain.dart';
 
 Persona _persona(String id, {int elo = 1200, String family = 'squarefish'}) =>
     Persona({

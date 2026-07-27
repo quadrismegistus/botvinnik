@@ -26,7 +26,7 @@ import 'package:botvinnik_mobile/brain/types.dart';
 import 'package:botvinnik_mobile/stores/game_controller.dart';
 import 'package:botvinnik_mobile/ui/roster_picker.dart';
 
-import 'support/game_harness.dart';
+import '../support/game_harness.dart';
 
 Persona _p(String family, int elo, {String? name}) => Persona({
       'id': '$family-$elo',

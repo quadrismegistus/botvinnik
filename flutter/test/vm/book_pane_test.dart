@@ -31,7 +31,7 @@ import 'package:botvinnik_mobile/stores/settings_store.dart';
 import 'package:botvinnik_mobile/ui/book_pane.dart';
 import 'package:botvinnik_mobile/ui/layout.dart';
 
-import 'support/game_harness.dart';
+import '../support/game_harness.dart';
 
 /// Depth >= 10 so the controller keeps them, and three of them so the merge
 /// has something to rank.

@@ -123,6 +123,42 @@ jobs:
         working-directory: flutter
       - run: flutter test
         working-directory: flutter
+      # The SAME tests, compiled to JS and run in a real browser.
+      #
+      # Not redundant with the line above, and #235 is why. `playable_families`
+      # read `MaiaEngine.supported && ChessGptEngine.supported` as one
+      # capability; on macOS both getters are true and on this runner both are
+      # false, so on every platform the suite ran, `a && b` was
+      # indistinguishable from `a`. Only a browser disagrees — Maia has a wasm
+      # worker there and ChessGPT has nothing — and Maia vanished from every
+      # picker on botvinnik.app, the deploy Flutter owns.
+      #
+      # The two web BUILD steps below prove the web branch of every conditional
+      # import compiles. Nothing proved it behaves. This does, for the platform
+      # most users are actually on.
+      #
+      # `test/*.dart` — top-level only, deliberately NOT `test/`. Tests that
+      # genuinely need the VM live in test/vm/ (dart:io, the node bridge,
+      # process engines), and one of those in the compile set fails the whole
+      # run: `flutter test --platform chrome` compiles every file before it
+      # applies any platform filter, so `@TestOn('vm')` does not help. Keeping
+      # them in a subdirectory the glob does not reach is what makes this
+      # self-maintaining — a new native test goes in test/vm/ and everything
+      # else is browser-gated without anyone editing this file.
+      #
+      # WHY THE LAYOUT TESTS ARE NOT HERE, since it looks like an oversight.
+      # Twenty of the files in test/vm/ need dart:io for one reason only: they
+      # load the bundled Roboto faces off disk, because the default test font
+      # is Ahem (every glyph a uniform square) and a measured height against
+      # Ahem is the wrong number. `rootBundle.load` would be the portable
+      # replacement — the fonts ARE declared assets — and it does not work:
+      # under `flutter test --platform chrome` the asset server is not wired
+      # up and the future NEVER COMPLETES, so the suite hangs rather than
+      # fails. Tried, measured, reverted. Those tests measure text, so without
+      # the real faces they would be worse than absent.
+      - name: Flutter tests, in a real browser
+        working-directory: flutter
+        run: flutter test test/*.dart --platform chrome
       # Also the only thing that type-checks the web branch of every
       # conditional import. Via build-web.sh rather than `flutter build web`
       # so the service worker's manifest is generated and its own guards run

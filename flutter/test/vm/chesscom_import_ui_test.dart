@@ -22,9 +22,9 @@ import 'package:botvinnik_mobile/stores/game_controller.dart';
 import 'package:botvinnik_mobile/stores/review_controller.dart';
 import 'package:botvinnik_mobile/ui/games_list.dart';
 
-import 'support/chesscom_fixture.dart';
-import 'support/game_harness.dart';
-import 'support/memory_db.dart';
+import '../support/chesscom_fixture.dart';
+import '../support/game_harness.dart';
+import '../support/memory_db.dart';
 
 Future<void> _loadRoboto() async {
   for (final w in ['Regular', 'Medium', 'Bold']) {

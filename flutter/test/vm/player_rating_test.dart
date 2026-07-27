@@ -21,8 +21,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:botvinnik_mobile/brain/rating_api.dart';
 import 'package:botvinnik_mobile/stores/player_rating_store.dart';
 
-import 'support/fake_db.dart';
-import 'support/node_brain.dart';
+import '../support/fake_db.dart';
+import '../support/node_brain.dart';
 
 /// A record in the shape GameController._saveGame writes: every field it sets,
 /// including the move list, which the store strips before the fit. Optional

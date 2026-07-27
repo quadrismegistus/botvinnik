@@ -37,7 +37,7 @@ import 'package:botvinnik_mobile/ui/layout.dart';
 import 'package:botvinnik_mobile/ui/move_preview.dart';
 import 'package:botvinnik_mobile/ui/review_screen.dart';
 
-import 'support/game_harness.dart';
+import '../support/game_harness.dart';
 
 const _kClassRaw = {
   'best': {'glyph': '★', 'color': '#81b64c', 'noun': 'the best move'},

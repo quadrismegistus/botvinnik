@@ -38,10 +38,10 @@ import 'package:botvinnik_mobile/sync/sync_controller.dart';
 import 'package:botvinnik_mobile/ui/games_list.dart';
 import 'package:botvinnik_mobile/ui/settings_tab.dart';
 
-import 'support/fake_sync_key_store.dart';
-import 'support/game_harness.dart';
-import 'support/memory_db.dart';
-import 'support/practice_harness.dart';
+import '../support/fake_sync_key_store.dart';
+import '../support/game_harness.dart';
+import '../support/memory_db.dart';
+import '../support/practice_harness.dart';
 
 typedef Save = ({String filename, String text, String mimeType});
 

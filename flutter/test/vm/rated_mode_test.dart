@@ -37,8 +37,8 @@ import 'package:botvinnik_mobile/stores/practice_controller.dart';
 import 'package:botvinnik_mobile/stores/settings_store.dart';
 import 'package:botvinnik_mobile/ui/new_game_sheet.dart';
 
-import 'support/fake_db.dart';
-import 'support/game_harness.dart';
+import '../support/fake_db.dart';
+import '../support/game_harness.dart';
 
 /// Black king boxed in by its own pawns, White rook on a1: 1.Ra8 is mate, and
 /// 1.Ra7 is a legal quiet move from the same position. The same fixture

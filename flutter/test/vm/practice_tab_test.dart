@@ -22,8 +22,8 @@ import 'package:botvinnik_mobile/stores/practice_controller.dart';
 import 'package:botvinnik_mobile/stores/settings_store.dart';
 import 'package:botvinnik_mobile/ui/practice_tab.dart';
 
-import 'support/game_harness.dart';
-import 'support/practice_harness.dart';
+import '../support/game_harness.dart';
+import '../support/practice_harness.dart';
 
 const _forkFen = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
 const _pinFen = 'rnbqkbnr/pppp1ppp/8/4p3/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 2';

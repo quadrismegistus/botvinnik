@@ -14,8 +14,8 @@ import 'package:botvinnik_mobile/stores/custom_engine.dart';
 import 'package:botvinnik_mobile/stores/game_controller.dart';
 import 'package:botvinnik_mobile/ui/bot_picker.dart';
 
-import 'support/game_harness.dart';
-import 'support/memory_db.dart';
+import '../support/game_harness.dart';
+import '../support/memory_db.dart';
 
 Persona _p(String id, String name, int elo, String family) => Persona(
     {'id': id, 'name': name, 'elo': elo, 'family': family, 'blurb': 'blurb'});

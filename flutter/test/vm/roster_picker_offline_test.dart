@@ -26,7 +26,7 @@ import 'package:botvinnik_mobile/engine/playable_families.dart';
 import 'package:botvinnik_mobile/stores/game_controller.dart';
 import 'package:botvinnik_mobile/ui/roster_picker.dart';
 
-import 'support/game_harness.dart';
+import '../support/game_harness.dart';
 
 const _kReady = 'downloaded — plays offline';
 const _kMissing = 'needs a short download — then plays offline';
