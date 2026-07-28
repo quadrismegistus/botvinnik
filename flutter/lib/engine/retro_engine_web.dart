@@ -50,12 +50,39 @@ class RetroEngine {
   Completer<String?>? _move;
   bool _alive = true;
 
+  /// How long ONE turn will wait for the boot before playing a stand-in.
+  static const _turnPatience = Duration(seconds: 30);
+
+  /// When the boot stops being worth waiting for AT ALL.
+  ///
+  /// Two clocks, and collapsing them into one was the bug: a turn that ran out
+  /// of patience used to call [_die], which latches `_alive = false` — so a
+  /// 4.4MB wasm that took 31 seconds to arrive on a phone cost not one move
+  /// but the whole game. Every later turn returned null the instant it was
+  /// asked, and the stand-in badge is sticky, so a game that was TUROCHAMP
+  /// from move two onward never got to be.
+  ///
+  /// What a single move will wait for and what the engine should give up on
+  /// are different questions. This one only has to be short enough that a
+  /// genuinely unreachable worker stops costing every turn 30 seconds.
+  static const _bootDeadline = Duration(minutes: 3);
+  final Stopwatch _age = Stopwatch()..start();
+
   RetroEngine(this.engine, this.ply) : _worker = JsWorker(_scriptUrl) {
     _worker.onmessage = ((WorkerMessage e) {
       final data = e.data?.dartify();
       if (data is! String) return; // '__ready__' aside, everything is UCI
       if (data == 'uciok') {
         if (!_booted.isCompleted) _booted.complete(true);
+        return;
+      }
+      // The wasm will never arrive — a 404, a bad MIME type, an instantiate
+      // that threw. Distinct from slowness on purpose: this one is worth dying
+      // for immediately, and waiting the full deadline for it would stall
+      // three minutes of turns to reach the same answer.
+      if (data.startsWith('__boot_failed__')) {
+        _die('the worker could not load retro.wasm — '
+            '${data.substring('__boot_failed__'.length).trim()}');
         return;
       }
       if (data.startsWith('bestmove')) {
@@ -92,14 +119,19 @@ class RetroEngine {
   /// boot that never finished, a search that never answered.
   Future<String?> move(String fen, {int movetimeMs = 500}) async {
     if (!_alive) return null;
+    // Generous: 4.4MB of wasm to fetch and compile, and on a cold cache that
+    // is a real download. Running out of it stands in for THIS move; the
+    // engine keeps booting, and the next turn asks again — see [_bootDeadline].
     final ok = await _booted.future.timeout(
-      // generous: 4.4MB of wasm to fetch and compile, and on a cold cache
-      // that is a real download. It only needs to be short enough that a
-      // MISSING worker is fallen back from rather than hung on.
-      const Duration(seconds: 30),
+      _turnPatience,
       onTimeout: () {
-        _die('engine did not boot in 30s — is $_scriptUrl served? '
-            '(stage-web-assets.sh stages it)');
+        if (_age.elapsed >= _bootDeadline) {
+          _die('engine did not boot in ${_bootDeadline.inMinutes} minutes — '
+              'is $_scriptUrl served? (stage-web-assets.sh stages it)');
+        } else {
+          debugPrint('[retro] still booting after ${_age.elapsed.inSeconds}s '
+              '— standing in for this move only');
+        }
         return false;
       },
     );

@@ -744,10 +744,20 @@ class GameController extends ChangeNotifier {
   /// Switching away disposes it: keeping a second engine's worker resident
   /// costs the memory for nothing.
   RetroEngine? _syncRetro() {
-    // match the side to move: in bot-vs-bot the retro engine alternates with
+    // Prefer the side to move — in bot-vs-bot the retro engine alternates with
     // the mover (a per-move worker rebuild if the two sides are different
-    // retros, which is rare and acceptable for a watch feature).
-    final spec = personaToMove?.retro;
+    // retros, which is rare and acceptable for a watch feature) — but fall
+    // back to whichever seat holds one.
+    //
+    // It read `personaToMove?.retro` alone, which is null on YOUR turn by
+    // definition, and that silently deleted the preload for the seating every
+    // game actually uses: you on White, the bot on Black. Nothing was built
+    // until the bot's first turn, so the 4.4MB arrived under a single move's
+    // patience with the rest of the app's boot still on the wire — and on a
+    // phone that is a coin toss for whether TUROCHAMP or a Stockfish stand-in
+    // answers 1...e5. Same for a mixed bot-vs-bot game, where the retro's
+    // worker was disposed and rebuilt on every one of the OTHER bot's turns.
+    final spec = personaToMove?.retro ?? whitePersona?.retro ?? blackPersona?.retro;
     final key = spec == null ? null : '${spec['engine']}:${spec['ply']}';
     if (key != _retroKey) {
       _retro?.dispose();

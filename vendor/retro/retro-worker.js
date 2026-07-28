@@ -21,10 +21,22 @@ self.onmessage = async (e) => {
 		self.retroConfig = { engine: e.data.engine, ply: e.data.ply };
 		self.onRetroLine = (line) => self.postMessage(line);
 		const go = new Go();
-		const res = await WebAssembly.instantiateStreaming(
-			fetch('retro.wasm'),
-			go.importObject
-		);
+		let res;
+		try {
+			res = await WebAssembly.instantiateStreaming(
+				fetch('retro.wasm'),
+				go.importObject
+			);
+		} catch (err) {
+			// A rejection here is an UNHANDLED one — it happens inside an async
+			// message handler, so it never reaches the parent's worker.onerror
+			// and the client just waits. Said out loud, the client can tell a
+			// boot that failed (give up now) from one that is merely slow (a
+			// 4.4MB wasm on a phone; keep waiting). Silent, they were the same
+			// 30-second stall, and the client resolved both by dying.
+			self.postMessage(`__boot_failed__ ${err}`);
+			return;
+		}
 		// demote glog's stderr chatter (wasm_exec routes it through
 		// fs.writeSync) — keep it reachable in the console for debugging Go
 		// panics, but out of the main log
