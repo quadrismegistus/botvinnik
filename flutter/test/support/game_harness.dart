@@ -321,8 +321,12 @@ class FakePractice implements PracticeController {
 /// analysis mode. Exposed separately from [makeGame] for tests that must
 /// control exactly WHEN the controller is built — a controller starts a bot
 /// turn in its constructor, and a fake-clock test needs that inside the clock.
-Future<SettingsStore> loadSettings({String? white, String? black}) async {
-  SharedPreferences.setMockInitialValues({});
+/// [prefs] seeds SharedPreferences before the store reads it — for anything
+/// about MIGRATION, where the question is what a store built from an older
+/// installation's keys decides. Empty (the default) is a fresh install.
+Future<SettingsStore> loadSettings(
+    {String? white, String? black, Map<String, Object> prefs = const {}}) async {
+  SharedPreferences.setMockInitialValues(prefs);
   final settings = await SettingsStore.load();
   settings.setPlayers(white: white, black: black);
   return settings;

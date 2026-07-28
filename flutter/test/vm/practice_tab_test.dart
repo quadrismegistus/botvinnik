@@ -205,14 +205,15 @@ void main() {
     });
   });
 
-  // The action row now carries two more controls. Its worst case is a failed
-  // attempt — Retry and Show best both up — with the picker and the delete
-  // beside Next.
+  // The action row now carries the shortcuts button and the demoted Skip on top
+  // of what it already had. Its worst case is a failed attempt — Retry, "Watch
+  // what it costs" and Skip in the scrolling group — with the picker, the
+  // delete and the keyboard button beside a primary reading "Show best".
   //
   // Only 320 catches the regression today: with the scrolling group replaced
   // by a plain Row and a Spacer, this overflows by 34px at 320 and fits at
   // 375. 375 is kept as the phone-class width, since it is the one most
-  // players are on and the row has grown twice now.
+  // players are on and the row has grown three times now.
   for (final width in [375.0, 320.0]) {
     testWidgets('the action row does not overflow at $width', (tester) async {
       tester.view.physicalSize = Size(width, 800);
@@ -227,7 +228,7 @@ void main() {
       await _pumpTab(tester, h.practice);
 
       // e4 from the start position: legal, and not the item's best move, so
-      // it fails the check and both extra buttons appear. NOT awaited — the
+      // it fails the check and the whole set appears. NOT awaited — the
       // fake arbiter resolves on a timer, and under the test's fake clock a
       // timer only fires while the tester pumps, so awaiting here deadlocks.
       unawaited(h.practice.checkAttempt('e2e4', 'e4', _afterE4Fen));
@@ -237,14 +238,171 @@ void main() {
       expect(find.text('Retry'), findsOneWidget,
           reason: 'the row is not under pressure, so this proves nothing');
       expect(find.text('Show best'), findsOneWidget, reason: 'ditto');
+      expect(find.text('Skip'), findsOneWidget, reason: 'ditto');
       expect(find.byIcon(Icons.filter_list), findsOneWidget);
       expect(find.byIcon(Icons.delete_outline), findsOneWidget);
+      expect(find.byIcon(Icons.keyboard_outlined), findsOneWidget);
 
       // A RenderFlex overflow is a runtime layout error: neither the analyzer
       // nor a green suite says anything about it.
       expect(tester.takeException(), isNull, reason: 'overflowed at $width');
     });
+
+    // The FIXED half of the row has its own worst case, and it is not the one
+    // above: 'Another hint' is the widest label the primary ever wears, and the
+    // primary is the one child that cannot be scrolled out of the way. It was
+    // 12px over at 320 with the default button padding.
+    testWidgets('nor does it at $width with the widest primary label',
+        (tester) async {
+      tester.view.physicalSize = Size(width, 800);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      final h = makePractice([
+        practiceItem(_forkFen, motifs: ['discovered attack']),
+        practiceItem(_pinFen, motifs: ['fork']),
+      ]);
+      h.practice.startSession();
+      h.practice.hint(); // tier 1 — the primary now offers the second rung
+      await _pumpTab(tester, h.practice);
+
+      expect(find.text('Another hint'), findsOneWidget,
+          reason: 'the widest label is not on screen, so this proves nothing');
+      expect(tester.takeException(), isNull, reason: 'overflowed at $width');
+    });
+
+    testWidgets('and the shortcuts button is in it at $width', (tester) async {
+      // The app bar's copy is gated on a wide viewport (main.dart), which is
+      // how the bindings became folklore. This one is not.
+      tester.view.physicalSize = Size(width, 800);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      final h = makePractice([practiceItem(_forkFen)]);
+      h.practice.startSession();
+      await _pumpTab(tester, h.practice);
+
+      await tester.tap(find.byIcon(Icons.keyboard_outlined));
+      await tester.pumpAndSettle();
+
+      expect(find.text('? or /'), findsOneWidget,
+          reason: 'the hint shortcut is the one the report went looking for');
+      expect(find.textContaining('hint'), findsWidgets);
+    });
   }
+
+  group('the green button is a ladder, not a way out (#214)', () {
+    // Two items throughout: "it did not advance" is only a claim when there is
+    // somewhere to advance to.
+    ({PracticeController practice, String served}) two() {
+      final h = makePractice([
+        practiceItem(_forkFen, bestSan: 'Nxe5'),
+        practiceItem(_pinFen),
+      ]);
+      h.practice.startSession();
+      return (
+        practice: h.practice,
+        served: h.practice.current!['id'] as String
+      );
+    }
+
+    testWidgets('a fresh puzzle offers Hint where Skip used to sit',
+        (tester) async {
+      final t = two();
+      await _pumpTab(tester, t.practice);
+
+      expect(find.widgetWithText(FilledButton, 'Hint'), findsOneWidget);
+      expect(find.widgetWithText(FilledButton, 'Next'), findsNothing,
+          reason: 'nothing has been answered');
+
+      await tester.tap(find.widgetWithText(FilledButton, 'Hint'));
+      await tester.pumpAndSettle();
+
+      expect(t.practice.current!['id'], t.served,
+          reason: 'the primary must not have thrown the puzzle away');
+      expect(find.widgetWithText(FilledButton, 'Another hint'), findsOneWidget);
+    });
+
+    testWidgets('three rungs later it says Next, and then it advances',
+        (tester) async {
+      final t = two();
+      await _pumpTab(tester, t.practice);
+
+      for (final label in ['Hint', 'Another hint', 'Show best']) {
+        expect(find.widgetWithText(FilledButton, label), findsOneWidget,
+            reason: 'the rung the ladder should be on');
+        await tester.tap(find.widgetWithText(FilledButton, label));
+        await tester.pumpAndSettle();
+        expect(t.practice.current!['id'], t.served,
+            reason: '$label is not a skip');
+      }
+
+      expect(find.widgetWithText(FilledButton, 'Next'), findsOneWidget);
+      await tester.tap(find.widgetWithText(FilledButton, 'Next'));
+      await tester.pumpAndSettle();
+      expect(t.practice.current!['id'], isNot(t.served));
+    });
+
+    testWidgets('a failed attempt gets one Show best, and it is the primary',
+        (tester) async {
+      final t = two();
+      t.practice.attempt = const AttemptOutcome(
+          san: 'Nf3', uci: 'g1f3', pass: false, drop: 18, evalPawns: -1);
+      await _pumpTab(tester, t.practice);
+
+      // Exactly one: the row used to be able to show the words twice, once as
+      // the hint ladder's top rung and once as a text button beside Retry.
+      expect(find.text('Show best'), findsOneWidget);
+      expect(find.widgetWithText(FilledButton, 'Show best'), findsOneWidget);
+
+      await tester.tap(find.widgetWithText(FilledButton, 'Show best'));
+      await tester.pumpAndSettle();
+
+      expect(t.practice.current!['id'], t.served,
+          reason: 'a wrong answer must not cost the puzzle unseen');
+      expect(find.widgetWithText(FilledButton, 'Next'), findsOneWidget);
+      expect(find.textContaining('best was Nxe5'), findsOneWidget);
+    });
+
+    testWidgets('Skip is still there, demoted, and still skips',
+        (tester) async {
+      final t = two();
+      await _pumpTab(tester, t.practice);
+
+      expect(find.widgetWithText(FilledButton, 'Skip'), findsNothing,
+          reason: 'it is no longer the primary — that is the whole fix');
+      await tester.tap(find.text('Skip'));
+      await tester.pumpAndSettle();
+
+      expect(t.practice.current!['id'], isNot(t.served));
+      expect(t.practice.revealBest, isFalse,
+          reason: 'leaving one deliberately does not spoil it');
+    });
+
+    testWidgets('and it goes once the answer is up', (tester) async {
+      final t = two();
+      t.practice.reveal();
+      await _pumpTab(tester, t.practice);
+      expect(find.widgetWithText(FilledButton, 'Next'), findsOneWidget,
+          reason: 'precondition: the answer is on screen');
+      expect(find.text('Skip'), findsNothing,
+          reason: 'Next already means "leave this one"');
+    });
+
+    testWidgets('nothing names the best move until it is asked for (#232)',
+        (tester) async {
+      final t = two();
+      await _pumpTab(tester, t.practice);
+      expect(find.textContaining('Nxe5'), findsNothing,
+          reason: 'this is a find-the-move drill');
+
+      t.practice.reveal();
+      await tester.pumpAndSettle();
+      expect(find.textContaining('best is Nxe5'), findsOneWidget,
+          reason: 'and once revealed the answer must actually be legible, '
+              'not just an arrow on the board');
+    });
+  });
 
   group('game session banner (#197)', () {
     testWidgets('a game session names its scope and offers the way out',
@@ -253,7 +411,12 @@ void main() {
       h.practice.startGameSession({_forkFen});
       await _pumpTab(tester, h.practice);
 
-      expect(find.text("Practising this game's mistakes"), findsOneWidget,
+      // The banner now also states WHICH mistakes — #197 decided a game
+      // session ignores the practice bar and did it silently, so a player with
+      // the bar at 20% met 6% inaccuracies with nothing on screen explaining
+      // why (#213).
+      expect(find.text("Practising this game's mistakes — all of them"),
+          findsOneWidget,
           reason: 'nothing else on the tab says the queue is narrowed');
 
       // "Practise all" returns to the full queue; the banner goes with it.
@@ -261,7 +424,8 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(h.practice.inGameSession, isFalse);
-      expect(find.text("Practising this game's mistakes"), findsNothing);
+      expect(find.textContaining("Practising this game's mistakes"),
+          findsNothing);
     });
 
     testWidgets('a normal session shows no banner', (tester) async {

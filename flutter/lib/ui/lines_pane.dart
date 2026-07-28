@@ -9,6 +9,7 @@ import 'package:provider/provider.dart';
 
 import '../brain/chess_api.dart';
 import '../brain/types.dart';
+import '../engine/arbiter.dart' show kAnalysisDepth;
 import '../stores/game_controller.dart';
 import 'eval_text.dart';
 
@@ -77,11 +78,8 @@ class _LinesPaneState extends State<LinesPane> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(14, 8, 14, 2),
-          child: Text('depth ${lines.first.depth}',
-              style: const TextStyle(color: Colors.white24, fontSize: 11)),
-        ),
+        _AnalysisProgress(
+            depth: lines.first.depth, settled: game.analysisSettled),
         // One horizontal scroll for the whole block, not one per line: the
         // columns only mean anything if every line scrolls together, and it
         // keeps the eval chips pinned on the left while the moves move.
@@ -249,6 +247,97 @@ class _LinesPaneState extends State<LinesPane> {
               ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// The filled part of the progress bar. Public only so a test can MEASURE what
+/// the pane drew, rather than take the fraction it was handed on trust — the
+/// bar's width is the claim, and a widthFactor read back out of the widget
+/// tree would restate the code instead of checking it.
+const kAnalysisProgressFillKey = ValueKey('analysis-progress-fill');
+
+/// How far the search has got, above the lines it has produced so far (#95).
+///
+/// The bare "depth 14" this replaced was a number with nothing to be a number
+/// OF: [kAnalysisDepth] is not something a player has any way to know, so 14
+/// could equally have been nearly done or barely started. The fraction says
+/// what it is out of and a hairline bar carries the same fact pre-attentively
+/// — this sits above a dense list and is glanced at, not read, which is also
+/// why it stays at 11pt white24 and gains no border, label or affordance.
+class _AnalysisProgress extends StatelessWidget {
+  const _AnalysisProgress({required this.depth, required this.settled});
+
+  /// The deepest ply the streamed lines report.
+  final int depth;
+
+  /// The search has ENDED — see [GameController.analysisSettled]. Not the same
+  /// as `depth >= kAnalysisDepth`: most searches end on the movetime backstop
+  /// or on the board moving on, so they settle short of the target.
+  final bool settled;
+
+  @override
+  Widget build(BuildContext context) {
+    // The bar answers "is the engine still working on this", not "how deep did
+    // it get" — the number's job. So a finished search fills it whatever depth
+    // it stopped at, and the state this was most at risk of shipping (a bar
+    // parked at 19/22 for the rest of the position's life, which is what a
+    // settled search normally is) cannot occur. The rejected alternative was
+    // to freeze the bar at its true fraction and grey it out: honest about the
+    // depth, but it reads as a stalled download, and it would have made the
+    // ordinary case look like a failure.
+    // No clamp: [FractionallySizedBox] constrains the child to the incoming
+    // constraints, so a factor above 1 is bounded by the track anyway —
+    // measured, with the clamp removed, at exactly the track width. A guard
+    // that cannot fire reads as the thing keeping the invariant when the real
+    // keeper is elsewhere. Stockfish's last info line CAN report past the
+    // depth it was asked for, so the case is real; it is just already handled.
+    final fraction = settled ? 1.0 : depth / kAnalysisDepth;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(14, 8, 14, 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // The denominator shows only while it is still a target being
+          // pursued; once the search is over the target is moot and the depth
+          // reached is the whole of the fact. 'final' is what keeps that from
+          // reading as a search that stalled — and the separator is a middle
+          // dot rather than anything prettier because Roboto covers it, and an
+          // uncovered glyph sends Flutter web to fonts.gstatic.com.
+          Text(settled ? 'depth $depth · final' : 'depth $depth / $kAnalysisDepth',
+              style: const TextStyle(color: Colors.white24, fontSize: 11)),
+          const SizedBox(height: 4),
+          // Always in the tree, full-width track included: removing it when the
+          // search settles would reflow the whole lines list underneath at the
+          // one moment the player is reading it.
+          SizedBox(
+            height: 2,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: Colors.white10,
+                borderRadius: BorderRadius.circular(1),
+              ),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: FractionallySizedBox(
+                  widthFactor: fraction,
+                  heightFactor: 1,
+                  child: DecoratedBox(
+                    key: kAnalysisProgressFillKey,
+                    decoration: BoxDecoration(
+                      // Dimmer once settled, to just above the track: a full
+                      // bar that has stopped meaning anything should not be
+                      // the brightest thing in the pane.
+                      color: settled ? Colors.white12 : Colors.white24,
+                      borderRadius: BorderRadius.circular(1),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

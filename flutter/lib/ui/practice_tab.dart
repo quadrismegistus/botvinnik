@@ -20,6 +20,7 @@ import 'package:provider/provider.dart';
 import '../stores/practice_controller.dart';
 import '../stores/settings_store.dart';
 import 'board_theme.dart';
+import 'keyboard.dart' show showKeyboardHelp;
 import 'layout.dart';
 import 'move_preview.dart';
 
@@ -214,6 +215,7 @@ class _PracticeTabState extends State<PracticeTab> {
                     style: const TextStyle(
                         fontWeight: FontWeight.w600, fontSize: 14)),
               ),
+              _thresholdMenu(practice),
               _motifMenu(practice),
               // Only when there is a drill to go back to. With nothing
               // servable the list IS the tab, and a close button would put you
@@ -698,11 +700,35 @@ class _PracticeTabState extends State<PracticeTab> {
         children: [
           const Icon(Icons.history, size: 15, color: Color(0xFF81B64C)),
           const SizedBox(width: 6),
-          const Expanded(
-            child: Text("Practising this game's mistakes",
+          Expanded(
+            child: Text(
+                context.watch<SettingsStore>().gameSessionAllDrops
+                    ? "Practising this game's mistakes — all of them"
+                    : "Practising this game's mistakes over the bar",
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: TextStyle(color: Colors.white54, fontSize: 12)),
+                style: const TextStyle(color: Colors.white54, fontSize: 12)),
+          ),
+          // #197 decided a game session ignores the practice bar — you picked
+          // the game — and did it silently, so a player with the bar at 20%
+          // met 6% inaccuracies with no way to tell why. The rule is unchanged
+          // by default; it is just legible now, and reversible from where you
+          // notice it (#213).
+          IconButton(
+            tooltip: context.watch<SettingsStore>().gameSessionAllDrops
+                ? 'Drilling every mistake — tap to apply the bar'
+                : 'Applying the bar — tap to drill every mistake',
+            icon: Icon(Icons.rule,
+                size: 18,
+                color: context.watch<SettingsStore>().gameSessionAllDrops
+                    ? Colors.white38
+                    : const Color(0xFF81B64C)),
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+            onPressed: () {
+              final s = context.read<SettingsStore>();
+              s.gameSessionAllDrops = !s.gameSessionAllDrops;
+            },
           ),
           TextButton(
             onPressed: practice.exitGameSession,
@@ -751,6 +777,29 @@ class _PracticeTabState extends State<PracticeTab> {
         ],
       );
 
+  /// The best move NAMED, for the states with no verdict line to carry it —
+  /// an untouched puzzle you asked to be shown, or a line continuation.
+  ///
+  /// Without it a reveal there is an arrow and nothing else, and "the answer is
+  /// on screen" — the condition the primary button now gates advancing on
+  /// (#214) — would only be half true.
+  ///
+  /// Gated on [PracticeController.revealBest], which nothing sets except a
+  /// deliberate reveal or the top of the hint ladder: this must never name the
+  /// move before the player has looked for it (#232).
+  Widget _revealedBest(
+      Map<String, dynamic> item, PracticeController practice) {
+    if (!practice.revealBest) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(top: 3),
+      child: Text('best is ${item['bestSan']}',
+          style: const TextStyle(
+              color: Color(0xFF81B64C),
+              fontSize: 12,
+              fontWeight: FontWeight.w600)),
+    );
+  }
+
   Widget _promptStrip(Map<String, dynamic> item, PracticeController practice,
       String sideToMove) {
     final attempt = practice.attempt;
@@ -772,6 +821,7 @@ class _PracticeTabState extends State<PracticeTab> {
                   const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
           const Text('find the strong move here too',
               style: TextStyle(color: Colors.white38, fontSize: 12)),
+          _revealedBest(item, practice),
         ],
       );
     } else if (attempt == null) {
@@ -788,6 +838,7 @@ class _PracticeTabState extends State<PracticeTab> {
             '${practice.hintTier >= 1 && motifs.isNotEmpty ? ' · think: ${motifs.join(', ')}' : ''}',
             style: const TextStyle(color: Colors.white38, fontSize: 12),
           ),
+          _revealedBest(item, practice),
         ],
       );
     } else if (attempt.pass) {
@@ -873,6 +924,57 @@ class _PracticeTabState extends State<PracticeTab> {
   /// carry, so every option serves something. Hidden entirely when there are
   /// none — an untagged collection gets a menu with one item saying "all",
   /// which is furniture pretending to be a feature.
+  /// The drop a puzzle needs before practice will serve it (#213).
+  ///
+  /// Here rather than in Settings, beside the motif filter, because it is the
+  /// same KIND of control — "narrow what I am being asked" — and because it is
+  /// only legible where you feel it. In Settings it was a number two screens
+  /// away from the queue it governs, and the collection browser was already
+  /// labelling rows "not queued — under N%" against a bar the player could not
+  /// see.
+  ///
+  /// The percentages match the ones Settings offered, and 5 is [kCollectMin] —
+  /// the floor everything is collected at, so "5%" really does mean "serve me
+  /// everything", not "serve me most of it".
+  Widget _thresholdMenu(PracticeController practice) {
+    final settings = context.watch<SettingsStore>();
+    final at = settings.collectThreshold;
+    final below = practice.items.length - practice.servable.length;
+    return PopupMenuButton<int>(
+      tooltip: 'How bad a mistake has to be',
+      // A label, not an icon: two filter funnels side by side would be a
+      // guessing game, and the number IS the state — an icon would need a
+      // badge to say the same thing.
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+        child: Text('$at%',
+            style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: at == kCollectMin.round()
+                    ? Colors.white70
+                    : const Color(0xFF81B64C))),
+      ),
+      onSelected: (v) => settings.collectThreshold = v,
+      itemBuilder: (context) => [
+        for (final v in const [5, 10, 15, 20, 30])
+          CheckedPopupMenuItem<int>(
+            value: v,
+            checked: at == v,
+            child: Text(v == kCollectMin.round()
+                ? 'Everything collected'
+                : 'Losing at least $v%'),
+          ),
+        if (below > 0)
+          PopupMenuItem<int>(
+            enabled: false,
+            child: Text('$below below the current bar',
+                style: const TextStyle(fontSize: 11.5, color: Colors.white38)),
+          ),
+      ],
+    );
+  }
+
   Widget _motifMenu(PracticeController practice) {
     final counts = practice.motifCounts;
     final active = practice.motifFilter;
@@ -941,10 +1043,42 @@ class _PracticeTabState extends State<PracticeTab> {
     if (ok == true) await practice.remove(id);
   }
 
+  /// The primary button's words. The controller decides what it DOES
+  /// ([PracticeController.primaryAction]); only the wording lives here, so the
+  /// keyboard and the button cannot drift apart.
+  static String _primaryLabel(PracticePrimary p) => switch (p) {
+        PracticePrimary.hint => 'Hint',
+        PracticePrimary.anotherHint => 'Another hint',
+        PracticePrimary.showBest => 'Show best',
+        PracticePrimary.next => 'Next',
+      };
+
+  /// …and its tooltip, which is where the shortcuts get said out loud (#214).
+  /// The bindings existed and were folklore: a "Keyboard shortcuts" button in
+  /// the app bar, on wide layouts only, three taps from the hint you wanted.
+  static String _primaryTip(PracticePrimary p) => switch (p) {
+        PracticePrimary.hint ||
+        PracticePrimary.anotherHint =>
+          'Hint — press ? or / (or n)',
+        PracticePrimary.showBest => 'Show the best move — press b (or n)',
+        PracticePrimary.next => 'Next puzzle — press n',
+      };
+
   Widget _actionRow(BuildContext context, PracticeController practice) {
     final attempt = practice.attempt;
     final current = practice.current;
     final bestUci = current?['bestUci'] as String?;
+    // The green button is a LADDER, not a "move on" (#214): hint, another hint,
+    // show best, and only then Next. It sits one key from Retry, and losing an
+    // unsolved puzzle to a stray `n` — no answer, no record of what the move
+    // was — was the whole complaint. Nothing here advances until the answer is
+    // on screen.
+    //
+    // Rejected: a confirm dialog on Skip. It leaves the primary meaning "move
+    // on", so the muscle memory that caused the bug keeps being rewarded, and
+    // it taxes every DELIBERATE skip with a modal — the one case that was never
+    // broken. The ladder taxes nothing: solve it and the first press is Next.
+    final primary = practice.primaryAction;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       color: const Color(0xFF1f1e1b),
@@ -961,27 +1095,19 @@ class _PracticeTabState extends State<PracticeTab> {
             child: SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               child: Row(children: [
-                if (attempt == null && practice.hintTier < 3)
-                  TextButton(
-                    onPressed: practice.hint,
-                    child: Text(
-                      practice.hintTier == 0
-                          ? 'Hint'
-                          : practice.hintTier == 1
-                              ? 'Another hint'
-                              : 'Show best',
-                      style: const TextStyle(color: Colors.white70),
-                    ),
-                  ),
-                // pass or fail: retry to hunt the best, reveal if you haven't
-                // found it (a "good enough" pass still has a better move to see)
+                // pass or fail: retry to hunt the best move again
                 if (attempt != null)
                   TextButton(
                     onPressed: practice.retry,
                     child: const Text('Retry',
                         style: TextStyle(color: Colors.white70)),
                   ),
+                // A "good enough" pass still has a better move to see. PASS
+                // only now — every other unrevealed state has "Show best" as
+                // the primary button, and the same words twice in one row is
+                // two controls where there is one action.
                 if (attempt != null &&
+                    attempt.pass &&
                     !practice.revealBest &&
                     attempt.uci != bestUci)
                   TextButton(
@@ -1014,6 +1140,19 @@ class _PracticeTabState extends State<PracticeTab> {
                     child: const Text('Continue the line',
                         style: TextStyle(color: Color(0xFF81B64C))),
                   ),
+                // Leaving a puzzle unanswered, kept and demoted rather than
+                // removed: "not this one, not now" is a real thing to want, and
+                // the alternative — reveal or nothing — spoils a position you
+                // will be served again. Deliberately plain, deliberately last,
+                // and deliberately bound to NO key; a stray keystroke reaching
+                // it is the bug. Dropped once the answer is up, where the
+                // primary already means the same thing.
+                if (!practice.solvedOrRevealed)
+                  TextButton(
+                    onPressed: practice.nextPuzzle,
+                    child: const Text('Skip',
+                        style: TextStyle(color: Colors.white38)),
+                  ),
               ]),
             ),
           ),
@@ -1036,15 +1175,38 @@ class _PracticeTabState extends State<PracticeTab> {
               onPressed: () =>
                   _confirmDelete(context, practice, current['id'] as String),
             ),
+          // At EVERY width, unlike the app bar's copy of this (main.dart gates
+          // that one on a wide viewport). Width is a poor proxy for "has a
+          // keyboard" — a tablet with one, a narrow desktop window — and the
+          // Practice bindings are the set players actually went looking for.
+          IconButton(
+            tooltip: 'Keyboard shortcuts',
+            icon: const Icon(Icons.keyboard_outlined,
+                size: 20, color: Colors.white70),
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+            onPressed: () => showKeyboardHelp(context),
+          ),
           const SizedBox(width: 6),
-          FilledButton(
-            onPressed: practice.nextPuzzle,
-            style: FilledButton.styleFrom(
-              backgroundColor: const Color(0xFF81B64C),
-              foregroundColor: const Color(0xFF161512),
+          Tooltip(
+            message: _primaryTip(primary),
+            child: FilledButton(
+              onPressed: practice.doPrimary,
+              style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xFF81B64C),
+                foregroundColor: const Color(0xFF161512),
+                // Tighter than the 24-a-side default: the label is a ladder
+                // now, and the fixed half of this row cannot scroll. Measured
+                // under the real Roboto at 320 logical pixels, which is where
+                // the widest rung ('Another hint') has to fit — the default
+                // overflowed, and even 12 a side was still 0.9px over. An
+                // overflow is a runtime error that neither the analyzer nor a
+                // green suite says anything about, hence the test beside it.
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+              ),
+              child: Text(_primaryLabel(primary),
+                  style: const TextStyle(fontWeight: FontWeight.w600)),
             ),
-            child: Text(attempt == null ? 'Skip' : 'Next',
-                style: const TextStyle(fontWeight: FontWeight.w600)),
           ),
         ],
       ),

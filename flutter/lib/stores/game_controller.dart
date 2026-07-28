@@ -109,6 +109,10 @@ class GameController extends ChangeNotifier {
   // the deepest streamed snapshot per fen — grading falls back to these when
   // an analysis was cancelled because the board moved on
   final Map<String, List<EngineMove>> _partials = {};
+  // fens whose analysis future has RESOLVED — see [analysisSettled]. Cleared
+  // wherever _analysis is, and only wherever _analysis is: an entry here is a
+  // claim about the future held there, so the two must never disagree.
+  final Set<String> _settledFens = {};
   // grade pipelines still in flight — save waits for them (bounded)
   final Set<Future<void>> _pendingGrades = {};
   int _gen = 0;
@@ -740,10 +744,20 @@ class GameController extends ChangeNotifier {
   /// Switching away disposes it: keeping a second engine's worker resident
   /// costs the memory for nothing.
   RetroEngine? _syncRetro() {
-    // match the side to move: in bot-vs-bot the retro engine alternates with
+    // Prefer the side to move — in bot-vs-bot the retro engine alternates with
     // the mover (a per-move worker rebuild if the two sides are different
-    // retros, which is rare and acceptable for a watch feature).
-    final spec = personaToMove?.retro;
+    // retros, which is rare and acceptable for a watch feature) — but fall
+    // back to whichever seat holds one.
+    //
+    // It read `personaToMove?.retro` alone, which is null on YOUR turn by
+    // definition, and that silently deleted the preload for the seating every
+    // game actually uses: you on White, the bot on Black. Nothing was built
+    // until the bot's first turn, so the 4.4MB arrived under a single move's
+    // patience with the rest of the app's boot still on the wire — and on a
+    // phone that is a coin toss for whether TUROCHAMP or a Stockfish stand-in
+    // answers 1...e5. Same for a mixed bot-vs-bot game, where the retro's
+    // worker was disposed and rebuilt on every one of the OTHER bot's turns.
+    final spec = personaToMove?.retro ?? whitePersona?.retro ?? blackPersona?.retro;
     final key = spec == null ? null : '${spec['engine']}:${spec['ply']}';
     if (key != _retroKey) {
       _retro?.dispose();
@@ -881,6 +895,7 @@ class GameController extends ChangeNotifier {
     _lastSavedGame = null;
     gameSeed = _newSeed();
     _analysis.clear();
+    _settledFens.clear();
     _partials.clear();
     _controlCache.clear(); // per-fen maps would accrete for the process life
     // Not a correctness fix — the memo is keyed on the grade object and the
@@ -1197,7 +1212,10 @@ class GameController extends ChangeNotifier {
       // luck, not by construction. Spelling it out means the `grade!`
       // unwraps below stay safe even if that floor is ever lowered.
       if (grade != null &&
-          drop >= _settings.collectThreshold &&
+          // refuseThreshold, NOT collectThreshold: one number used to do both
+          // jobs, so the Practice tab's bar silently decided when a rated game
+          // refused a move (#213).
+          drop >= _settings.refuseThreshold &&
           attempts < kMaxRefusalAttempts) {
         decided = true;
         _refusalAttempts[fenBefore] = attempts + 1;
@@ -1445,6 +1463,39 @@ class GameController extends ChangeNotifier {
     record.grade = _grading.backfillGrade(grade, lines);
     notifyListeners();
   }
+
+  // ---- app lifecycle (#234) ----
+
+  /// The app stopped being the active window — another tab, another app, a
+  /// locked phone. Freeze a running clock.
+  ///
+  /// DECIDED (Ryan, 2026-07-27): pause generously. "This is just a practice
+  /// app." There is no opponent to wrong here — the rating is the player's own
+  /// estimate of themselves — and losing on time because a phone call arrived
+  /// measures the phone call. So this fires on every state that is not
+  /// `resumed`, including a mere window blur, rather than only on a hard
+  /// suspend. It reverses what chess_clock.dart's header used to argue; that
+  /// paragraph has been rewritten rather than left contradicting this.
+  ///
+  /// Time already spent still counts: [ChessClock.pause] banks the running
+  /// side first, and falls the flag if it had already run out before we got
+  /// here. Backgrounding cannot rescue a game that was already lost.
+  ///
+  /// No `gameOver` guard, and that is deliberate rather than an omission. Both
+  /// of these had one; a mutation showed neither could ever fire, because
+  /// every path that ends a game already stops the clock (`_apply`'s tail,
+  /// [resign], and `_fall` for a flag) and [ChessClock] then refuses both calls
+  /// on `_running == null`. A guard that cannot be reached is worse than none:
+  /// it reads as the thing keeping the invariant when the real keeper is
+  /// somewhere else.
+  void pauseForBackground() => _clock?.pause();
+
+  /// Back in front of the player: unfreeze.
+  ///
+  /// Resumes immediately rather than waiting for a move, which is what every
+  /// other clock does on return. No UI indication of the paused state is
+  /// needed — by definition nobody is looking at it while it holds.
+  void resumeFromBackground() => _clock?.resume();
 
   /// Debug/self-test only: archive the game regardless of game-over state.
   Future<void> debugForceSave() => _saveGame();
@@ -1938,6 +1989,23 @@ class GameController extends ChangeNotifier {
   /// snapshot) — feeds the Lines pane as the search deepens.
   List<EngineMove> get currentLines => _partials[position.fen] ?? const [];
 
+  /// Has the search of the position on the board FINISHED — a different
+  /// question from how deep it got, and one depth cannot answer (#95).
+  ///
+  /// An analysis ends at [kAnalysisDepth] OR [kAnalysisMovetimeMs], whichever
+  /// comes first, and is also stopped short when the board moves on
+  /// (`cancelAnalyses`, which resolves it with its partials). So a finished
+  /// search routinely sits below the target for good, and a bare "depth 19" is
+  /// ambiguous between "still climbing" and "this is all it will ever say".
+  ///
+  /// Only the arbiter's future knows which, so the answer is recorded when it
+  /// resolves rather than guessed in the pane. The alternative considered was
+  /// leaving it to the UI to notice the depth had stopped changing for a
+  /// second or two — which is a timer racing a search whose whole point is
+  /// that its pace is unpredictable, and would have shown "finished" every
+  /// time a deep ply took a while.
+  bool get analysisSettled => _settledFens.contains(position.fen);
+
   /// The blind SETTING — is the switch on. Not the same question as
   /// [hidingHelp], and the difference is the whole of #148.
   ///
@@ -2248,6 +2316,7 @@ class GameController extends ChangeNotifier {
   void _loadReview(Map<String, dynamic> stored) {
     _redoStack.clear();
     _analysis.clear();
+    _settledFens.clear();
     _partials.clear();
     _controlCache.clear();
     _threat = null;
@@ -2545,6 +2614,27 @@ class GameController extends ChangeNotifier {
         // it would re-search a terminal position forever.
         if (lines == null && identical(_analysis[fen], mine)) {
           _analysis.remove(fen);
+        } else if (lines != null) {
+          // The search is over — at the target, at the movetime backstop, or
+          // stopped early by the board moving on, all three of which end it
+          // for good because the memo above means this fen is never searched
+          // again.
+          //
+          // `lines != null` is narrower than it looks, and the comment here
+          // used to claim more. The ORDINARY null resolution never reaches
+          // this branch at all: it is caught above and evicts the memo. What
+          // this guard actually excludes is a null from a SUPERSEDED analysis
+          // — one whose entry has already been replaced, so `identical` fails
+          // — which would otherwise mark a fen final while a live search for
+          // it is still running. That case is real but narrow, and it is NOT
+          // covered by a test: reaching it needs an analysis to outlive an
+          // `_analysis.clear()` and a re-request for the same fen. Said here
+          // rather than left as apparent coverage.
+          _settledFens.add(fen);
+          // The last streamed partial notified; this resolution is a separate
+          // event after it, and without its own notify the pane keeps drawing
+          // a search that is still going.
+          if (fen == position.fen) notifyListeners();
         }
         return lines;
       });

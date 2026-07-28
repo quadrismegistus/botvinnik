@@ -126,24 +126,29 @@ class SettingsTab extends StatelessWidget {
             onChanged: (v) => settings.controlOpacity = v,
           ),
         const _SectionLabel('Practice'),
+        // The practice bar itself has MOVED to the Practice tab (#213), beside
+        // the motif filter — it is only legible where you feel it, and the
+        // collection browser was already labelling rows against a number two
+        // screens away. What is left here is the OTHER job that number used to
+        // do, which no label ever mentioned.
         ListTile(
           dense: true,
-          title: const Text('Practice mistakes losing at least'),
+          title: const Text('Refuse a move losing at least'),
           subtitle: Text(
-            'Everything ≥5% is collected; this filters which puzzles '
-            'you actually drill.'
-            '${belowThreshold > 0 ? ' ($belowThreshold collected below the current bar)' : ''}',
+            'When "refuse blunders" is on, a move this bad is handed back '
+            'instead of played.'
+            '${belowThreshold > 0 ? ' The practice bar is separate, and lives on the Practice tab ($belowThreshold puzzles are under it).' : ' The practice bar is separate, and lives on the Practice tab.'}',
             style: const TextStyle(fontSize: 11.5, color: Colors.white38),
           ),
           trailing: DropdownButton<int>(
-            value: settings.collectThreshold,
+            value: settings.refuseThreshold,
             underline: const SizedBox(),
             items: const [5, 10, 15, 20, 30]
                 .map((v) =>
                     DropdownMenuItem(value: v, child: Text('$v% win chance')))
                 .toList(),
             onChanged: (v) {
-              if (v != null) settings.collectThreshold = v;
+              if (v != null) settings.refuseThreshold = v;
             },
           ),
         ),

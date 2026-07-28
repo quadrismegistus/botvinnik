@@ -16,13 +16,25 @@
 // ask for a repaint; delete it and the numbers are still right, they just stop
 // being drawn.
 //
-// Backgrounding follows from that. A phone that locks mid-game keeps the game
-// going — that is what a real clock does, and the fact that Timers stop firing
-// in the background changes nothing about the numbers. The next [poll] after
-// the app resumes reports the true remaining time and falls the flag if it
-// fell while the screen was off. (Whether the monotonic source keeps advancing
-// across a full device SUSPEND is platform-dependent and not measured here.
-// A caller that needs that guarantee can inject a wall-clock source.)
+// Backgrounding follows from that too, but the POLICY changed and this
+// paragraph used to argue the opposite, so it says both. The mechanism is
+// unaffected either way: Timers stopping in the background changes nothing
+// about the numbers, and the next [poll] after a resume reports the true
+// remaining time. (Whether the monotonic source keeps advancing across a full
+// device SUSPEND is platform-dependent and not measured here. A caller that
+// needs that guarantee can inject a wall-clock source.)
+//
+// What this file used to say was: a phone that locks mid-game keeps the game
+// going, because that is what a real clock does. DECIDED OTHERWISE (Ryan,
+// 2026-07-27, #234): "pause generously — this is just a practice app." There
+// is no opponent to wrong, the rating is the player's own estimate of
+// themselves, and losing on time because a phone call arrived measures the
+// phone call rather than the chess. [ClockLifecycle] now calls [pause] on
+// every lifecycle state that is not `resumed`.
+//
+// This class is still not the place that decision lives — it only offers
+// [pause] and [resume] and has no opinion about when they are right, the same
+// way it does not know that flagging loses the game (see [onFlag]).
 
 import 'dart:async';
 

@@ -33,13 +33,29 @@ export async function loadSettled(page: Page) {
  * EVERY document, including the one after that reload.
  */
 export async function seedPersona(page: Page, personaId: string) {
-	await page.addInitScript((id) => {
+	await seedPersonas(page, { white: personaId });
+}
+
+/**
+ * Seed both seats directly — null for "the human plays this side".
+ *
+ * The colour matters more than it looks: with the bot on White it is on move
+ * the instant the app opens, so anything the app does lazily at the bot's
+ * first turn happens at load and looks like eager work. Every retro test but
+ * one is written that way, which is how the preload below stayed broken.
+ */
+export async function seedPersonas(
+	page: Page,
+	seats: { white?: string | null; black?: string | null }
+) {
+	await page.addInitScript((s) => {
 		// shared_preferences_web stores JSON-encoded values under a 'flutter.'
-		// prefix, so a string setting is double-encoded. The stored colour is
-		// the BOT's.
+		// prefix, so a string setting is double-encoded. The keys must both be
+		// PRESENT (null is fine) — settings_store reads the pair only if one of
+		// them exists, and otherwise migrates the older {enabled, color} shape.
 		localStorage.setItem(
 			'flutter.botvinnik-bot-v1',
-			JSON.stringify(JSON.stringify({ personaId: id, enabled: true, color: 'w' }))
+			JSON.stringify(JSON.stringify({ white: s.white ?? null, black: s.black ?? null }))
 		);
-	}, personaId);
+	}, seats);
 }
