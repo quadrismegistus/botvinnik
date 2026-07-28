@@ -180,10 +180,16 @@ test('a boot slower than one turn does not condemn the whole game', async ({ pag
 	// download cost the whole game, and the download it gave up on had almost
 	// certainly finished seconds later.
 	//
-	// Held the wasm back 40s: past what one turn will wait for, well short of
-	// the engine being unreachable. Both bots are the same retro, so turns keep
-	// arriving without touching the board — the canvas is not driveable.
-	const proxy = await slowProxy(/retro\.wasm$/, 40_000);
+	// Held the wasm back 70s: past what one turn will wait for (30s), well
+	// short of the three minutes before the engine gives up for good. The
+	// margin is deliberately wide rather than 40s — the 30s starts at the
+	// bot's first turn, not at page load, so on a slow CI runner a tighter
+	// delay would let the boot land BEFORE the first turn ran out of patience
+	// and the test would go green having exercised nothing.
+	//
+	// Both bots are the same retro, so turns keep arriving without touching
+	// the board — the canvas is not driveable.
+	const proxy = await slowProxy(/retro\.wasm$/, 70_000);
 	const logs: string[] = [];
 	page.on('console', (m) => logs.push(m.text()));
 
