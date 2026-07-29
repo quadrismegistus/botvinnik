@@ -50,6 +50,10 @@ class RetroEngine {
   Completer<String?>? _move;
   bool _alive = true;
 
+  /// False once this worker's Go program has ended — see the `__exited__`
+  /// branch. The engine cannot be revived; the owner builds a new one.
+  bool get alive => _alive;
+
   /// How long ONE turn will wait for the boot before playing a stand-in.
   static const _turnPatience = Duration(seconds: 30);
 
@@ -83,6 +87,27 @@ class RetroEngine {
       if (data.startsWith('__boot_failed__')) {
         _die('the worker could not load retro.wasm — '
             '${data.substring('__boot_failed__'.length).trim()}');
+        return;
+      }
+      // The Go program has ended, and the client cannot revive it: the worker
+      // hosts one instance and `go.run` is a one-shot. It ends when
+      // scripts/retro-wasm/main.go returns from `<-driver.Closed()`, which
+      // morlock does on `quit` and — see the `ucinewgame` note in [move] — on
+      // any command its driver fails to parse.
+      //
+      // Before the worker announced this, the client found out by posting into
+      // a dead worker: the throw landed as an unhandled rejection inside the
+      // worker's async handler, nothing came back, and this engine waited out
+      // `movetimeMs + 10s` before giving the turn away to a Stockfish stand-in
+      // — for the rest of the game, since the badge is sticky.
+      //
+      // Dying here rather than there is what makes it recoverable:
+      // [GameController] checks [alive] when it syncs, so the next turn builds
+      // a fresh worker instead of inheriting a corpse. With the `ucinewgame`
+      // fix this should now be rare; it is the net under it, not the fix.
+      if (data.startsWith('__exited__')) {
+        _die('the engine process ended; a fresh worker will be built for the '
+            'next turn');
         return;
       }
       if (data.startsWith('bestmove')) {
@@ -141,6 +166,41 @@ class RetroEngine {
     // back, rather than being handed a bestmove for a position that is gone.
     _finish(null);
     final pending = _move = Completer<String?>();
+    // `ucinewgame` FIRST, every time, and it is load-bearing rather than
+    // tidy. morlock's UCI driver treats a `position` line that PREFIXES the
+    // last one as a continuation of the game and parses the remainder as
+    // moves (pkg/engine/uci/uci.go, "Continuation of game") — so an IDENTICAL
+    // line leaves an empty remainder, `Move(ctx, "")` fails, and the driver
+    // RETURNS. That ends the driver, which ends `<-driver.Closed()` in
+    // scripts/retro-wasm/main.go, which ends the Go program. In a worker that
+    // is a silent death; the client then waits out its whole move timeout and
+    // hands the turn to a Stockfish stand-in, for the rest of the game.
+    //
+    // Honest split of the blame, because it decides where the fix belongs.
+    // UCI says a GUI SHOULD send `ucinewgame` when the new position is from a
+    // different game than the last one — morlock quotes that line in the
+    // source directly above the branch that bites. This client never sent it,
+    // so the new-game half of this is our omission, and the line below is us
+    // complying rather than working around anybody.
+    //
+    // The engine's half is that an identical line is a degenerate case its
+    // parser does not handle (`strings.Split("", " ")` yields one EMPTY
+    // element), and that it answers unparseable input by ending the session
+    // rather than ignoring it, which UCI asks engines to do. That half is
+    // reachable with no protocol sin at all: take a move back and play the
+    // same move again, and the engine is legitimately asked to move from a
+    // position it has already been sent, FEN counters and all. Reported
+    // upstream; the one-line guard is theirs to take.
+    //
+    // The report that found it: play a game where the retro bot moves first,
+    // start another, and its opening `position fen <start>` is
+    // character-identical to the last line the engine saw.
+    //
+    // This costs nothing: we always send a whole FEN and never a `moves` list,
+    // so the continuation branch could never fire usefully for us — a
+    // different FEN always takes the engine's "New position" reset path, which
+    // is exactly what `ucinewgame` forces. Same work, minus the cliff.
+    _worker.postMessage('ucinewgame'.toJS);
     _worker.postMessage('position fen $fen'.toJS);
     _worker.postMessage('go movetime $movetimeMs'.toJS);
     return pending.future.timeout(

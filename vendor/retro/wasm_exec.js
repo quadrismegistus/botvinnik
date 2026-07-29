@@ -282,6 +282,18 @@
 						this._nextCallbackTimeoutID++;
 						this._scheduledTimeouts.set(id, setTimeout(
 							() => {
+								// LOCAL PATCH to a vendored Go runtime file, 2026-07-29.
+								// Re-vendoring wasm_exec.js drops it — reapply.
+								//
+								// This engine's program can end while its own timers are
+								// still scheduled (morlock's driver returns on a parse
+								// error), and those timers then fire against a dead
+								// instance. _resume() throws for that, from a bare
+								// setTimeout, so it lands in the player's console as an
+								// uncaught error on every retro game. The Go program is
+								// gone either way; the only question is whether it says
+								// so in a way that reads like a crash.
+								if (this.exited) return;
 								this._resume();
 								while (this._scheduledTimeouts.has(id)) {
 									// for some reason Go failed to register the timeout event, log and try again

@@ -765,7 +765,13 @@ class GameController extends ChangeNotifier {
     // worker was disposed and rebuilt on every one of the OTHER bot's turns.
     final spec = personaToMove?.retro ?? whitePersona?.retro ?? blackPersona?.retro;
     final key = spec == null ? null : '${spec['engine']}:${spec['ply']}';
-    if (key != _retroKey) {
+    // A DEAD engine is rebuilt even when the key is unchanged. The retro
+    // worker's Go program ends whenever its command queue drains, which on a
+    // human's clock is every gap between turns — so "same persona, so keep the
+    // engine" quietly meant "keep a corpse", and every later turn stood in.
+    // This runs at move time as well as on persona changes, so the replacement
+    // is built BEFORE the move is asked for rather than after one is lost.
+    if (key != _retroKey || (_retro != null && !_retro!.alive)) {
       _retro?.dispose();
       _retro = null;
       _retroKey = key;
