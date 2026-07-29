@@ -976,7 +976,21 @@ class GameController extends ChangeNotifier {
     // else, and says so. The ordering is still required, for the reason
     // above.)
     _settings.setPlayers(white: black, black: white);
-    newGame(rated: wasRated, timeControl: timeControl, fromFen: _startFen);
+    newGame(
+      rated: wasRated,
+      timeControl: timeControl,
+      fromFen: _startFen,
+      // Carried, as `rated` and the clock already are. This reverses the
+      // original #167 call ("a per-attempt toggle, not a property of the
+      // match being continued"), on evidence: the toggle lives in the New
+      // Game sheet, a rematch never opens that sheet, so there is no moment
+      // at which a player could see it had gone. And its absence is silent by
+      // construction — nothing gets refused, which is exactly what a game
+      // with nothing worth refusing looks like. Losing a protection you
+      // explicitly asked for, with no way to notice, is worse than the
+      // sticky-checkbox worry that argued against carrying it.
+      refuseBlunders: _refuseBlunders,
+    );
   }
 
   /// Moves taken off by undo, in game order, so redo can put them back

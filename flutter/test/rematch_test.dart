@@ -184,13 +184,37 @@ void main() {
       // Fixture has it ON, so this can actually fail: with the fixture at its
       // default the assertion held whatever rematch() did, and a rematch that
       // carried the flag left all six tests green.
-      expect(g.refuseBlunders, isFalse,
-          reason: 'a per-attempt toggle (#167), not a property of the match '
-              'being continued — it is never carried');
+      //
+      // This assertion was `isFalse` until 2026-07-29, on the reasoning that
+      // the toggle is per-attempt and not a property of the match being
+      // continued. Reversed deliberately: a rematch never opens the sheet the
+      // toggle lives in, so the player has no moment in which to notice it
+      // has gone — and a missing refusal is silent, which is precisely what a
+      // game with nothing worth refusing looks like too.
+      expect(g.refuseBlunders, isTrue,
+          reason: 'continues under the same terms, as `rated` and the clock '
+              'already do — losing a protection you asked for with no way to '
+              'see it go is worse than the sticky-checkbox worry');
       expect(arbiter.bumpGenerations - resetsBefore, 1,
           reason: 'exactly one reset — the New Game sheet\'s own documented '
               'sequence, not the double reset #133 was about');
 
+      await _windDown(tester, g, settings);
+    });
+
+    testWidgets('and carries it OFF just as faithfully', (tester) async {
+      // The other half of carrying a flag, and the half a plain `= true`
+      // would pass anyway: a rematch of a game that never had protection must
+      // not quietly acquire it. Without this, "carry it" and "turn it on"
+      // are the same test.
+      final (g, settings, _) = await _game(); // refuseBlunders defaults off
+      g.playUci('a8a1'); // Ra1#
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(g.gameOver, isTrue, reason: 'precondition');
+
+      g.rematch();
+
+      expect(g.refuseBlunders, isFalse);
       await _windDown(tester, g, settings);
     });
 
