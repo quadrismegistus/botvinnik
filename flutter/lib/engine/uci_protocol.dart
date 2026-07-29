@@ -124,6 +124,19 @@ abstract class UciProtocol implements UciSearcher {
         // downstream is fed two depths to subtract. That is strictly better
         // than the hatch, which stayed live by emitting exactly what this
         // file exists to stop emitting.
+        //
+        // The cost is not only staleness, and this is the part worth knowing
+        // before anyone calls it harmless: [SearchArbiter]'s courtesy window
+        // is consulted ONLY from the stream callback, so a stalled stream
+        // never closes it. A cancelled analysis that would have yielded the
+        // engine at [kMinUsefulDepth] instead runs its whole budget —
+        // [kAnalysisMovetimeMs], or depth 22 — and nothing preempts it,
+        // because analysis-versus-analysis is equal priority. That is the
+        // per-ply backlog `cancelAnalyses` exists to prevent, at up to 10s a
+        // ply rather than about 3. Same trigger: an engine whose per-iteration
+        // line count permanently drops, which nothing in the catalogue does.
+        // For a healthy engine the courtesy stop simply lands one iteration
+        // later, and yields a real depth-12 snapshot instead of a mixed one.
         if (_onUpdate != null &&
             depth > _lastStreamedDepth &&
             _byMultipv.values.every((l) => l.depth == depth)) {

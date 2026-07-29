@@ -49,8 +49,8 @@ void main() {
       final result =
           uci.search('fen', go: 'depth 3', multiPv: 3, onUpdate: snaps.add);
 
-      // depth 1 teaches it the ceiling; it streams early, having no way to
-      // know 3 lines are coming
+      // iteration 1 streams as each line lands: with nothing else in the map
+      // yet, a one-line snapshot is uniform trivially
       uci.handleLine('info depth 1 multipv 1 score cp 10 pv e2e4');
       uci.handleLine('info depth 1 multipv 2 score cp 5 pv d2d4');
       uci.handleLine('info depth 1 multipv 3 score cp 0 pv g1f3');
@@ -83,7 +83,11 @@ void main() {
           uci.handleLine('info depth $d multipv $mpv score cp $mpv pv e2e4');
         }
       }
+      // One per iteration. The first is a single line — iteration 1's line 1
+      // arrives with nothing else in the map yet, which is uniform trivially
+      // and far below every consumer's depth floor.
       expect(snaps, hasLength(3), reason: 'one per iteration, not none');
+      expect(snaps.map((s) => s.length), [1, 3, 3]);
       expect(snaps.last.map((l) => l.depth), [3, 3, 3]);
 
       uci.handleLine('bestmove e2e4');
@@ -192,14 +196,15 @@ void main() {
           reason: 'and the resolution stays comparable, which is the point');
     });
 
-    test('the ceiling is per SEARCH, not per engine', () async {
+    test('nothing carries from one search into the next', () async {
       // One UciProtocol serves every priority on one engine: analysis at
-      // MultiPV 5, bot moves at 12, the refusal check at 1. A ceiling that
-      // survived into the next search would mean a MultiPV-1 search after a
-      // wider one could never satisfy it — no snapshots at all, for the whole
-      // search, which is the exact opposite of what this group is for. Two
-      // searches on ONE instance is the only way to see it; every other test
-      // here gets a fresh protocol from setUp.
+      // MultiPV 5, bot moves at 12, the refusal check at 1. Two searches on
+      // ONE instance is the only way to see per-search state that failed to
+      // reset; every other test here gets a fresh protocol from setUp.
+      //
+      // (This was called "the ceiling is per SEARCH" while the gate learned a
+      // multipv ceiling. That design is gone — the gate now tests the
+      // invariant directly — and the name outlived it by one commit.)
       final first =
           uci.search('fen', go: 'depth 2', multiPv: 3, onUpdate: (_) {});
       for (final mpv in [1, 2, 3]) {
@@ -218,6 +223,17 @@ void main() {
 
       uci.handleLine('bestmove d2d4');
       await second;
+
+      // And the resolved lines are this search's. A search whose info lines
+      // carry no `depth` token at all parses as depth 0, so nothing streams
+      // and _lastStreamedLines is never assigned — if it still held the
+      // PREVIOUS search's lines, this would resolve with a completely
+      // different position's moves.
+      final third = uci.search('fen3', go: 'depth 3', multiPv: 3);
+      uci.handleLine('info multipv 1 score cp 5 pv h2h4');
+      uci.handleLine('info multipv 2 score cp 4 pv h2h3');
+      uci.handleLine('bestmove h2h4');
+      expect((await third).map((l) => l.pv.first), ['h2h4', 'h2h3']);
     });
 
     test('a single-line search still streams every depth', () async {

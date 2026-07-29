@@ -329,13 +329,7 @@ void main() {
     // WHICH lines a verdict is read off, as opposed to what it then does with
     // them. Each of these is about a position the controller has been told
     // about twice, where the two tellings disagree.
-    //
-    // Known coverage gap, stated rather than left to be discovered: the LAST
-    // of _preLinesFor's three coherence checks — the final `return
-    // _partials[fen]` after the capped await times out — has no test of its
-    // own. Reaching it needs the await to actually expire, which is 2.5s of
-    // real time for a one-line rule that is the same expression, on the
-    // adjacent line, as two checks that ARE mutation-pinned below.
+
     group('the evidence a refusal reads', () {
       const deep = [
         EngineMove(pv: ['e2e4'], score: 0.3, mate: null, depth: 18, multipv: 1),
@@ -420,6 +414,71 @@ void main() {
         // nothing, and an ungraded move there costs the label, the chart point
         // and the practice puzzle — worse than a slightly worse number. The
         // two callers of the filter want opposite things from it.
+        game.dispose();
+      });
+
+      test('including after the whole cap has expired', () async {
+        // The slowest test in the file, and it earns it: reaching _preLinesFor's
+        // LAST resort means letting the 2.5s cap actually run out, and that is
+        // the one path where a mixed snapshot had nowhere else to be caught.
+        // It also covers the fast-path filter above it, so one wait pins two
+        // rules that both survived mutation before this existed.
+        const mixed = [
+          EngineMove(pv: ['a2a3'], score: 9.0, mate: null, depth: 20, multipv: 1),
+          EngineMove(pv: ['b2b3'], score: 0.02, mate: null, depth: 19, multipv: 2),
+        ];
+        final settings = await loadSettings(black: kTestBotId);
+        final grading = FakeGrading(winChanceOf: winChanceOf);
+        final game = GameController(
+            FakeArbiter(
+                analysisLines: mixed,
+                partialSequence: const [mixed],
+                // never resolves, so the capped await is the only way out
+                analysisDelay: const Duration(hours: 1),
+                searchLines: childLines),
+            FakeBot({kTestBotId: testBotPersona}),
+            grading,
+            settings,
+            null,
+            FakePractice());
+        game.newGame(refuseBlunders: true);
+        game.playUci('e2e4');
+        await Future<void>.delayed(const Duration(milliseconds: 2800));
+
+        expect(game.refusedMoves, 0,
+            reason: 'the last resort is filtered like the rest');
+        expect(game.moves, isNotEmpty);
+        game.dispose();
+      }, timeout: const Timeout(Duration(seconds: 20)));
+
+      test('the post-commit pipeline PREFERS a comparable snapshot', () async {
+        // The sibling rule, and deliberately the opposite one: this path has
+        // already let the move through, so it takes the better of the two and
+        // never refuses to grade. Mixed resolve, clean partial — it should
+        // grade on the clean one.
+        const mixed = [
+          EngineMove(pv: ['a2a3'], score: 9.0, mate: null, depth: 20, multipv: 1),
+          EngineMove(pv: ['b2b3'], score: 0.02, mate: null, depth: 19, multipv: 2),
+        ];
+        final settings = await loadSettings(black: kTestBotId);
+        final grading = FakeGrading(winChanceOf: winChanceOf);
+        final game = GameController(
+            FakeArbiter(analysisLines: mixed, partialSequence: const [deep]),
+            FakeBot({kTestBotId: testBotPersona}),
+            grading,
+            settings,
+            null,
+            FakePractice());
+        // refusal OFF: this is the post-commit pipeline, nothing else
+        game.newGame();
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        game.playUci('e2e4');
+        await Future<void>.delayed(const Duration(milliseconds: 150));
+
+        expect(grading.preLinesSeen, isNotEmpty,
+            reason: 'it grades — preferring is not rejecting');
+        expect(grading.preLinesSeen.first.first.depth, 18,
+            reason: 'the comparable snapshot, not the mixed resolution');
         game.dispose();
       });
 
