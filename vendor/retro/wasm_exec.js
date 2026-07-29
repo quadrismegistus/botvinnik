@@ -1,3 +1,8 @@
+// LOCALLY PATCHED COPY — not pristine upstream. One hunk, marked "LOCAL PATCH"
+// further down (search for it), guarding a post-exit timer callback. The
+// pristine sibling is scripts/retro-wasm/wasm_exec.js; refreshing this file by
+// copying from $(go env GOROOT) DROPS the patch, so reapply it and see
+// scripts/retro-wasm/main.go for the recipe. CI greps for the marker.
 // Copyright 2018 The Go Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.

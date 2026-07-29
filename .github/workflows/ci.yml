@@ -22,6 +22,26 @@ jobs:
       - run: npm run check
       - run: npm test
 
+      # The retro engines' UCI contract, against the committed wasm — Node
+      # only, about a second, no browser and no Flutter build. It earns its
+      # place: sending the same `position` twice used to END the engine, and
+      # every existing retro test sends exactly one, so the browser suite
+      # stayed green through a bug that handed whole games to a Stockfish
+      # stand-in. `with` is the assertion; `without` documents the failure and
+      # is deliberately not a gate, since it asserts a bug that upstream may
+      # fix (herohde/morlock#6).
+      - name: retro engine survives a repeated position
+        run: node scripts/retro-wasm/repeat-position.mjs with
+
+      # vendor/retro/wasm_exec.js is Go's runtime shim with ONE local patch,
+      # and the documented way to refresh it is `cp` from $(go env GOROOT) —
+      # which silently removes the patch. Without this, that loss shows up as
+      # an uncaught error in a player's console and nowhere else.
+      - name: the local patch to the vendored Go shim is still there
+        run: |
+          grep -q 'LOCAL PATCH' vendor/retro/wasm_exec.js \
+            || { echo "vendor/retro/wasm_exec.js lost its local patch — see scripts/retro-wasm/main.go" >&2; exit 1; }
+
   # The sync blob-store Worker (issue #203). Its own npm package under worker/,
   # so it installs and tests independently of the brain. `npm test` drives the
   # real Worker through Miniflare (workerd + an in-memory R2), which is where the

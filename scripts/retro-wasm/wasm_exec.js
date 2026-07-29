@@ -1,3 +1,6 @@
+// PRISTINE upstream copy (Go 1.26.5), used by test-node.mjs. The SHIPPED
+// copy is vendor/retro/wasm_exec.js and it carries one local patch — do not
+// overwrite that one from this one without reapplying it.
 // Copyright 2018 The Go Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.

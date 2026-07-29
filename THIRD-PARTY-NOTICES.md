@@ -27,9 +27,9 @@ repository as the rest of the source.
 | chess.js | BSD-2-Clause |
 | Roboto (Christian Robertson) — the app typeface, bundled into the Flutter build so the web app fetches no fonts from Google | Apache-2.0 |
 | js-chess-engine (Josef Jadrny) — the "Horizon" bot personas; bundled into `flutter/assets/brain.js` and served to the web in a lazy chunk | MIT |
-| morlock (Henning Rohde) — the "retro" bot engines (TUROCHAMP, BERNSTEIN, SARGON), re-implementations built three ways from one source: WebAssembly at `retro/retro.wasm`, native binaries inside the macOS bundle, and a static archive linked into the iOS app | MIT |
+| morlock (Henning Rohde) — the "retro" bot engines (TUROCHAMP, BERNSTEIN, SARGON), re-implementations built three ways from one source: WebAssembly at `retro/retro.wasm`, native binaries inside the macOS bundle, and a static archive linked into the iOS app, with its LICENSE alongside on the web | MIT |
 | Garbochess-JS (Gary Linscott) — the "Garbo" bot persona; the 2011 engine verbatim, served at `garbo/garbochess.js` on the web and bundled as an asset on macOS/iOS, with its LICENSE alongside in both | BSD-3-Clause |
-| `wasm_exec.js` (The Go Authors) — the Go/WASM runtime shim the retro engines load | BSD-3-Clause |
+| `wasm_exec.js` (The Go Authors) — the Go/WASM runtime shim the retro engines load, served at `retro/wasm_exec.js`, with the Go LICENSE alongside. **Not verbatim**: our copy carries one local patch, marked in the file, so that timers scheduled before the Go program ends stop throwing into the console afterwards | BSD-3-Clause |
 | The Go runtime (The Go Authors) — statically linked into the retro engines on macOS and iOS, as any Go binary carries it | BSD-3-Clause |
 | onnxruntime-web — the ONNX runtime for the Maia bots, on the web | MIT |
 | ONNX Runtime (Microsoft), via the `onnxruntime` Flutter plugin — the same runtime for the Maia bots on macOS/iOS, linked as a native library | MIT |
