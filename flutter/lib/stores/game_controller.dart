@@ -795,13 +795,40 @@ class GameController extends ChangeNotifier {
 
   /// Whether [fen] is a full, legal position we can start from — used to
   /// validate a pasted FEN before handing it to [newGame].
-  static bool isPlayableFen(String fen) {
+  static bool isPlayableFen(String fen) => fenProblem(fen) == null;
+
+  /// Why [fen] cannot be played here, phrased for the player, or null if it
+  /// can. Separate from [isPlayableFen] because "Not a valid FEN" is a lie
+  /// about the castling case below: that FEN is perfectly valid, and dartchess
+  /// parses it happily. It is only unplayable HERE.
+  static String? fenProblem(String fen) {
+    final trimmed = fen.trim();
     try {
-      Chess.fromSetup(Setup.parseFen(fen.trim()));
-      return true;
+      Chess.fromSetup(Setup.parseFen(trimmed));
     } catch (_) {
-      return false;
+      return 'Not a valid FEN';
     }
+    // FILE-LETTER CASTLING (Shredder-FEN, `w Dd`) — Chess960 notation, which
+    // names the rook's file because a shuffled back rank makes "queenside"
+    // ambiguous. dartchess parses it AND re-emits it verbatim, so the string
+    // reaches the engines unchanged; morlock's parser rejects it, and the way
+    // it rejects it is by returning from its driver loop, which ends the
+    // engine — a retro bot that stands in for the whole game (see
+    // retro_commands.dart for the same failure by the other route).
+    //
+    // Refused rather than converted. `AHah` really does mean `KQkq` when the
+    // rooks are on a and h, but nothing else here plays Chess960, and
+    // rewriting the field for positions where it happens to be equivalent
+    // would leave the genuine 960 case failing exactly as before, further from
+    // the message that explains it.
+    final fields = trimmed.split(RegExp(r'\s+'));
+    if (fields.length > 2 &&
+        fields[2] != '-' &&
+        !RegExp(r'^[KQkq]+$').hasMatch(fields[2])) {
+      return 'Castling must be written KQkq — file-letter (Chess960) '
+          'castling is not supported';
+    }
+    return null;
   }
 
   /// Start a fresh game. [fromFen] drops onto an arbitrary position instead of
