@@ -864,9 +864,16 @@ class GameController extends ChangeNotifier {
     // this guard. An earlier comment here claimed the opposite. On the web
     // build that would have written to a real player's console for the life of
     // the session.
-    if (kDebugMode) {
-      debugPrint('[refuse] new game — protection ${refuseBlunders ? 'ON, bar '
-          '${_settings.refuseThreshold}%' : 'off'}');
+    //
+    // Only when it is ON: this fired on every newGame, which put 199 lines of
+    // `protection off` into a single run of the test suite — about one line in
+    // five of the Flutter suite's output. Burying real output is a live cost
+    // in a repo that has shipped red CI it could not see. Silence now means
+    // off, and an ON game is unmistakable because every move it allows says so
+    // too.
+    if (kDebugMode && refuseBlunders) {
+      debugPrint('[refuse] new game — protection ON, '
+          'bar ${_settings.refuseThreshold}%');
     }
     _refusedMoves = 0;
     _refusalAttempts.clear();
@@ -1420,11 +1427,16 @@ class GameController extends ChangeNotifier {
         why = "it IS the engine's first line";
       } else if (!inPreLines && !grade.backfilled) {
         why = 'the check never got a number — child search too slow';
-      } else if (attempts >= kMaxRefusalAttempts) {
-        why = 'relented after $attempts attempts at this position';
-      } else {
+      } else if (drop < _settings.refuseThreshold) {
+        // BEFORE the relent branch, matching the gate itself: relenting only
+        // decides anything for a move that cleared the bar. Checked the other
+        // way round, a GOOD move played from a position already struck out
+        // three times was reported as "relented", i.e. the diagnostic
+        // explained an allow that never happened.
         why = 'costs ${drop.toStringAsFixed(1)}%, bar is '
             '${_settings.refuseThreshold}%';
+      } else {
+        why = 'relented after $attempts attempts at this position';
       }
       if (kDebugMode) {
         debugPrint('[refuse] allowed $san — $why · '
@@ -2756,6 +2768,9 @@ class GameController extends ChangeNotifier {
         // silently fails open. Same fen is the same position, so deeper is
         // simply better — there is no reading under which a shallower look at
         // it is the more current answer.
+        // `>=` rather than `>`: a fresh snapshot at the SAME depth is the
+        // more current reading of it, and a re-run that has caught up should
+        // be allowed to hand over. The difference is transient either way.
         final held = _partials[fen];
         if (held == null ||
             held.isEmpty ||

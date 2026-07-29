@@ -164,6 +164,34 @@ void main() {
       await result;
     });
 
+    test('the ceiling is per SEARCH, not per engine', () async {
+      // One UciProtocol serves every priority on one engine: analysis at
+      // MultiPV 5, bot moves at 12, the refusal check at 1. A ceiling that
+      // survived into the next search would mean a MultiPV-1 search after a
+      // wider one could never satisfy it — no snapshots at all, for the whole
+      // search, which is the exact opposite of what this group is for. Two
+      // searches on ONE instance is the only way to see it; every other test
+      // here gets a fresh protocol from setUp.
+      final first =
+          uci.search('fen', go: 'depth 2', multiPv: 3, onUpdate: (_) {});
+      for (final mpv in [1, 2, 3]) {
+        uci.handleLine('info depth 1 multipv $mpv score cp $mpv pv e2e4');
+      }
+      uci.handleLine('bestmove e2e4');
+      await first;
+
+      final snaps = <List<EngineMove>>[];
+      final second =
+          uci.search('fen2', go: 'depth 3', multiPv: 1, onUpdate: snaps.add);
+      uci.handleLine('info depth 1 multipv 1 score cp 10 pv d2d4');
+      uci.handleLine('info depth 2 multipv 1 score cp 12 pv d2d4');
+      expect(snaps.map((s) => s.single.depth), [1, 2],
+          reason: 'the narrower search streams on its own terms');
+
+      uci.handleLine('bestmove d2d4');
+      await second;
+    });
+
     test('a single-line search still streams every depth', () async {
       // MultiPV 1 is the refusal check's own shape, and the ceiling is 1, so
       // "wait for the last line" and "stream on the first" coincide.

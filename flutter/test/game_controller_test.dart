@@ -368,8 +368,42 @@ void main() {
         expect(grading.preLinesSeen, isNotEmpty,
             reason: 'a downgraded snapshot leaves the check with nothing '
                 'usable and it waits out its whole cap');
-        expect(grading.preLinesSeen.last.first.depth, 18,
+        // FIRST, not last: the post-commit grade pipeline grades the same move
+        // again from the same sources, so `last` can be an entry this test is
+        // not about — and one that looks identical, which is how it masks a
+        // real regression rather than failing on it. The refusal check runs
+        // before the move commits, so it is always the first call.
+        expect(grading.preLinesSeen.first.first.depth, 18,
             reason: 'the deeper snapshot of the same fen still stands');
+        game.dispose();
+      });
+
+      test('an analysis that settles EMPTY is not an answer', () async {
+        // A cancelled request completes with whatever it had, which is `[]` if
+        // it was cancelled before its first info line — and that marks the fen
+        // settled. Take it as the answer and the check gets no pre-lines at
+        // all, so the move is allowed ungraded, while a perfectly good depth-18
+        // snapshot sits in _partials where the no-downgrade guard kept it.
+        final settings = await loadSettings(black: kTestBotId);
+        final practice = FakePractice();
+        final game = GameController(
+            FakeArbiter(
+                analysisLines: const [],
+                partialSequence: const [deep],
+                searchLines: childLines),
+            FakeBot({kTestBotId: testBotPersona}),
+            FakeGrading(winChanceOf: winChanceOf),
+            settings,
+            null,
+            practice);
+        game.newGame(refuseBlunders: true);
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        game.playUci('e2e4');
+        await Future<void>.delayed(const Duration(milliseconds: 150));
+
+        expect(game.refusedMoves, 1,
+            reason: 'judged on the snapshot it still has, not on nothing');
+        expect(game.moves, isEmpty);
         game.dispose();
       });
 
@@ -402,7 +436,7 @@ void main() {
         await Future<void>.delayed(const Duration(milliseconds: 150));
 
         expect(grading.preLinesSeen, isNotEmpty);
-        expect(grading.preLinesSeen.last.first.depth, 18,
+        expect(grading.preLinesSeen.first.first.depth, 18,
             reason: 'deeper wins, whichever of the two it is');
         game.dispose();
       });
@@ -436,7 +470,7 @@ void main() {
         await Future<void>.delayed(const Duration(milliseconds: 150));
 
         expect(grading.preLinesSeen, isNotEmpty);
-        expect(grading.preLinesSeen.last.first.depth, 18,
+        expect(grading.preLinesSeen.first.first.depth, 18,
             reason: 'the clean snapshot, never the mixed-iteration list');
         game.dispose();
       });
@@ -472,7 +506,7 @@ void main() {
 
         expect(grading.preLinesSeen, isNotEmpty,
             reason: 'precondition: something was graded');
-        expect(grading.preLinesSeen.last.first.depth, 22,
+        expect(grading.preLinesSeen.first.first.depth, 22,
             reason: 'the finished search, not the snapshot of a running one');
         game.dispose();
       });
