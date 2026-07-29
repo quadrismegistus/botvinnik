@@ -63,6 +63,21 @@ describe('itemDataFromStoredMove', () => {
 		expect(itemDataFromStoredMove(move({ wcDrop: 0 }))).toBeNull();
 	});
 
+	it('refuses a puzzle whose answer is the move you played', () => {
+		// Vacuous by construction, and worse than useless: checkAttempt
+		// short-circuits to a PASS when the played move equals the stored
+		// bestUci, so the drill would ask you to correct a mistake and then
+		// accept that mistake as the correction.
+		//
+		// Reachable because a grade's bestEval and its evalPawns can come from
+		// two different searches, so the engine's own top move can be scored as
+		// having lost a few points. Found in a real 677-item queue: one item,
+		// `played Qe2 / best Qe2`, drop 6.6%.
+		expect(itemDataFromStoredMove(move({ bestUci: 'g8f6', bestSan: 'Nf6' }))).toBeNull();
+		// and the ordinary case still collects
+		expect(itemDataFromStoredMove(move())).not.toBeNull();
+	});
+
 	it('produces consistent fields for a mistake', () => {
 		const m = move();
 		const data = itemDataFromStoredMove(m)!;
