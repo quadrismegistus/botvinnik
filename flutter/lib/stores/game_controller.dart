@@ -855,6 +855,11 @@ class GameController extends ChangeNotifier {
       _restoreAfterRated();
     }
     _refuseBlunders = refuseBlunders;
+    // So "was protection actually on for that game?" is answerable directly
+    // rather than inferred from the absence of refusals — which is precisely
+    // what it looks like when the flag was dropped on the way in.
+    debugPrint('[refuse] new game — protection ${refuseBlunders ? 'ON, bar '
+        '${_settings.refuseThreshold}%' : 'off'}');
     _refusedMoves = 0;
     _refusalAttempts.clear();
     _refusalPending = false;
@@ -1369,6 +1374,30 @@ class GameController extends ChangeNotifier {
         notifyListeners();
         return;
       }
+
+      // WHY a move was allowed. The refusal path announces itself on screen;
+      // this branch never did, and its most interesting cases are the ones
+      // that look identical to a good move: a check that could not get a
+      // number fails open in silence, so "nothing was refused" reads as
+      // "nothing was worth refusing". One line per human move, and only in a
+      // debug build — debugPrint is a no-op in release.
+      final String why;
+      if (grade == null) {
+        why = 'no pre-move lines to judge it by';
+      } else if ((pre?.depth ?? 0) < kMinUsefulDepth) {
+        why = 'lines only reached depth ${pre?.depth} (needs $kMinUsefulDepth)';
+      } else if (pre?.isBest ?? false) {
+        why = "it IS the engine's first line";
+      } else if (!inPreLines && !grade.backfilled) {
+        why = 'the check never got a number — child search too slow';
+      } else if (attempts >= kMaxRefusalAttempts) {
+        why = 'relented after $attempts attempts at this position';
+      } else {
+        why = 'costs ${drop.toStringAsFixed(1)}%, bar is '
+            '${_settings.refuseThreshold}%';
+      }
+      debugPrint('[refuse] allowed $san — $why · '
+          '${inPreLines ? 'in pre-lines, rank ${pre.rank}, depth ${pre.depth}' : 'off-list, child depth ${grade?.depth}'}');
 
       _refusalAttempts.remove(fenBefore);
       // Cleared before [_apply], not after: _apply notifies, and it must not
