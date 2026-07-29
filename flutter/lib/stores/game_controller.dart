@@ -1331,9 +1331,19 @@ class GameController extends ChangeNotifier {
           // is a puzzle whose stated best move is worth +12 pawns and which
           // no move on the board can pass.
           //
-          // label/explanation stay off the backfilled grade: they are text,
-          // built from the child search's refutation line, and are what makes
-          // the puzzle readable. Only the arithmetic has to agree.
+          // EVERY field, not just the arithmetic. An earlier version of this
+          // took label/explanation from the backfilled grade on the grounds
+          // that they are what makes the puzzle readable — which is simply
+          // untrue: [PracticeItem] has no label and no explanation field, so
+          // `itemDataFromStoredMove` drops both on the floor. Keeping a second
+          // provenance in this map bought nothing and left a `label: 'best'`
+          // sitting beside a `wcDrop: 55`, which is a contradiction waiting
+          // for the first reader who takes it seriously.
+          //
+          // Reading bestSan/bestUci from here rather than from `grade` also
+          // drops a load-bearing assumption: they agree today only because
+          // `backfillGrade` spreads them forward untouched, and nothing says
+          // it must keep doing so.
           final basis = inPreLines ? pre : grade;
           final storedMove = {
             'ply': moves.length + 1,
@@ -1347,11 +1357,11 @@ class GameController extends ChangeNotifier {
             'pctBest': basis.pctBest,
             'wcDrop': drop,
             'depth': basis.depth,
-            if (grade.label != null) 'label': grade.label,
-            'bestSan': grade.bestSan,
-            'bestUci': grade.bestUci,
-            if (grade.explanation != null)
-              'explanation': grade.explanation!.raw,
+            if (basis.label != null) 'label': basis.label,
+            'bestSan': basis.bestSan,
+            'bestUci': basis.bestUci,
+            if (basis.explanation != null)
+              'explanation': basis.explanation!.raw,
           };
           final prevUci = moves.isNotEmpty ? moves.last.uci : null;
           await practice.maybeCollect(storedMove, setupUci: prevUci);
