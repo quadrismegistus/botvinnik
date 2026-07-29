@@ -60,6 +60,42 @@ describe('gradeMove', () => {
 		expect(g.offList).toBe(true);
 		expect(g.evalPawns).toBeNull();
 	});
+
+	// Refusal mode (#167) decides on THIS grade rather than the backfilled one
+	// whenever the played move is in the lines, precisely so that the two evals
+	// it subtracts come from the same search at the same depth. That only holds
+	// while a listed move's evalPawns is read off the same list as bestEval —
+	// if this ever stops being true, refusal mode starts comparing a depth-22
+	// number with a depth-10 one again and can refuse the engine's own move.
+	it('gives a listed move its eval from the same search as bestEval', () => {
+		const best = gradeMove(1, START, 'e4', 'e2e4', 'w', LINES)!;
+		expect(best.rank).toBe(1);
+		// the invariant the drop rests on: identical numbers => a drop of zero
+		expect(best.evalPawns).toBe(best.bestEval);
+		expect(best.mate).toBe(best.bestMate);
+		expect(winChance(best.bestEval, best.bestMate) - winChance(best.evalPawns, best.mate)).toBe(
+			0
+		);
+
+		// and `mate` off the played line too, which is the half that matters
+		// most: winChance short-circuits on mate, so a mate read off the WRONG
+		// line is a flat 100 (or 0) — the single biggest error this comparison
+		// can make, and the one the refusal path would act on.
+		const mating = [line('e2e4', 0, 1, 3), line('d2d4', 0.25, 2)];
+		const missed = gradeMove(1, START, 'd4', 'd2d4', 'w', mating)!;
+		expect(missed.bestMate).toBe(3);
+		expect(missed.mate).toBeNull(); // the played line has no mate of its own
+		expect(winChance(missed.bestEval, missed.bestMate)).toBe(100);
+		expect(winChance(missed.evalPawns, missed.mate)).toBeLessThan(100);
+
+		const third = gradeMove(1, START, 'Nf3', 'g1f3', 'w', LINES)!;
+		expect(third.rank).toBe(3);
+		expect(third.evalPawns).toBe(0.2); // its own line's score, not the best one's
+		// a real, judgeable drop with no child search involved at all
+		expect(
+			winChance(third.bestEval, third.bestMate) - winChance(third.evalPawns, third.mate)
+		).toBeGreaterThan(0);
+	});
 });
 
 describe('backfillGrade labels', () => {
