@@ -36,6 +36,11 @@ abstract class UciProtocol implements UciSearcher {
   /// completed iteration reaches. Learned rather than assumed, because a
   /// position with fewer legal moves than MultiPV never emits the top index.
   int _maxMultipvSeen = 0;
+
+  /// The last snapshot handed to [_onUpdate] — one complete iteration, by
+  /// construction. Kept so [_resolvedLines] has something coherent to resolve
+  /// with when the search is stopped part-way through the next one.
+  List<EngineMove> _lastStreamedLines = const [];
   int _currentMultiPv = 0;
 
   /// Weakening options applied by the last search. Anything in here that the
@@ -108,15 +113,27 @@ abstract class UciProtocol implements UciSearcher {
         // iteration still streams early (nothing has taught us the ceiling
         // yet); it is depth 1, and every consumer that cares has a depth floor
         // far above it.
+        //
+        // The ceiling is a RATCHET, so the `depth` escape hatch is not
+        // belt-and-braces: an engine that reported five lines and then reports
+        // four would never satisfy `multipv >= 5` again, and streaming would
+        // stop dead for the rest of the search — silently, with the pane
+        // frozen on the last good snapshot and every depth-gated wait
+        // (the bot's opening wait, the analysis courtesy window) burning its
+        // full budget. No engine in the catalogue was shown to do this, but
+        // the desktop path launches whatever UCI binary it is pointed at, so
+        // the cost of being wrong is not ours to bound. Two iterations of
+        // staleness is the most this can now hide.
         if (_onUpdate != null &&
             depth > _lastStreamedDepth &&
-            multipv >= _maxMultipvSeen) {
+            (multipv >= _maxMultipvSeen || depth >= _lastStreamedDepth + 2)) {
           _lastStreamedDepth = depth;
-          _onUpdate!(_sorted());
+          _lastStreamedLines = _sorted();
+          _onUpdate!(_lastStreamedLines);
         }
       }
     } else if (line.startsWith('bestmove')) {
-      final moves = _sorted();
+      final moves = _resolvedLines();
       _onUpdate = null;
       _search?.complete(moves);
       _search = null;
@@ -125,6 +142,38 @@ abstract class UciProtocol implements UciSearcher {
 
   List<EngineMove> _sorted() => _byMultipv.values.toList()
     ..sort((a, b) => a.multipv.compareTo(b.multipv));
+
+  /// What a search RESOLVES with, as opposed to what it streams.
+  ///
+  /// Streaming was fixed to emit only complete iterations; the resolution was
+  /// not, and it is the half that reaches grading — a settled analysis is
+  /// preferred over a partial precisely because it finished. But a search that
+  /// ends on the movetime backstop ends mid-iteration, leaving `_byMultipv`
+  /// holding line 1 at depth D beside the rest at D-1: the same mixed list,
+  /// arriving by the other door. Observed shape, with a stop after line 1 of
+  /// depth 4: depths `[4, 3, 3]`, scores `[9.0, 0.02, 0.03]` — a top line that
+  /// looks nine pawns better than alternatives it was never compared against.
+  ///
+  /// So prefer the last complete iteration whenever the map is mid-iteration.
+  /// It is one ply shallower and it is COMPARABLE, which is the trade anything
+  /// that subtracts two of these lines needs. A single-line search (MultiPV 1,
+  /// which is the bot's and the refusal check's own shape) has nothing to be
+  /// incoherent with and keeps its deepest answer.
+  List<EngineMove> _resolvedLines() {
+    final all = _sorted();
+    if (all.length < 2) return all;
+    final depth = all.first.depth;
+    if (all.every((l) => l.depth == depth)) return all;
+    // ...but never at the cost of CANDIDATES. Before the first iteration
+    // completes, the last streamed snapshot can be a single line while the map
+    // already holds several — handing that back would collapse a bot's choice
+    // set (MultiPV 12) to one move and make it play the top line every time.
+    // Coherence is worth one ply of depth; it is not worth the alternatives.
+    // What survives here incoherent is refused by the one caller that
+    // subtracts these numbers — see GameController._oneIteration, which treats
+    // lines it cannot compare as no lines at all.
+    return _lastStreamedLines.length >= all.length ? _lastStreamedLines : all;
+  }
 
   @override
   bool get busy => _search != null;
@@ -152,6 +201,7 @@ abstract class UciProtocol implements UciSearcher {
     _onUpdate = onUpdate;
     _lastStreamedDepth = 0;
     _maxMultipvSeen = 0;
+    _lastStreamedLines = const [];
     final completer = Completer<List<EngineMove>>();
     _search = completer;
     final incoming = {

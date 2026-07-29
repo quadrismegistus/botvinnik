@@ -858,8 +858,16 @@ class GameController extends ChangeNotifier {
     // So "was protection actually on for that game?" is answerable directly
     // rather than inferred from the absence of refusals — which is precisely
     // what it looks like when the flag was dropped on the way in.
-    debugPrint('[refuse] new game — protection ${refuseBlunders ? 'ON, bar '
-        '${_settings.refuseThreshold}%' : 'off'}');
+    //
+    // kDebugMode, because debugPrint is NOT a no-op in release — Flutter's own
+    // doc says it "logs to console even in release mode" and asks for exactly
+    // this guard. An earlier comment here claimed the opposite. On the web
+    // build that would have written to a real player's console for the life of
+    // the session.
+    if (kDebugMode) {
+      debugPrint('[refuse] new game — protection ${refuseBlunders ? 'ON, bar '
+          '${_settings.refuseThreshold}%' : 'off'}');
+    }
     _refusedMoves = 0;
     _refusalAttempts.clear();
     _refusalPending = false;
@@ -949,10 +957,13 @@ class GameController extends ChangeNotifier {
   /// terms is exactly as deliberate as re-ticking the box would be — and a
   /// rematch of a CASUAL game stays casual for the same reason in reverse:
   /// the tap carries the previous choice forward, it does not invent a rated
-  /// one. [refuseBlunders] is NOT carried — it is off by default in
-  /// [newGame] like every other caller, because #167 gives it no comparable
-  /// "same terms" claim: it is a practice toggle for THIS attempt, not a
-  /// property of the match being continued.
+  /// one. [refuseBlunders] rides along on the same argument, as of
+  /// 2026-07-29. It did not until then — it was read as a toggle for THIS
+  /// attempt rather than a property of the match — and the case that overturns
+  /// that is asymmetry: a rematch never opens the sheet the toggle lives in,
+  /// so protection silently switched OFF has no moment at which it could be
+  /// noticed, while protection silently left ON announces itself the first
+  /// time it refuses a move. See the call site below.
   void rematch() {
     if (!canRematch) return;
     final white = _settings.whitePersonaId;
@@ -1393,8 +1404,13 @@ class GameController extends ChangeNotifier {
       // this branch never did, and its most interesting cases are the ones
       // that look identical to a good move: a check that could not get a
       // number fails open in silence, so "nothing was refused" reads as
-      // "nothing was worth refusing". One line per human move, and only in a
-      // debug build — debugPrint is a no-op in release.
+      // "nothing was worth refusing". One line per human move.
+      //
+      // Behind kDebugMode, and that is not tidiness: debugPrint logs in
+      // RELEASE too, and this line names the played move's rank, the engine's
+      // own first line and the exact win-chance cost — precisely what blind
+      // and rated withhold. It would have printed all of it to the console of
+      // a blindfold game on the web.
       final String why;
       if (grade == null) {
         why = 'no pre-move lines to judge it by';
@@ -1410,8 +1426,10 @@ class GameController extends ChangeNotifier {
         why = 'costs ${drop.toStringAsFixed(1)}%, bar is '
             '${_settings.refuseThreshold}%';
       }
-      debugPrint('[refuse] allowed $san — $why · '
-          '${inPreLines ? 'in pre-lines, rank ${pre.rank}, depth ${pre.depth}' : 'off-list, child depth ${grade?.depth}'}');
+      if (kDebugMode) {
+        debugPrint('[refuse] allowed $san — $why · '
+            '${inPreLines ? 'in pre-lines, rank ${pre.rank}, depth ${pre.depth}' : 'off-list, child depth ${grade?.depth}'}');
+      }
 
       _refusalAttempts.remove(fenBefore);
       // Cleared before [_apply], not after: _apply notifies, and it must not
@@ -2904,25 +2922,45 @@ class GameController extends ChangeNotifier {
   /// played before anything streamed) and capped, so that case fails open
   /// rather than hanging. It is also the path the test harness takes, since a
   /// fake arbiter resolves instantly and may never stream partials at all.
+  /// Lines worth SUBTRACTING one from another: all at the same depth.
+  ///
+  /// Fixed at the source — [UciProtocol] now streams and resolves whole
+  /// iterations — and checked again here, because this is the caller that
+  /// turns the difference between two of these numbers into a refusal, and a
+  /// gap of one iteration is enough to manufacture one out of nothing. Lines
+  /// that cannot be compared are no lines at all: refusal mode's whole
+  /// contract is that it does not act on a number it does not really have.
+  static bool _oneIteration(List<EngineMove>? lines) =>
+      lines != null &&
+      lines.isNotEmpty &&
+      lines.every((l) => l.depth == lines.first.depth);
+
   Future<List<EngineMove>?> _preLinesFor(String fen, Duration cap) async {
-    // A FINISHED analysis beats any snapshot of one still running, and costs
-    // nothing to take: [_analysisFor] memoises, so a settled future resolves
-    // in a microtask rather than starting anything. Without this the completed
-    // depth-22 lines sat unread in `_analysis` while the verdict was made off
-    // a partial — the fast path below takes anything from depth 12 up and
-    // never looks past it. `_settledFens` and `_analysis` are cleared
-    // together, so this cannot ask for a fen whose memo has gone and quietly
-    // start a fresh search.
-    if (_settledFens.contains(fen)) {
+    // DEEPER wins, whichever it is. A finished analysis is usually the better
+    // of the two — the completed lines otherwise sit unread while the verdict
+    // is made off a partial — but "finished" does not imply "deeper": a search
+    // preempted by the refusal check is re-run from scratch and can settle at
+    // the courtesy depth ([kMinUsefulDepth]) while the snapshot this position
+    // already had, and which the guard in [_analysisFor] now pins, is far
+    // deeper. Preferring settled unconditionally handed the check strictly
+    // worse evidence than it already held, on the common path.
+    //
+    // `containsKey` rather than trusting that `_settledFens` and `_analysis`
+    // are cleared together: they are on every path today, but [_analysisFor]
+    // would START a search for a fen whose memo had gone, and this is called
+    // with a human waiting on the answer. A membership test costs nothing and
+    // does not need the invariant to hold.
+    final partial = _oneIteration(_partials[fen]) ? _partials[fen] : null;
+    List<EngineMove>? settled;
+    if (_settledFens.contains(fen) && _analysis.containsKey(fen)) {
       final done = await _analysisFor(fen);
-      if (done != null && done.isNotEmpty) return done;
+      if (_oneIteration(done)) settled = done;
     }
-    final partial = _partials[fen];
-    if (partial != null &&
-        partial.isNotEmpty &&
-        partial.first.depth >= kMinUsefulDepth) {
-      return partial;
-    }
+    final best = (settled != null &&
+            (partial == null || settled.first.depth >= partial.first.depth))
+        ? settled
+        : partial;
+    if (best != null && best.first.depth >= kMinUsefulDepth) return best;
     final lines = await _analysisFor(fen).timeout(cap, onTimeout: () => null);
     if (lines != null && lines.isNotEmpty) return lines;
     // Deliberately unfiltered, unlike the fast path above: a shallow snapshot

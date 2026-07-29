@@ -90,6 +90,80 @@ void main() {
       await result;
     });
 
+    test('and RESOLVES with one iteration too, not the half-finished map',
+        () async {
+      // The other door into the same bug. Streaming was fixed; the value the
+      // search resolves with was not, and that is the half a settled analysis
+      // hands to grading. A search stopped mid-iteration — the ordinary end
+      // for one, on the movetime backstop — leaves line 1 an iteration ahead
+      // of the rest, with a score never compared against them.
+      final result =
+          uci.search('fen', go: 'depth 22', multiPv: 3, onUpdate: (_) {});
+      for (final d in [1, 2, 3]) {
+        for (final mpv in [1, 2, 3]) {
+          uci.handleLine('info depth $d multipv $mpv score cp $mpv pv e2e4');
+        }
+      }
+      // iteration 4 is cut off after its first line, which is the one that
+      // moved: +9.00 against alternatives last seen at +0.02
+      uci.handleLine('info depth 4 multipv 1 score cp 900 pv e2e4');
+      uci.handleLine('bestmove e2e4');
+
+      final lines = await result;
+      expect(lines.map((l) => l.depth), [3, 3, 3],
+          reason: 'the last COMPLETE iteration, not [4, 3, 3]');
+      expect(lines.first.score, closeTo(0.01, 1e-9),
+          reason: 'and its own line 1, not the orphaned +9.00');
+    });
+
+    test('but never trades away candidates to get there', () async {
+      // Stopped before any full iteration: the only coherent thing on hand is
+      // the one-line snapshot from before the ceiling was known, and the map
+      // holds two. A bot searching MultiPV 12 that got back a single line
+      // would play its top move deterministically, which is a worse failure
+      // than the mixed depths — and the mixed list is refused anyway by the
+      // one caller that subtracts these numbers.
+      final result =
+          uci.search('fen', go: 'depth 22', multiPv: 3, onUpdate: (_) {});
+      uci.handleLine('info depth 5 multipv 1 score cp 20 pv e2e4');
+      uci.handleLine('info depth 5 multipv 2 score cp 10 pv d2d4');
+      uci.handleLine('info depth 6 multipv 1 score cp 25 pv e2e4');
+      uci.handleLine('bestmove e2e4');
+
+      final lines = await result;
+      expect(lines, hasLength(2), reason: 'both candidates survive');
+      expect(lines.first.depth, 6);
+    });
+
+    test('a ceiling that drops does not stop the stream forever', () async {
+      // _maxMultipvSeen only ever rises, so an engine that reports five lines
+      // and then four would never satisfy it again — the pane would freeze on
+      // the last good snapshot, and every depth-gated wait would burn its full
+      // budget, silently. No shipped engine was shown to do this; the desktop
+      // path runs whatever UCI binary it is pointed at.
+      final snaps = <List<EngineMove>>[];
+      final result =
+          uci.search('fen', go: 'depth 9', multiPv: 3, onUpdate: snaps.add);
+      for (final mpv in [1, 2, 3]) {
+        uci.handleLine('info depth 1 multipv $mpv score cp $mpv pv e2e4');
+      }
+      for (final mpv in [1, 2, 3]) {
+        uci.handleLine('info depth 2 multipv $mpv score cp $mpv pv e2e4');
+      }
+      snaps.clear();
+      // from here it only ever reports two lines
+      for (final d in [3, 4, 5, 6]) {
+        for (final mpv in [1, 2]) {
+          uci.handleLine('info depth $d multipv $mpv score cp $mpv pv e2e4');
+        }
+      }
+      expect(snaps, isNotEmpty,
+          reason: 'the escape hatch keeps staleness bounded at 2 iterations');
+
+      uci.handleLine('bestmove e2e4');
+      await result;
+    });
+
     test('a single-line search still streams every depth', () async {
       // MultiPV 1 is the refusal check's own shape, and the ceiling is 1, so
       // "wait for the last line" and "stream on the first" coincide.

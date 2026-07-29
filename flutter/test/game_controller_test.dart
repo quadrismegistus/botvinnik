@@ -373,6 +373,74 @@ void main() {
         game.dispose();
       });
 
+      test('but not when the finished one is SHALLOWER', () async {
+        // "Finished" does not imply "deeper". A search preempted by the
+        // refusal check is re-run from scratch and can settle at the courtesy
+        // depth while the snapshot this position already had — the one the
+        // guard above deliberately pins — is far deeper. Preferring settled
+        // unconditionally handed the check strictly worse evidence than it
+        // was already holding, on the common path, which is the opposite of
+        // what both changes are for.
+        const settledShallow = [
+          EngineMove(
+              pv: ['a2a3'], score: 9.9, mate: null, depth: 12, multipv: 1),
+        ];
+        final settings = await loadSettings(black: kTestBotId);
+        final grading = FakeGrading(winChanceOf: winChanceOf);
+        final game = GameController(
+            FakeArbiter(
+                analysisLines: settledShallow,
+                partialSequence: const [deep]),
+            FakeBot({kTestBotId: testBotPersona}),
+            grading,
+            settings,
+            null,
+            FakePractice());
+        game.newGame(refuseBlunders: true);
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        game.playUci('e2e4');
+        await Future<void>.delayed(const Duration(milliseconds: 150));
+
+        expect(grading.preLinesSeen, isNotEmpty);
+        expect(grading.preLinesSeen.last.first.depth, 18,
+            reason: 'deeper wins, whichever of the two it is');
+        game.dispose();
+      });
+
+      test('and lines it cannot compare are treated as no lines', () async {
+        // A search stopped mid-iteration used to RESOLVE with line 1 an
+        // iteration ahead of the rest — fixed in UciProtocol, and refused
+        // again here, because this is the caller that turns the gap between
+        // two of these numbers into a refusal. The mixed list below is the
+        // observed shape: a top line that looks nine pawns better than
+        // alternatives it was never compared against.
+        // DEEPER than the clean partial on its line 1, so the depth
+        // comparison would happily take it — being incomparable is the only
+        // thing wrong with it, and the only thing that can reject it.
+        const mixed = [
+          EngineMove(pv: ['a2a3'], score: 9.0, mate: null, depth: 20, multipv: 1),
+          EngineMove(pv: ['b2b3'], score: 0.02, mate: null, depth: 19, multipv: 2),
+        ];
+        final settings = await loadSettings(black: kTestBotId);
+        final grading = FakeGrading(winChanceOf: winChanceOf);
+        final game = GameController(
+            FakeArbiter(analysisLines: mixed, partialSequence: const [deep]),
+            FakeBot({kTestBotId: testBotPersona}),
+            grading,
+            settings,
+            null,
+            FakePractice());
+        game.newGame(refuseBlunders: true);
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        game.playUci('e2e4');
+        await Future<void>.delayed(const Duration(milliseconds: 150));
+
+        expect(grading.preLinesSeen, isNotEmpty);
+        expect(grading.preLinesSeen.last.first.depth, 18,
+            reason: 'the clean snapshot, never the mixed-iteration list');
+        game.dispose();
+      });
+
       test('and a finished analysis beats a snapshot of one in flight',
           () async {
         // The partial clears kMinUsefulDepth, so the fast path was happy to
