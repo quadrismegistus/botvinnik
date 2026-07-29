@@ -75,12 +75,20 @@ class FakeArbiter implements SearchArbiter {
   final List<({SearchPriority priority, int depth, int multiPv})>
       searchRequests = [];
 
+  /// Snapshots to push through `onUpdate`, in order, instead of the single
+  /// [streamPartials] one. A real analysis streams repeatedly and not always
+  /// monotonically: a preempted one is re-enqueued and restarts from depth 1,
+  /// so the same fen can be told something SHALLOWER than it already knows.
+  /// That is the only way to exercise what the controller does with it.
+  final List<List<EngineMove>>? partialSequence;
+
   FakeArbiter({
     this.analysisLines,
     this.streamPartials = false,
     this.searchLines,
     this.searchDelay = Duration.zero,
     this.analysisDelay = Duration.zero,
+    this.partialSequence,
   });
 
   @override
@@ -88,7 +96,14 @@ class FakeArbiter implements SearchArbiter {
       {void Function(List<EngineMove>)? onUpdate}) {
     final lines = analysisLines;
     if (lines == null) return Completer<List<EngineMove>?>().future;
-    if (streamPartials) onUpdate?.call(lines);
+    final seq = partialSequence;
+    if (seq != null) {
+      for (final snapshot in seq) {
+        onUpdate?.call(snapshot);
+      }
+    } else if (streamPartials) {
+      onUpdate?.call(lines);
+    }
     if (analysisDelay > Duration.zero) {
       return Future<List<EngineMove>?>.delayed(analysisDelay, () => lines);
     }
@@ -271,6 +286,12 @@ class FakeGrading implements GradingApi {
     this.backfillExtra = const {},
   });
 
+  /// Every `preLines` list this was asked to grade against, in order. The
+  /// fake grade itself ignores them, so this is the only way to ask WHICH
+  /// lines a decision was made on — which is the whole question when two
+  /// snapshots of the same position disagree.
+  final List<List<EngineMove>> preLinesSeen = [];
+
   /// A blunder-shaped grade, so a move that reaches the collect guard is one
   /// practice would want. Only the fields the pipeline and _storedMoveOf read
   /// need to be here.
@@ -282,8 +303,9 @@ class FakeGrading implements GradingApi {
     required String uci,
     required String color,
     required List<EngineMove> preLines,
-  }) =>
-      MoveGrade({
+  }) {
+    preLinesSeen.add(preLines);
+    return MoveGrade({
         'ply': ply,
         'fenBefore': fenBefore,
         'san': san,
@@ -296,9 +318,10 @@ class FakeGrading implements GradingApi {
         'bestUci': 'd2d4',
         'bestEval': 0.0,
         'bestPv': const ['d2d4'],
-        'backfilled': false,
-        ...gradeExtra,
-      });
+      'backfilled': false,
+      ...gradeExtra,
+    });
+  }
 
   @override
   MoveGrade backfillGrade(MoveGrade grade, List<EngineMove> childLines) =>

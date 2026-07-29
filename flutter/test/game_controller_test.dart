@@ -326,6 +326,296 @@ void main() {
       game.dispose();
     });
 
+    // WHICH lines a verdict is read off, as opposed to what it then does with
+    // them. Each of these is about a position the controller has been told
+    // about twice, where the two tellings disagree.
+
+    group('the evidence a refusal reads', () {
+      const deep = [
+        EngineMove(pv: ['e2e4'], score: 0.3, mate: null, depth: 18, multipv: 1),
+      ];
+      const shallow = [
+        EngineMove(pv: ['a2a3'], score: 9.9, mate: null, depth: 2, multipv: 1),
+      ];
+
+      test('a restarted analysis cannot downgrade what is known', () async {
+        // The refusal check preempts the position's own analysis; the
+        // re-enqueued search restarts from depth 1, so the same fen streams
+        // depth 2 after having streamed depth 18. Taking the newer snapshot
+        // means the retry is judged on worse evidence than the attempt was —
+        // and under kMinUsefulDepth it is judged on none at all.
+        final settings = await loadSettings(black: kTestBotId);
+        final grading = FakeGrading(winChanceOf: winChanceOf);
+        final game = GameController(
+            FakeArbiter(
+                analysisLines: deep,
+                partialSequence: const [deep, shallow],
+                // never settles, so the partials are all there is
+                analysisDelay: const Duration(hours: 1)),
+            FakeBot({kTestBotId: testBotPersona}),
+            grading,
+            settings,
+            null,
+            FakePractice());
+        game.newGame(refuseBlunders: true);
+        game.playUci('e2e4');
+        await Future<void>.delayed(const Duration(milliseconds: 150));
+
+        // Both assertions matter, and the first is where this actually goes
+        // red: let the depth-2 snapshot replace the depth-18 one and the fast
+        // path rejects it as too shallow, so the check falls back to awaiting
+        // an analysis that never resolves — 2.5s of nothing, and the move is
+        // neither refused nor graded while a human watches the board.
+        expect(grading.preLinesSeen, isNotEmpty,
+            reason: 'a downgraded snapshot leaves the check with nothing '
+                'usable and it waits out its whole cap');
+        // FIRST, not last: the post-commit grade pipeline grades the same move
+        // again from the same sources, so `last` can be an entry this test is
+        // not about — and one that looks identical, which is how it masks a
+        // real regression rather than failing on it. The refusal check runs
+        // before the move commits, so it is always the first call.
+        expect(grading.preLinesSeen.first.first.depth, 18,
+            reason: 'the deeper snapshot of the same fen still stands');
+        game.dispose();
+      });
+
+      test('and the FALLBACK path refuses them too, not just the fast one',
+          () async {
+        // The hole a verification pass found in the first version of this
+        // filter: no clean partial to prefer, so the check falls past the
+        // fast path to the capped await — which returned whatever the
+        // analysis settled with, unfiltered. It does not fail open there; it
+        // manufactures the refusal, measured at 44.9% where the same numbers
+        // at a single depth cost 0.5%. The depth floor cannot catch it either,
+        // since gradeMove reads `depth` off line 1.
+        const mixed = [
+          EngineMove(pv: ['a2a3'], score: 9.0, mate: null, depth: 20, multipv: 1),
+          EngineMove(pv: ['b2b3'], score: 0.02, mate: null, depth: 19, multipv: 2),
+        ];
+        final settings = await loadSettings(black: kTestBotId);
+        final grading = FakeGrading(winChanceOf: winChanceOf);
+        final game = GameController(
+            // no partialSequence at all: nothing clean is ever streamed
+            FakeArbiter(analysisLines: mixed, searchLines: childLines),
+            FakeBot({kTestBotId: testBotPersona}),
+            grading,
+            settings,
+            null,
+            FakePractice());
+        game.newGame(refuseBlunders: true);
+        game.playUci('e2e4');
+        await Future<void>.delayed(const Duration(milliseconds: 150));
+
+        expect(game.refusedMoves, 0,
+            reason: 'no comparable lines, so no refusal — fail open');
+        expect(game.moves, isNotEmpty, reason: 'and the move goes through');
+        // Not `preLinesSeen isEmpty`: the POST-COMMIT pipeline grades the same
+        // move afterwards and will take the mixed list, deliberately. It gates
+        // nothing, and an ungraded move there costs the label, the chart point
+        // and the practice puzzle — worse than a slightly worse number. The
+        // two callers of the filter want opposite things from it.
+        game.dispose();
+      });
+
+      test('including after the whole cap has expired', () async {
+        // The slowest test in the file, and it earns it: reaching _preLinesFor's
+        // LAST resort means letting the 2.5s cap actually run out, and that is
+        // the one path where a mixed snapshot had nowhere else to be caught.
+        // It also covers the fast-path filter above it, so one wait pins two
+        // rules that both survived mutation before this existed.
+        const mixed = [
+          EngineMove(pv: ['a2a3'], score: 9.0, mate: null, depth: 20, multipv: 1),
+          EngineMove(pv: ['b2b3'], score: 0.02, mate: null, depth: 19, multipv: 2),
+        ];
+        final settings = await loadSettings(black: kTestBotId);
+        final grading = FakeGrading(winChanceOf: winChanceOf);
+        final game = GameController(
+            FakeArbiter(
+                analysisLines: mixed,
+                partialSequence: const [mixed],
+                // never resolves, so the capped await is the only way out
+                analysisDelay: const Duration(hours: 1),
+                searchLines: childLines),
+            FakeBot({kTestBotId: testBotPersona}),
+            grading,
+            settings,
+            null,
+            FakePractice());
+        game.newGame(refuseBlunders: true);
+        game.playUci('e2e4');
+        await Future<void>.delayed(const Duration(milliseconds: 2800));
+
+        expect(game.refusedMoves, 0,
+            reason: 'the last resort is filtered like the rest');
+        expect(game.moves, isNotEmpty);
+        game.dispose();
+      }, timeout: const Timeout(Duration(seconds: 20)));
+
+      test('the post-commit pipeline PREFERS a comparable snapshot', () async {
+        // The sibling rule, and deliberately the opposite one: this path has
+        // already let the move through, so it takes the better of the two and
+        // never refuses to grade. Mixed resolve, clean partial — it should
+        // grade on the clean one.
+        const mixed = [
+          EngineMove(pv: ['a2a3'], score: 9.0, mate: null, depth: 20, multipv: 1),
+          EngineMove(pv: ['b2b3'], score: 0.02, mate: null, depth: 19, multipv: 2),
+        ];
+        final settings = await loadSettings(black: kTestBotId);
+        final grading = FakeGrading(winChanceOf: winChanceOf);
+        final game = GameController(
+            FakeArbiter(analysisLines: mixed, partialSequence: const [deep]),
+            FakeBot({kTestBotId: testBotPersona}),
+            grading,
+            settings,
+            null,
+            FakePractice());
+        // refusal OFF: this is the post-commit pipeline, nothing else
+        game.newGame();
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        game.playUci('e2e4');
+        await Future<void>.delayed(const Duration(milliseconds: 150));
+
+        expect(grading.preLinesSeen, isNotEmpty,
+            reason: 'it grades — preferring is not rejecting');
+        expect(grading.preLinesSeen.first.first.depth, 18,
+            reason: 'the comparable snapshot, not the mixed resolution');
+        game.dispose();
+      });
+
+      test('an analysis that settles EMPTY is not an answer', () async {
+        // A cancelled request completes with whatever it had, which is `[]` if
+        // it was cancelled before its first info line — and that marks the fen
+        // settled. Take it as the answer and the check gets no pre-lines at
+        // all, so the move is allowed ungraded, while a perfectly good depth-18
+        // snapshot sits in _partials where the no-downgrade guard kept it.
+        final settings = await loadSettings(black: kTestBotId);
+        final practice = FakePractice();
+        final game = GameController(
+            FakeArbiter(
+                analysisLines: const [],
+                partialSequence: const [deep],
+                searchLines: childLines),
+            FakeBot({kTestBotId: testBotPersona}),
+            FakeGrading(winChanceOf: winChanceOf),
+            settings,
+            null,
+            practice);
+        game.newGame(refuseBlunders: true);
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        game.playUci('e2e4');
+        await Future<void>.delayed(const Duration(milliseconds: 150));
+
+        expect(game.refusedMoves, 1,
+            reason: 'judged on the snapshot it still has, not on nothing');
+        expect(game.moves, isEmpty);
+        game.dispose();
+      });
+
+      test('but not when the finished one is SHALLOWER', () async {
+        // "Finished" does not imply "deeper". A search preempted by the
+        // refusal check is re-run from scratch and can settle at the courtesy
+        // depth while the snapshot this position already had — the one the
+        // guard above deliberately pins — is far deeper. Preferring settled
+        // unconditionally handed the check strictly worse evidence than it
+        // was already holding, on the common path, which is the opposite of
+        // what both changes are for.
+        const settledShallow = [
+          EngineMove(
+              pv: ['a2a3'], score: 9.9, mate: null, depth: 12, multipv: 1),
+        ];
+        final settings = await loadSettings(black: kTestBotId);
+        final grading = FakeGrading(winChanceOf: winChanceOf);
+        final game = GameController(
+            FakeArbiter(
+                analysisLines: settledShallow,
+                partialSequence: const [deep]),
+            FakeBot({kTestBotId: testBotPersona}),
+            grading,
+            settings,
+            null,
+            FakePractice());
+        game.newGame(refuseBlunders: true);
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        game.playUci('e2e4');
+        await Future<void>.delayed(const Duration(milliseconds: 150));
+
+        expect(grading.preLinesSeen, isNotEmpty);
+        expect(grading.preLinesSeen.first.first.depth, 18,
+            reason: 'deeper wins, whichever of the two it is');
+        game.dispose();
+      });
+
+      test('and lines it cannot compare are treated as no lines', () async {
+        // A search stopped mid-iteration used to RESOLVE with line 1 an
+        // iteration ahead of the rest — fixed in UciProtocol, and refused
+        // again here, because this is the caller that turns the gap between
+        // two of these numbers into a refusal. The mixed list below is the
+        // observed shape: a top line that looks nine pawns better than
+        // alternatives it was never compared against.
+        // DEEPER than the clean partial on its line 1, so the depth
+        // comparison would happily take it — being incomparable is the only
+        // thing wrong with it, and the only thing that can reject it.
+        const mixed = [
+          EngineMove(pv: ['a2a3'], score: 9.0, mate: null, depth: 20, multipv: 1),
+          EngineMove(pv: ['b2b3'], score: 0.02, mate: null, depth: 19, multipv: 2),
+        ];
+        final settings = await loadSettings(black: kTestBotId);
+        final grading = FakeGrading(winChanceOf: winChanceOf);
+        final game = GameController(
+            FakeArbiter(analysisLines: mixed, partialSequence: const [deep]),
+            FakeBot({kTestBotId: testBotPersona}),
+            grading,
+            settings,
+            null,
+            FakePractice());
+        game.newGame(refuseBlunders: true);
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        game.playUci('e2e4');
+        await Future<void>.delayed(const Duration(milliseconds: 150));
+
+        expect(grading.preLinesSeen, isNotEmpty);
+        expect(grading.preLinesSeen.first.first.depth, 18,
+            reason: 'the clean snapshot, never the mixed-iteration list');
+        game.dispose();
+      });
+
+      test('and a finished analysis beats a snapshot of one in flight',
+          () async {
+        // The partial clears kMinUsefulDepth, so the fast path was happy to
+        // stop there — while the completed search sat unread beside it.
+        const streamed = [
+          EngineMove(
+              pv: ['a2a3'], score: 9.9, mate: null, depth: 12, multipv: 1),
+        ];
+        const settled = [
+          EngineMove(
+              pv: ['e2e4'], score: 0.3, mate: null, depth: 22, multipv: 1),
+        ];
+        final settings = await loadSettings(black: kTestBotId);
+        final grading = FakeGrading(winChanceOf: winChanceOf);
+        final game = GameController(
+            FakeArbiter(
+                analysisLines: settled,
+                partialSequence: const [streamed]),
+            FakeBot({kTestBotId: testBotPersona}),
+            grading,
+            settings,
+            null,
+            FakePractice());
+        game.newGame(refuseBlunders: true);
+        // let the analysis future resolve, which is what marks the fen settled
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        game.playUci('e2e4');
+        await Future<void>.delayed(const Duration(milliseconds: 150));
+
+        expect(grading.preLinesSeen, isNotEmpty,
+            reason: 'precondition: something was graded');
+        expect(grading.preLinesSeen.first.first.depth, 22,
+            reason: 'the finished search, not the snapshot of a running one');
+        game.dispose();
+      });
+    });
+
     test('the isBest guard holds on its own', () async {
       // The guard and the drop arithmetic each stop a rank-1 move by
       // themselves, so a coherent grade cannot tell them apart and the test
