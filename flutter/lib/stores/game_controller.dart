@@ -665,9 +665,15 @@ class GameController extends ChangeNotifier {
   /// The win% a grade gave away: what the best move was worth minus what the
   /// move played is worth, both mover-POV.
   ///
-  /// Clamped at zero because the two numbers come from different searches —
-  /// the backfilled eval is the deeper one, and it can land slightly above the
-  /// pre-move best. A negative loss is not a thing this measures.
+  /// Clamped at zero because the two numbers can come from different searches
+  /// — post-commit, the backfilled eval is the deeper one and can land
+  /// slightly above the pre-move best. A negative loss is not a thing this
+  /// measures.
+  ///
+  /// The clamp only fixes the SIGN of that disagreement, never its size, so it
+  /// is no defence where the shallower search is the backfilled one. That is
+  /// exactly the shape refusal mode had, and why [_maybeRefuse] now decides on
+  /// a grade whose two evals come off the same list wherever it can.
   double _wcDrop(MoveGrade g) => (_grading.winChance(g.bestEval, g.bestMate) -
           _grading.winChance(g.evalPawns, g.mate))
       .clamp(0.0, 100.0);
@@ -1155,14 +1161,22 @@ class GameController extends ChangeNotifier {
   /// to [position] — which never advanced — the instant the refusal lands.
   ///
   /// Otherwise the move is allowed through exactly as it would be without
-  /// refusal mode. This includes the FAIL-OPEN case: if the child search
-  /// never reaches depth 10 within the cap, [_computeGrade] returns an
-  /// un-backfilled grade, whose `evalPawns`/`mate` are null — computing a
-  /// drop from that would read as a nonsense number (winChance(null, null)
-  /// is 50, not "unknown"), so an un-backfilled grade is treated as "no
-  /// drop known" and the move goes through. Refusal mode must never leave a
-  /// human move hanging indefinitely on a slow engine, and must never refuse
-  /// (or silently allow) a blunder on a number it does not actually have.
+  /// refusal mode. This includes the FAIL-OPEN case: a move that was OUTSIDE
+  /// the pre-move lines has no eval of its own until the child search
+  /// backfills one, so if that search never reaches depth 10 within the cap
+  /// there is no drop to judge — `winChance(null, null)` is 50, which reads
+  /// as a number and is not one — and the move goes through. Refusal mode
+  /// must never leave a human move hanging indefinitely on a slow engine, and
+  /// must never refuse (or silently allow) a blunder on a number it does not
+  /// actually have.
+  ///
+  /// A move that IS in the pre-move lines needs no backfill to be judged: it
+  /// already carries its own eval from the same search as `bestEval`, so it
+  /// is decided on that (see the drop calculation below) and a slow or
+  /// timed-out child search costs only the refutation arrow, not the verdict.
+  ///
+  /// Both paths additionally require the pre-move lines to have reached
+  /// [kMinUsefulDepth], since `bestEval` comes from them either way.
   Future<void> _maybeRefuse(NormalMove move, String san) async {
     final gen = _gen;
     _refusalPending = true;
@@ -1191,6 +1205,10 @@ class GameController extends ChangeNotifier {
       notifyListeners();
 
       List<EngineMove>? refutation;
+      // The grade as it stood BEFORE backfill — i.e. read purely off the
+      // pre-move lines. See the drop calculation below for why this path
+      // needs it and [_gradePipeline] does not.
+      MoveGrade? preGrade;
       final grade = await _computeGrade(
         ply: moves.length + 1,
         fenBefore: fenBefore,
@@ -1199,19 +1217,69 @@ class GameController extends ChangeNotifier {
         color: color,
         fenAfter: candidateFen,
         gen: gen,
+        onGraded: (g) => preGrade = g,
         onChild: (c) => refutation = c,
         cap: const Duration(milliseconds: 2500),
       );
       if (gen != _gen) return; // superseded (undo/new game) while we waited
 
-      final drop =
-          (grade != null && grade.backfilled) ? _wcDrop(grade) : 0.0;
+      // A drop is a SUBTRACTION, so both evals have to come from the same
+      // search — and in refusal mode they did not. `bestEval` is read off the
+      // live position's analysis (depth up to [kAnalysisDepth], or a streamed
+      // partial at [kMinUsefulDepth]); backfill then overwrote the played
+      // move's eval with the pre-commit child search, which is
+      // [kRefusalCheckDepth] and therefore SHALLOWER. Their disagreement was
+      // charged to the player: a move the engine ranked first could be refused
+      // as a blunder, and the Insights panel — reading the completed depth-22
+      // analysis of the same position — then named that very move as best.
+      // Worst case is a forced mate the deep search sees and a depth-10 look
+      // cannot, which is a flat 100 against ~75: a 25-point "blunder" for
+      // playing the move that mates.
+      //
+      // When the played move is in the pre-move lines it already HAS an eval
+      // from the same search as `bestEval` (insights.ts gradeMove: `evalPawns:
+      // sorted[idx].score`), so the honest comparison is free and needs no
+      // child search at all. Backfill stays the right answer for a move that
+      // was outside those lines — there is no pre-move number for it — and
+      // stays the right answer everywhere in [_gradePipeline], where the child
+      // search is the DEEPER of the two, which is the case [_wcDrop]'s clamp
+      // was written for.
+      final pre = preGrade;
+      final inPreLines = pre != null && pre.rank != null && pre.evalPawns != null;
+      final double drop;
+      if (inPreLines) {
+        drop = _wcDrop(pre);
+      } else if (grade != null && grade.backfilled) {
+        drop = _wcDrop(grade);
+      } else {
+        drop = 0.0;
+      }
       // `grade != null` here, not just `drop >= threshold`: the two happen to
       // coincide today only because collectThreshold's UI floor is 5 (never
       // 0), so a null grade's drop-of-0.0 can never clear it — correct by
       // luck, not by construction. Spelling it out means the `grade!`
       // unwraps below stay safe even if that floor is ever lowered.
       if (grade != null &&
+          // A FLOOR ON THE EVIDENCE. `bestEval` always comes off the pre-move
+          // lines, on both paths below, so if those lines are shallow the
+          // whole subtraction is guesswork — and [_preLinesFor]'s last resort
+          // is `_partials[fen]` with no depth check at all, which on a cold
+          // position (the capped await timed out with a search barely
+          // started) can be depth 4. That was survivable while a refusal also
+          // required the depth-10 backfill; now that a listed move is decided
+          // on these lines alone, it is the only thing standing between a
+          // half-started search and a refused move. Below the floor we fail
+          // open, exactly as for a missing backfill: refusal mode does not
+          // refuse on a number it does not really have.
+          (pre?.depth ?? 0) >= kMinUsefulDepth &&
+          // NEVER the engine's own first line. The arithmetic above already
+          // gives it a drop of exactly zero — `bestEval` and `evalPawns` are
+          // then the same number off the same list — but this feature's one
+          // unbreakable promise is that it does not refuse the best move on
+          // the board, and that promise should not rest on two subtractions
+          // cancelling. If a future change reintroduces a cross-search
+          // comparison, this still holds the line.
+          !(pre?.isBest ?? false) &&
           // refuseThreshold, NOT collectThreshold: one number used to do both
           // jobs, so the Practice tab's bar silently decided when a rated game
           // refused a move (#213).
@@ -1249,6 +1317,34 @@ class GameController extends ChangeNotifier {
         notifyListeners();
         final practice = _practice;
         if (practice != null) {
+          // The grade the verdict was actually made on — NOT necessarily the
+          // backfilled one, now that a listed move is decided on the pre-move
+          // lines. These fields and `wcDrop` have to come from the same grade
+          // or the puzzle is unsolvable: practice does not store the best
+          // move's eval, it RECONSTRUCTS it as `winChance(evalPawns, mate) +
+          // wcDrop` (brain/practice.ts itemDataFromStoredMove), and that is
+          // the pass/fail baseline every attempt is then scored against
+          // (practice_controller: pass iff `wcBest - wcAfter <= kPassDrop`).
+          // Mix the two and the residual IS the cross-search disagreement
+          // this whole change exists to stop trusting — except now it is
+          // baked into a persisted item at collect time, where the worst case
+          // is a puzzle whose stated best move is worth +12 pawns and which
+          // no move on the board can pass.
+          //
+          // EVERY field, not just the arithmetic. An earlier version of this
+          // took label/explanation from the backfilled grade on the grounds
+          // that they are what makes the puzzle readable — which is simply
+          // untrue: [PracticeItem] has no label and no explanation field, so
+          // `itemDataFromStoredMove` drops both on the floor. Keeping a second
+          // provenance in this map bought nothing and left a `label: 'best'`
+          // sitting beside a `wcDrop: 55`, which is a contradiction waiting
+          // for the first reader who takes it seriously.
+          //
+          // Reading bestSan/bestUci from here rather than from `grade` also
+          // drops a load-bearing assumption: they agree today only because
+          // `backfillGrade` spreads them forward untouched, and nothing says
+          // it must keep doing so.
+          final basis = inPreLines ? pre : grade;
           final storedMove = {
             'ply': moves.length + 1,
             'san': san,
@@ -1256,16 +1352,16 @@ class GameController extends ChangeNotifier {
             'color': color,
             'fenBefore': fenBefore,
             'fenAfter': candidateFen,
-            'evalPawns': grade.evalPawns,
-            'mate': grade.mate,
-            'pctBest': grade.pctBest,
+            'evalPawns': basis.evalPawns,
+            'mate': basis.mate,
+            'pctBest': basis.pctBest,
             'wcDrop': drop,
-            'depth': grade.depth,
-            if (grade.label != null) 'label': grade.label,
-            'bestSan': grade.bestSan,
-            'bestUci': grade.bestUci,
-            if (grade.explanation != null)
-              'explanation': grade.explanation!.raw,
+            'depth': basis.depth,
+            if (basis.label != null) 'label': basis.label,
+            'bestSan': basis.bestSan,
+            'bestUci': basis.bestUci,
+            if (basis.explanation != null)
+              'explanation': basis.explanation!.raw,
           };
           final prevUci = moves.isNotEmpty ? moves.last.uci : null;
           await practice.maybeCollect(storedMove, setupUci: prevUci);
@@ -2759,6 +2855,11 @@ class GameController extends ChangeNotifier {
     }
     final lines = await _analysisFor(fen).timeout(cap, onTimeout: () => null);
     if (lines != null && lines.isNotEmpty) return lines;
+    // Deliberately unfiltered, unlike the fast path above: a shallow snapshot
+    // is still worth a grade for the UI. It is NOT worth a refusal, and that
+    // is enforced where the refusal is decided ([_maybeRefuse] checks the
+    // graded depth against [kMinUsefulDepth]) rather than by returning null
+    // here, which would throw the grade away for everyone.
     return _partials[fen];
   }
 
