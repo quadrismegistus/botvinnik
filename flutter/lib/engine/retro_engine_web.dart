@@ -23,6 +23,7 @@ import 'dart:js_interop';
 import 'package:flutter/foundation.dart';
 
 import 'js_worker.dart';
+import 'retro_commands.dart';
 
 /// The boot message. retro-worker.js tells it from a UCI line by
 /// `typeof e.data === 'object'`, so this must cross as an object literal.
@@ -191,43 +192,10 @@ class RetroEngine {
     if (_move != null && !_move!.isCompleted) _stale++;
     _finish(null);
     final pending = _move = Completer<String?>();
-    // `ucinewgame` FIRST, every time, and it is load-bearing rather than
-    // tidy. morlock's UCI driver treats a `position` line that PREFIXES the
-    // last one as a continuation of the game and parses the remainder as
-    // moves (pkg/engine/uci/uci.go, "Continuation of game") — so an IDENTICAL
-    // line leaves an empty remainder, `Move(ctx, "")` fails, and the driver
-    // RETURNS. That ends the driver, which ends `<-driver.Closed()` in
-    // scripts/retro-wasm/main.go, which ends the Go program. In a worker that
-    // is a silent death; the client then waits out its whole move timeout and
-    // hands the turn to a Stockfish stand-in, for the rest of the game.
-    //
-    // Honest split of the blame, because it decides where the fix belongs.
-    // UCI says a GUI SHOULD send `ucinewgame` when the new position is from a
-    // different game than the last one — morlock quotes that line in the
-    // source directly above the branch that bites. This client never sent it,
-    // so the new-game half of this is our omission, and the line below is us
-    // complying rather than working around anybody.
-    //
-    // The engine's half is that an identical line is a degenerate case its
-    // parser does not handle (`strings.Split("", " ")` yields one EMPTY
-    // element), and that it answers unparseable input by ending the session
-    // rather than ignoring it, which UCI asks engines to do. That half is
-    // reachable with no protocol sin at all: take a move back and play the
-    // same move again, and the engine is legitimately asked to move from a
-    // position it has already been sent, FEN counters and all. Reported
-    // upstream; the one-line guard is theirs to take.
-    //
-    // The report that found it: play a game where the retro bot moves first,
-    // start another, and its opening `position fen <start>` is
-    // character-identical to the last line the engine saw.
-    //
-    // This costs nothing: we always send a whole FEN and never a `moves` list,
-    // so the continuation branch could never fire usefully for us — a
-    // different FEN always takes the engine's "New position" reset path, which
-    // is exactly what `ucinewgame` forces. Same work, minus the cliff.
-    _worker.postMessage('ucinewgame'.toJS);
-    _worker.postMessage('position fen $fen'.toJS);
-    _worker.postMessage('go movetime $movetimeMs'.toJS);
+    // The command sequence lives in retro_commands.dart, where it is tested.
+    for (final c in retroMoveCommands(fen, movetimeMs)) {
+      _worker.postMessage(c.toJS);
+    }
     return pending.future.timeout(
       Duration(milliseconds: movetimeMs + 10000),
       onTimeout: () {
