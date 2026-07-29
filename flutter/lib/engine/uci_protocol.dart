@@ -32,11 +32,6 @@ abstract class UciProtocol implements UciSearcher {
   void Function(List<EngineMove>)? _onUpdate;
   int _lastStreamedDepth = 0;
 
-  /// Highest multipv index this position has produced — the ceiling a
-  /// completed iteration reaches. Learned rather than assumed, because a
-  /// position with fewer legal moves than MultiPV never emits the top index.
-  int _maxMultipvSeen = 0;
-
   /// The last snapshot handed to [_onUpdate] — one complete iteration, by
   /// construction. Kept so [_resolvedLines] has something coherent to resolve
   /// with when the search is stopped part-way through the next one.
@@ -88,7 +83,6 @@ abstract class UciProtocol implements UciSearcher {
           depth: depth,
           multipv: multipv,
         );
-        if (multipv > _maxMultipvSeen) _maxMultipvSeen = multipv;
         // Stream a snapshot once per COMPLETED depth. This comment has always
         // said that; until 2026-07-29 the condition below did not implement
         // it. `depth > _lastStreamedDepth` first becomes true on the multipv-1
@@ -98,35 +92,41 @@ abstract class UciProtocol implements UciSearcher {
         // stayed that way until the next depth opened, because the rest of
         // this depth's lines update the map without re-streaming.
         //
-        // A mixed snapshot is not merely stale. Anything that SUBTRACTS two
-        // of these lines is comparing different searches: refuse-blunders
-        // reads `bestEval` off line 1 and the played move's eval off line 2..N
-        // (see GameController._maybeRefuse), so one iteration of drift lands
+        // A mixed snapshot is not merely stale. Anything that SUBTRACTS two of
+        // these lines is comparing different searches: refuse-blunders reads
+        // `bestEval` off line 1 and the played move's eval off line 2..N (see
+        // GameController._maybeRefuse), so one iteration of drift lands
         // directly on a human's move. Worst case is line 1 flipping to a mate
         // at depth D while the alternatives sit at D-1: a flat 100 against
         // whatever they say, which is a refusal manufactured out of the gap.
         //
-        // The last line of an iteration is the highest multipv index this
-        // position produces — MultiPV as asked for, or fewer when the position
-        // has fewer legal moves, which is why this learns the ceiling by
-        // watching rather than trusting [_currentMultiPv]. The very first
-        // iteration still streams early (nothing has taught us the ceiling
-        // yet); it is depth 1, and every consumer that cares has a depth floor
-        // far above it.
+        // The test is the invariant ITSELF — every line now at this depth —
+        // rather than a proxy for it. An earlier version counted multipv
+        // indices instead, learning the ceiling by watching (a position with
+        // three legal moves never emits a line 5) and adding an escape hatch
+        // so that a ceiling which never rose again could not stall the stream
+        // forever. Both were wrong, and wrong in the direction that matters:
+        // the ceiling was per-engine state needing a per-search reset that no
+        // test covered, and the hatch fired on the FIRST line of a depth, so
+        // the thing it emitted was a mixed snapshot — this bug, produced by
+        // the code meant to prevent a different one. It also fired on a plain
+        // skipped depth, where nothing was wrong at all.
         //
-        // The ceiling is a RATCHET, so the `depth` escape hatch is not
-        // belt-and-braces: an engine that reported five lines and then reports
-        // four would never satisfy `multipv >= 5` again, and streaming would
-        // stop dead for the rest of the search — silently, with the pane
-        // frozen on the last good snapshot and every depth-gated wait
-        // (the bot's opening wait, the analysis courtesy window) burning its
-        // full budget. No engine in the catalogue was shown to do this, but
-        // the desktop path launches whatever UCI binary it is pointed at, so
-        // the cost of being wrong is not ours to bound. Two iterations of
-        // staleness is the most this can now hide.
+        // Checking uniformity directly needs no ceiling, no reset and no
+        // hatch, and it holds however the engine orders or numbers its lines.
+        //
+        // KNOWN LIMITATION, accepted with eyes open: an engine that reports
+        // five lines and then permanently four leaves the fifth entry stale,
+        // so the map never becomes uniform again and the stream stops for the
+        // rest of that search. No engine in the catalogue was shown to do
+        // this. The failure is frozen-but-COHERENT — consumers keep the last
+        // good snapshot, the depth floor rejects it as it ages, and nothing
+        // downstream is fed two depths to subtract. That is strictly better
+        // than the hatch, which stayed live by emitting exactly what this
+        // file exists to stop emitting.
         if (_onUpdate != null &&
             depth > _lastStreamedDepth &&
-            (multipv >= _maxMultipvSeen || depth >= _lastStreamedDepth + 2)) {
+            _byMultipv.values.every((l) => l.depth == depth)) {
           _lastStreamedDepth = depth;
           _lastStreamedLines = _sorted();
           _onUpdate!(_lastStreamedLines);
@@ -200,7 +200,6 @@ abstract class UciProtocol implements UciSearcher {
     _byMultipv.clear();
     _onUpdate = onUpdate;
     _lastStreamedDepth = 0;
-    _maxMultipvSeen = 0;
     _lastStreamedLines = const [];
     final completer = Completer<List<EngineMove>>();
     _search = completer;

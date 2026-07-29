@@ -327,8 +327,15 @@ void main() {
     });
 
     // WHICH lines a verdict is read off, as opposed to what it then does with
-    // them. Both of these are about a position the controller has been told
+    // them. Each of these is about a position the controller has been told
     // about twice, where the two tellings disagree.
+    //
+    // Known coverage gap, stated rather than left to be discovered: the LAST
+    // of _preLinesFor's three coherence checks — the final `return
+    // _partials[fen]` after the capped await times out — has no test of its
+    // own. Reaching it needs the await to actually expire, which is 2.5s of
+    // real time for a one-line rule that is the same expression, on the
+    // adjacent line, as two checks that ARE mutation-pinned below.
     group('the evidence a refusal reads', () {
       const deep = [
         EngineMove(pv: ['e2e4'], score: 0.3, mate: null, depth: 18, multipv: 1),
@@ -375,6 +382,44 @@ void main() {
         // before the move commits, so it is always the first call.
         expect(grading.preLinesSeen.first.first.depth, 18,
             reason: 'the deeper snapshot of the same fen still stands');
+        game.dispose();
+      });
+
+      test('and the FALLBACK path refuses them too, not just the fast one',
+          () async {
+        // The hole a verification pass found in the first version of this
+        // filter: no clean partial to prefer, so the check falls past the
+        // fast path to the capped await — which returned whatever the
+        // analysis settled with, unfiltered. It does not fail open there; it
+        // manufactures the refusal, measured at 44.9% where the same numbers
+        // at a single depth cost 0.5%. The depth floor cannot catch it either,
+        // since gradeMove reads `depth` off line 1.
+        const mixed = [
+          EngineMove(pv: ['a2a3'], score: 9.0, mate: null, depth: 20, multipv: 1),
+          EngineMove(pv: ['b2b3'], score: 0.02, mate: null, depth: 19, multipv: 2),
+        ];
+        final settings = await loadSettings(black: kTestBotId);
+        final grading = FakeGrading(winChanceOf: winChanceOf);
+        final game = GameController(
+            // no partialSequence at all: nothing clean is ever streamed
+            FakeArbiter(analysisLines: mixed, searchLines: childLines),
+            FakeBot({kTestBotId: testBotPersona}),
+            grading,
+            settings,
+            null,
+            FakePractice());
+        game.newGame(refuseBlunders: true);
+        game.playUci('e2e4');
+        await Future<void>.delayed(const Duration(milliseconds: 150));
+
+        expect(game.refusedMoves, 0,
+            reason: 'no comparable lines, so no refusal — fail open');
+        expect(game.moves, isNotEmpty, reason: 'and the move goes through');
+        // Not `preLinesSeen isEmpty`: the POST-COMMIT pipeline grades the same
+        // move afterwards and will take the mixed list, deliberately. It gates
+        // nothing, and an ungraded move there costs the label, the chart point
+        // and the practice puzzle — worse than a slightly worse number. The
+        // two callers of the filter want opposite things from it.
         game.dispose();
       });
 

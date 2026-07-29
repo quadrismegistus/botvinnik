@@ -2922,6 +2922,19 @@ class GameController extends ChangeNotifier {
   /// `backfilled == false` — rather than null, so a caller that only cares
   /// about "did we get a grade at all" is not forced to treat an unbackfilled
   /// one as failure.
+  /// Lines worth SUBTRACTING one from another: all at the same depth.
+  ///
+  /// Fixed at the source — [UciProtocol] now streams and resolves whole
+  /// iterations — and checked again here, because this is the caller that
+  /// turns the difference between two of these numbers into a refusal, and a
+  /// gap of one iteration is enough to manufacture one out of nothing. Lines
+  /// that cannot be compared are no lines at all: refusal mode's whole
+  /// contract is that it does not act on a number it does not really have.
+  static bool _oneIteration(List<EngineMove>? lines) =>
+      lines != null &&
+      lines.isNotEmpty &&
+      lines.every((l) => l.depth == lines.first.depth);
+
   /// Pre-lines for a caller a human is WAITING on (refusal mode), as opposed
   /// to the post-commit pipeline that can take all the time it likes.
   ///
@@ -2937,19 +2950,6 @@ class GameController extends ChangeNotifier {
   /// played before anything streamed) and capped, so that case fails open
   /// rather than hanging. It is also the path the test harness takes, since a
   /// fake arbiter resolves instantly and may never stream partials at all.
-  /// Lines worth SUBTRACTING one from another: all at the same depth.
-  ///
-  /// Fixed at the source — [UciProtocol] now streams and resolves whole
-  /// iterations — and checked again here, because this is the caller that
-  /// turns the difference between two of these numbers into a refusal, and a
-  /// gap of one iteration is enough to manufacture one out of nothing. Lines
-  /// that cannot be compared are no lines at all: refusal mode's whole
-  /// contract is that it does not act on a number it does not really have.
-  static bool _oneIteration(List<EngineMove>? lines) =>
-      lines != null &&
-      lines.isNotEmpty &&
-      lines.every((l) => l.depth == lines.first.depth);
-
   Future<List<EngineMove>?> _preLinesFor(String fen, Duration cap) async {
     // DEEPER wins, whichever it is. A finished analysis is usually the better
     // of the two — the completed lines otherwise sit unread while the verdict
@@ -2976,14 +2976,22 @@ class GameController extends ChangeNotifier {
         ? settled
         : partial;
     if (best != null && best.first.depth >= kMinUsefulDepth) return best;
+    // The FALLBACKS need the same filter, and did not have it. Guarding only
+    // the fast path above left the cold case — the capped await, and the
+    // last-resort snapshot under it — handing mixed lines straight to
+    // grading, which does not fail open: it manufactures the refusal, at a
+    // measured 44.9% drop where the same numbers at one depth cost 0.5%. The
+    // depth floor cannot see it either, because `gradeMove` reads `depth` off
+    // line 1. A filter that only covers the paths taken when things are going
+    // well is not a filter.
     final lines = await _analysisFor(fen).timeout(cap, onTimeout: () => null);
-    if (lines != null && lines.isNotEmpty) return lines;
-    // Deliberately unfiltered, unlike the fast path above: a shallow snapshot
-    // is still worth a grade for the UI. It is NOT worth a refusal, and that
-    // is enforced where the refusal is decided ([_maybeRefuse] checks the
-    // graded depth against [kMinUsefulDepth]) rather than by returning null
-    // here, which would throw the grade away for everyone.
-    return _partials[fen];
+    if (_oneIteration(lines)) return lines;
+    // Shallow is fine here and incoherent is not: a shallow snapshot is still
+    // worth a grade for the UI, and [_maybeRefuse]'s own depth floor decides
+    // whether it is worth a refusal. Lines that cannot be compared are worth
+    // neither.
+    final held = _partials[fen];
+    return _oneIteration(held) ? held : null;
   }
 
   Future<MoveGrade?> _computeGrade({
@@ -3007,6 +3015,17 @@ class GameController extends ChangeNotifier {
     if (cap == null) {
       pre = await _analysisFor(fenBefore);
       if (pre == null || pre.isEmpty) pre = _partials[fenBefore];
+      // The sibling caller of the same filter. This path grades a move AFTER
+      // it has committed, so it gates nothing and can afford to grade on
+      // imperfect lines — but where a comparable snapshot exists it should
+      // obviously use it, and it was taking the resolved list unconditionally.
+      // Prefer, never reject: an ungraded move here costs the label, the chart
+      // point and the practice puzzle, which is worse than a slightly worse
+      // number. That is the opposite of the refusal path's rule, deliberately,
+      // because the stakes are opposite too.
+      if (!_oneIteration(pre) && _oneIteration(_partials[fenBefore])) {
+        pre = _partials[fenBefore];
+      }
     } else {
       pre = await _preLinesFor(fenBefore, cap);
     }

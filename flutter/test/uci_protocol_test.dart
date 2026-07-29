@@ -135,33 +135,61 @@ void main() {
       expect(lines.first.depth, 6);
     });
 
-    test('a ceiling that drops does not stop the stream forever', () async {
-      // _maxMultipvSeen only ever rises, so an engine that reports five lines
-      // and then four would never satisfy it again — the pane would freeze on
-      // the last good snapshot, and every depth-gated wait would burn its full
-      // budget, silently. No shipped engine was shown to do this; the desktop
-      // path runs whatever UCI binary it is pointed at.
+    test('a skipped depth is streamed, not treated as an anomaly', () async {
+      // Engines do not always advance depth by exactly one. An earlier
+      // version of this gate had an escape hatch that fired on `depth >=
+      // last + 2` — on the FIRST line of the new depth — so a plain skip
+      // produced `[6, 4, 4]`: the mixed snapshot this whole group exists to
+      // prevent, emitted by the code meant to prevent it.
       final snaps = <List<EngineMove>>[];
       final result =
           uci.search('fen', go: 'depth 9', multiPv: 3, onUpdate: snaps.add);
       for (final mpv in [1, 2, 3]) {
-        uci.handleLine('info depth 1 multipv $mpv score cp $mpv pv e2e4');
-      }
-      for (final mpv in [1, 2, 3]) {
-        uci.handleLine('info depth 2 multipv $mpv score cp $mpv pv e2e4');
+        uci.handleLine('info depth 4 multipv $mpv score cp $mpv pv e2e4');
       }
       snaps.clear();
-      // from here it only ever reports two lines
+      uci.handleLine('info depth 6 multipv 1 score cp 900 pv e2e4');
+      expect(snaps, isEmpty, reason: 'that is the first line of depth 6');
+      uci.handleLine('info depth 6 multipv 2 score cp 2 pv d2d4');
+      uci.handleLine('info depth 6 multipv 3 score cp 3 pv g1f3');
+      expect(snaps.single.map((l) => l.depth), [6, 6, 6]);
+
+      uci.handleLine('bestmove e2e4');
+      await result;
+    });
+
+    test('a ceiling that DROPS stalls the stream — coherently', () async {
+      // The accepted limitation, pinned so it is a decision rather than a
+      // surprise. An engine that reports three lines and then permanently two
+      // leaves the third entry stale, so the map never becomes uniform again
+      // and this search streams nothing further. No engine in the catalogue
+      // was shown to do this, and the failure is frozen-but-COHERENT:
+      // consumers keep the last good snapshot, the depth floor ages it out,
+      // and nothing downstream is handed two depths to subtract. The escape
+      // hatch that used to cover this stayed live by emitting mixed
+      // snapshots, which is the worse of the two failures.
+      final snaps = <List<EngineMove>>[];
+      final result =
+          uci.search('fen', go: 'depth 9', multiPv: 3, onUpdate: snaps.add);
+      for (final d in [1, 2]) {
+        for (final mpv in [1, 2, 3]) {
+          uci.handleLine('info depth $d multipv $mpv score cp $mpv pv e2e4');
+        }
+      }
+      expect(snaps.last.map((l) => l.depth), [2, 2, 2],
+          reason: 'precondition: streaming normally up to here');
+      snaps.clear();
       for (final d in [3, 4, 5, 6]) {
         for (final mpv in [1, 2]) {
           uci.handleLine('info depth $d multipv $mpv score cp $mpv pv e2e4');
         }
       }
-      expect(snaps, isNotEmpty,
-          reason: 'the escape hatch keeps staleness bounded at 2 iterations');
+      expect(snaps, isEmpty, reason: 'stalls rather than emitting a mixed one');
 
       uci.handleLine('bestmove e2e4');
-      await result;
+      final resolved = await result;
+      expect(resolved.map((l) => l.depth), [2, 2, 2],
+          reason: 'and the resolution stays comparable, which is the point');
     });
 
     test('the ceiling is per SEARCH, not per engine', () async {
