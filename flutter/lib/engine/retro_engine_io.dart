@@ -54,13 +54,20 @@ abstract class RetroEngine {
   /// persona's rating rather than seeing an error.
   Future<String?> move(String fen, {int movetimeMs});
 
-  /// Whether this engine is still usable. Always true on the native
-  /// transports, which own a process or a linked archive that lives as long as
-  /// they do — it exists for the WEB engine, whose worker hosts a Go program
-  /// that ends whenever its command queue drains, i.e. in any gap between
-  /// turns. [GameController] checks it when syncing so a dead worker is
-  /// replaced before the next move rather than after one has been lost.
-  bool get alive => true;
+  /// Whether this engine died in a way a FRESH one would fix — the engine's
+  /// process or program ended, as opposed to it never having started.
+  ///
+  /// Deliberately narrower than "not alive", and the distinction is the whole
+  /// value of the flag. An engine that failed to boot — no binary, a 404 on
+  /// the wasm, a boot deadline blown — fails identically next time, so
+  /// rebuilding it once a turn buys nothing and costs a spawn or a 4.4MB
+  /// fetch each time. Worse, [RetroEngine] on the web latches dead after
+  /// [_bootDeadline] precisely so that later turns stop paying the full
+  /// per-turn patience; rebuilding on that would hand every turn the 30s wait
+  /// again, forever, which is the regression that deadline exists to prevent.
+  ///
+  /// So: true only for an engine that was running and stopped.
+  bool get exited => false;
 
   void dispose();
 
@@ -91,10 +98,12 @@ abstract class RetroEngine {
 }
 
 class _RetroProcess implements RetroEngine {
-  /// Always: a spawned process or a linked archive lives as long as this
-  /// object does. Only the web worker's Go program ends on its own.
+  /// The process ended on its own — morlock's `main` returns when its driver
+  /// loop returns, so the binary exits and this is respawnable. Set ONLY
+  /// there: the boot timeout and a missing binary are not.
+  bool _exited = false;
   @override
-  bool get alive => true;
+  bool get exited => _exited;
 
   final String engine;
   final int ply;
@@ -141,7 +150,10 @@ class _RetroProcess implements RetroEngine {
           .transform(utf8.decoder)
           .transform(const LineSplitter())
           .listen((l) => debugPrint('[retro] $l'), onError: (Object _) {});
-      proc.exitCode.then((c) => _die('exited ($c)'));
+      proc.exitCode.then((c) {
+        _exited = true;
+        _die('exited ($c)');
+      });
       _send('uci');
       _send('setoption name Depth value $ply');
       _send('isready');

@@ -765,13 +765,21 @@ class GameController extends ChangeNotifier {
     // worker was disposed and rebuilt on every one of the OTHER bot's turns.
     final spec = personaToMove?.retro ?? whitePersona?.retro ?? blackPersona?.retro;
     final key = spec == null ? null : '${spec['engine']}:${spec['ply']}';
-    // A DEAD engine is rebuilt even when the key is unchanged. The retro
-    // worker's Go program ends whenever its command queue drains, which on a
-    // human's clock is every gap between turns — so "same persona, so keep the
-    // engine" quietly meant "keep a corpse", and every later turn stood in.
-    // This runs at move time as well as on persona changes, so the replacement
-    // is built BEFORE the move is asked for rather than after one is lost.
-    if (key != _retroKey || (_retro != null && !_retro!.alive)) {
+    // An engine that RAN AND STOPPED is rebuilt even when the key is
+    // unchanged, because "same persona, so keep the engine" otherwise means
+    // keeping a corpse and standing in for every later turn.
+    //
+    // On [RetroEngine.exited], not on "not alive": a boot that failed fails
+    // the same way next time, so rebuilding once a turn buys nothing and pays
+    // a spawn or a 4.4MB fetch for it. An earlier draft of this gated on
+    // liveness and thereby undid the web engine's boot deadline, which latches
+    // a hopeless boot dead precisely so later turns stop waiting on it.
+    //
+    // Note this does NOT give the replacement a head start when it happens at
+    // move time — [_maybeBotTurn] calls `_syncRetro()?.move(fen)` in one
+    // expression, so a cold rebuild still races that turn's patience. The head
+    // start comes from the persona-change and new-game calls above.
+    if (key != _retroKey || (_retro != null && _retro!.exited)) {
       _retro?.dispose();
       _retro = null;
       _retroKey = key;

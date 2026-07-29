@@ -50,9 +50,24 @@ class RetroEngine {
   Completer<String?>? _move;
   bool _alive = true;
 
-  /// False once this worker's Go program has ended — see the `__exited__`
-  /// branch. The engine cannot be revived; the owner builds a new one.
-  bool get alive => _alive;
+  /// The Go program ended while it was running — see the `__exited__` branch.
+  /// The owner rebuilds on THIS, not on `!_alive`: a boot that failed, and the
+  /// [_bootDeadline] that latches a hopeless boot dead, are both permanent for
+  /// the session, and rebuilding on them would restart a 4.4MB fetch and hand
+  /// every turn the full [_turnPatience] again — undoing the deadline that
+  /// exists to stop exactly that.
+  bool _exited = false;
+  bool get exited => _exited;
+
+  /// Searches whose answer is no longer wanted. morlock's search is CPU-bound
+  /// and does not yield, so a worker mid-search cannot dequeue anything: a
+  /// `move()` that supersedes another queues BEHIND the running search, and
+  /// the bestmove that arrives next is the OLD one. Completing the new
+  /// caller's future with it hands the current position a move computed for an
+  /// abandoned one — illegal often enough to leave the bot on turn with
+  /// nothing scheduled, i.e. a stuck board. Each `go` yields exactly one
+  /// bestmove, so counting the abandoned ones is enough to skip them.
+  int _stale = 0;
 
   /// How long ONE turn will wait for the boot before playing a stand-in.
   static const _turnPatience = Duration(seconds: 30);
@@ -106,11 +121,17 @@ class RetroEngine {
       // a fresh worker instead of inheriting a corpse. With the `ucinewgame`
       // fix this should now be rare; it is the net under it, not the fix.
       if (data.startsWith('__exited__')) {
+        _exited = true;
         _die('the engine process ended; a fresh worker will be built for the '
             'next turn');
         return;
       }
       if (data.startsWith('bestmove')) {
+        // Skip the answers to searches nobody is waiting for any more.
+        if (_stale > 0) {
+          _stale--;
+          return;
+        }
         final uci = data.split(RegExp(r'\s+')).elementAtOrNull(1);
         _finish(uci == null || uci == '(none)' || uci == '0000' ? null : uci);
       }
@@ -164,6 +185,10 @@ class RetroEngine {
     // One search at a time. The bot has one turn at a time, but a new game or
     // an undo can arrive mid-think: whoever was waiting gets null and falls
     // back, rather than being handed a bestmove for a position that is gone.
+    // Abandoning a search in flight: its bestmove is still coming, and it is
+    // the next one the worker will send. Count it so the branch above drops it
+    // rather than handing it to the caller below.
+    if (_move != null && !_move!.isCompleted) _stale++;
     _finish(null);
     final pending = _move = Completer<String?>();
     // `ucinewgame` FIRST, every time, and it is load-bearing rather than

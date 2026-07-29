@@ -80,10 +80,12 @@ class _RetroLib {
 /// One engine session over FFI. The surface is the same as the process-backed
 /// RetroEngine's, because GameController must not care which it got.
 class RetroFfiEngine implements RetroEngine {
-  /// Always: a spawned process or a linked archive lives as long as this
-  /// object does. Only the web worker's Go program ends on its own.
+  /// Never, on this transport. The archive is linked into our own process, so
+  /// there is no exit to observe — if its driver returns, the symbols are
+  /// still there and a "fresh" engine would be the same dead state. Every
+  /// [_die] here is a start-up failure, which a rebuild cannot fix.
   @override
-  bool get alive => true;
+  bool get exited => false;
 
   RetroFfiEngine(this.engine, this.ply) {
     final lib = _RetroLib.instance;
