@@ -251,7 +251,25 @@ class FakeGrading implements GradingApi {
   /// enough to exercise refusal mode (game_controller_test.dart's "refusal
   /// mode" group), which needs a real number to compare against a threshold.
   final double Function(double? evalPawns, int? mate)? winChanceOf;
-  FakeGrading({this.winChanceOf});
+
+  /// Merged over the default grade map. The default is deliberately a move
+  /// the engine never listed — no `rank`, no `evalPawns` of its own — which
+  /// is the case that has to reach the child search for a number. A test
+  /// about a move the engine DID list (refusal mode decides those off the
+  /// pre-move lines, without the child search) sets `rank`/`evalPawns`/
+  /// `isBest` here.
+  final Map<String, dynamic> gradeExtra;
+
+  /// Merged over the backfilled grade, i.e. what the CHILD search is allowed
+  /// to say. Setting `evalPawns` here is how a test makes the two searches
+  /// disagree, which is the whole shape of the depth-mismatch bug.
+  final Map<String, dynamic> backfillExtra;
+
+  FakeGrading({
+    this.winChanceOf,
+    this.gradeExtra = const {},
+    this.backfillExtra = const {},
+  });
 
   /// A blunder-shaped grade, so a move that reaches the collect guard is one
   /// practice would want. Only the fields the pipeline and _storedMoveOf read
@@ -279,11 +297,12 @@ class FakeGrading implements GradingApi {
         'bestEval': 0.0,
         'bestPv': const ['d2d4'],
         'backfilled': false,
+        ...gradeExtra,
       });
 
   @override
   MoveGrade backfillGrade(MoveGrade grade, List<EngineMove> childLines) =>
-      MoveGrade({...grade.raw, 'backfilled': true});
+      MoveGrade({...grade.raw, 'backfilled': true, ...backfillExtra});
 
   @override
   double winChance(double? evalPawns, int? mate) =>
