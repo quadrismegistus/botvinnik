@@ -82,10 +82,14 @@ class _RetroLib {
 /// One engine session over FFI. The surface is the same as the process-backed
 /// RetroEngine's, because GameController must not care which it got.
 class RetroFfiEngine implements RetroEngine {
-  /// Never, on this transport. The archive is linked into our own process, so
-  /// there is no exit to observe — if its driver returns, the symbols are
-  /// still there and a "fresh" engine would be the same dead state. Every
-  /// [_die] here is a start-up failure, which a rebuild cannot fix.
+  /// Never, on this transport — for want of a signal, not for want of a cure.
+  /// `retro_start` builds a fresh session, engine and driver per call
+  /// (scripts/retro-ffi/main.go), so a rebuilt engine WOULD work; what is
+  /// missing is any way to know one is needed. A linked archive emits nothing
+  /// when its driver returns, so a death here is invisible until a move times
+  /// out. The cost is real and worth naming: every later turn pays the full
+  /// wait and stands in. Detecting it would mean treating a timeout as death,
+  /// which is a different and riskier judgement than reporting an exit.
   @override
   bool get exited => false;
 

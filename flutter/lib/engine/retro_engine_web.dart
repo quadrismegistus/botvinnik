@@ -199,6 +199,12 @@ class RetroEngine {
     return pending.future.timeout(
       Duration(milliseconds: movetimeMs + 10000),
       onTimeout: () {
+        // Counted like any other abandoned search: its bestmove is still
+        // coming and would otherwise be handed to the NEXT caller. Unreachable
+        // in production at the shipped depths — measured worst case 19ms
+        // against a budget of movetime + 10s — but the guard costs a line and
+        // its absence costs a move played for the wrong position.
+        if (_move != null && !_move!.isCompleted) _stale++;
         _finish(null);
         return null;
       },

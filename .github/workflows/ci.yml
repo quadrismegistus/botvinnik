@@ -39,7 +39,7 @@ jobs:
       # an uncaught error in a player's console and nowhere else.
       - name: the local patch to the vendored Go shim is still there
         run: |
-          grep -q 'LOCAL PATCH' vendor/retro/wasm_exec.js \
+          grep -q 'if (this.exited) return;' vendor/retro/wasm_exec.js \
             || { echo "vendor/retro/wasm_exec.js lost its local patch — see scripts/retro-wasm/main.go" >&2; exit 1; }
 
   # The sync blob-store Worker (issue #203). Its own npm package under worker/,

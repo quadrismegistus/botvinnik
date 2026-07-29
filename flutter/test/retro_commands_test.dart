@@ -28,8 +28,15 @@ void main() {
     // if the driver sees it first. Reversed, the position line still takes the
     // continuation branch and an identical one still ends the engine.
     final cmds = retroMoveCommands(fen, 500);
-    expect(cmds.indexOf('ucinewgame'),
-        lessThan(cmds.indexWhere((c) => c.startsWith('position'))));
+    final reset = cmds.indexOf('ucinewgame');
+    final position = cmds.indexWhere((c) => c.startsWith('position'));
+    // `reset >= 0` first, and not as ceremony: written as a bare
+    // `expect(indexOf(...), lessThan(...))` this passed with the line DELETED,
+    // because indexOf returns -1 and -1 is indeed less than 0. A verification
+    // pass caught it. An ordering assertion that a missing element satisfies
+    // is not an ordering assertion.
+    expect(reset, greaterThanOrEqualTo(0), reason: 'it is sent at all');
+    expect(reset, lessThan(position));
   });
 
   test('every request carries it, so a repeat cannot slip through', () {

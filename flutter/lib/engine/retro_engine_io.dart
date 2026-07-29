@@ -107,6 +107,14 @@ class _RetroProcess implements RetroEngine {
   @override
   bool get exited => _exited;
 
+  /// Whether this process ever answered `uci`. The gate on [_exited], and it
+  /// has to be this rather than the obvious `_alive`: [_die] kills the child,
+  /// so a boot that TIMED OUT completes `exitCode` too, and a rebuild on that
+  /// respawns every turn and pays the 10s boot wait again — worse than keeping
+  /// the corpse. `_alive` does not separate them either, because on a genuine
+  /// exit `onDone: 'stdout closed'` lands first and has already cleared it.
+  bool _ranOk = false;
+
   final String engine;
   final int ply;
 
@@ -153,7 +161,8 @@ class _RetroProcess implements RetroEngine {
           .transform(const LineSplitter())
           .listen((l) => debugPrint('[retro] $l'), onError: (Object _) {});
       proc.exitCode.then((c) {
-        _exited = true;
+        // Only an engine that RAN is worth respawning — see [_ranOk].
+        if (_ranOk) _exited = true;
         _die('exited ($c)');
       });
       _send('uci');
@@ -166,6 +175,7 @@ class _RetroProcess implements RetroEngine {
 
   void _onLine(String line) {
     if (line == 'uciok') {
+      _ranOk = true;
       if (!_booted.isCompleted) _booted.complete(true);
       return;
     }
