@@ -2728,7 +2728,22 @@ class GameController extends ChangeNotifier {
     return _analysis.putIfAbsent(fen, () {
       late final Future<List<EngineMove>?> mine;
       mine = _arbiter.analysis(fen, onUpdate: (lines) {
-        _partials[fen] = lines;
+        // Never DOWNGRADE what is known about a position. A preempted analysis
+        // is re-enqueued and restarts from scratch — [UciProtocol.search]
+        // clears its own map — so the second run's depth-2 snapshot would
+        // otherwise erase the first run's depth-18 one for the SAME fen. The
+        // refusal check is what preempts, which made this self-inflicted:
+        // check a move, and the evidence for the retry is worse than the
+        // evidence for the attempt, and below [kMinUsefulDepth] the retry
+        // silently fails open. Same fen is the same position, so deeper is
+        // simply better — there is no reading under which a shallower look at
+        // it is the more current answer.
+        final held = _partials[fen];
+        if (held == null ||
+            held.isEmpty ||
+            (lines.isNotEmpty && lines.first.depth >= held.first.depth)) {
+          _partials[fen] = lines;
+        }
         if (fen == position.fen) {
           _syncTree();
           notifyListeners();
@@ -2890,6 +2905,18 @@ class GameController extends ChangeNotifier {
   /// rather than hanging. It is also the path the test harness takes, since a
   /// fake arbiter resolves instantly and may never stream partials at all.
   Future<List<EngineMove>?> _preLinesFor(String fen, Duration cap) async {
+    // A FINISHED analysis beats any snapshot of one still running, and costs
+    // nothing to take: [_analysisFor] memoises, so a settled future resolves
+    // in a microtask rather than starting anything. Without this the completed
+    // depth-22 lines sat unread in `_analysis` while the verdict was made off
+    // a partial — the fast path below takes anything from depth 12 up and
+    // never looks past it. `_settledFens` and `_analysis` are cleared
+    // together, so this cannot ask for a fen whose memo has gone and quietly
+    // start a fresh search.
+    if (_settledFens.contains(fen)) {
+      final done = await _analysisFor(fen);
+      if (done != null && done.isNotEmpty) return done;
+    }
     final partial = _partials[fen];
     if (partial != null &&
         partial.isNotEmpty &&

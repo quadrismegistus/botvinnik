@@ -31,6 +31,11 @@ abstract class UciProtocol implements UciSearcher {
   Completer<List<EngineMove>>? _search;
   void Function(List<EngineMove>)? _onUpdate;
   int _lastStreamedDepth = 0;
+
+  /// Highest multipv index this position has produced — the ceiling a
+  /// completed iteration reaches. Learned rather than assumed, because a
+  /// position with fewer legal moves than MultiPV never emits the top index.
+  int _maxMultipvSeen = 0;
   int _currentMultiPv = 0;
 
   /// Weakening options applied by the last search. Anything in here that the
@@ -78,10 +83,34 @@ abstract class UciProtocol implements UciSearcher {
           depth: depth,
           multipv: multipv,
         );
-        // stream a snapshot once per completed depth (the last multipv line
-        // of a depth is the highest index we asked for, or multipv 1 when
-        // the position has fewer legal moves)
-        if (_onUpdate != null && depth > _lastStreamedDepth) {
+        if (multipv > _maxMultipvSeen) _maxMultipvSeen = multipv;
+        // Stream a snapshot once per COMPLETED depth. This comment has always
+        // said that; until 2026-07-29 the condition below did not implement
+        // it. `depth > _lastStreamedDepth` first becomes true on the multipv-1
+        // line of a new iteration — the FIRST line of it — at which point
+        // lines 2..N still hold the previous iteration's values. Every
+        // streamed snapshot was therefore `[line1@D, lines2..N@D-1]`, and
+        // stayed that way until the next depth opened, because the rest of
+        // this depth's lines update the map without re-streaming.
+        //
+        // A mixed snapshot is not merely stale. Anything that SUBTRACTS two
+        // of these lines is comparing different searches: refuse-blunders
+        // reads `bestEval` off line 1 and the played move's eval off line 2..N
+        // (see GameController._maybeRefuse), so one iteration of drift lands
+        // directly on a human's move. Worst case is line 1 flipping to a mate
+        // at depth D while the alternatives sit at D-1: a flat 100 against
+        // whatever they say, which is a refusal manufactured out of the gap.
+        //
+        // The last line of an iteration is the highest multipv index this
+        // position produces — MultiPV as asked for, or fewer when the position
+        // has fewer legal moves, which is why this learns the ceiling by
+        // watching rather than trusting [_currentMultiPv]. The very first
+        // iteration still streams early (nothing has taught us the ceiling
+        // yet); it is depth 1, and every consumer that cares has a depth floor
+        // far above it.
+        if (_onUpdate != null &&
+            depth > _lastStreamedDepth &&
+            multipv >= _maxMultipvSeen) {
           _lastStreamedDepth = depth;
           _onUpdate!(_sorted());
         }
@@ -122,6 +151,7 @@ abstract class UciProtocol implements UciSearcher {
     _byMultipv.clear();
     _onUpdate = onUpdate;
     _lastStreamedDepth = 0;
+    _maxMultipvSeen = 0;
     final completer = Completer<List<EngineMove>>();
     _search = completer;
     final incoming = {

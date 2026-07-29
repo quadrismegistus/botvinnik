@@ -326,6 +326,90 @@ void main() {
       game.dispose();
     });
 
+    // WHICH lines a verdict is read off, as opposed to what it then does with
+    // them. Both of these are about a position the controller has been told
+    // about twice, where the two tellings disagree.
+    group('the evidence a refusal reads', () {
+      const deep = [
+        EngineMove(pv: ['e2e4'], score: 0.3, mate: null, depth: 18, multipv: 1),
+      ];
+      const shallow = [
+        EngineMove(pv: ['a2a3'], score: 9.9, mate: null, depth: 2, multipv: 1),
+      ];
+
+      test('a restarted analysis cannot downgrade what is known', () async {
+        // The refusal check preempts the position's own analysis; the
+        // re-enqueued search restarts from depth 1, so the same fen streams
+        // depth 2 after having streamed depth 18. Taking the newer snapshot
+        // means the retry is judged on worse evidence than the attempt was —
+        // and under kMinUsefulDepth it is judged on none at all.
+        final settings = await loadSettings(black: kTestBotId);
+        final grading = FakeGrading(winChanceOf: winChanceOf);
+        final game = GameController(
+            FakeArbiter(
+                analysisLines: deep,
+                partialSequence: const [deep, shallow],
+                // never settles, so the partials are all there is
+                analysisDelay: const Duration(hours: 1)),
+            FakeBot({kTestBotId: testBotPersona}),
+            grading,
+            settings,
+            null,
+            FakePractice());
+        game.newGame(refuseBlunders: true);
+        game.playUci('e2e4');
+        await Future<void>.delayed(const Duration(milliseconds: 150));
+
+        // Both assertions matter, and the first is where this actually goes
+        // red: let the depth-2 snapshot replace the depth-18 one and the fast
+        // path rejects it as too shallow, so the check falls back to awaiting
+        // an analysis that never resolves — 2.5s of nothing, and the move is
+        // neither refused nor graded while a human watches the board.
+        expect(grading.preLinesSeen, isNotEmpty,
+            reason: 'a downgraded snapshot leaves the check with nothing '
+                'usable and it waits out its whole cap');
+        expect(grading.preLinesSeen.last.first.depth, 18,
+            reason: 'the deeper snapshot of the same fen still stands');
+        game.dispose();
+      });
+
+      test('and a finished analysis beats a snapshot of one in flight',
+          () async {
+        // The partial clears kMinUsefulDepth, so the fast path was happy to
+        // stop there — while the completed search sat unread beside it.
+        const streamed = [
+          EngineMove(
+              pv: ['a2a3'], score: 9.9, mate: null, depth: 12, multipv: 1),
+        ];
+        const settled = [
+          EngineMove(
+              pv: ['e2e4'], score: 0.3, mate: null, depth: 22, multipv: 1),
+        ];
+        final settings = await loadSettings(black: kTestBotId);
+        final grading = FakeGrading(winChanceOf: winChanceOf);
+        final game = GameController(
+            FakeArbiter(
+                analysisLines: settled,
+                partialSequence: const [streamed]),
+            FakeBot({kTestBotId: testBotPersona}),
+            grading,
+            settings,
+            null,
+            FakePractice());
+        game.newGame(refuseBlunders: true);
+        // let the analysis future resolve, which is what marks the fen settled
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        game.playUci('e2e4');
+        await Future<void>.delayed(const Duration(milliseconds: 150));
+
+        expect(grading.preLinesSeen, isNotEmpty,
+            reason: 'precondition: something was graded');
+        expect(grading.preLinesSeen.last.first.depth, 22,
+            reason: 'the finished search, not the snapshot of a running one');
+        game.dispose();
+      });
+    });
+
     test('the isBest guard holds on its own', () async {
       // The guard and the drop arithmetic each stop a rank-1 move by
       // themselves, so a coherent grade cannot tell them apart and the test
