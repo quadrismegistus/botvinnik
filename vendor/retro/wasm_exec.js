@@ -1,3 +1,8 @@
+// LOCALLY PATCHED COPY — not pristine upstream. One hunk, marked "LOCAL PATCH"
+// further down (search for it), guarding a post-exit timer callback. The
+// pristine sibling is scripts/retro-wasm/wasm_exec.js; refreshing this file by
+// copying from $(go env GOROOT) DROPS the patch, so reapply it and see
+// scripts/retro-wasm/main.go for the recipe. CI greps for the marker.
 // Copyright 2018 The Go Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
@@ -282,6 +287,18 @@
 						this._nextCallbackTimeoutID++;
 						this._scheduledTimeouts.set(id, setTimeout(
 							() => {
+								// LOCAL PATCH to a vendored Go runtime file, 2026-07-29.
+								// Re-vendoring wasm_exec.js drops it — reapply.
+								//
+								// This engine's program can end while its own timers are
+								// still scheduled (morlock's driver returns on a parse
+								// error), and those timers then fire against a dead
+								// instance. _resume() throws for that, from a bare
+								// setTimeout, so it lands in the player's console as an
+								// uncaught error on every retro game. The Go program is
+								// gone either way; the only question is whether it says
+								// so in a way that reads like a crash.
+								if (this.exited) return;
 								this._resume();
 								while (this._scheduledTimeouts.has(id)) {
 									// for some reason Go failed to register the timeout event, log and try again

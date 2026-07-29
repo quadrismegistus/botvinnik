@@ -50,13 +50,36 @@ self.onmessage = async (e) => {
 				return buf.length;
 			};
 		}
-		go.run(res.instance); // runs forever on its own goroutines
+		// NOT "runs forever", which is what the comment here used to claim and
+		// what the client was built on. `go.run` resolves when Go's main()
+		// returns, and main returns when morlock's UCI driver closes — which it
+		// does on `quit`, and on any command it fails to parse. Sending the same
+		// `position` line twice is one of those (see the ucinewgame note in
+		// retro_engine_web.dart), and it used to end the engine silently: every
+		// later message threw from inside this async handler, i.e. as an
+		// unhandled rejection that never reached the client, which then waited
+		// out its whole move timeout and played a Stockfish stand-in.
+		//
+		// So say so the moment it happens, and let the client rebuild rather than
+		// discover the corpse by posting into it.
+		go.run(res.instance).then(
+			() => self.postMessage('__exited__'),
+			(err) => self.postMessage(`__exited__ ${err}`)
+		);
 		for (const line of pending.splice(0)) self.retroSend(line);
 		self.postMessage('__ready__');
 		return;
 	}
 	if (typeof e.data === 'string') {
-		if (typeof self.retroSend === 'function') self.retroSend(e.data);
-		else pending.push(e.data);
+		if (typeof self.retroSend === 'function') {
+			// Belt and braces for the race the notification above cannot close:
+			// a command already in flight when the program exits. Uncaught,
+			// this rejects the handler's promise and the client hears nothing.
+			try {
+				self.retroSend(e.data);
+			} catch (err) {
+				self.postMessage(`__exited__ ${err}`);
+			}
+		} else pending.push(e.data);
 	}
 };

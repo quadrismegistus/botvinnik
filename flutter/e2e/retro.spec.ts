@@ -12,6 +12,7 @@ import { createServer, request as httpRequest } from 'node:http';
 import { expect, test } from '@playwright/test';
 
 import { OPENING_MOVES, START, loadSettled, seedPersona, seedPersonas } from './helpers';
+import { enableSemantics, tap } from './semantics';
 
 // The roster's three retro personas, and the name each engine reports. All
 // three share one retro.wasm, selected by the boot message — so a wasm built
@@ -211,4 +212,87 @@ test('a boot slower than one turn does not condemn the whole game', async ({ pag
 		.toBe(true);
 
 	await proxy.close();
+});
+
+// The two cases that drive the SHIPPED Dart client rather than hand-rolled
+// UCI. Everything above talks to the worker directly, which is why the whole
+// suite stayed green through a bug that handed entire games to a Stockfish
+// stand-in: deleting the fix from retro_engine_web.dart changes nothing any
+// of it can see.
+
+const SEARCHES = (logs: string[]) => logs.filter((l) => /\[retro\].*Search /.test(l)).length;
+const BOOTS = (logs: string[]) =>
+	logs.filter((l) => /\[retro\].*Initialized engine/.test(l)).length;
+
+test('a second game does not leave the retro engine dead', async ({ page }) => {
+	// The reported bug, end to end. `_syncRetro` keeps one worker across games
+	// while the persona is unchanged, so the second game's opening `position
+	// fen` is character-identical to the last line the engine saw — which used
+	// to end morlock's driver and hand every later turn to a stand-in.
+	const logs: string[] = [];
+	page.on('console', (m) => logs.push(m.text()));
+
+	await seedPersona(page, 'retro-turochamp-1');
+	await page.goto('/');
+
+	await expect.poll(() => SEARCHES(logs), { timeout: 60_000 }).toBeGreaterThan(0);
+	await enableSemantics(page);
+	const before = SEARCHES(logs);
+
+	await tap(page, 'New game');
+	await tap(page, 'Start');
+
+	await expect.poll(() => SEARCHES(logs), { timeout: 60_000 }).toBeGreaterThan(before);
+	expect(logs.filter((l) => l.includes('retro had no move'))).toEqual([]);
+});
+
+test('a worker that dies anyway is replaced for the next turn', async ({ page }) => {
+	// FAULT INJECTION, because `ucinewgame` is meant to make that death
+	// unreachable — and a net nothing can reach is a net nobody can trust.
+	// Wrap the retro Worker in the page and append a duplicate `position` line
+	// after the second search, with no `ucinewgame` between: the exact
+	// degenerate input that ends the driver, arriving from outside the client.
+	// What has to catch it is the engine reporting its own exit and
+	// `_syncRetro` building a fresh worker for the next turn.
+	await page.addInitScript(() => {
+		const Orig = window.Worker;
+		let searches = 0;
+		window.Worker = class extends Orig {
+			__retro = false;
+			__last: string | null = null;
+			constructor(url: string | URL, opts?: WorkerOptions) {
+				super(url, opts);
+				this.__retro = String(url).includes('retro');
+			}
+			postMessage(msg: unknown, ...rest: unknown[]) {
+				const r = (super.postMessage as (...a: unknown[]) => void)(msg, ...rest);
+				if (this.__retro && typeof msg === 'string') {
+					if (msg.startsWith('position fen')) this.__last = msg;
+					if (msg.startsWith('go movetime')) {
+						searches++;
+						if (searches === 2 && this.__last) {
+							(super.postMessage as (...a: unknown[]) => void)(this.__last);
+						}
+					}
+				}
+				return r;
+			}
+		};
+	});
+
+	const logs: string[] = [];
+	page.on('console', (m) => logs.push(m.text()));
+
+	// both seats retro, so turns keep arriving without touching the canvas
+	await seedPersonas(page, { white: 'retro-turochamp-1', black: 'retro-turochamp-1' });
+	await page.goto('/');
+
+	// it dies, and the client SAYS so rather than waiting out the timeout
+	await expect
+		.poll(() => logs.some((l) => l.includes('the engine process ended')), { timeout: 60_000 })
+		.toBe(true);
+
+	// and a fresh worker is built for the next turn, which is the whole claim
+	// of the `exited` check in _syncRetro
+	await expect.poll(() => BOOTS(logs), { timeout: 90_000 }).toBeGreaterThan(1);
 });

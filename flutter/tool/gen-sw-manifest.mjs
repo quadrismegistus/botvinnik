@@ -72,6 +72,7 @@ for (const required of [
   'wasm/stockfish.wasm',
   'retro/retro.wasm',
   'retro/retro-worker.js',
+  'retro/wasm_exec.js', // importScripts'd by the worker; missing it fails silently
   'garbo/garbochess.js',
   'maia/maia-worker.js',
   'maia/ort-wasm-simd-threaded.wasm',

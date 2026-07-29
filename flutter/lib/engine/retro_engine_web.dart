@@ -23,6 +23,7 @@ import 'dart:js_interop';
 import 'package:flutter/foundation.dart';
 
 import 'js_worker.dart';
+import 'retro_commands.dart';
 
 /// The boot message. retro-worker.js tells it from a UCI line by
 /// `typeof e.data === 'object'`, so this must cross as an object literal.
@@ -49,6 +50,25 @@ class RetroEngine {
   final Completer<bool> _booted = Completer<bool>();
   Completer<String?>? _move;
   bool _alive = true;
+
+  /// The Go program ended while it was running — see the `__exited__` branch.
+  /// The owner rebuilds on THIS, not on `!_alive`: a boot that failed, and the
+  /// [_bootDeadline] that latches a hopeless boot dead, are both permanent for
+  /// the session, and rebuilding on them would restart a 4.4MB fetch and hand
+  /// every turn the full [_turnPatience] again — undoing the deadline that
+  /// exists to stop exactly that.
+  bool _exited = false;
+  bool get exited => _exited;
+
+  /// Searches whose answer is no longer wanted. morlock's search is CPU-bound
+  /// and does not yield, so a worker mid-search cannot dequeue anything: a
+  /// `move()` that supersedes another queues BEHIND the running search, and
+  /// the bestmove that arrives next is the OLD one. Completing the new
+  /// caller's future with it hands the current position a move computed for an
+  /// abandoned one — illegal often enough to leave the bot on turn with
+  /// nothing scheduled, i.e. a stuck board. Each `go` yields exactly one
+  /// bestmove, so counting the abandoned ones is enough to skip them.
+  int _stale = 0;
 
   /// How long ONE turn will wait for the boot before playing a stand-in.
   static const _turnPatience = Duration(seconds: 30);
@@ -85,7 +105,34 @@ class RetroEngine {
             '${data.substring('__boot_failed__'.length).trim()}');
         return;
       }
+      // The Go program has ended, and the client cannot revive it: the worker
+      // hosts one instance and `go.run` is a one-shot. It ends when
+      // scripts/retro-wasm/main.go returns from `<-driver.Closed()`, which
+      // morlock does on `quit` and — see the `ucinewgame` note in [move] — on
+      // any command its driver fails to parse.
+      //
+      // Before the worker announced this, the client found out by posting into
+      // a dead worker: the throw landed as an unhandled rejection inside the
+      // worker's async handler, nothing came back, and this engine waited out
+      // `movetimeMs + 10s` before giving the turn away to a Stockfish stand-in
+      // — for the rest of the game, since the badge is sticky.
+      //
+      // Dying here rather than there is what makes it recoverable:
+      // [GameController] checks [alive] when it syncs, so the next turn builds
+      // a fresh worker instead of inheriting a corpse. With the `ucinewgame`
+      // fix this should now be rare; it is the net under it, not the fix.
+      if (data.startsWith('__exited__')) {
+        _exited = true;
+        _die('the engine process ended; a fresh worker will be built for the '
+            'next turn');
+        return;
+      }
       if (data.startsWith('bestmove')) {
+        // Skip the answers to searches nobody is waiting for any more.
+        if (_stale > 0) {
+          _stale--;
+          return;
+        }
         final uci = data.split(RegExp(r'\s+')).elementAtOrNull(1);
         _finish(uci == null || uci == '(none)' || uci == '0000' ? null : uci);
       }
@@ -139,13 +186,25 @@ class RetroEngine {
     // One search at a time. The bot has one turn at a time, but a new game or
     // an undo can arrive mid-think: whoever was waiting gets null and falls
     // back, rather than being handed a bestmove for a position that is gone.
+    // Abandoning a search in flight: its bestmove is still coming, and it is
+    // the next one the worker will send. Count it so the branch above drops it
+    // rather than handing it to the caller below.
+    if (_move != null && !_move!.isCompleted) _stale++;
     _finish(null);
     final pending = _move = Completer<String?>();
-    _worker.postMessage('position fen $fen'.toJS);
-    _worker.postMessage('go movetime $movetimeMs'.toJS);
+    // The command sequence lives in retro_commands.dart, where it is tested.
+    for (final c in retroMoveCommands(fen, movetimeMs)) {
+      _worker.postMessage(c.toJS);
+    }
     return pending.future.timeout(
       Duration(milliseconds: movetimeMs + 10000),
       onTimeout: () {
+        // Counted like any other abandoned search: its bestmove is still
+        // coming and would otherwise be handed to the NEXT caller. Unreachable
+        // in production at the shipped depths — measured worst case 19ms
+        // against a budget of movetime + 10s — but the guard costs a line and
+        // its absence costs a move played for the wrong position.
+        if (_move != null && !_move!.isCompleted) _stale++;
         _finish(null);
         return null;
       },

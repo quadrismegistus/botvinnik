@@ -26,6 +26,8 @@ import 'dart:ffi';
 import 'package:ffi/ffi.dart';
 import 'package:flutter/foundation.dart';
 
+import 'retro_commands.dart';
+
 import 'retro_engine_io.dart';
 
 typedef _LineCallback = Void Function(Int32, Pointer<Utf8>);
@@ -80,6 +82,17 @@ class _RetroLib {
 /// One engine session over FFI. The surface is the same as the process-backed
 /// RetroEngine's, because GameController must not care which it got.
 class RetroFfiEngine implements RetroEngine {
+  /// Never, on this transport — for want of a signal, not for want of a cure.
+  /// `retro_start` builds a fresh session, engine and driver per call
+  /// (scripts/retro-ffi/main.go), so a rebuilt engine WOULD work; what is
+  /// missing is any way to know one is needed. A linked archive emits nothing
+  /// when its driver returns, so a death here is invisible until a move times
+  /// out. The cost is real and worth naming: every later turn pays the full
+  /// wait and stands in. Detecting it would mean treating a timeout as death,
+  /// which is a different and riskier judgement than reporting an exit.
+  @override
+  bool get exited => false;
+
   RetroFfiEngine(this.engine, this.ply) {
     final lib = _RetroLib.instance;
     if (lib == null) {
@@ -196,8 +209,10 @@ class RetroFfiEngine implements RetroEngine {
     // request to null rather than handing back a move for a gone position.
     _finish(null);
     final pending = _move = Completer<String?>();
-    _send('position fen $fen');
-    _send('go movetime $movetimeMs');
+    // The command sequence lives in retro_commands.dart, where it is tested.
+    for (final c in retroMoveCommands(fen, movetimeMs)) {
+      _send(c);
+    }
     return pending.future.timeout(
       Duration(milliseconds: movetimeMs + 8000),
       onTimeout: () {

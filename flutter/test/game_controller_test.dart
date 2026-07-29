@@ -39,6 +39,38 @@ void main() {
           isTrue);
     });
 
+    // Shredder-FEN: Chess960 castling, written as the FILE of each rook
+    // because a shuffled back rank makes "queenside" ambiguous. dartchess
+    // parses it and re-emits it VERBATIM, so it reaches the engines unchanged
+    // — and morlock answers an unparseable castling field by returning from
+    // its driver loop, which ends the engine and hands the game to a Stockfish
+    // stand-in. Refused at the gate, where it can be explained.
+    test('refuses file-letter castling, and says why', () {
+      const shredder = 'r2rk2r/8/8/8/8/8/8/R2RK2R w Dd - 0 1';
+      expect(GameController.isPlayableFen(shredder), isFalse);
+      expect(GameController.fenProblem(shredder), contains('Castling'));
+      // and it is NOT rejected as malformed, because it is not malformed
+      expect(GameController.fenProblem(shredder), isNot(contains('valid FEN')));
+      // the same position in standard notation is fine
+      expect(
+          GameController.isPlayableFen('r2rk2r/8/8/8/8/8/8/R2RK2R w KQkq - 0 1'),
+          isTrue);
+    });
+
+    test('the ordinary start written Shredder-style is refused too', () {
+      // `AHah` really is `KQkq` here, and converting it would be easy — but
+      // then a genuine 960 position still fails, further from the message
+      // that explains it. One rule, one explanation.
+      expect(
+          GameController.isPlayableFen(
+              'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w AHah - 0 1'),
+          isFalse);
+    });
+
+    test('a position with no castling rights is unaffected', () {
+      expect(GameController.fenProblem('8/8/8/4k3/8/4K3/4P3/8 w - - 0 1'), isNull);
+    });
+
     test('rejects empty, garbage, and structurally broken input', () {
       expect(GameController.isPlayableFen(''), isFalse);
       expect(GameController.isPlayableFen('not a fen'), isFalse);

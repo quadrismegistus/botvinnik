@@ -338,8 +338,13 @@ class _NewGameSheetState extends State<_NewGameSheet> {
             FilledButton(
               onPressed: () {
                 final fen = _fen.text.trim();
-                if (fen.isNotEmpty && !GameController.isPlayableFen(fen)) {
-                  setState(() => _fenError = 'Not a valid FEN');
+                // The REASON, not just the verdict: a Chess960 castling field
+                // is a valid FEN, so "Not a valid FEN" would send someone
+                // looking for a typo that isn't there.
+                final problem =
+                    fen.isEmpty ? null : GameController.fenProblem(fen);
+                if (problem != null) {
+                  setState(() => _fenError = problem);
                   return;
                 }
                 // `_rateable` again, not just `_rated`/`_refuseBlunders`: the
