@@ -309,6 +309,36 @@ void main() {
       game.dispose();
     });
 
+    test('will not refuse on pre-move lines that are barely started', () async {
+      // The same condemning numbers as the test above — only the depth of the
+      // lines they were read off differs. `bestEval` comes from the pre-move
+      // lines on BOTH paths, so if those are a half-started search the whole
+      // subtraction is guesswork, and _preLinesFor's last resort hands back
+      // `_partials[fen]` with no depth check at all (reachable when the capped
+      // await times out on a cold position). Fail open, exactly as for a
+      // missing backfill.
+      final (game, _) = await newRefusalGame(
+        winChance: byEval,
+        gradeExtra: const {
+          'depth': 8, // below kMinUsefulDepth
+          'rank': 3,
+          'isBest': false,
+          'evalPawns': -1.0,
+          'bestEval': 1.2,
+        },
+      );
+      game.playUci('e2e4');
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+
+      expect(game.refusedMoves, 0);
+      expect(game.refusalMessage, isNull);
+      expect(game.moves, isNotEmpty, reason: 'fails open on thin evidence');
+      // Nothing is asserted about practice here: the move was ALLOWED, so the
+      // ordinary post-commit pipeline grades and banks it like any other
+      // mistake you actually played. That path is not what this test is about.
+      game.dispose();
+    });
+
     // #231. The message renders in exactly one widget — the Insights card —
     // and a rated game has no panels, so refusing was completely silent in the
     // mode where it is arguably most useful. Two halves: WHAT IT COST, said

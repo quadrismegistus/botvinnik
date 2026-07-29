@@ -1174,6 +1174,9 @@ class GameController extends ChangeNotifier {
   /// already carries its own eval from the same search as `bestEval`, so it
   /// is decided on that (see the drop calculation below) and a slow or
   /// timed-out child search costs only the refutation arrow, not the verdict.
+  ///
+  /// Both paths additionally require the pre-move lines to have reached
+  /// [kMinUsefulDepth], since `bestEval` comes from them either way.
   Future<void> _maybeRefuse(NormalMove move, String san) async {
     final gen = _gen;
     _refusalPending = true;
@@ -1257,6 +1260,18 @@ class GameController extends ChangeNotifier {
       // luck, not by construction. Spelling it out means the `grade!`
       // unwraps below stay safe even if that floor is ever lowered.
       if (grade != null &&
+          // A FLOOR ON THE EVIDENCE. `bestEval` always comes off the pre-move
+          // lines, on both paths below, so if those lines are shallow the
+          // whole subtraction is guesswork — and [_preLinesFor]'s last resort
+          // is `_partials[fen]` with no depth check at all, which on a cold
+          // position (the capped await timed out with a search barely
+          // started) can be depth 4. That was survivable while a refusal also
+          // required the depth-10 backfill; now that a listed move is decided
+          // on these lines alone, it is the only thing standing between a
+          // half-started search and a refused move. Below the floor we fail
+          // open, exactly as for a missing backfill: refusal mode does not
+          // refuse on a number it does not really have.
+          (pre?.depth ?? 0) >= kMinUsefulDepth &&
           // NEVER the engine's own first line. The arithmetic above already
           // gives it a drop of exactly zero — `bestEval` and `evalPawns` are
           // then the same number off the same list — but this feature's one
@@ -2812,6 +2827,11 @@ class GameController extends ChangeNotifier {
     }
     final lines = await _analysisFor(fen).timeout(cap, onTimeout: () => null);
     if (lines != null && lines.isNotEmpty) return lines;
+    // Deliberately unfiltered, unlike the fast path above: a shallow snapshot
+    // is still worth a grade for the UI. It is NOT worth a refusal, and that
+    // is enforced where the refusal is decided ([_maybeRefuse] checks the
+    // graded depth against [kMinUsefulDepth]) rather than by returning null
+    // here, which would throw the grade away for everyone.
     return _partials[fen];
   }
 
