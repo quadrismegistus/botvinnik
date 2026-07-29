@@ -306,6 +306,71 @@ void main() {
       expect(game.refusalDrop, closeTo(55, 0.5),
           reason: 'the pre-move lines’ own numbers: 80 − 25');
       expect(practice.collected, hasLength(1));
+
+      // The stored puzzle has to be internally consistent, because practice
+      // never stores the best move's eval — it reconstructs it as
+      // `winChance(evalPawns, mate) + wcDrop` and scores every attempt
+      // against that. Take `wcDrop` from the pre-move lines and `evalPawns`
+      // from the child search and the reconstruction lands somewhere no
+      // search ever said: here it would be 62.5 + 55 = 117, clamped to 100,
+      // i.e. a puzzle whose best move is worth a queen and a half and which
+      // nothing on the board can pass.
+      final stored = practice.collected.single;
+      expect(stored['evalPawns'], -1.0,
+          reason: 'the same grade the drop was computed from');
+      expect(
+          byEval(stored['evalPawns'] as double, null) +
+              (stored['wcDrop'] as double),
+          closeTo(80, 0.5),
+          reason: "reconstructs the best move's real win chance, 80");
+      game.dispose();
+    });
+
+    test('the isBest guard holds on its own', () async {
+      // The guard and the drop arithmetic each stop a rank-1 move by
+      // themselves, so a coherent grade cannot tell them apart and the test
+      // above passes with the guard deleted. This one is the guard alone: a
+      // grade that says rank 1 AND carries a condemning eval is incoherent —
+      // no real search produces it — and that is exactly the shape a future
+      // cross-search comparison would reintroduce. Without the guard this
+      // refuses for 55%.
+      final (game, _) = await newRefusalGame(
+        winChance: byEval,
+        gradeExtra: const {
+          'rank': 1,
+          'isBest': true,
+          'evalPawns': -1.0,
+          'bestEval': 1.2,
+        },
+      );
+      game.playUci('e2e4');
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+
+      expect(game.refusedMoves, 0);
+      expect(game.moves, isNotEmpty);
+      game.dispose();
+    });
+
+    test('and refuses at exactly the depth floor, not one above it', () async {
+      // kMinUsefulDepth itself, which is the value the fast path in
+      // _preLinesFor hands back most often — it returns a partial the moment
+      // line 1 reaches 12. A floor written `>` instead of `>=` would fail
+      // open on the ordinary case while still passing the depth-8 test below.
+      final (game, _) = await newRefusalGame(
+        winChance: byEval,
+        gradeExtra: const {
+          'depth': 12,
+          'rank': 3,
+          'isBest': false,
+          'evalPawns': -1.0,
+          'bestEval': 1.2,
+        },
+      );
+      game.playUci('e2e4');
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+
+      expect(game.refusedMoves, 1);
+      expect(game.moves, isEmpty);
       game.dispose();
     });
 

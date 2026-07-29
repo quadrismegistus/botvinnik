@@ -1317,6 +1317,24 @@ class GameController extends ChangeNotifier {
         notifyListeners();
         final practice = _practice;
         if (practice != null) {
+          // The grade the verdict was actually made on — NOT necessarily the
+          // backfilled one, now that a listed move is decided on the pre-move
+          // lines. These fields and `wcDrop` have to come from the same grade
+          // or the puzzle is unsolvable: practice does not store the best
+          // move's eval, it RECONSTRUCTS it as `winChance(evalPawns, mate) +
+          // wcDrop` (brain/practice.ts itemDataFromStoredMove), and that is
+          // the pass/fail baseline every attempt is then scored against
+          // (practice_controller: pass iff `wcBest - wcAfter <= kPassDrop`).
+          // Mix the two and the residual IS the cross-search disagreement
+          // this whole change exists to stop trusting — except now it is
+          // baked into a persisted item at collect time, where the worst case
+          // is a puzzle whose stated best move is worth +12 pawns and which
+          // no move on the board can pass.
+          //
+          // label/explanation stay off the backfilled grade: they are text,
+          // built from the child search's refutation line, and are what makes
+          // the puzzle readable. Only the arithmetic has to agree.
+          final basis = inPreLines ? pre : grade;
           final storedMove = {
             'ply': moves.length + 1,
             'san': san,
@@ -1324,11 +1342,11 @@ class GameController extends ChangeNotifier {
             'color': color,
             'fenBefore': fenBefore,
             'fenAfter': candidateFen,
-            'evalPawns': grade.evalPawns,
-            'mate': grade.mate,
-            'pctBest': grade.pctBest,
+            'evalPawns': basis.evalPawns,
+            'mate': basis.mate,
+            'pctBest': basis.pctBest,
             'wcDrop': drop,
-            'depth': grade.depth,
+            'depth': basis.depth,
             if (grade.label != null) 'label': grade.label,
             'bestSan': grade.bestSan,
             'bestUci': grade.bestUci,

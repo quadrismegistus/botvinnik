@@ -77,6 +77,17 @@ describe('gradeMove', () => {
 			0
 		);
 
+		// and `mate` off the played line too, which is the half that matters
+		// most: winChance short-circuits on mate, so a mate read off the WRONG
+		// line is a flat 100 (or 0) — the single biggest error this comparison
+		// can make, and the one the refusal path would act on.
+		const mating = [line('e2e4', 0, 1, 3), line('d2d4', 0.25, 2)];
+		const missed = gradeMove(1, START, 'd4', 'd2d4', 'w', mating)!;
+		expect(missed.bestMate).toBe(3);
+		expect(missed.mate).toBeNull(); // the played line has no mate of its own
+		expect(winChance(missed.bestEval, missed.bestMate)).toBe(100);
+		expect(winChance(missed.evalPawns, missed.mate)).toBeLessThan(100);
+
 		const third = gradeMove(1, START, 'Nf3', 'g1f3', 'w', LINES)!;
 		expect(third.rank).toBe(3);
 		expect(third.evalPawns).toBe(0.2); // its own line's score, not the best one's
