@@ -9316,6 +9316,7 @@ var brain = (() => {
   }
   function itemDataFromStoredMove(move, setupUci) {
     if (!move.bestSan || !move.bestUci || !move.fenBefore || move.wcDrop <= 0) return null;
+    if (move.bestUci === move.uci) return null;
     const wcBest = Math.max(0, Math.min(100, winChance(move.evalPawns, move.mate) + move.wcDrop));
     const w = Math.max(0.01, Math.min(0.99, wcBest / 100));
     const evalBestPawns = Math.max(-15, Math.min(15, Math.log(w / (1 - w)) / 368208e-8 / 100));

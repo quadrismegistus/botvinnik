@@ -94,6 +94,20 @@ export function itemDataFromStoredMove(
 	setupUci?: string
 ): Omit<PracticeItem, 'id' | 'createdAt' | 'box' | 'dueAt' | 'attempts' | 'correct'> | null {
 	if (!move.bestSan || !move.bestUci || !move.fenBefore || move.wcDrop <= 0) return null;
+	// A puzzle whose answer is the move you played teaches nothing, and it is
+	// worse than useless: checkAttempt short-circuits to a PASS when the played
+	// move equals the stored bestUci, so the drill asks you to correct a mistake
+	// and then accepts that mistake as the correction.
+	//
+	// It happens because a grade's `bestEval` and its `evalPawns` can come from
+	// two different searches — the pre-move lines and the deeper search of the
+	// position the move created — so the engine's own top move can be scored as
+	// having lost a few points. Refusal mode fixed that for the case it decides
+	// (#242); the post-commit path deliberately keeps the deeper number, which
+	// is the right basis for a grade and can still produce a small drop on a
+	// best move. Found in a real queue: 1 item in 677, `played Qe2 / best Qe2`,
+	// drop 6.6%.
+	if (move.bestUci === move.uci) return null;
 	const wcBest = Math.max(0, Math.min(100, winChance(move.evalPawns, move.mate) + move.wcDrop));
 	const w = Math.max(0.01, Math.min(0.99, wcBest / 100));
 	const evalBestPawns = Math.max(-15, Math.min(15, Math.log(w / (1 - w)) / 0.00368208 / 100));
