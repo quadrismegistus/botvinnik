@@ -7,8 +7,13 @@
 //   git clone https://github.com/herohde/morlock ../engines/morlock-src
 //   git -C ../engines/morlock-src checkout 8c55f1e97f6259fcff48a567409b382961045463
 //   GOOS=js GOARCH=wasm go build -ldflags="-s -w" -o retro.wasm .
-//   cp retro.wasm "$(go env GOROOT)/lib/wasm/wasm_exec.js" ../../static/retro/
-// The committed static/retro/retro.wasm was built from exactly that commit —
+//   cp retro.wasm "$(go env GOROOT)/lib/wasm/wasm_exec.js" ../../vendor/retro/
+//   # then RE-APPLY the local patch to vendor/retro/wasm_exec.js — see the
+//   # LOCAL PATCH note at the top of that file. The cp above overwrites it,
+//   # and CI fails if it goes missing.
+// The path was `../../static/retro/` until static/ became vendor/; a recipe
+// that writes to a directory which no longer exists is worse than none.
+// The committed vendor/retro/retro.wasm was built from exactly that commit —
 // the same source as the native gym binaries (scripts/engines/retro/), so the
 // in-app engines are the ones the calibration measured.
 //

@@ -765,7 +765,21 @@ class GameController extends ChangeNotifier {
     // worker was disposed and rebuilt on every one of the OTHER bot's turns.
     final spec = personaToMove?.retro ?? whitePersona?.retro ?? blackPersona?.retro;
     final key = spec == null ? null : '${spec['engine']}:${spec['ply']}';
-    if (key != _retroKey) {
+    // An engine that RAN AND STOPPED is rebuilt even when the key is
+    // unchanged, because "same persona, so keep the engine" otherwise means
+    // keeping a corpse and standing in for every later turn.
+    //
+    // On [RetroEngine.exited], not on "not alive": a boot that failed fails
+    // the same way next time, so rebuilding once a turn buys nothing and pays
+    // a spawn or a 4.4MB fetch for it. An earlier draft of this gated on
+    // liveness and thereby undid the web engine's boot deadline, which latches
+    // a hopeless boot dead precisely so later turns stop waiting on it.
+    //
+    // Note this does NOT give the replacement a head start when it happens at
+    // move time — [_maybeBotTurn] calls `_syncRetro()?.move(fen)` in one
+    // expression, so a cold rebuild still races that turn's patience. The head
+    // start comes from the persona-change and new-game calls above.
+    if (key != _retroKey || (_retro != null && _retro!.exited)) {
       _retro?.dispose();
       _retro = null;
       _retroKey = key;
@@ -781,13 +795,40 @@ class GameController extends ChangeNotifier {
 
   /// Whether [fen] is a full, legal position we can start from — used to
   /// validate a pasted FEN before handing it to [newGame].
-  static bool isPlayableFen(String fen) {
+  static bool isPlayableFen(String fen) => fenProblem(fen) == null;
+
+  /// Why [fen] cannot be played here, phrased for the player, or null if it
+  /// can. Separate from [isPlayableFen] because "Not a valid FEN" is a lie
+  /// about the castling case below: that FEN is perfectly valid, and dartchess
+  /// parses it happily. It is only unplayable HERE.
+  static String? fenProblem(String fen) {
+    final trimmed = fen.trim();
     try {
-      Chess.fromSetup(Setup.parseFen(fen.trim()));
-      return true;
+      Chess.fromSetup(Setup.parseFen(trimmed));
     } catch (_) {
-      return false;
+      return 'Not a valid FEN';
     }
+    // FILE-LETTER CASTLING (Shredder-FEN, `w Dd`) — Chess960 notation, which
+    // names the rook's file because a shuffled back rank makes "queenside"
+    // ambiguous. dartchess parses it AND re-emits it verbatim, so the string
+    // reaches the engines unchanged; morlock's parser rejects it, and the way
+    // it rejects it is by returning from its driver loop, which ends the
+    // engine — a retro bot that stands in for the whole game (see
+    // retro_commands.dart for the same failure by the other route).
+    //
+    // Refused rather than converted. `AHah` really does mean `KQkq` when the
+    // rooks are on a and h, but nothing else here plays Chess960, and
+    // rewriting the field for positions where it happens to be equivalent
+    // would leave the genuine 960 case failing exactly as before, further from
+    // the message that explains it.
+    final fields = trimmed.split(RegExp(r'\s+'));
+    if (fields.length > 2 &&
+        fields[2] != '-' &&
+        !RegExp(r'^[KQkq]+$').hasMatch(fields[2])) {
+      return 'Castling must be written KQkq — file-letter (Chess960) '
+          'castling is not supported';
+    }
+    return null;
   }
 
   /// Start a fresh game. [fromFen] drops onto an arbitrary position instead of

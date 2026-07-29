@@ -32,6 +32,8 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 
+import 'retro_commands.dart';
+
 import 'retro_engine_ffi.dart';
 
 /// One retro engine, whichever way this platform can reach it.
@@ -53,6 +55,21 @@ abstract class RetroEngine {
   /// contract on both transports: the caller falls back to Stockfish at the
   /// persona's rating rather than seeing an error.
   Future<String?> move(String fen, {int movetimeMs});
+
+  /// Whether this engine died in a way a FRESH one would fix — the engine's
+  /// process or program ended, as opposed to it never having started.
+  ///
+  /// Deliberately narrower than "not alive", and the distinction is the whole
+  /// value of the flag. An engine that failed to boot — no binary, a 404 on
+  /// the wasm, a boot deadline blown — fails identically next time, so
+  /// rebuilding it once a turn buys nothing and costs a spawn or a 4.4MB
+  /// fetch each time. Worse, [RetroEngine] on the web latches dead after
+  /// [_bootDeadline] precisely so that later turns stop paying the full
+  /// per-turn patience; rebuilding on that would hand every turn the 30s wait
+  /// again, forever, which is the regression that deadline exists to prevent.
+  ///
+  /// So: true only for an engine that was running and stopped.
+  bool get exited => false;
 
   void dispose();
 
@@ -83,6 +100,21 @@ abstract class RetroEngine {
 }
 
 class _RetroProcess implements RetroEngine {
+  /// The process ended on its own — morlock's `main` returns when its driver
+  /// loop returns, so the binary exits and this is respawnable. Set ONLY
+  /// there: the boot timeout and a missing binary are not.
+  bool _exited = false;
+  @override
+  bool get exited => _exited;
+
+  /// Whether this process ever answered `uci`. The gate on [_exited], and it
+  /// has to be this rather than the obvious `_alive`: [_die] kills the child,
+  /// so a boot that TIMED OUT completes `exitCode` too, and a rebuild on that
+  /// respawns every turn and pays the 10s boot wait again — worse than keeping
+  /// the corpse. `_alive` does not separate them either, because on a genuine
+  /// exit `onDone: 'stdout closed'` lands first and has already cleared it.
+  bool _ranOk = false;
+
   final String engine;
   final int ply;
 
@@ -128,7 +160,11 @@ class _RetroProcess implements RetroEngine {
           .transform(utf8.decoder)
           .transform(const LineSplitter())
           .listen((l) => debugPrint('[retro] $l'), onError: (Object _) {});
-      proc.exitCode.then((c) => _die('exited ($c)'));
+      proc.exitCode.then((c) {
+        // Only an engine that RAN is worth respawning — see [_ranOk].
+        if (_ranOk) _exited = true;
+        _die('exited ($c)');
+      });
       _send('uci');
       _send('setoption name Depth value $ply');
       _send('isready');
@@ -139,6 +175,7 @@ class _RetroProcess implements RetroEngine {
 
   void _onLine(String line) {
     if (line == 'uciok') {
+      _ranOk = true;
       if (!_booted.isCompleted) _booted.complete(true);
       return;
     }
@@ -192,8 +229,10 @@ class _RetroProcess implements RetroEngine {
     // position.
     _finish(null);
     final pending = _move = Completer<String?>();
-    _send('position fen $fen');
-    _send('go movetime $movetimeMs');
+    // The command sequence lives in retro_commands.dart, where it is tested.
+    for (final c in retroMoveCommands(fen, movetimeMs)) {
+      _send(c);
+    }
     return pending.future.timeout(
       Duration(milliseconds: movetimeMs + 8000),
       onTimeout: () {
