@@ -648,6 +648,91 @@ void main() {
       });
     });
 
+    // The child search is a real engine search, at a priority that PREEMPTS
+    // the position's own analysis — so running one the verdict does not need
+    // costs the player the wait and costs the board its analysis slot.
+    group('the child search runs only when something will read it', () {
+      test('an allowed in-list move never starts one', () async {
+        final settings = await loadSettings(black: kTestBotId);
+        final arbiter = FakeArbiter(
+            analysisLines: kFakeLines, searchLines: childLines);
+        final game = GameController(
+            arbiter,
+            FakeBot({kTestBotId: testBotPersona}),
+            FakeGrading(winChanceOf: byEval, gradeExtra: const {
+              'rank': 1,
+              'isBest': true,
+              'evalPawns': 1.2,
+              'bestEval': 1.2,
+            }),
+            settings,
+            null,
+            FakePractice());
+        game.newGame(refuseBlunders: true);
+        game.playUci('e2e4');
+        await Future<void>.delayed(const Duration(milliseconds: 150));
+
+        expect(game.moves, isNotEmpty, reason: 'precondition: allowed');
+        expect(
+            arbiter.searchRequests
+                .where((r) => r.priority == SearchPriority.refusalCheck),
+            isEmpty,
+            reason: 'the verdict was settled by the pre-move lines alone');
+        game.dispose();
+      });
+
+      test('a refusal that WILL draw an arrow still starts one', () async {
+        final (game, _) = await newRefusalGame(
+          winChance: byEval,
+          chess: _RefuteChess(),
+          gradeExtra: const {
+            'rank': 3,
+            'isBest': false,
+            'evalPawns': -1.0,
+            'bestEval': 1.2,
+          },
+        );
+        game.playUci('e2e4');
+        await Future<void>.delayed(const Duration(milliseconds: 150));
+
+        expect(game.refusedMoves, 1, reason: 'precondition: refused');
+        expect(game.refusalRefutationUci, 'h7h5',
+            reason: 'the arrow is drawn, so the search that feeds it ran');
+        game.dispose();
+      });
+
+      test('but a RATED refusal does not, since nothing may show it', () async {
+        // Rated withholds the refutation outright, so the search that produces
+        // it was being run for a value the code then hard-nulls.
+        final settings = await loadSettings(black: kTestBotId);
+        final arbiter = FakeArbiter(
+            analysisLines: kFakeLines, searchLines: childLines);
+        final game = GameController(
+            arbiter,
+            FakeBot({kTestBotId: testBotPersona}),
+            FakeGrading(winChanceOf: byEval, gradeExtra: const {
+              'rank': 3,
+              'isBest': false,
+              'evalPawns': -1.0,
+              'bestEval': 1.2,
+            }),
+            settings,
+            null,
+            FakePractice());
+        game.newGame(refuseBlunders: true, rated: true);
+        game.playUci('e2e4');
+        await Future<void>.delayed(const Duration(milliseconds: 150));
+
+        expect(game.refusedMoves, 1, reason: 'precondition: refused');
+        expect(game.refusalRefutationUci, isNull);
+        expect(
+            arbiter.searchRequests
+                .where((r) => r.priority == SearchPriority.refusalCheck),
+            isEmpty);
+        game.dispose();
+      });
+    });
+
     test('the isBest guard holds on its own', () async {
       // The guard and the drop arithmetic each stop a rank-1 move by
       // themselves, so a coherent grade cannot tell them apart and the test

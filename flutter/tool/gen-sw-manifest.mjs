@@ -55,8 +55,45 @@ function walk(dir, out = []) {
   return out;
 }
 
+/**
+ * Assets that DON'T change when the app does: vendored engines and runtimes,
+ * whose bytes are decided by a dependency rather than by our source.
+ *
+ * They get a cache that survives a deploy, keyed per file by content — see
+ * sw.js. The cost of not having one is not theoretical: the app cache's name
+ * hashes over every shipped file, so any release evicts the 4.4MB retro wasm
+ * and the ~3.3MB ort runtime, and the next retro or Maia move pays for them
+ * again. That download racing a move's patience is exactly how a bot ends up
+ * standing in on the first game after a release.
+ *
+ * Deliberately NOT here: anything of ours. `brain.js` in particular has a
+ * version contract with `main.dart.js` — a stale one beside a new app trips
+ * the BRAIN_VERSION assert and refuses to boot, which is why the app cache is
+ * brutal about rotating, and it should stay brutal.
+ *
+ * Per-file hashing is what makes a mixed pair impossible: change the wasm and
+ * not its worker and only the wasm gets a new key, because only the wasm
+ * changed.
+ */
+function isStable(p) {
+  return (
+    p.startsWith('canvaskit/') ||
+    p.startsWith('wasm/') ||
+    p.startsWith('retro/') ||
+    p.startsWith('garbo/') ||
+    p.startsWith('maia/ort-') ||
+    p === 'sqlite3.wasm'
+  );
+}
+
 const all = walk(root).filter((p) => !isExcluded(p));
 const precache = all.filter(isShell).sort();
+
+/** path -> content hash, for the long-lived engine cache. */
+const stable = {};
+for (const p of all.filter(isStable).sort()) {
+  stable[p] = createHash('sha256').update(readFileSync(join(root, p))).digest('hex').slice(0, 12);
+}
 
 if (!precache.includes('index.html') || !precache.includes('flutter_bootstrap.js')) {
   // without these the worker cannot answer an offline navigation, which
@@ -103,12 +140,13 @@ if (!src.includes(token)) {
 }
 writeFileSync(
   swPath,
-  src.replace(token, JSON.stringify({ version, precache }, null, 2))
+  src.replace(token, JSON.stringify({ version, precache, stable }, null, 2))
 );
 
 const bytes = precache.reduce((n, p) => n + statSync(join(root, p)).size, 0);
 console.log(
   `sw manifest: shell ${precache.length} files / ${(bytes / 1024).toFixed(0)}KB, ` +
     `version ${version}\n` +
-    `             ${all.length - precache.length} more cache on first use`
+    `             ${all.length - precache.length} more cache on first use, ` +
+    `${Object.keys(stable).length} of them in the deploy-proof engine cache`
 );
