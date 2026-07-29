@@ -27,6 +27,35 @@ const MANIFEST = /*__MANIFEST__*/ null;
 
 const CACHE = `botvinnik-flutter-${MANIFEST ? MANIFEST.version : 'dev'}`;
 
+/**
+ * The engine cache, and the point of it is the NAME: it does not carry the
+ * app version, so a deploy does not evict it.
+ *
+ * [CACHE] is deliberately brutal — its name hashes over every shipped file, so
+ * one release rotates the lot, which is what stops a stale brain.js sitting
+ * beside a new main.dart.js. Correct for our own bundle, and indiscriminate:
+ * it also threw away the 4.4MB retro wasm and the ~3.3MB ort runtime, neither
+ * of which had changed. The next retro or Maia move then pays for the download
+ * again, racing a move's patience — which is how a bot ends up standing in on
+ * the first game after a release.
+ *
+ * Freshness comes from the KEY instead of the cache name. Each entry is stored
+ * under `<path>?v=<hash of that file>` (see MANIFEST.stable, written by
+ * tool/gen-sw-manifest.mjs), so a changed asset is simply a different key —
+ * a miss, then a fetch — and the stale key is pruned on activate. Per file, so
+ * changing a wasm without its worker re-fetches only the wasm.
+ */
+const ENGINES = 'botvinnik-engines';
+const STABLE = (MANIFEST && MANIFEST.stable) || {};
+
+/** The versioned cache key for a stable asset, or null if it is not one. */
+function engineKey(url) {
+  if (url.origin !== self.location.origin) return null;
+  const path = url.pathname.replace(/^\//, '');
+  const hash = STABLE[path];
+  return hash ? `${url.origin}/${path}?v=${hash}` : null;
+}
+
 /** Everything we serve, plus fonts if any ever come from Google again. */
 function cacheable(url) {
   if (url.origin === self.location.origin) return true;
@@ -127,7 +156,21 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(
     (async () => {
       const keys = await caches.keys();
-      await Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)));
+      // ENGINES survives, by name — that is the whole mechanism.
+      await Promise.all(
+        keys.filter((k) => k !== CACHE && k !== ENGINES).map((k) => caches.delete(k))
+      );
+      // Surviving is not the same as never being cleaned: prune entries whose
+      // asset has changed, since their keys carry the OLD hash and nothing
+      // would ever ask for them again. Without this the cache only grows, one
+      // dead copy of a 4.4MB wasm per engine update.
+      const engines = await caches.open(ENGINES);
+      const wanted = new Set(
+        Object.keys(STABLE).map((p) => `${self.location.origin}/${p}?v=${STABLE[p]}`)
+      );
+      for (const req of await engines.keys()) {
+        if (!wanted.has(req.url)) await engines.delete(req);
+      }
       await self.clients.claim();
     })()
   );
@@ -146,6 +189,25 @@ self.addEventListener('fetch', (event) => {
         (await caches.match('index.html')) ||
         (await caches.match('./')) ||
         fetch(req))()
+    );
+    return;
+  }
+
+  // A vendored engine or runtime: served from the cache that outlives deploys,
+  // under a key carrying its own content hash.
+  const key = engineKey(url);
+  if (key) {
+    event.respondWith(
+      (async () => {
+        const cache = await caches.open(ENGINES);
+        const hit = await cache.match(key);
+        if (hit) return hit;
+        // 'reload' for the same reason the app cache uses it: the HTTP cache
+        // could otherwise hand back a copy from a different build.
+        const res = await fetch(req, { cache: 'reload' });
+        if (res && res.status === 200) cache.put(key, res.clone()).catch(() => {});
+        return res;
+      })()
     );
     return;
   }

@@ -11,5 +11,5 @@ export default defineConfig({
 	resolve: {
 		alias: { $brain: fileURLToPath(new URL('./brain', import.meta.url)) }
 	},
-	test: { include: ['brain/**/*.test.ts'] }
+	test: { include: ['brain/**/*.test.ts', 'flutter/tool/**/*.test.mjs'] }
 });
