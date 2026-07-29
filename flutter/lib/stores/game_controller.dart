@@ -332,10 +332,18 @@ class GameController extends ChangeNotifier {
     pendingMove = null;
   }
 
-  /// What the refused move would have cost, in win chance. Set on every
-  /// refusal, in every mode — it is the number the refusal is a judgement
-  /// about, and withholding it while still refusing tells the player the move
-  /// is bad without telling them how bad, which is the least useful half.
+  /// What the refused move would have cost, in win chance, unrounded.
+  ///
+  /// NOT what the player sees: [refusalMessage] bakes the rounded figure in at
+  /// refusal time, and it is the only thing any widget reads. A review pass
+  /// flagged this as a write-only public field, which it nearly is — its one
+  /// consumer is the test suite, where asserting `closeTo(55, 0.5)` is a
+  /// better check than fishing "−55%" back out of a sentence.
+  ///
+  /// Kept for that, and because it is the honest source for any UI that wants
+  /// the cost as a number rather than as prose. Named here rather than
+  /// deleted so the next reader does not have to rediscover which of the two
+  /// the widgets use.
   double? refusalDrop;
 
   /// The opponent's punishing reply to the refused move, as a uci — the "why".
@@ -1227,6 +1235,31 @@ class GameController extends ChangeNotifier {
     _maybeBotTurn();
   }
 
+  /// Would a refusal happen, given the grade the verdict is read off and the
+  /// drop computed from it?
+  ///
+  /// One definition, because there are now two callers: the gate itself, and
+  /// the question of whether the child search is worth running at all. Asking
+  /// it twice in two places is how the diagnostic below came to explain an
+  /// allow that never happened — the same conditions, in a different order.
+  bool _wouldRefuse(MoveGrade? pre, double drop, int attempts) =>
+      pre != null &&
+      // A FLOOR ON THE EVIDENCE. `bestEval` always comes off the pre-move
+      // lines, so if those lines are shallow the whole subtraction is
+      // guesswork — and [_preLinesFor]'s last resort can be depth 4 on a cold
+      // position. Below the floor we fail open, exactly as for a missing
+      // backfill: refusal mode does not refuse on a number it does not have.
+      pre.depth >= kMinUsefulDepth &&
+      // NEVER the engine's own first line. The arithmetic already gives it a
+      // drop of exactly zero, but this feature's one unbreakable promise
+      // should not rest on two subtractions cancelling.
+      !pre.isBest &&
+      // refuseThreshold, NOT collectThreshold: one number used to do both
+      // jobs, so the Practice tab's bar silently decided when a rated game
+      // refused a move (#213).
+      drop >= _settings.refuseThreshold &&
+      attempts < kMaxRefusalAttempts;
+
   /// Refusal-mode gate (issue #167): grades [move] BEFORE it commits. If the
   /// drop clears [SettingsStore.collectThreshold] and the player has not
   /// already struck out [kMaxRefusalAttempts] times at this position, the
@@ -1297,6 +1330,15 @@ class GameController extends ChangeNotifier {
         gen: gen,
         onGraded: (g) => preGrade = g,
         onChild: (c) => refutation = c,
+        needsChild: (pre) {
+          // Off-list moves have no eval of their own until the child search
+          // provides one, so they always need it.
+          if (pre.rank == null || pre.evalPawns == null) return true;
+          // In-list: the verdict is settled. Run the search only for a
+          // refutation we are actually going to draw.
+          if (!_wouldRefuse(pre, _wcDrop(pre), attempts)) return false;
+          return !hidingHelp && !_rated;
+        },
         cap: const Duration(milliseconds: 2500),
       );
       if (gen != _gen) return; // superseded (undo/new game) while we waited
@@ -1337,32 +1379,9 @@ class GameController extends ChangeNotifier {
       // 0), so a null grade's drop-of-0.0 can never clear it — correct by
       // luck, not by construction. Spelling it out means the `grade!`
       // unwraps below stay safe even if that floor is ever lowered.
-      if (grade != null &&
-          // A FLOOR ON THE EVIDENCE. `bestEval` always comes off the pre-move
-          // lines, on both paths below, so if those lines are shallow the
-          // whole subtraction is guesswork — and [_preLinesFor]'s last resort
-          // is `_partials[fen]` with no depth check at all, which on a cold
-          // position (the capped await timed out with a search barely
-          // started) can be depth 4. That was survivable while a refusal also
-          // required the depth-10 backfill; now that a listed move is decided
-          // on these lines alone, it is the only thing standing between a
-          // half-started search and a refused move. Below the floor we fail
-          // open, exactly as for a missing backfill: refusal mode does not
-          // refuse on a number it does not really have.
-          (pre?.depth ?? 0) >= kMinUsefulDepth &&
-          // NEVER the engine's own first line. The arithmetic above already
-          // gives it a drop of exactly zero — `bestEval` and `evalPawns` are
-          // then the same number off the same list — but this feature's one
-          // unbreakable promise is that it does not refuse the best move on
-          // the board, and that promise should not rest on two subtractions
-          // cancelling. If a future change reintroduces a cross-search
-          // comparison, this still holds the line.
-          !(pre?.isBest ?? false) &&
-          // refuseThreshold, NOT collectThreshold: one number used to do both
-          // jobs, so the Practice tab's bar silently decided when a rated game
-          // refused a move (#213).
-          drop >= _settings.refuseThreshold &&
-          attempts < kMaxRefusalAttempts) {
+      // `grade != null` as well as the verdict: it is what makes the `grade!`
+      // unwraps below safe, independently of where the threshold sits.
+      if (grade != null && _wouldRefuse(pre, drop, attempts)) {
         decided = true;
         _refusalAttempts[fenBefore] = attempts + 1;
         _refusedMoves++;
@@ -3048,6 +3067,10 @@ class GameController extends ChangeNotifier {
     /// Its first pv is the refutation, which is the one thing a refused move
     /// can be explained with that does not give away the best move.
     void Function(List<EngineMove> child)? onChild,
+    /// Whether the child search is worth running, asked once the pre-move
+    /// grade exists. Refusal mode answers no for most moves — see the call
+    /// site — and that skips a real engine search per human move.
+    bool Function(MoveGrade pre)? needsChild,
     Duration? cap,
   }) async {
     // pre-lines: the completed (or cancelled-with-partials) analysis of the
@@ -3081,6 +3104,15 @@ class GameController extends ChangeNotifier {
       preLines: pre,
     );
     onGraded?.call(grade);
+
+    // Nothing downstream will read the child search: don't run it. For a move
+    // in the pre-move lines the verdict is already settled by the grade above,
+    // and the only other consumer is the refutation arrow — which a refusal
+    // does not always draw, and an ALLOWED move never does. That is most human
+    // moves in refusal mode, each of which was blocking the board on a search
+    // whose answer was discarded, while holding the engine that the position's
+    // own analysis wants back.
+    if (needsChild != null && !needsChild(grade)) return grade;
 
     List<EngineMove>? child;
     if (cap == null) {
