@@ -101,6 +101,13 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
 
+  # Test-only. It arrives transitively via sqflite_common_ffi_web, but
+  # test/vm/db_unreadable_test.dart imports it DIRECTLY: it builds a real
+  # database, tears real pages, and checks the app can tell an unreadable file
+  # from an ordinary error. Nothing else can produce a genuinely corrupt SQLite
+  # file to test against.
+  sqflite_common_ffi: ^2.3.0
+
   # The "flutter_lints" package below contains a set of recommended lints to
   # encourage good coding practices. The lint set provided by the package is
   # activated in the `analysis_options.yaml` file located at the root of your
