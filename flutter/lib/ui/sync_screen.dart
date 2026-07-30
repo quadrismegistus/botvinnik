@@ -214,8 +214,57 @@ class _SyncScreenState extends State<SyncScreen> {
           textAlign: TextAlign.center,
           style: TextStyle(fontSize: 11, color: Colors.white30),
         ),
+        const SizedBox(height: 20),
+        // Separate from "turn off", deliberately. Removing your data from a
+        // server and erasing your own history are different intentions, and
+        // one button for both would make the safer-sounding one destructive.
+        // This one does NOT touch the games on this device.
+        TextButton(
+          onPressed: busy ? null : () => _deleteRemote(context, sync),
+          child: Text('Delete my synced data from the server',
+              style: TextStyle(color: Colors.red.shade300)),
+        ),
+        const Text(
+          'Your games on this device are kept. Nobody but you can do this — '
+          'the server cannot tell which blob is yours.',
+          textAlign: TextAlign.center,
+          style: TextStyle(fontSize: 11, color: Colors.white30),
+        ),
       ],
     );
+  }
+
+  Future<void> _deleteRemote(BuildContext context, SyncController sync) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete synced data?'),
+        content: const Text(
+          'The encrypted copy on the server is removed and this device stops '
+          'syncing. The games on this device are NOT deleted.\n\n'
+          'If another device is still syncing, it will upload its copy again '
+          'and recreate the data — turn sync off there first.\n\n'
+          'This cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Delete')),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    try {
+      await sync.deleteRemote();
+      if (mounted) setState(() => _seeded = false);
+    } catch (e) {
+      // deleteRemote already set an offline/error status; the screen renders
+      // it. Swallowing here only stops an unhandled async error.
+      debugPrint('sync: delete failed: $e');
+    }
   }
 
   // Manual sync — never throttled (autoSync is for the triggers). Tabs refresh

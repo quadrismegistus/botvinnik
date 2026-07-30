@@ -31,6 +31,11 @@ class MemorySyncStore implements SyncStore {
   }
 
   @override
+  Future<void> delete(String blobId) async {
+    _blobs.remove(blobId); // idempotent, like the Worker
+  }
+
+  @override
   Future<String> update(String blobId, List<int> body, String etag) async {
     final hook = onBeforeUpdate;
     if (hook != null) {

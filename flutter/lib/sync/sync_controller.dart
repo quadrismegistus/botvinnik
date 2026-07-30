@@ -137,6 +137,44 @@ class SyncController extends ChangeNotifier {
     _set(const SyncStatus(SyncPhase.off));
   }
 
+  /// Delete the blob from the server, then stop syncing on this device.
+  ///
+  /// The only way this data can ever be removed. There are no accounts and the
+  /// blobId is derived from the phrase, so the device holding that phrase is
+  /// the only thing anywhere that can even identify the object — nobody
+  /// operating the server can do this for you. Without it, every blob ever
+  /// created is immortal, including the ones left behind by test pairings.
+  ///
+  /// End-to-end encryption is no obstacle: R2 does not read the ciphertext to
+  /// drop it. And the DELETE grants an attacker nothing that PUT does not —
+  /// knowing the blobId already lets anyone overwrite the blob with garbage,
+  /// so being able to remove it is strictly weaker.
+  ///
+  /// [disable] AFTERWARDS, and not as a nicety: `syncNow` creates the blob when
+  /// the remote is absent, so a device left syncing would upload its local
+  /// games again within the minute and quietly undo the deletion. Turning off
+  /// here makes the deletion stick for THIS device; any other paired device
+  /// will still resurrect it, which the UI has to say out loud because nothing
+  /// in the protocol can prevent it.
+  ///
+  /// Deliberately does not touch local games. Removing your data from a server
+  /// and erasing your own history are different intentions, and conflating
+  /// them in one button would make the safer-sounding one the destructive one.
+  Future<void> deleteRemote() async {
+    final session = _session;
+    if (session == null) return;
+    _set(SyncStatus(SyncPhase.syncing, lastSyncedAt: _status.lastSyncedAt));
+    try {
+      await _storeFactory(session.keys).delete(session.keys.blobId);
+    } on SyncTransportException {
+      _set(SyncStatus(SyncPhase.offline,
+          lastSyncedAt: _status.lastSyncedAt,
+          message: 'Offline — nothing was deleted.'));
+      rethrow;
+    }
+    await disable();
+  }
+
   /// GET → merge → push. Returns what the remote contributed locally (so the UI
   /// can reload Practice/Review), or null if sync is off, already running, or
   /// the sync did not complete.
