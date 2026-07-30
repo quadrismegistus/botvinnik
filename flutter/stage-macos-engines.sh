@@ -25,11 +25,18 @@ SRC="../scripts/engines/morlock-src"
 DEST="macos/Runner/Resources/retro"
 
 command -v go >/dev/null || { echo "error: Go is not installed (need 1.26+)" >&2; exit 1; }
-[ -d "$SRC/cmd" ] || { echo "error: morlock source missing at $SRC" >&2; exit 1; }
+
+# Check the pinned revision out rather than building whatever is on disk. Go
+# stamps it into each binary (`go version -m <binary> | grep vcs.revision`),
+# because the build below runs from inside $SRC — so these artefacts can be
+# checked against vendor/retro/MORLOCK_REV after the fact.
+../scripts/sync-morlock.sh >/dev/null
 
 mkdir -p "$DEST"
 for eng in turochamp bernstein sargon; do
-  ( cd "$SRC" && go build -o "$(cd - >/dev/null; pwd)/$DEST/$eng" "./cmd/$eng" )
+  # -trimpath keeps the builder's home directory out of a shipped binary; note
+  # it does NOT suppress the vcs stamp, which is what makes these self-attest.
+  ( cd "$SRC" && go build -trimpath -o "$(cd - >/dev/null; pwd)/$DEST/$eng" "./cmd/$eng" )
   chmod +x "$DEST/$eng"
 done
 

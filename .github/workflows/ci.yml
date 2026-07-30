@@ -27,11 +27,64 @@ jobs:
       # place: sending the same `position` twice used to END the engine, and
       # every existing retro test sends exactly one, so the browser suite
       # stayed green through a bug that handed whole games to a Stockfish
-      # stand-in. `with` is the assertion; `without` documents the failure and
-      # is deliberately not a gate, since it asserts a bug that upstream may
-      # fix (herohde/morlock#6).
-      - name: retro engine survives a repeated position
-        run: node scripts/retro-wasm/repeat-position.mjs with
+      # stand-in.
+      #
+      # ONE mode is gated, deliberately. `without` sends no `ucinewgame`, so it
+      # reaches the continuation branch and asserts the committed wasm carries
+      # herohde/morlock#6. Verified red against the previous wasm, where it
+      # dies on search 2.
+      #
+      # `with` is NOT gated, and briefly was. On an engine carrying the fix it
+      # is `without` plus one extra line, and `without` passes — so it cannot
+      # fail whatever that line does. Mutation-tested: delete the `ucinewgame`
+      # send it exists to exercise and it still reports 4/4, exit 0. A gate a
+      # missing subject satisfies is the shape that has bitten this repo
+      # before. The client's actual contract is covered where it belongs, by
+      # flutter/test/retro_commands_test.dart against the real command list.
+      #
+      # What fails on a vendor/retro/MORLOCK_REV rollback is not this step —
+      # the probe never reads that file — but `build.sh --check` below, which
+      # rebuilds from the pin.
+      - name: retro engine tolerates a repeated position (herohde/morlock#6)
+        run: node scripts/retro-wasm/repeat-position.mjs without
+
+      # Which morlock produced the committed wasm. The engines enter through a
+      # `replace` to a gitignored checkout, so go.sum has no line for them and
+      # the module graph records nothing — for months the only answer was a
+      # sentence in a comment. This checks the recorded revision against the
+      # pin and the recorded hash against the bytes, so a pin bumped without a
+      # rebuild and a wasm dropped in by hand both fail here rather than
+      # shipping as an engine nobody can reproduce.
+      - name: the committed retro wasm matches its recorded provenance
+        run: ./scripts/check-retro-provenance.sh
+
+      # ...and the same thing checked from the other end. The step above
+      # compares two strings that build.sh wrote in the same local run, which
+      # catches a careless commit but not a wrong one: it cannot tell whether
+      # the bytes ever came from the revision they claim. This rebuilds morlock
+      # from the pin and compares hashes, so the provenance is derived rather
+      # than asserted — the "in the spirit of the brain.js and garbo drift
+      # checks" that issue #247 asked for.
+      #
+      # Only possible because the wasm build is reproducible, which it was not
+      # until this PR: Go was stamping botvinnik's commit, a timestamp and
+      # `vcs.modified` into it, so two builds of identical source never
+      # matched. -buildvcs=false removed that and -trimpath removed the
+      # absolute paths. The Go version is read from BUILD.txt rather than
+      # hardcoded, because a different toolchain legitimately produces
+      # different bytes and the check should say which.
+      - name: read the Go version the wasm was built with
+        id: gover
+        run: |
+          v=$(awk '$1=="go"{print $2; exit}' vendor/retro/BUILD.txt | tr -d '[:space:]' | sed 's/^go//')
+          [ -n "$v" ] || { echo "BUILD.txt records no go version" >&2; exit 1; }
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ steps.gover.outputs.version }}
+          cache: false
+      - name: rebuilding the pinned morlock reproduces the committed wasm
+        run: ./scripts/retro-wasm/build.sh --check
 
       # vendor/retro/wasm_exec.js is Go's runtime shim with ONE local patch,
       # and the documented way to refresh it is `cp` from $(go env GOROOT) —

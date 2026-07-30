@@ -28,6 +28,7 @@
 
 import 'dart:async';
 import 'dart:convert';
+import 'dart:ffi' show Abi;
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -43,6 +44,11 @@ abstract class RetroEngine {
   /// platform, keeps the roster picker honest: a build that skipped staging
   /// does not offer retro rather than offering it and silently falling back to
   /// Stockfish, which is the substitution the picker exists to prevent.
+  ///
+  /// "Present" means loadable, not merely on disk — see [machOMatchesHost].
+  /// The file-exists version of this check let an Intel Mac offer all three
+  /// personas and stand in Stockfish for every one of them, which is the exact
+  /// outcome the paragraph above promises it prevents.
   static bool get supported => Platform.isIOS
       ? RetroFfiEngine.supported
       : Platform.isMacOS && _resolveDir() != null;
@@ -93,10 +99,78 @@ abstract class RetroEngine {
     for (final c in candidates) {
       // require turochamp as the sentinel — a dir with a partial set is worse
       // than none, since the missing engine would fall back mid-roster
-      if (File('$c/turochamp').existsSync()) return c;
+      final sentinel = File('$c/turochamp');
+      if (sentinel.existsSync() && machOMatchesHost(sentinel)) return c;
     }
     return null;
   }
+
+  // Mach-O constants. CPU_TYPE_* are the ABI64 flag (0x01000000) OR'd with the
+  // base type — 7 for x86, 12 for ARM.
+  static const _cpuTypeX8664 = 0x01000007;
+  static const _cpuTypeArm64 = 0x0100000C;
+
+  /// Whether [f] is a Mach-O carrying a slice this process could actually exec.
+  ///
+  /// `existsSync` was the whole test, and it is arch-blind. The macOS app is
+  /// configured universal (`ARCHS = arm64 x86_64`) while `stage-macos-engines.sh`
+  /// runs a bare `go build`, which takes the host arch — so an Intel Mac got a
+  /// present-but-unloadable arm64 binary, [supported] said true, all three
+  /// personas appeared in the picker, and every spawn failed with `Bad CPU type
+  /// in executable`. The failure is caught and turned into a null move, so the
+  /// player got a Stockfish stand-in for every retro game — precisely the
+  /// substitution [supported]'s own contract says it exists to prevent.
+  ///
+  /// [hostCpuType] is injectable so this is testable off a Mac. Without it the
+  /// check would only ever run where `Abi.current()` is a macOS ABI, i.e. never
+  /// in CI — the shape that has made a suite silently host-only here before.
+  @visibleForTesting
+  static bool machOMatchesHost(File f, {int? hostCpuType}) {
+    final host = hostCpuType ?? _hostCpuType;
+    // Unknown host: do not block on a guess. Preserves the old behaviour rather
+    // than hiding retro on a platform whose ABI we simply do not recognise.
+    if (host == null) return true;
+
+    final Uint8List head;
+    try {
+      final raf = f.openSync();
+      try {
+        head = raf.readSync(4096);
+      } finally {
+        raf.closeSync();
+      }
+    } on FileSystemException {
+      return false;
+    }
+    if (head.length < 8) return false;
+    final bd = ByteData.sublistView(head);
+
+    // Fat/universal: header and entries are BIG-endian regardless of host.
+    final beMagic = bd.getUint32(0, Endian.big);
+    if (beMagic == 0xCAFEBABE || beMagic == 0xCAFEBABF) {
+      final stride = beMagic == 0xCAFEBABF ? 32 : 20; // fat_arch_64 vs fat_arch
+      final count = bd.getUint32(4, Endian.big);
+      for (var i = 0; i < count; i++) {
+        final off = 8 + i * stride;
+        if (off + 4 > head.length) break;
+        if (bd.getUint32(off, Endian.big) == host) return true;
+      }
+      return false;
+    }
+
+    // Thin Mach-O: little-endian on every arch we ship.
+    final leMagic = bd.getUint32(0, Endian.little);
+    if (leMagic == 0xFEEDFACF || leMagic == 0xFEEDFACE) {
+      return bd.getUint32(4, Endian.little) == host;
+    }
+    return false; // not a Mach-O; nothing here is executable
+  }
+
+  static int? get _hostCpuType => switch (Abi.current()) {
+        Abi.macosArm64 => _cpuTypeArm64,
+        Abi.macosX64 => _cpuTypeX8664,
+        _ => null,
+      };
 }
 
 class _RetroProcess implements RetroEngine {

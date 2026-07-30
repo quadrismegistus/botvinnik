@@ -10,10 +10,16 @@
 // are the same engines at the same ply, and the calibration means the same
 // thing on all three. If you change one build(), change the other.
 //
-// BUILD (go.mod pins morlock via a replace to a gitignored checkout):
-//   git clone https://github.com/herohde/morlock ../engines/morlock-src
-//   git -C ../engines/morlock-src checkout 8c55f1e97f6259fcff48a567409b382961045463
-//   ../../flutter/stage-ios-engines.sh     # both slices, then the xcframework
+// BUILD: ../../flutter/stage-ios-engines.sh — it checks out the revision in
+// vendor/retro/MORLOCK_REV first, so both slices come from the pin rather than
+// from whatever the gitignored checkout happens to be on.
+//
+// This used to be a three-line hand recipe naming a specific commit, and it
+// was left behind when its twin in ../retro-wasm/main.go was replaced: it went
+// on naming 8c55f1e long after the pin had moved, which made it the only place
+// in the repo telling a reader to check out something other than the pin. The
+// exact failure the pin exists to prevent, in the file that owns the iOS
+// build.
 //
 // C contract (retro_engine_ffi.dart is the only caller):
 //   retro_start(name, ply, cb) -> handle   // 0 on failure
