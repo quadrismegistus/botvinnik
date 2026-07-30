@@ -58,10 +58,14 @@ List<String> retroMoveCommands(
 }) =>
     [
       'ucinewgame',
-      // No trailing `moves` with nothing after it: morlock splits the
-      // remainder on spaces, so `position fen X moves ` yields one empty token
-      // and the driver returns on it — the same fatal shape as the repeated
-      // line. calibrate-bots.mts guards the identical case.
+      // No trailing `moves` with nothing after it. Measured against the
+      // committed wasm, this is NOT fatal — `position fen X moves ` survives
+      // 3/3 searches — and an earlier version of this comment claimed it was,
+      // by analogy with the repeated `position` line. Both morlock paths now
+      // skip the empty token (the reset branch always did; the continuation
+      // branch got it from 63db3e6a, the fix this repo vendored). Kept because
+      // it is the well-formed command and because calibrate-bots.mts guards
+      // the same case, not because the engine would die.
       if (moves.isEmpty)
         'position fen $fen'
       else
