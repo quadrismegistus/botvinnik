@@ -51,7 +51,11 @@ sha256() {
 }
 
 OUT="$HERE/retro.wasm"
-[ -n "$CHECK" ] && OUT="$(mktemp -t retro-wasm-check).wasm"
+# An explicit XXXXXX template, NOT `mktemp -t prefix`: BSD mktemp treats -t as
+# a bare prefix, GNU coreutils requires the trailing Xs and errors out. This
+# script is written on a Mac and the --check path runs on Ubuntu, so the two
+# behaviours meet exactly here.
+[ -n "$CHECK" ] && OUT="$(mktemp "${TMPDIR:-/tmp}/retro-wasm-check.XXXXXX")"
 
 echo "building retro.wasm ($GOVER, morlock ${REV:0:12})" >&2
 ( cd "$HERE" && GOOS=js GOARCH=wasm go build "${FLAGS[@]}" -o "$OUT" . )
