@@ -40,7 +40,7 @@ const ID_RE = /^[A-Za-z0-9_-]{16,128}$/;
 
 const CORS: Record<string, string> = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, PUT, OPTIONS',
+  'Access-Control-Allow-Methods': 'GET, PUT, DELETE, OPTIONS',
   'Access-Control-Allow-Headers': 'If-Match, If-None-Match, Content-Type',
   // Without this the browser JS cannot read the ETag it needs for the next CAS PUT.
   'Access-Control-Expose-Headers': 'ETag',
@@ -88,6 +88,7 @@ export default {
 
     if (request.method === 'GET') return handleGet(id, env);
     if (request.method === 'PUT') return handlePut(id, request, env);
+    if (request.method === 'DELETE') return handleDelete(id, env);
     return text(405, 'method not allowed');
   },
 } satisfies ExportedHandler<Env>;
@@ -101,6 +102,35 @@ async function handleGet(id: string, env: Env): Promise<Response> {
   headers.set('ETag', object.httpEtag);
   headers.set('Content-Type', 'application/octet-stream');
   return reply(object.body, { status: 200, headers });
+}
+
+/**
+ * Remove a blob. The only way this data can ever be deleted.
+ *
+ * End-to-end encryption is no obstacle: R2 does not need to read the ciphertext
+ * to drop the object. And this grants an attacker nothing that PUT does not
+ * already — the blobId IS the capability here (no accounts, no auth), so
+ * anyone able to delete your blob could already have overwritten it with
+ * garbage. Strictly weaker than what the endpoint above allows.
+ *
+ * Worth having precisely BECAUSE of the encryption: with no accounts and an
+ * unguessable id, the client holding the phrase is the only entity anywhere
+ * that can identify this object, let alone remove it. Without this endpoint
+ * every blob ever created is immortal, including every one left behind by a
+ * test pairing.
+ *
+ * No CAS, deliberately, where PUT demands it. A precondition exists to stop a
+ * blind write clobbering a concurrent one; there is no such thing as
+ * clobbering a delete, and requiring an ETag would mean a GET first — which
+ * fails for the caller who most needs this: someone deleting a blob they can
+ * no longer decrypt.
+ *
+ * Idempotent: deleting what is not there is a success, so a retry after a
+ * dropped response does not report failure.
+ */
+async function handleDelete(id: string, env: Env): Promise<Response> {
+  await env.BUCKET.delete(id);
+  return reply(null, { status: 204 });
 }
 
 async function handlePut(id: string, request: Request, env: Env): Promise<Response> {

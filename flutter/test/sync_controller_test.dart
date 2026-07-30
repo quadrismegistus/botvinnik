@@ -47,6 +47,9 @@ class _OfflineStore implements SyncStore {
   @override
   Future<String> update(String id, List<int> body, String etag) async =>
       throw const SyncTransportException('no network');
+  @override
+  Future<void> delete(String id) async =>
+      throw const SyncTransportException('no network');
 }
 
 SyncController _controller(
@@ -262,6 +265,109 @@ void main() {
     expect(attempts(dbA), 9);
     expect(attempts(dbB), 9);
   });
+
+  group('deleting the synced copy from the server', () {
+    // The only way this data can ever be removed: no accounts, and the blobId
+    // is derived from the phrase, so the device holding it is the only thing
+    // that can identify the object. Nobody operating the server can do it.
+
+    test('removes the blob and stops syncing on this device', () async {
+      final store = MemorySyncStore();
+      final keyStore = _FakeKeyStore();
+      final db = MemoryDb([_game('a1', '2026-07-01T00:00:00.000Z')]);
+      final c = _controller(db, keyStore, store: store);
+      await c.enable(_phrase);
+
+      final keys = await SyncCrypto.deriveKeys(_phrase, params: _fast);
+      expect(await store.get(keys.blobId), isNotNull, reason: 'precondition');
+
+      await c.deleteRemote();
+
+      expect(await store.get(keys.blobId), isNull, reason: 'the blob is gone');
+      expect(c.enabled, isFalse, reason: 'and this device stopped syncing');
+      expect(c.status.phase, SyncPhase.off);
+    });
+
+    test('turning sync off is what makes the deletion STICK', () async {
+      // The trap. syncNow creates the blob when the remote is absent, so a
+      // device left syncing uploads its local games again within the minute
+      // and quietly undoes the deletion. Without disable() this test
+      // resurrects the blob — which is exactly what a user would experience.
+      final store = MemorySyncStore();
+      final db = MemoryDb([_game('a1', '2026-07-01T00:00:00.000Z')]);
+      final c = _controller(db, _FakeKeyStore(), store: store);
+      await c.enable(_phrase);
+      final keys = await SyncCrypto.deriveKeys(_phrase, params: _fast);
+
+      await c.deleteRemote();
+      // whatever a trigger might do next, it must not bring the blob back
+      await c.syncNow();
+
+      expect(await store.get(keys.blobId), isNull,
+          reason: 'a disabled controller has nothing to upload with');
+    });
+
+    test('does NOT touch the games on this device', () async {
+      // Removing your data from a server and erasing your own history are
+      // different intentions. Conflating them would make the safer-sounding
+      // button the destructive one.
+      final store = MemorySyncStore();
+      final db = MemoryDb([
+        _game('a1', '2026-07-01T00:00:00.000Z'),
+        _game('a2', '2026-07-02T00:00:00.000Z'),
+      ]);
+      final c = _controller(db, _FakeKeyStore(), store: store);
+      await c.enable(_phrase);
+
+      await c.deleteRemote();
+
+      expect((await db.listGames()).length, 2);
+    });
+
+    test('a network failure deletes nothing, and does NOT stop syncing', () async {
+      // Reporting success on a failed delete is the worst way to be wrong
+      // about this: the user believes their data is gone when it is not. And
+      // it must not disable sync either — that would leave them unable to
+      // retry from the only device that can.
+      final store = _DeleteFailsStore(MemorySyncStore());
+      final db = MemoryDb([_game('a1', '2026-07-01T00:00:00.000Z')]);
+      final c = _controller(db, _FakeKeyStore(), store: store);
+      await c.enable(_phrase);
+      final keys = await SyncCrypto.deriveKeys(_phrase, params: _fast);
+
+      await expectLater(c.deleteRemote(), throwsA(isA<SyncTransportException>()));
+
+      expect(await store.inner.get(keys.blobId), isNotNull,
+          reason: 'the blob is still there');
+      expect(c.enabled, isTrue, reason: 'and sync is still on, so you can retry');
+      expect(c.status.phase, SyncPhase.offline);
+    });
+
+    test('deleting when sync is off is a no-op, not a crash', () async {
+      final c = _controller(MemoryDb(), _FakeKeyStore(), store: MemorySyncStore());
+      await c.loadCached();
+      expect(c.enabled, isFalse);
+      await c.deleteRemote(); // must not throw
+      expect(c.status.phase, SyncPhase.off);
+    });
+  });
+}
+
+/// A store that works for everything except DELETE, which is offline.
+class _DeleteFailsStore implements SyncStore {
+  _DeleteFailsStore(this.inner);
+  final MemorySyncStore inner;
+
+  @override
+  Future<StoredBlob?> get(String id) => inner.get(id);
+  @override
+  Future<String> create(String id, List<int> body) => inner.create(id, body);
+  @override
+  Future<String> update(String id, List<int> body, String etag) =>
+      inner.update(id, body, etag);
+  @override
+  Future<void> delete(String id) async =>
+      throw const SyncTransportException('no network');
 }
 
 extension on SyncController {

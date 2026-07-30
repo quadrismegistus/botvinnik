@@ -142,7 +142,11 @@ describe('limits & routing', () => {
   });
 
   it('405s an unsupported method', async () => {
-    expect((await fetch(url(freshId()), { method: 'DELETE' })).status).toBe(405);
+    // Was DELETE, until DELETE became supported (the "delete my data from the
+    // server" button) — at which point this test went red for the right
+    // reason, which is the nicest way to learn that a test's subject has moved.
+    expect((await fetch(url(freshId()), { method: 'PATCH' })).status).toBe(405);
+    expect((await fetch(url(freshId()), { method: 'POST' })).status).toBe(405);
   });
 
   it('400s an id outside the allowed charset/length', async () => {
@@ -202,5 +206,55 @@ describe('rate limiting', () => {
     for (let i = 0; i < 5; i++) codes.push((await rlFetch()).status);
     expect(codes[0]).toBe(404); // early requests still served (blob absent)
     expect(codes.filter((c) => c === 429).length).toBeGreaterThan(0);
+  });
+});
+
+describe('DELETE /b/:id — the only way this data can be removed', () => {
+  it('removes the blob, and the blob is then gone', async () => {
+    const id = freshId();
+    await create(id, 'ciphertext');
+    expect((await fetch(url(id))).status).toBe(200);
+
+    const res = await fetch(url(id), { method: 'DELETE' });
+    expect(res.status).toBe(204);
+    expect((await fetch(url(id))).status).toBe(404);
+  });
+
+  it('is idempotent, so a retry after a dropped response is not an error', async () => {
+    // The client deletes and then turns sync off. If a lost response made the
+    // retry report failure, the user would be told their data is still there
+    // when it is not — the worst way to be wrong about a deletion.
+    const id = freshId();
+    await create(id, 'ciphertext');
+    expect((await fetch(url(id), { method: 'DELETE' })).status).toBe(204);
+    expect((await fetch(url(id), { method: 'DELETE' })).status).toBe(204);
+  });
+
+  it('needs no precondition, unlike PUT', async () => {
+    // PUT demands CAS so a blind write cannot clobber a concurrent one. There
+    // is no such thing as clobbering a delete, and demanding an ETag would
+    // require a GET first — which fails for the caller who most needs this:
+    // someone deleting a blob they can no longer decrypt.
+    const id = freshId();
+    await create(id, 'ciphertext');
+    const res = await fetch(url(id), { method: 'DELETE' }); // no If-Match
+    expect(res.status).toBe(204);
+  });
+
+  it('deleting something that was never there is a success', async () => {
+    expect((await fetch(url(freshId()), { method: 'DELETE' })).status).toBe(204);
+  });
+
+  it('is allowed through CORS, or a browser could never call it', async () => {
+    // The preflight allowed only GET, PUT, OPTIONS. Without DELETE here the
+    // button works on macOS and fails silently on the web, which is where most
+    // of this app runs.
+    const res = await fetch(url(freshId()), { method: 'OPTIONS' });
+    expect(res.headers.get('Access-Control-Allow-Methods')).toContain('DELETE');
+  });
+
+  it('still rejects a bad blob id', async () => {
+    const res = await fetch(`${BASE}/b/short`, { method: 'DELETE' });
+    expect(res.status).toBe(400);
   });
 });
