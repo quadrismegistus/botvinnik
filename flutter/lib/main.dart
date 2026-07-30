@@ -113,10 +113,14 @@ class _Booted {
 class _BootGateState extends State<BootGate> {
   // a hang anywhere in boot would otherwise show a spinner forever; the
   // FutureBuilder already renders errors
-  late final Future<_Booted> _boot = _start().timeout(
-    const Duration(seconds: 75), // engine readiness alone allows 45
-    onTimeout: () => throw StateError('boot timed out'),
-  );
+  // `late final` no longer: the boot-failure screen offers a retry, so this has
+  // to be replaceable.
+  late Future<_Booted> _boot = _bootOnce();
+
+  Future<_Booted> _bootOnce() => _start().timeout(
+        const Duration(seconds: 75), // engine readiness alone allows 45
+        onTimeout: () => throw StateError('boot timed out'),
+      );
 
   /// Which tab is up. Owned here rather than in [AppShell] because the
   /// keyboard layer sits above the shell (it must, to hold focus) and has to
@@ -155,7 +159,7 @@ class _BootGateState extends State<BootGate> {
 
     final arbiter = SearchArbiter(startEngine());
     final settings = await SettingsStore.load();
-    final db = await AppDb.open();
+    final db = await AppDb.openChecked();
     final grading = GradingApi(bridge);
     // Fire and forget: three 3.5MB bands, cached to a file that survives
     // relaunch, so one connected session closes the offline gap for every Maia
@@ -187,14 +191,9 @@ class _BootGateState extends State<BootGate> {
           dismissSplash(); // never leave the splash covering an error
           return MaterialApp(
             theme: _theme(),
-            home: Scaffold(
-              body: Center(
-                child: Padding(
-                  padding: const EdgeInsets.all(24),
-                  child: Text('boot failed: ${snap.error}',
-                      style: const TextStyle(color: Colors.redAccent)),
-                ),
-              ),
+            home: _BootFailed(
+              error: snap.error!,
+              onRetry: () => setState(() => _boot = _bootOnce()),
             ),
           );
         }
@@ -1337,6 +1336,119 @@ class _PlayTabState extends State<PlayTab> {
               ),
             ),
         ],
+      ),
+    );
+  }
+}
+
+
+/// Boot failed. Says what went wrong in a form you can copy, and — when the
+/// cause is a database that cannot be read — offers the one action that gets
+/// the app running again.
+///
+/// It replaces a bare `Text('boot failed: $error')`, which is what a real
+/// corrupt database produced: an unselectable red wall naming a SQLite error
+/// code, with no way forward from inside the app. The reset is deliberately a
+/// BUTTON rather than something boot does for you. An automatic version
+/// shipped once and was removed (#253): it could not fire for the failure that
+/// prompted it, and it deleted data that was largely recoverable. Keeping the
+/// destructive decision with the person whose games they are costs one tap and
+/// removes every false-positive risk.
+class _BootFailed extends StatefulWidget {
+  final Object error;
+  final VoidCallback onRetry;
+  const _BootFailed({required this.error, required this.onRetry});
+
+  @override
+  State<_BootFailed> createState() => _BootFailedState();
+}
+
+class _BootFailedState extends State<_BootFailed> {
+  bool _working = false;
+  String? _movedTo;
+
+  Future<void> _reset() async {
+    setState(() => _working = true);
+    try {
+      final to = await AppDb.moveAside();
+      if (!mounted) return;
+      setState(() {
+        _movedTo = to ?? '(discarded — the web store has no rename)';
+        _working = false;
+      });
+      widget.onRetry();
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _movedTo = 'could not move it aside: $e';
+        _working = false;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final unreadable = widget.error is DatabaseUnreadable;
+    return Scaffold(
+      body: Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(24),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 560),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  unreadable
+                      ? 'Your saved games could not be read'
+                      : 'botvinnik could not start',
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+                const SizedBox(height: 12),
+                if (unreadable)
+                  const Text(
+                    'The local database is damaged. Starting fresh will move it '
+                    'aside and let the app open; if you have sync turned on, '
+                    'your games come back from there.',
+                  ),
+                const SizedBox(height: 16),
+                // Selectable, because the first thing anyone does with a boot
+                // error is paste it somewhere.
+                SelectableText(
+                  '${widget.error}',
+                  style: TextStyle(
+                    fontFamily: 'monospace',
+                    fontSize: 12,
+                    color: Theme.of(context).colorScheme.error,
+                  ),
+                ),
+                if (_movedTo != null) ...[
+                  const SizedBox(height: 16),
+                  SelectableText('Moved to: $_movedTo',
+                      style: const TextStyle(fontSize: 12)),
+                ],
+                const SizedBox(height: 24),
+                Wrap(
+                  spacing: 12,
+                  children: [
+                    FilledButton(
+                      onPressed: _working ? null : widget.onRetry,
+                      child: const Text('Try again'),
+                    ),
+                    if (unreadable)
+                      OutlinedButton(
+                        onPressed: _working ? null : _reset,
+                        child: Text(_working
+                            ? 'Starting fresh…'
+                            : 'Start fresh (moves the old database aside)'),
+                      ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
