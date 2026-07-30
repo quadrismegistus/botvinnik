@@ -60,7 +60,10 @@ abstract class RetroEngine {
   /// This engine's move for [fen], or null on any failure. Null is the whole
   /// contract on both transports: the caller falls back to Stockfish at the
   /// persona's rating rather than seeing an error.
-  Future<String?> move(String fen, {int movetimeMs});
+  /// The engine's move. [fen] is where the game STARTED and [moves] the
+  /// line played since, in UCI — see retro_commands.dart for why a bare
+  /// current position is not equivalent (#244).
+  Future<String?> move(String fen, {int movetimeMs, List<String> moves});
 
   /// Whether this engine died in a way a FRESH one would fix — the engine's
   /// process or program ended, as opposed to it never having started.
@@ -288,7 +291,8 @@ class _RetroProcess implements RetroEngine {
   /// A dead process, a boot that never finished, a search that never answered
   /// — all null, per the contract on RetroEngine.move.
   @override
-  Future<String?> move(String fen, {int movetimeMs = 500}) async {
+  Future<String?> move(String fen,
+      {int movetimeMs = 500, List<String> moves = const []}) async {
     if (!_alive) return null;
     final ok = await _booted.future.timeout(
       const Duration(seconds: 10),
@@ -304,7 +308,7 @@ class _RetroProcess implements RetroEngine {
     _finish(null);
     final pending = _move = Completer<String?>();
     // The command sequence lives in retro_commands.dart, where it is tested.
-    for (final c in retroMoveCommands(fen, movetimeMs)) {
+    for (final c in retroMoveCommands(fen, movetimeMs, moves: moves)) {
       _send(c);
     }
     return pending.future.timeout(

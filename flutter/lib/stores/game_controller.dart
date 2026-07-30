@@ -1992,7 +1992,8 @@ class GameController extends ChangeNotifier {
       // Unlike horizon this awaits, so the position can move on underneath
       // it — which is fine, because _maybeBotTurn re-checks the generation
       // and the move's legality before anything reaches the board.
-      final uci = await _syncRetro()?.move(fen);
+      final from = retroPositionFor(fen);
+      final uci = await _syncRetro()?.move(from.fen, moves: from.moves);
       if (uci != null) {
         return (uci: _bot.avoidRepetition(uci, _fenHistory(), currentLines), standIn: false);
       }
@@ -3274,6 +3275,79 @@ class GameController extends ChangeNotifier {
 
   List<String> _fenHistory() =>
       [_startFen, ...moves.map((m) => m.fenAfter)];
+
+  /// How to describe [fen] to a retro engine: the game's starting position
+  /// plus the line played to reach it, or [fen] alone when that line cannot be
+  /// vouched for.
+  ///
+  /// The engines read move history — see retro_commands.dart — so the
+  /// continuation form is what the calibration gym measured them with, and
+  /// what the roster's ratings therefore describe.
+  ///
+  /// The guard is the point. [moves] is the line to the cursor, and a bot can
+  /// be asked to move for a position that is NOT its end: a review cursor
+  /// parked mid-game, or a bot-vs-bot turn racing a takeback. Reconstructing
+  /// from a mismatched line would hand the engine a different game from the
+  /// one on the board — worse than the bare FEN this replaces, because it
+  /// would be confidently wrong rather than merely thin. So it is checked
+  /// rather than assumed, and falls back to exactly today's behaviour.
+  @visibleForTesting
+  ({String fen, List<String> moves}) retroPositionFor(String fen) {
+    if (moves.isNotEmpty && moves.last.fenAfter == fen) {
+      return (
+        fen: _startFen,
+        moves: [for (final m in moves) engineUci(m.uci, m.fenBefore)],
+      );
+    }
+    return (fen: fen, moves: const []);
+  }
+
+  /// [uci] in the spelling a UCI engine's move generator emits — castling as
+  /// the king moving TWO SQUARES (`e1g1`), never as king-takes-rook (`e1h1`).
+  ///
+  /// [MoveRecord.uci] holds whatever squares the player dragged, and dropping
+  /// the king onto its own rook is a supported gesture: dartchess builds its
+  /// legal-move map with `includeAlternateCastlingMoves`, so chessground offers
+  /// the king both `g1` and `h1`, and stores whichever was used. A PGN import
+  /// stores `e1h1` too, that being dartchess's own normal form.
+  ///
+  /// Harmless until the move list started reaching an engine (#244), and fatal
+  /// after. morlock generates castling only as king-two-squares, compares moves
+  /// by from/to, and rejects anything unmatched by RETURNING from its UCI
+  /// driver — which ends the Go program. So one castle-by-dragging poisons
+  /// every later `position … moves …` line, the engine dies on each new worker,
+  /// and Stockfish silently plays the rest of the game wearing the persona's
+  /// name. Measured against the committed wasm: `e1g1` answers 2/2 searches,
+  /// `e1h1` answers 0/2 and reports `__exited__`.
+  ///
+  /// Note this is the OPPOSITE direction to [_normalisedUci], which exists to
+  /// compare a stored move with one the board produces and therefore
+  /// normalises TOWARD dartchess's `e1h1`. Two different audiences, two
+  /// spellings; the engine's is the one that has to be exact.
+  @visibleForTesting
+  static String engineUci(String uci, String fenBefore) {
+    try {
+      final pos = Chess.fromSetup(Setup.parseFen(fenBefore));
+      final move = Move.parse(uci);
+      if (move is! NormalMove) return uci;
+      if (pos.board.pieceAt(move.from)?.role != Role.king) return uci;
+      // normalizeMove maps EITHER castling spelling onto the rook square, and
+      // leaves an ordinary king move alone — so a hit here means "this really
+      // was a castle", not merely "the king moved somewhere suggestive".
+      final rookSquare = pos.normalizeMove(move).to;
+      for (final side in CastlingSide.values) {
+        if (pos.castles.rookOf(pos.turn, side) == rookSquare) {
+          return NormalMove(from: move.from, to: kingCastlesTo(pos.turn, side))
+              .uci;
+        }
+      }
+      return uci;
+    } catch (_) {
+      // An unparseable record is not worth losing a move over; the engine's own
+      // validation is the backstop, and this path predates the move list.
+      return uci;
+    }
+  }
 
   /// A draw the RULES force but a stateless [Position] cannot see (#186):
   /// threefold repetition or the 50-move rule. Null when neither holds.

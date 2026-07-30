@@ -46,4 +46,43 @@ void main() {
       expect(retroMoveCommands(fen, 500).first, 'ucinewgame');
     }
   });
+
+  group('the move history (#244)', () {
+    // These engines READ the move list: SARGON's Development term walks it and
+    // scores every piece as undeveloped without it, TUROCHAMP's quiescence
+    // needs the previous move to judge a recapture. Measured against the
+    // committed wasm, SARGON picks a different move on 3/19 and 2/19 plies of
+    // two real games when the history is withheld — which is also the
+    // difference between the bot you play and the bot the gym rated.
+
+    test('sends the start position plus the line, not the current position', () {
+      expect(retroMoveCommands(fen, 500, moves: ['e2e4', 'e7e5']), [
+        'ucinewgame',
+        'position fen $fen moves e2e4 e7e5',
+        'go movetime 500',
+      ]);
+    });
+
+    test('an empty history sends no trailing `moves` token', () {
+      // Well-formedness, not survival. The committed engine tolerates a
+      // trailing `moves ` (measured: 3/3 searches) — an earlier comment here
+      // asserted it was fatal by analogy with #245's repeated line, which was
+      // wrong on this engine. calibrate-bots.mts guards the same case, and a
+      // command with a dangling keyword is worth not emitting regardless.
+      final cmds = retroMoveCommands(fen, 500, moves: const []);
+      expect(cmds[1], 'position fen $fen');
+      expect(cmds[1], isNot(contains('moves')));
+      expect(cmds.any((c) => c.endsWith(' ')), isFalse);
+    });
+
+    test('ucinewgame still comes first, so the driver takes the reset path', () {
+      // The continuation form must NOT rely on morlock's prefix-matching
+      // branch — that is the one carrying the empty-token bug. ucinewgame
+      // clears lastPosition, so this takes "New position": reset, then apply
+      // the whole list.
+      final cmds = retroMoveCommands(fen, 500, moves: ['e2e4']);
+      expect(cmds.first, 'ucinewgame');
+      expect(cmds[1], startsWith('position fen '));
+    });
+  });
 }

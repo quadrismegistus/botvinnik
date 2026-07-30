@@ -164,7 +164,8 @@ class RetroEngine {
 
   /// This engine's move for [fen], or null on any failure — a dead worker, a
   /// boot that never finished, a search that never answered.
-  Future<String?> move(String fen, {int movetimeMs = 500}) async {
+  Future<String?> move(String fen,
+      {int movetimeMs = 500, List<String> moves = const []}) async {
     if (!_alive) return null;
     // Generous: 4.4MB of wasm to fetch and compile, and on a cold cache that
     // is a real download. Running out of it stands in for THIS move; the
@@ -193,7 +194,7 @@ class RetroEngine {
     _finish(null);
     final pending = _move = Completer<String?>();
     // The command sequence lives in retro_commands.dart, where it is tested.
-    for (final c in retroMoveCommands(fen, movetimeMs)) {
+    for (final c in retroMoveCommands(fen, movetimeMs, moves: moves)) {
       _worker.postMessage(c.toJS);
     }
     return pending.future.timeout(
