@@ -195,7 +195,8 @@ class RetroFfiEngine implements RetroEngine {
   /// A dead session, a boot that never finished, a search that never answered
   /// — all null, per the contract on RetroEngine.move.
   @override
-  Future<String?> move(String fen, {int movetimeMs = 500}) async {
+  Future<String?> move(String fen,
+      {int movetimeMs = 500, List<String> moves = const []}) async {
     if (!_alive) return null;
     final ok = await _booted.future.timeout(
       const Duration(seconds: 10),
@@ -210,7 +211,7 @@ class RetroFfiEngine implements RetroEngine {
     _finish(null);
     final pending = _move = Completer<String?>();
     // The command sequence lives in retro_commands.dart, where it is tested.
-    for (final c in retroMoveCommands(fen, movetimeMs)) {
+    for (final c in retroMoveCommands(fen, movetimeMs, moves: moves)) {
       _send(c);
     }
     return pending.future.timeout(
