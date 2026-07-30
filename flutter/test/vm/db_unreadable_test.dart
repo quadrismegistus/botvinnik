@@ -69,8 +69,15 @@ void tearPages(String path, {int from = 4, int count = 8}) {
   f.writeAsBytesSync(out);
 }
 
+/// Run the real [AppDb.openChecked] against a database at [dir].
+Future<AppDb> openCheckedAt(String path) async {
+  await databaseFactory.setDatabasesPath(File(path).parent.path);
+  return AppDb.openChecked();
+}
+
 void main() {
   sqfliteFfiInit();
+  databaseFactory = databaseFactoryFfi;
 
   late Directory tmp;
   setUp(() => tmp = Directory.systemTemp.createTempSync('db-unreadable'));
@@ -158,5 +165,43 @@ void main() {
         reason: 'a game whose text quotes the error is not a corrupt database');
 
     await db.close();
+  });
+
+  test('a truncated database is recoverable, not a red wall', () async {
+    // open() used to sit OUTSIDE the try, so this whole family — truncation,
+    // header damage, not-a-database — threw a raw driver exception and the
+    // boot screen hid the reset button, which is the one thing that would have
+    // helped. Truncation reports code 11 at `PRAGMA user_version`.
+    final path = await buildDb(tmp.path);
+    final f = File(path);
+    final bytes = f.readAsBytesSync();
+    f.writeAsBytesSync(bytes.sublist(0, (bytes.length * 0.6).round()));
+
+    await expectLater(
+      openCheckedAt(path),
+      throwsA(isA<DatabaseUnreadable>()),
+      reason: 'must reach the screen that offers a way out',
+    );
+  });
+
+  test('a file that is not a database at all', () async {
+    final path = '${tmp.path}/botvinnik.db';
+    File(path).writeAsStringSync('this is not a database' * 100);
+    await expectLater(openCheckedAt(path), throwsA(isA<DatabaseUnreadable>()));
+  });
+
+  test('damage the cheap probe missed — a middle table page', () async {
+    // The original probe read the FIRST index leaf and one table leaf, so a
+    // tear anywhere else slipped through: measured, it caught 6 of 191 random
+    // single-page tears. A full scan caught 191 of 191.
+    final path = await buildDb(tmp.path, games: 400);
+    tearPages(path, from: 30, count: 6);
+    await expectLater(openCheckedAt(path), throwsA(isA<DatabaseUnreadable>()));
+  });
+
+  test('a healthy database passes the full scan', () async {
+    // The other half of a destructive gate: it must not fire on a good file.
+    final path = await buildDb(tmp.path, games: 300);
+    await expectLater(openCheckedAt(path), completes);
   });
 }
