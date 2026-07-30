@@ -61,7 +61,7 @@ build_slice() {
     CC="$(xcrun --sdk "$sdk" -f clang)" \
     CGO_CFLAGS="-isysroot $sysroot -target $target" \
     CGO_LDFLAGS="-isysroot $sysroot -target $target" \
-    go build -buildmode=c-archive -ldflags="-s -w" -o "$out" . )
+    go build -trimpath -buildmode=c-archive -ldflags="-s -w" -o "$out" . )
 }
 
 build_slice iphoneos        "arm64-apple-ios$MIN_IOS"           "$DEST/lib/device/libmorlock.a"

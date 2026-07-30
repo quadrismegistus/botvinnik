@@ -1,14 +1,22 @@
 # How the retro artefacts were built. Written by scripts/retro-wasm/build.sh —
-# do not edit by hand. CI (scripts/check-retro-provenance.sh) checks that
-# morlock-rev matches vendor/retro/MORLOCK_REV and that the sha256 below
-# matches the committed wasm, so neither a rebuild from the wrong source nor a
-# pin bumped without a rebuild can merge.
+# do not edit by hand.
+#
+# CI checks this three ways: morlock-rev against vendor/retro/MORLOCK_REV, the
+# sha256 below against the committed bytes (scripts/check-retro-provenance.sh),
+# and — the one that checks the chain rather than the label — by rebuilding
+# from source and comparing (`build.sh --check`). So a pin bumped without a
+# rebuild, a wasm dropped in by hand, and a wasm that simply did not come from
+# the revision it claims all fail before merge.
+#
+# The reproducibility is not free: it needs the SAME Go version recorded below.
+# A different toolchain produces different bytes from identical source, and the
+# --check failure says so.
 morlock-repo    https://github.com/herohde/morlock
 morlock-rev     63db3e6adb6ba0daaccd4f151ccdd53cc8606565
 go              go1.26.5
 target          js/wasm
-ldflags         -s -w
-retro.wasm      sha256:58cdedf8c81358b0d806b4075015cd162acfffd084a9a280c5d712dcb9b313a7
+buildflags      -trimpath -buildvcs=false -ldflags="-s -w"
+retro.wasm      sha256:0537d504d13c82c38517a0d5d942f71d604aaf0bd174839504c0535a9b3c8b24
 
 # The native artefacts are gitignored, so their provenance cannot be recorded
 # here — but they do not need to be taken on trust either. Each is built from
@@ -17,6 +25,11 @@ retro.wasm      sha256:58cdedf8c81358b0d806b4075015cd162acfffd084a9a280c5d712dcb
 #   go version -m flutter/macos/Runner/Resources/retro/turochamp | grep vcs.revision
 #
 # and their build scripts (flutter/stage-macos-engines.sh,
-# flutter/stage-ios-engines.sh) check out the pin above before building. The
-# wasm is the one that cannot self-attest: its build runs from this repo, so Go
-# stamps a botvinnik revision instead. Hence this file.
+# flutter/stage-ios-engines.sh) check out the pin above before building.
+#
+# The wasm is the one that cannot self-attest, and that asymmetry is the whole
+# reason this file exists: its build runs from THIS repo, so Go would stamp a
+# botvinnik revision and a build timestamp into it rather than a morlock one.
+# Since that stamp is worse than useless here — wrong repo, and it made the
+# artefact unreproducible — the wasm turns it off and writes the revision down
+# instead. The natives keep it, because for them it is right.

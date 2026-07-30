@@ -24,9 +24,13 @@ fail() { echo "error: $*" >&2; exit 1; }
 [ -f "$V/BUILD.txt" ] || fail "vendor/retro/BUILD.txt is missing — run scripts/retro-wasm/build.sh"
 [ -f "$V/retro.wasm" ] || fail "vendor/retro/retro.wasm is missing"
 
+# `tr -d` on every value, not just the pin: a CRLF checkout leaves \r on the
+# BUILD.txt fields, and since both are truncated to 12 chars in the error the
+# result was "X says 63db3e6adb6b but the wasm was built from 63db3e6adb6b".
+# Fails closed either way, but an impossible-looking message is its own bug.
 pinned="$(grep -v '^[[:space:]]*#' "$V/MORLOCK_REV" | grep -v '^[[:space:]]*$' | head -1 | tr -d '[:space:]')"
-recorded="$(awk '$1=="morlock-rev"{print $2; exit}' "$V/BUILD.txt")"
-want="$(awk '$1=="retro.wasm"{print $2; exit}' "$V/BUILD.txt" | sed 's/^sha256://')"
+recorded="$(awk '$1=="morlock-rev"{print $2; exit}' "$V/BUILD.txt" | tr -d '[:space:]')"
+want="$(awk '$1=="retro.wasm"{print $2; exit}' "$V/BUILD.txt" | tr -d '[:space:]' | sed 's/^sha256://')"
 
 [ -n "$recorded" ] || fail "BUILD.txt records no morlock-rev"
 [ -n "$want" ] || fail "BUILD.txt records no retro.wasm sha256"

@@ -22,9 +22,13 @@
 //               demonstration that could not be a gate, because it asserted a
 //               bug and would start failing the day upstream fixed it. That
 //               day came, so it flips from documenting the bug to detecting
-//               its return — a rollback of vendor/retro/MORLOCK_REV fails
-//               here. That is a behavioural check on the artefact, where
-//               scripts/check-retro-provenance.sh only checks its label.
+//               its return.
+//
+// To be exact about what fails what, since this file's own first draft got it
+// wrong: the only input here is vendor/retro/, so what trips `without` is a
+// rollback of the WASM. Editing vendor/retro/MORLOCK_REV trips
+// scripts/check-retro-provenance.sh instead. Behaviour and label are checked
+// by different gates, which is the point of having both.
 
 // Drive vendor/retro/retro-worker.js outside a browser: shim `self`,
 // importScripts and fetch, then ask the SAME worker for two searches in a row.
@@ -108,7 +112,7 @@ for (let i = 1; i <= 4; i++) {
 //
 // Both modes now demand all four searches; see the header for why they are
 // separate assertions rather than one. A failure in `without` alone means the
-// ENGINE regressed — the pin moved off a revision carrying herohde/morlock#6.
+// ENGINE regressed — the committed wasm no longer carries herohde/morlock#6.
 // A failure in both means the CLIENT's `ucinewgame` stopped being sent.
 if (survived < 4) {
   console.error(`FAIL (${mode}): only ${survived}/4 searches answered`);

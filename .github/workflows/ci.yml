@@ -51,6 +51,34 @@ jobs:
       - name: the committed retro wasm matches its recorded provenance
         run: ./scripts/check-retro-provenance.sh
 
+      # ...and the same thing checked from the other end. The step above
+      # compares two strings that build.sh wrote in the same local run, which
+      # catches a careless commit but not a wrong one: it cannot tell whether
+      # the bytes ever came from the revision they claim. This rebuilds morlock
+      # from the pin and compares hashes, so the provenance is derived rather
+      # than asserted — the "in the spirit of the brain.js and garbo drift
+      # checks" that issue #247 asked for.
+      #
+      # Only possible because the wasm build is reproducible, which it was not
+      # until this PR: Go was stamping botvinnik's commit, a timestamp and
+      # `vcs.modified` into it, so two builds of identical source never
+      # matched. -buildvcs=false removed that and -trimpath removed the
+      # absolute paths. The Go version is read from BUILD.txt rather than
+      # hardcoded, because a different toolchain legitimately produces
+      # different bytes and the check should say which.
+      - name: read the Go version the wasm was built with
+        id: gover
+        run: |
+          v=$(awk '$1=="go"{print $2; exit}' vendor/retro/BUILD.txt | tr -d '[:space:]' | sed 's/^go//')
+          [ -n "$v" ] || { echo "BUILD.txt records no go version" >&2; exit 1; }
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ steps.gover.outputs.version }}
+          cache: false
+      - name: rebuilding the pinned morlock reproduces the committed wasm
+        run: ./scripts/retro-wasm/build.sh --check
+
       # vendor/retro/wasm_exec.js is Go's runtime shim with ONE local patch,
       # and the documented way to refresh it is `cp` from $(go env GOROOT) —
       # which silently removes the patch. Without this, that loss shows up as

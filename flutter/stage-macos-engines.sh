@@ -34,7 +34,9 @@ command -v go >/dev/null || { echo "error: Go is not installed (need 1.26+)" >&2
 
 mkdir -p "$DEST"
 for eng in turochamp bernstein sargon; do
-  ( cd "$SRC" && go build -o "$(cd - >/dev/null; pwd)/$DEST/$eng" "./cmd/$eng" )
+  # -trimpath keeps the builder's home directory out of a shipped binary; note
+  # it does NOT suppress the vcs stamp, which is what makes these self-attest.
+  ( cd "$SRC" && go build -trimpath -o "$(cd - >/dev/null; pwd)/$DEST/$eng" "./cmd/$eng" )
   chmod +x "$DEST/$eng"
 done
 

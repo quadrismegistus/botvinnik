@@ -27,7 +27,7 @@ mkdir -p "$DEST"
 for eng in turochamp bernstein sargon; do
   # Build from inside $SRC so Go stamps the morlock revision into the binary;
   # `go version -m` then answers "which engine did the gym measure?".
-  ( cd "$SRC" && go build -o "$DEST/$eng" "./cmd/$eng" )
+  ( cd "$SRC" && go build -trimpath -o "$DEST/$eng" "./cmd/$eng" )
   chmod +x "$DEST/$eng"
 done
 
