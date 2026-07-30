@@ -1,0 +1,22 @@
+# How the retro artefacts were built. Written by scripts/retro-wasm/build.sh —
+# do not edit by hand. CI (scripts/check-retro-provenance.sh) checks that
+# morlock-rev matches vendor/retro/MORLOCK_REV and that the sha256 below
+# matches the committed wasm, so neither a rebuild from the wrong source nor a
+# pin bumped without a rebuild can merge.
+morlock-repo    https://github.com/herohde/morlock
+morlock-rev     63db3e6adb6ba0daaccd4f151ccdd53cc8606565
+go              go1.26.5
+target          js/wasm
+ldflags         -s -w
+retro.wasm      sha256:58cdedf8c81358b0d806b4075015cd162acfffd084a9a280c5d712dcb9b313a7
+
+# The native artefacts are gitignored, so their provenance cannot be recorded
+# here — but they do not need to be taken on trust either. Each is built from
+# inside the morlock checkout, so Go stamps the revision into the binary:
+#
+#   go version -m flutter/macos/Runner/Resources/retro/turochamp | grep vcs.revision
+#
+# and their build scripts (flutter/stage-macos-engines.sh,
+# flutter/stage-ios-engines.sh) check out the pin above before building. The
+# wasm is the one that cannot self-attest: its build runs from this repo, so Go
+# stamps a botvinnik revision instead. Hence this file.

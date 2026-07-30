@@ -1,0 +1,16 @@
+# The morlock revision every retro artefact is built from — the wasm beside
+# this file, the macOS binaries, the iOS c-archive and the gym binaries.
+#
+# morlock enters through a `replace` to a gitignored checkout at
+# scripts/engines/morlock-src, so go.sum carries no line for it and nothing in
+# the module graph records which source produced any of these. This file is
+# that record, and scripts/sync-morlock.sh makes it load-bearing: every build
+# checks the revision out rather than trusting whatever is on disk.
+#
+# To move it: edit the line below, run scripts/retro-wasm/build.sh (which
+# rewrites BUILD.txt), and restage the native artefacts. CI fails if the pin
+# and BUILD.txt disagree, so a bump without a rebuild cannot merge.
+#
+# Blank lines and #-comments are ignored; the first remaining line is the rev.
+
+63db3e6adb6ba0daaccd4f151ccdd53cc8606565

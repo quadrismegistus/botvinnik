@@ -39,11 +39,13 @@ DEST="ios/retro"
 MIN_IOS=13.0
 
 command -v go >/dev/null || { echo "error: Go is not installed (need 1.26+)" >&2; exit 1; }
-[ -d "../scripts/engines/morlock-src/cmd" ] || {
-  echo "error: morlock source missing at scripts/engines/morlock-src" >&2
-  echo "       git clone https://github.com/herohde/morlock scripts/engines/morlock-src" >&2
-  exit 1
-}
+
+# Clone if needed and check out vendor/retro/MORLOCK_REV, so this archive and
+# the macOS binaries and the wasm are demonstrably one source. Unlike those
+# two, the revision is NOT recoverable from the artefact afterwards: the build
+# runs from scripts/retro-ffi (cgo needs the module dir), so Go stamps a
+# botvinnik revision into the archive rather than a morlock one.
+../scripts/sync-morlock.sh >/dev/null
 
 rm -rf "$DEST/lib" "$DEST/include"
 mkdir -p "$DEST/lib/device" "$DEST/lib/sim" "$DEST/include"

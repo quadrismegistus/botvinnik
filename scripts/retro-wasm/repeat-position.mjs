@@ -6,11 +6,25 @@
 // opening FEN, so it took exactly one new game to hit.
 //
 // Runs the real worker outside a browser, no build required:
-//   node scripts/retro-wasm/repeat-position.mjs without   # dies on search 2
-//   node scripts/retro-wasm/repeat-position.mjs with      # survives
+//   node scripts/retro-wasm/repeat-position.mjs with      # the client's half
+//   node scripts/retro-wasm/repeat-position.mjs without   # the engine's half
 //
 // The client sends `ucinewgame` before every position, which resets the
 // driver's lastPosition and takes the reset path it would have taken anyway.
+//
+// BOTH MODES NOW ASSERT, and they assert different halves of the fix:
+//
+//   `with`    — the client's contract. Four searches from an identical
+//               position must all answer. This is the one that would still
+//               matter if morlock had never been patched.
+//   `without` — that the committed wasm carries the ENGINE fix
+//               (herohde/morlock#6, upstream 63db3e6a). It used to be a
+//               demonstration that could not be a gate, because it asserted a
+//               bug and would start failing the day upstream fixed it. That
+//               day came, so it flips from documenting the bug to detecting
+//               its return — a rollback of vendor/retro/MORLOCK_REV fails
+//               here. That is a behavioural check on the artefact, where
+//               scripts/check-retro-provenance.sh only checks its label.
 
 // Drive vendor/retro/retro-worker.js outside a browser: shim `self`,
 // importScripts and fetch, then ask the SAME worker for two searches in a row.
@@ -92,12 +106,12 @@ for (let i = 1; i <= 4; i++) {
 // die still reported success — the exact shape of green-for-the-wrong-reason
 // this repo has been bitten by before.
 //
-// `with` is the assertion: four searches from an identical position must all
-// answer. `without` is the demonstration and cannot be an assertion — it
-// asserts a BUG, so it would start failing the day upstream fixes it
-// (herohde/morlock#6), which is not a failure anyone should be paged for.
-if (mode === 'with' && survived < 4) {
-  console.error(`FAIL: only ${survived}/4 searches answered`);
+// Both modes now demand all four searches; see the header for why they are
+// separate assertions rather than one. A failure in `without` alone means the
+// ENGINE regressed — the pin moved off a revision carrying herohde/morlock#6.
+// A failure in both means the CLIENT's `ucinewgame` stopped being sent.
+if (survived < 4) {
+  console.error(`FAIL (${mode}): only ${survived}/4 searches answered`);
   process.exit(1);
 }
 process.exit(0);

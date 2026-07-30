@@ -27,11 +27,29 @@ jobs:
       # place: sending the same `position` twice used to END the engine, and
       # every existing retro test sends exactly one, so the browser suite
       # stayed green through a bug that handed whole games to a Stockfish
-      # stand-in. `with` is the assertion; `without` documents the failure and
-      # is deliberately not a gate, since it asserts a bug that upstream may
-      # fix (herohde/morlock#6).
-      - name: retro engine survives a repeated position
+      # stand-in.
+      #
+      # Two modes, two different assertions. `with` is the client's half — it
+      # would still matter if morlock had never been patched. `without` was a
+      # demonstration that could not be a gate, because it asserted a bug and
+      # would fail the day upstream fixed it; upstream did (63db3e6a, now the
+      # pinned revision), so it becomes the engine's half: a rollback of
+      # vendor/retro/MORLOCK_REV fails here. Verified red against the previous
+      # wasm, where `without` dies on search 2 and `with` still passes 4/4.
+      - name: retro engine survives a repeated position (client sends ucinewgame)
         run: node scripts/retro-wasm/repeat-position.mjs with
+      - name: retro engine survives a repeated position (engine tolerates it)
+        run: node scripts/retro-wasm/repeat-position.mjs without
+
+      # Which morlock produced the committed wasm. The engines enter through a
+      # `replace` to a gitignored checkout, so go.sum has no line for them and
+      # the module graph records nothing — for months the only answer was a
+      # sentence in a comment. This checks the recorded revision against the
+      # pin and the recorded hash against the bytes, so a pin bumped without a
+      # rebuild and a wasm dropped in by hand both fail here rather than
+      # shipping as an engine nobody can reproduce.
+      - name: the committed retro wasm matches its recorded provenance
+        run: ./scripts/check-retro-provenance.sh
 
       # vendor/retro/wasm_exec.js is Go's runtime shim with ONE local patch,
       # and the documented way to refresh it is `cp` from $(go env GOROOT) —
