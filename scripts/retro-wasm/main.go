@@ -3,19 +3,20 @@
 // retro-wasm: one WebAssembly binary hosting morlock's re-implementations of
 // TUROCHAMP (1948), BERNSTEIN (1957) and SARGON (1978) for botvinnik-web.
 //
-// BUILD (go.mod pins morlock via a replace to a gitignored checkout):
-//   git clone https://github.com/herohde/morlock ../engines/morlock-src
-//   git -C ../engines/morlock-src checkout 8c55f1e97f6259fcff48a567409b382961045463
-//   GOOS=js GOARCH=wasm go build -ldflags="-s -w" -o retro.wasm .
-//   cp retro.wasm "$(go env GOROOT)/lib/wasm/wasm_exec.js" ../../vendor/retro/
-//   # then RE-APPLY the local patch to vendor/retro/wasm_exec.js — see the
-//   # LOCAL PATCH note at the top of that file. The cp above overwrites it,
-//   # and CI fails if it goes missing.
-// The path was `../../static/retro/` until static/ became vendor/; a recipe
-// that writes to a directory which no longer exists is worse than none.
-// The committed vendor/retro/retro.wasm was built from exactly that commit —
-// the same source as the native gym binaries (scripts/engines/retro/), so the
-// in-app engines are the ones the calibration measured.
+// BUILD: ./build.sh — which checks out the revision in
+// vendor/retro/MORLOCK_REV, builds, and writes vendor/retro/BUILD.txt.
+//
+// This used to be a recipe here instead, and a comment cannot keep a promise.
+// It named a revision it could not check out, wrote to a directory that had
+// been renamed out from under it (static/retro/ became vendor/retro/), and
+// asserted that the wasm and the native gym binaries came from one source —
+// true when written, unverifiable ever after. build.sh does the first,
+// scripts/check-retro-provenance.sh checks the last, and the gym binaries get
+// the same pin via scripts/stage-gym-engines.sh.
+//
+// The one part still done by hand: refreshing wasm_exec.js from $(go env
+// GOROOT) drops a local patch, so build.sh deliberately does not touch it and
+// warns instead when the toolchain's copy has moved on.
 //
 // JS contract (set BEFORE running the Go instance):
 //   globalThis.retroConfig = { engine: "bernstein"|"sargon"|"turochamp", ply: 2 }

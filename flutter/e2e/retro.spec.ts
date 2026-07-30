@@ -249,11 +249,25 @@ test('a second game does not leave the retro engine dead', async ({ page }) => {
 test('a worker that dies anyway is replaced for the next turn', async ({ page }) => {
 	// FAULT INJECTION, because `ucinewgame` is meant to make that death
 	// unreachable — and a net nothing can reach is a net nobody can trust.
-	// Wrap the retro Worker in the page and append a duplicate `position` line
-	// after the second search, with no `ucinewgame` between: the exact
-	// degenerate input that ends the driver, arriving from outside the client.
-	// What has to catch it is the engine reporting its own exit and
-	// `_syncRetro` building a fresh worker for the next turn.
+	// Wrap the retro Worker in the page and feed the engine a line that ends
+	// morlock's driver, arriving from outside the client. What has to catch it
+	// is the engine reporting its own exit and `_syncRetro` building a fresh
+	// worker for the next turn.
+	//
+	// The injected line USED to be a plain duplicate of the last `position`,
+	// which is what the reported bug was. Upstream 63db3e6a — now the pinned
+	// revision (vendor/retro/MORLOCK_REV) — made exactly that survivable, so
+	// this test was injecting a fault the engine no longer has and failing on
+	// a net that had nothing to catch. It is a real hazard of backstop tests:
+	// fix the bug the injection exploits and the backstop quietly stops
+	// testing anything.
+	//
+	// So: a continuation line carrying an INVALID move. `uci.go`'s position
+	// handler still returns — and so ends main() — when `d.e.Move` rejects an
+	// argument, and upstream's fix only skipped EMPTY tokens. `z9z9` is
+	// malformed rather than merely illegal, so unlike a plausible-looking
+	// `e2e5` it can never happen to be legal in whatever position the game has
+	// reached when the injection lands.
 	await page.addInitScript(() => {
 		const Orig = window.Worker;
 		let searches = 0;
@@ -271,7 +285,11 @@ test('a worker that dies anyway is replaced for the next turn', async ({ page })
 					if (msg.startsWith('go movetime')) {
 						searches++;
 						if (searches === 2 && this.__last) {
-							(super.postMessage as (...a: unknown[]) => void)(this.__last);
+							// prefix-matches lastPosition, so the driver takes its
+							// continuation branch and parses the remainder as moves
+							(super.postMessage as (...a: unknown[]) => void)(
+								`${this.__last} moves z9z9`
+							);
 						}
 					}
 				}

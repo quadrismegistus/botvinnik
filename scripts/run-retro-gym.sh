@@ -13,7 +13,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 for f in scripts/engines/retro/bernstein scripts/engines/retro/sargon scripts/engines/retro/turochamp; do
-	[ -x "$f" ] || { echo "missing $f — build with: (cd scripts/engines/morlock-src && go build -o ../retro/NAME ./cmd/NAME)"; exit 1; }
+	[ -x "$f" ] || { echo "missing $f — build them with: ./scripts/stage-gym-engines.sh"; exit 1; }
 done
 if [ ! -f scripts/wasm-engine/stockfish.js ]; then
 	echo ">> setting up scripts/wasm-engine"
