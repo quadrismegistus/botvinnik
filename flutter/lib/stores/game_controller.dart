@@ -1992,7 +1992,8 @@ class GameController extends ChangeNotifier {
       // Unlike horizon this awaits, so the position can move on underneath
       // it — which is fine, because _maybeBotTurn re-checks the generation
       // and the move's legality before anything reaches the board.
-      final uci = await _syncRetro()?.move(fen);
+      final from = retroPositionFor(fen);
+      final uci = await _syncRetro()?.move(from.fen, moves: from.moves);
       if (uci != null) {
         return (uci: _bot.avoidRepetition(uci, _fenHistory(), currentLines), standIn: false);
       }
@@ -3274,6 +3275,29 @@ class GameController extends ChangeNotifier {
 
   List<String> _fenHistory() =>
       [_startFen, ...moves.map((m) => m.fenAfter)];
+
+  /// How to describe [fen] to a retro engine: the game's starting position
+  /// plus the line played to reach it, or [fen] alone when that line cannot be
+  /// vouched for.
+  ///
+  /// The engines read move history — see retro_commands.dart — so the
+  /// continuation form is what the calibration gym measured them with, and
+  /// what the roster's ratings therefore describe.
+  ///
+  /// The guard is the point. [moves] is the line to the cursor, and a bot can
+  /// be asked to move for a position that is NOT its end: a review cursor
+  /// parked mid-game, or a bot-vs-bot turn racing a takeback. Reconstructing
+  /// from a mismatched line would hand the engine a different game from the
+  /// one on the board — worse than the bare FEN this replaces, because it
+  /// would be confidently wrong rather than merely thin. So it is checked
+  /// rather than assumed, and falls back to exactly today's behaviour.
+  @visibleForTesting
+  ({String fen, List<String> moves}) retroPositionFor(String fen) {
+    if (moves.isNotEmpty && moves.last.fenAfter == fen) {
+      return (fen: _startFen, moves: [for (final m in moves) m.uci]);
+    }
+    return (fen: fen, moves: const []);
+  }
 
   /// A draw the RULES force but a stateless [Position] cannot see (#186):
   /// threefold repetition or the 50-move rule. Null when neither holds.

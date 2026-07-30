@@ -46,4 +46,43 @@ void main() {
       expect(retroMoveCommands(fen, 500).first, 'ucinewgame');
     }
   });
+
+  group('the move history (#244)', () {
+    // These engines READ the move list: SARGON's Development term walks it and
+    // scores every piece as undeveloped without it, TUROCHAMP's quiescence
+    // needs the previous move to judge a recapture. Measured against the
+    // committed wasm, SARGON picks a different move on 3/19 and 2/19 plies of
+    // two real games when the history is withheld — which is also the
+    // difference between the bot you play and the bot the gym rated.
+
+    test('sends the start position plus the line, not the current position', () {
+      expect(retroMoveCommands(fen, 500, moves: ['e2e4', 'e7e5']), [
+        'ucinewgame',
+        'position fen $fen moves e2e4 e7e5',
+        'go movetime 500',
+      ]);
+    });
+
+    test('an empty history sends no trailing `moves` token', () {
+      // Not cosmetic. morlock splits the remainder on spaces, so a trailing
+      // `moves ` with nothing after it yields one EMPTY move, `Move(ctx, "")`
+      // fails and the driver RETURNS — the engine dies exactly as it did for
+      // the repeated position in #245. The same trap is guarded in
+      // calibrate-bots.mts.
+      final cmds = retroMoveCommands(fen, 500, moves: const []);
+      expect(cmds[1], 'position fen $fen');
+      expect(cmds[1], isNot(contains('moves')));
+      expect(cmds.any((c) => c.endsWith(' ')), isFalse);
+    });
+
+    test('ucinewgame still comes first, so the driver takes the reset path', () {
+      // The continuation form must NOT rely on morlock's prefix-matching
+      // branch — that is the one carrying the empty-token bug. ucinewgame
+      // clears lastPosition, so this takes "New position": reset, then apply
+      // the whole list.
+      final cmds = retroMoveCommands(fen, 500, moves: ['e2e4']);
+      expect(cmds.first, 'ucinewgame');
+      expect(cmds[1], startsWith('position fen '));
+    });
+  });
 }
