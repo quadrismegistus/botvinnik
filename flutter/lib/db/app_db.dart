@@ -9,6 +9,9 @@ import 'package:sqflite/sqflite.dart';
 
 import 'db_reset.dart';
 
+// Callers of [AppDb.moveAside] have to be able to catch what it throws.
+export 'db_reset.dart' show DatabaseStillThere;
+
 /// The local database exists but cannot be read.
 ///
 /// Thrown at boot so the failure arrives as something the UI can offer a way
@@ -90,8 +93,17 @@ class AppDb {
       // `SELECT *` rather than a count, deliberately: the json column lives on
       // overflow pages that no count or aggregate touches, and marshalling the
       // text to Dart is what surfaces damage there at all.
-      await db._db.rawQuery('SELECT * FROM games ORDER BY endedAt DESC');
-      await db._db.rawQuery('SELECT * FROM kv');
+      try {
+        await db._db.rawQuery('SELECT * FROM games ORDER BY endedAt DESC');
+        await db._db.rawQuery('SELECT * FROM kv');
+      } catch (_) {
+        // Close before rethrowing. sqflite opens single-instance and caches the
+        // handle by path, so a boot that threw here used to leave the corrupt
+        // database OPEN — once per failed boot, and holding the very file the
+        // reset then tries to remove.
+        await db._db.close();
+        rethrow;
+      }
       return db;
     } catch (e) {
       if (isUnreadable(e)) throw DatabaseUnreadable(e);

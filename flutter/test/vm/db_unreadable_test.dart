@@ -204,4 +204,44 @@ void main() {
     final path = await buildDb(tmp.path, games: 300);
     await expectLater(openCheckedAt(path), completes);
   });
+
+  test('moveAside REPORTS FAILURE when the file is still there afterwards',
+      () async {
+    // The bug this exists for: `deleteDatabase` swallows its own failure at
+    // two layers — `// Ignore failure` in sqflite_common_ffi, and another
+    // `catch (_)` in the web filesystem — so a delete that does nothing at all
+    // returns normally. The first version of the reset button trusted that,
+    // reported "discarded", retried, reopened the same corrupt file and showed
+    // the identical error. A button that looks like it worked and did nothing
+    // is worse than no button.
+    //
+    // Native renames, and a rename either happens or throws, so this asserts
+    // the property at the level that matters: after moveAside returns, the
+    // file at the original path must be GONE.
+    final path = await buildDb(tmp.path);
+    expect(File(path).existsSync(), isTrue, reason: 'precondition');
+
+    await databaseFactory.setDatabasesPath(tmp.path);
+    final movedTo = await AppDb.moveAside();
+
+    expect(File(path).existsSync(), isFalse,
+        reason: 'the original path must be free for a fresh database');
+    expect(movedTo, isNotNull, reason: 'native reports where it went');
+    expect(File(movedTo!).existsSync(), isTrue,
+        reason: 'and moved, not deleted — the rows are largely salvageable');
+  });
+
+  test('after a reset the app opens a fresh, readable database', () async {
+    // End to end: corrupt, reset, reopen. Before the fix the reopen returned
+    // the same corrupt file and boot failed identically.
+    final path = await buildDb(tmp.path);
+    tearPages(path);
+    await databaseFactory.setDatabasesPath(tmp.path);
+
+    await expectLater(AppDb.openChecked(), throwsA(isA<DatabaseUnreadable>()));
+    await AppDb.moveAside();
+
+    final db = await AppDb.openChecked(); // must not throw
+    expect(await db.listGames(), isEmpty);
+  });
 }
