@@ -42,6 +42,7 @@ GOVER="$(go version | awk '{print $3}')"
 LDFLAGS="-s -w"
 FLAGS=(-trimpath -buildvcs=false -ldflags="$LDFLAGS")
 FLAGS_TEXT="-trimpath -buildvcs=false -ldflags=\"$LDFLAGS\""
+REPO_URL="https://github.com/herohde/morlock"
 
 # sha256sum on Linux, shasum on macOS. This script runs on a developer's Mac;
 # check-retro-provenance.sh reads what it writes on an Ubuntu runner.
@@ -66,6 +67,20 @@ echo "building retro.wasm ($GOVER, morlock ${REV:0:12})" >&2
 # this possible at all, which is why the flags above are load-bearing rather
 # than hygiene.
 if [ -n "$CHECK" ]; then
+  # The descriptive fields are checked too, or they are decoration: BUILD.txt
+  # could record `target plan9/vax` and flags that never ran and still certify
+  # the bytes, because only the hash was ever compared. Comparing the recorded
+  # strings against what this build actually used keeps the file honest without
+  # eval-ing shell out of a text file.
+  field() { awk -v k="$1" '$1==k{$1=""; sub(/^ +/,""); print; exit}' "$VENDOR/BUILD.txt"; }
+  for pair in "target|js/wasm" "buildflags|$FLAGS_TEXT" "morlock-repo|$REPO_URL"; do
+    k="${pair%%|*}"; expect="${pair#*|}"; actual="$(field "$k" | sed 's/[[:space:]]*$//')"
+    if [ "$actual" != "$expect" ]; then
+      echo "error: BUILD.txt records $k = '$actual' but this build uses '$expect'." >&2
+      echo "       Rerun ./scripts/retro-wasm/build.sh to rewrite it." >&2
+      rm -f "$OUT"; exit 1
+    fi
+  done
   want="$(awk '$1=="retro.wasm"{print $2; exit}' "$VENDOR/BUILD.txt" | sed 's/^sha256://' | tr -d '[:space:]')"
   got="$(sha256 "$OUT")"
   rm -f "$OUT"
@@ -115,7 +130,7 @@ cat > "$VENDOR/BUILD.txt" <<EOF
 # The reproducibility is not free: it needs the SAME Go version recorded below.
 # A different toolchain produces different bytes from identical source, and the
 # --check failure says so.
-morlock-repo    https://github.com/herohde/morlock
+morlock-repo    $REPO_URL
 morlock-rev     $REV
 go              $GOVER
 target          js/wasm

@@ -29,16 +29,23 @@ jobs:
       # stayed green through a bug that handed whole games to a Stockfish
       # stand-in.
       #
-      # Two modes, two different assertions. `with` is the client's half — it
-      # would still matter if morlock had never been patched. `without` was a
-      # demonstration that could not be a gate, because it asserted a bug and
-      # would fail the day upstream fixed it; upstream did (63db3e6a, now the
-      # pinned revision), so it becomes the engine's half: a rollback of
-      # vendor/retro/MORLOCK_REV fails here. Verified red against the previous
-      # wasm, where `without` dies on search 2 and `with` still passes 4/4.
-      - name: retro engine survives a repeated position (client sends ucinewgame)
-        run: node scripts/retro-wasm/repeat-position.mjs with
-      - name: retro engine survives a repeated position (engine tolerates it)
+      # ONE mode is gated, deliberately. `without` sends no `ucinewgame`, so it
+      # reaches the continuation branch and asserts the committed wasm carries
+      # herohde/morlock#6. Verified red against the previous wasm, where it
+      # dies on search 2.
+      #
+      # `with` is NOT gated, and briefly was. On an engine carrying the fix it
+      # is `without` plus one extra line, and `without` passes — so it cannot
+      # fail whatever that line does. Mutation-tested: delete the `ucinewgame`
+      # send it exists to exercise and it still reports 4/4, exit 0. A gate a
+      # missing subject satisfies is the shape that has bitten this repo
+      # before. The client's actual contract is covered where it belongs, by
+      # flutter/test/retro_commands_test.dart against the real command list.
+      #
+      # What fails on a vendor/retro/MORLOCK_REV rollback is not this step —
+      # the probe never reads that file — but `build.sh --check` below, which
+      # rebuilds from the pin.
+      - name: retro engine tolerates a repeated position (herohde/morlock#6)
         run: node scripts/retro-wasm/repeat-position.mjs without
 
       # Which morlock produced the committed wasm. The engines enter through a

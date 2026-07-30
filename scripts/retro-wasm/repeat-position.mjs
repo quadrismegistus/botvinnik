@@ -12,11 +12,16 @@
 // The client sends `ucinewgame` before every position, which resets the
 // driver's lastPosition and takes the reset path it would have taken anyway.
 //
-// BOTH MODES NOW ASSERT, and they assert different halves of the fix:
+// ONLY `without` IS A GATE. Both modes assert, but only one discriminates:
 //
-//   `with`    — the client's contract. Four searches from an identical
-//               position must all answer. This is the one that would still
-//               matter if morlock had never been patched.
+//   `with`    — diagnostic, not gated. On an engine carrying the fix it is
+//               `without` plus a `ucinewgame`, and `without` already passes,
+//               so it cannot fail whatever that line does. Mutation-tested:
+//               delete the send it exists to exercise and it still reports
+//               4/4. Useful for telling apart "the engine regressed" from
+//               "the client stopped protecting us" once something IS red, and
+//               worthless as a gate before that. The client's real contract
+//               is flutter/test/retro_commands_test.dart's job.
 //   `without` — that the committed wasm carries the ENGINE fix
 //               (herohde/morlock#6, upstream 63db3e6a). It used to be a
 //               demonstration that could not be a gate, because it asserted a
@@ -84,7 +89,23 @@ const START = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
 const mode = process.argv[2] || 'without';
 send({ engine: 'turochamp', ply: 1 });
 send('uci');
-await waitFor(() => out.includes('uciok'), 30000);
+// Check the handshake rather than discarding it. A missing, truncated or
+// non-wasm artefact used to spend 35s failing and then report "engine gone" —
+// wrong, and wrong in a way that sends you looking at the engine instead of at
+// the file. The real cause (`__boot_failed__ CompileError: … expected magic
+// word`) was already on stdout and ignored. Distinct exit code: this is an
+// infrastructure failure, not a verdict about the engine.
+// Resolve on the failure too, not just the success: the worker already posts
+// `__boot_failed__` the moment the wasm will not compile, so waiting the full
+// 30s for a uciok that provably is not coming is dead time in every CI run
+// that has a broken artefact.
+const booted = () => out.includes('uciok');
+const bootFailed = () => out.some((l) => l.startsWith('__boot_failed__'));
+if (!(await waitFor(() => booted() || bootFailed(), 30000)) || bootFailed()) {
+  console.error('FAIL: the engine never started. Last lines:');
+  console.error(out.slice(-5).join('\n'));
+  process.exit(2);
+}
 
 const search = async (n) => {
   const before = out.filter((l) => l.startsWith('bestmove')).length;

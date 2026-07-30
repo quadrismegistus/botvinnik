@@ -28,7 +28,12 @@ fail() { echo "error: $*" >&2; exit 1; }
 # BUILD.txt fields, and since both are truncated to 12 chars in the error the
 # result was "X says 63db3e6adb6b but the wasm was built from 63db3e6adb6b".
 # Fails closed either way, but an impossible-looking message is its own bug.
-pinned="$(grep -v '^[[:space:]]*#' "$V/MORLOCK_REV" | grep -v '^[[:space:]]*$' | head -1 | tr -d '[:space:]')"
+# `|| true` so the pipeline's own exit status cannot end the script under
+# `set -o pipefail` before fail() gets to speak. Without it an empty or
+# comments-only MORLOCK_REV exited 1 silently, and a pathological one made
+# `head -1` SIGPIPE the grep for a wordless exit 141. Fail closed AND say why.
+pinned="$( { grep -v '^[[:space:]]*#' "$V/MORLOCK_REV" || true; } | { grep -v '^[[:space:]]*$' || true; } | head -1 | tr -d '[:space:]')"
+[ -n "$pinned" ] || fail "vendor/retro/MORLOCK_REV names no revision"
 recorded="$(awk '$1=="morlock-rev"{print $2; exit}' "$V/BUILD.txt" | tr -d '[:space:]')"
 want="$(awk '$1=="retro.wasm"{print $2; exit}' "$V/BUILD.txt" | tr -d '[:space:]' | sed 's/^sha256://')"
 
