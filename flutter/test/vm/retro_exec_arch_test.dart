@@ -10,6 +10,12 @@
 // the Linux CI runner as on a Mac. A version that read `Abi.current()` would
 // pass vacuously in CI, which is how a suite here went silently macOS-only
 // before.
+// Lives in test/vm/ because CI runs the whole of the TOP LEVEL of test/ a
+// second time through `flutter test test/*.dart --platform chrome`, and this
+// reads bytes off disk. That glob is what excludes this directory; `@TestOn('vm')`
+// does NOT work here, because Flutter compiles the file before the runner can
+// honour the annotation, and the web build of RetroEngine has no
+// machOMatchesHost to compile against.
 import 'dart:io';
 import 'dart:typed_data';
 
