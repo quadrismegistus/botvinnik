@@ -1366,6 +1366,7 @@ class _BootFailed extends StatefulWidget {
 class _BootFailedState extends State<_BootFailed> {
   bool _working = false;
   String? _movedTo;
+  bool _stuck = false;
 
   Future<void> _reset() async {
     setState(() => _working = true);
@@ -1377,6 +1378,16 @@ class _BootFailedState extends State<_BootFailed> {
         _working = false;
       });
       widget.onRetry();
+    } on DatabaseStillThere {
+      // The delete ran and the file is still there. Say what actually helps
+      // rather than reporting success and retrying into the same error, which
+      // is what the first version of this did — a reset button that looked
+      // like it worked and did nothing.
+      if (!mounted) return;
+      setState(() {
+        _stuck = true;
+        _working = false;
+      });
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -1427,6 +1438,20 @@ class _BootFailedState extends State<_BootFailed> {
                   const SizedBox(height: 16),
                   SelectableText('Moved to: $_movedTo',
                       style: const TextStyle(fontSize: 12)),
+                ],
+                if (_stuck) ...[
+                  const SizedBox(height: 16),
+                  const SelectableText(
+                    'The browser would not release the database, so nothing was '
+                    'removed.\n\n'
+                    'Clear this site\'s data by hand and reload:\n'
+                    '  Chrome/Edge — DevTools, Application, Storage, '
+                    '"Clear site data"\n'
+                    '  Safari — Develop, Storage, or Settings, Privacy, '
+                    '"Manage Website Data"\n\n'
+                    'If sync is on, your games come back afterwards.',
+                    style: TextStyle(fontSize: 12),
+                  ),
                 ],
                 const SizedBox(height: 24),
                 Wrap(
