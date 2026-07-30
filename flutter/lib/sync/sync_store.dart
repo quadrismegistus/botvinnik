@@ -49,6 +49,15 @@ abstract class SyncStore {
   /// Update-only — `If-Match: <etag>`. Returns the new etag, or throws
   /// [SyncConflict] if [etag] is no longer current.
   Future<String> update(String blobId, List<int> body, String etag);
+
+  /// Remove the blob. Idempotent: deleting what is not there succeeds.
+  ///
+  /// No precondition, unlike [update]. CAS exists so a blind write cannot
+  /// clobber a concurrent one, and there is no such thing as clobbering a
+  /// delete — while requiring an etag would mean a GET first, which fails for
+  /// the caller who most needs this: someone removing a blob they can no
+  /// longer decrypt.
+  Future<void> delete(String blobId);
 }
 
 /// The real store: HTTP to the botvinnik-sync Worker at [baseUrl].
@@ -79,6 +88,17 @@ class HttpSyncStore implements SyncStore {
   @override
   Future<String> update(String blobId, List<int> body, String etag) =>
       _put(blobId, body, {'If-Match': etag});
+
+  @override
+  Future<void> delete(String blobId) async {
+    final res = await _send(() => _client.delete(_blob(blobId)));
+    // 404 counts as success: the goal is "it is not there", and a retry after
+    // a dropped response must not report failure — being told your data is
+    // still on the server when it is not is the worst way to be wrong about a
+    // deletion.
+    if (res.statusCode == 204 || res.statusCode == 404) return;
+    throw SyncTransportException('DELETE ${res.statusCode}');
+  }
 
   Future<String> _put(
     String blobId,
