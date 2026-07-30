@@ -64,11 +64,11 @@ void main() {
     });
 
     test('an empty history sends no trailing `moves` token', () {
-      // Not cosmetic. morlock splits the remainder on spaces, so a trailing
-      // `moves ` with nothing after it yields one EMPTY move, `Move(ctx, "")`
-      // fails and the driver RETURNS — the engine dies exactly as it did for
-      // the repeated position in #245. The same trap is guarded in
-      // calibrate-bots.mts.
+      // Well-formedness, not survival. The committed engine tolerates a
+      // trailing `moves ` (measured: 3/3 searches) — an earlier comment here
+      // asserted it was fatal by analogy with #245's repeated line, which was
+      // wrong on this engine. calibrate-bots.mts guards the same case, and a
+      // command with a dangling keyword is worth not emitting regardless.
       final cmds = retroMoveCommands(fen, 500, moves: const []);
       expect(cmds[1], 'position fen $fen');
       expect(cmds[1], isNot(contains('moves')));

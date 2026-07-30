@@ -48,6 +48,17 @@ jobs:
       - name: retro engine tolerates a repeated position (herohde/morlock#6)
         run: node scripts/retro-wasm/repeat-position.mjs without
 
+      # morlock accepts castling ONLY as king-two-squares, and the app can
+      # produce king-takes-rook (dartchess offers the king its rook's square and
+      # MoveRecord stores whatever was dragged). Sending the wrong spelling ends
+      # the driver, which silently swaps the persona for a Stockfish stand-in
+      # for the rest of the game. Harmless until #244 put a move list on the
+      # wire; GameController.engineUci converts it, and this pins the engine
+      # fact that makes the conversion necessary — which no Dart test can see,
+      # because the whole failure happens inside the engine.
+      - name: retro engine accepts the castling spelling we send
+        run: node scripts/retro-wasm/castling-spelling.mjs
+
       # Which morlock produced the committed wasm. The engines enter through a
       # `replace` to a gitignored checkout, so go.sum has no line for them and
       # the module graph records nothing — for months the only answer was a

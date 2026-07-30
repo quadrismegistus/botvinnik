@@ -314,3 +314,64 @@ test('a worker that dies anyway is replaced for the next turn', async ({ page })
 	// of the `exited` check in _syncRetro
 	await expect.poll(() => BOOTS(logs), { timeout: 90_000 }).toBeGreaterThan(1);
 });
+
+test('the engine is actually told the game, not just the position (#244)', async ({
+	page
+}) => {
+	// THE WIRE, end to end. A review proved the whole of #244 could be
+	// disconnected at every seam — the call site, and `moves:` in all three
+	// transports — with 942 Dart tests still green, because those tests cover
+	// pure functions and nothing proved anything called them. The only
+	// observable that cannot be faked is the line the worker really receives.
+	//
+	// Also covers the spelling. `MoveRecord.uci` stores whatever squares were
+	// dragged, and dartchess offers the king its rook's square, so a castle can
+	// reach the engine as `e1h1` — which morlock rejects by ENDING its driver,
+	// silently handing the game to a Stockfish stand-in. `engineUci` converts
+	// it; this asserts nothing ever puts the alternate spelling on the wire.
+	await page.addInitScript(() => {
+		const w = window as unknown as { __posLines: string[] };
+		w.__posLines = [];
+		const Orig = window.Worker;
+		window.Worker = class extends Orig {
+			__retro = false;
+			constructor(url: string | URL, opts?: WorkerOptions) {
+				super(url, opts);
+				this.__retro = String(url).includes('retro');
+			}
+			postMessage(msg: unknown, ...rest: unknown[]) {
+				if (this.__retro && typeof msg === 'string' && msg.startsWith('position'))
+					w.__posLines.push(msg);
+				return (super.postMessage as (...a: unknown[]) => void)(msg, ...rest);
+			}
+		};
+	});
+
+	const logs: string[] = [];
+	page.on('console', (m) => logs.push(m.text()));
+
+	// both seats retro, so the game plays itself past the opening move
+	await seedPersonas(page, { white: 'retro-turochamp-1', black: 'retro-turochamp-1' });
+	await page.goto('/');
+
+	await expect.poll(() => SEARCHES(logs), { timeout: 90_000 }).toBeGreaterThan(2);
+
+	const lines = await page.evaluate(
+		() => (window as unknown as { __posLines: string[] }).__posLines
+	);
+	expect(lines.length, 'the retro worker was asked to move').toBeGreaterThan(2);
+
+	// After the first move every position line must carry the history. Without
+	// it SARGON scores every piece as undeveloped and TUROCHAMP loses Turing's
+	// recapture rule — the bot stops being the bot the gym rated.
+	const withMoves = lines.filter((l) => l.includes(' moves '));
+	expect(withMoves.length, `no line carried a move list: ${lines.join(' | ')}`)
+		.toBeGreaterThan(0);
+
+	// And never the spelling morlock kills the engine over.
+	for (const l of lines) {
+		expect(l, 'castling must reach the engine as king-two-squares')
+			.not.toMatch(/\b(e1h1|e1a1|e8h8|e8a8)\b/);
+	}
+	expect(logs.filter((l) => l.includes('retro had no move'))).toEqual([]);
+});
