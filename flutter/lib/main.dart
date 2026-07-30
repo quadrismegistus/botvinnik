@@ -155,7 +155,16 @@ class _BootGateState extends State<BootGate> {
 
     final arbiter = SearchArbiter(startEngine());
     final settings = await SettingsStore.load();
-    final db = await AppDb.open();
+    // openOrRecover, not open: a database torn by the pre-shared-worker web
+    // factory (see db_init_web.dart) otherwise fails the first `SELECT` and
+    // takes the whole app down, with no way in to fix it from inside the app.
+    // Starting empty is recoverable — sync brings the games back.
+    final opened = await AppDb.openOrRecover();
+    final db = opened.db;
+    if (opened.recovered) {
+      debugPrint('[db] local database was unreadable and has been reset; '
+          'sync will restore anything stored remotely');
+    }
     final grading = GradingApi(bridge);
     // Fire and forget: three 3.5MB bands, cached to a file that survives
     // relaunch, so one connected session closes the offline gap for every Maia

@@ -82,7 +82,8 @@ function isStable(p) {
     p.startsWith('retro/') ||
     p.startsWith('garbo/') ||
     p.startsWith('maia/ort-') ||
-    p === 'sqlite3.wasm'
+    p === 'sqlite3.wasm' ||
+    p === 'sqflite_sw.js'
   );
 }
 
@@ -114,6 +115,10 @@ for (const required of [
   'maia/maia-worker.js',
   'maia/ort-wasm-simd-threaded.wasm',
   'maia/ort-wasm-simd-threaded.mjs',
+  // Without it every tab runs its own sqlite3 over one IndexedDB file and the
+  // database eventually corrupts — see lib/db/db_init_web.dart. Silent at
+  // build time and days later in someone's browser, so: loud here.
+  'sqflite_sw.js',
 ]) {
   if (!all.includes(required)) {
     throw new Error(`gen-sw-manifest: ${required} is missing from the build`);

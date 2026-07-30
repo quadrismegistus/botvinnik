@@ -5,11 +5,53 @@
 
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:sqflite/sqflite.dart';
 
 class AppDb {
   final Database _db;
   AppDb._(this._db);
+
+  /// Whether [e] is SQLite reporting that the file itself is unreadable —
+  /// SQLITE_CORRUPT (11) or SQLITE_NOTADB (26) — rather than a bad row or a
+  /// bad query.
+  ///
+  /// Matched on the message because sqflite flattens every backend into
+  /// DatabaseException/SqfliteFfiException and does not surface the result
+  /// code as a field. Narrow on purpose: this decides whether to DISCARD the
+  /// local database, so it must not fire on an ordinary error.
+  @visibleForTesting
+  static bool isCorruptionError(Object e) {
+    final m = e.toString().toLowerCase();
+    return m.contains('database disk image is malformed') ||
+        m.contains('file is not a database') ||
+        m.contains('database corrupt');
+  }
+
+  /// Opens the database, rebuilding it from empty if the stored file is
+  /// corrupt. Returns whether that happened, so the caller can say so.
+  ///
+  /// A torn database used to take the whole app down with a red screen on
+  /// `SELECT * FROM games ORDER BY endedAt DESC` — every other store here
+  /// already degrades instead (practice, settings and custom engines each
+  /// treat a corrupt document as an empty one). This is the same policy for
+  /// the file: the games are recoverable from sync, and an app that starts
+  /// empty can re-sync them, while an app that will not start cannot do
+  /// anything at all.
+  ///
+  /// Discarding is safe ONLY because it is unreadable — the rows cannot be
+  /// salvaged by any path this app has, since the failure is in the pages
+  /// under them.
+  static Future<({AppDb db, bool recovered})> openOrRecover() async {
+    try {
+      return (db: await open(), recovered: false);
+    } catch (e) {
+      if (!isCorruptionError(e)) rethrow;
+      debugPrint('[db] corrupt database, starting fresh: $e');
+      await deleteDatabase('${await getDatabasesPath()}/botvinnik.db');
+      return (db: await open(), recovered: true);
+    }
+  }
 
   static Future<AppDb> open() async {
     final path = '${await getDatabasesPath()}/botvinnik.db';

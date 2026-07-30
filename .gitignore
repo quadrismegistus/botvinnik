@@ -68,9 +68,13 @@ flutter/web/maia/
 flutter/web/maia3/
 flutter/web/brain.js
 
-# sqflite's shared-worker build: unused (db_init_web uses the no-worker
-# factory) and regenerable with `dart run sqflite_common_ffi_web:setup`
-flutter/web/sqflite_sw.js
+# flutter/web/sqflite_sw.js is COMMITTED, deliberately. It used to be ignored
+# as "unused (db_init_web uses the no-worker factory)" — and that factory ran a
+# separate sqlite3 per tab over one IndexedDB file, which corrupted the
+# database of anyone with the app open twice. It is vendored like sqlite3.wasm
+# beside it rather than regenerated at build time, because
+# `sqflite_common_ffi_web:setup` downloads from a GitHub release and a deploy
+# should not depend on that.
 
 # Gradle's build cache. Not merely noise: it is hundreds of MB of binaries, and
 # it slipped into a calibration PR (#110) because checking out a branch without
