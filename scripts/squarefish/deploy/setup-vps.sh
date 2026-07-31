@@ -28,15 +28,10 @@ cd "$HOME"
 [ -d lichess-bot ] || git clone https://github.com/lichess-bot-devs/lichess-bot
 cd lichess-bot
 python3 -m venv venv && ./venv/bin/pip -q install -r requirements.txt
-python3 - <<PY
-import re
-cfg = open('config.yml.default').read()
-cfg = cfg.replace('token: "xxxxxxxxxxxxxxxxx"', 'token: "${LICHESS_TOKEN}"')
-cfg = re.sub(r'dir: "\./engines/"', 'dir: "$HOME/botvinnik-web"', cfg)
-cfg = re.sub(r'name: "engine_name"', 'name: "scripts/squarefish/squarefish.sh"', cfg)
-open('config.yml','w').write(cfg)
-print('config.yml written — REVIEW IT (time_controls, concurrency) before enabling')
-PY
+# Render config.yml from lichess-bot's default + our committed overrides. Its
+# own script, so an existing box can re-render after a config change without
+# re-running any of the above (#149).
+LICHESS_TOKEN="$LICHESS_TOKEN" bash "$HOME/botvinnik-web/scripts/squarefish/deploy/render-config.sh"
 
 sudo tee /etc/systemd/system/squarefish.service >/dev/null <<UNIT
 [Unit]
@@ -55,4 +50,4 @@ RestartSec=10
 WantedBy=multi-user.target
 UNIT
 sudo systemctl daemon-reload
-echo "Review ~/lichess-bot/config.yml, then: sudo systemctl enable --now squarefish"
+echo "Review the config.yml path printed above, then: sudo systemctl enable --now squarefish"
