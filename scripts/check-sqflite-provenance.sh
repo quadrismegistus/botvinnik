@@ -49,11 +49,18 @@ fail() { echo "error: $*" >&2; exit 1; }
 # below it and has both a sha256 and a version. Quotes stripped
 # unconditionally: pub quotes a scalar that would otherwise parse as a number,
 # so "1.1.2" is quoted and a hash starting with a letter is not.
+#
+# The `sub(/\r$/, "")` is the lesson check-retro-provenance.sh records: on a
+# CRLF checkout the trailing \r rides along, and here it would break BOTH the
+# `$` anchor that finds the block and the values inside it — producing the
+# useless "1.1.2 is not 1.1.2". Stripped from the whole line, before anything
+# looks at it.
 lock_field() {
   awk -v want="$1" '
+    { sub(/\r$/, "") }
     /^  sqflite_common_ffi_web:$/ { in_block = 1; next }
     in_block && /^  [^ ]/ { in_block = 0 }
-    in_block && $1 == want":" { v = $2; gsub(/"/, "", v); print v; exit }
+    in_block && $1 == want":" { v = $2; gsub(/["[:space:]]/, "", v); print v; exit }
   ' "$LOCK"
 }
 
