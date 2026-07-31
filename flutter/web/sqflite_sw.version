@@ -1,0 +1,49 @@
+# What produced flutter/web/sqflite_sw.js and flutter/web/sqlite3.wasm.
+# Written by hand from the output of, run in flutter/:
+#
+#   dart run sqflite_common_ffi_web:setup
+#
+# ONE command writes BOTH files, so they are recorded together — regenerating
+# the worker silently replaces the wasm as well, and the wasm is the larger
+# change (the setup downloads it from a sqlite3.dart release the package
+# version chooses, see sqlite3-release below).
+#
+# Why this file exists: the worker carries no version marker of its own
+# (`grep 1.1.2 sqflite_sw.js` finds nothing), pubspec.yaml pins a caret range,
+# and the client encoding that talks to this worker is compiled into
+# main.dart.js. So `flutter pub upgrade` could move the client while the
+# committed worker stayed frozen, and nothing would notice. CI checks the
+# version below against flutter/pubspec.lock — the resolved truth, not the
+# range — and the hashes against the committed bytes:
+#
+#   ./scripts/check-sqflite-provenance.sh
+#
+# It ships. That is deliberate rather than an oversight: a SharedWorker is
+# matched by (origin, name, URL) and the URL is the constant `sqflite_sw.js`,
+# so a tab left open across a deploy keeps the OLD worker alive. Per-file
+# content hashing cannot close that (issue #256), but `curl
+# https://botvinnik.app/sqflite_sw.version` at least answers which package the
+# thing serving that tab came from.
+
+package         sqflite_common_ffi_web
+version         1.1.2
+package-sha256  32dc484518fec883cf0d1aa85c767f7cde6757729480b3d8d20e0fac247ef161
+sqflite_sw.js   sha256:a97c2da7e87f22bc0fd5eae0def1dc8dee4314014acc6e88fbdfc1ebb066777a
+sqlite3.wasm    sha256:8766db025f5d5b6f24c6a51cc9dec843ab7a7720e3dfa5b47d70d33db96d506b
+
+# Not checked, recorded because they explain the bytes.
+#
+# `dart`: the setup COMPILES the worker locally with dart2js rather than
+# downloading a prebuilt one, so — as with the Go version in
+# vendor/retro/BUILD.txt — a different SDK can produce different bytes from
+# the same package. Unlike retro, CI does NOT rebuild and compare: the runner
+# takes Flutter's floating `stable` channel, so a derived check would go red on
+# an SDK release rather than on a real drift. Verified once by hand instead —
+# regenerating at 1.1.2 on the SDK below reproduced the committed bytes exactly.
+#
+# `sqlite3-release`: the GitHub release the setup fetched sqlite3.wasm from.
+# Chosen by the package, printed by the setup, and recorded here because
+# nothing else in the repo says which SQLite is inside that wasm.
+
+dart            3.12.2
+sqlite3-release sqlite3-3.1.2

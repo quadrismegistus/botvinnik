@@ -97,6 +97,29 @@ jobs:
       - name: rebuilding the pinned morlock reproduces the committed wasm
         run: ./scripts/retro-wasm/build.sh --check
 
+      # The same shape for the OTHER vendored artefact nobody could attribute:
+      # flutter/web/sqflite_sw.js, 264KB of compiled Dart whose client encoding
+      # is compiled into main.dart.js from a caret range. `flutter pub upgrade`
+      # could move the client and leave the worker frozen, and the worker
+      # carries no version marker to notice it by. Compares the recorded
+      # version against pubspec.lock — the resolved truth, not the range — plus
+      # the package sha256 as a second fact from the lock, so editing the
+      # version line to silence it does not work.
+      #
+      # Here in `checks` rather than in gen-sw-manifest.mjs on purpose. That
+      # script reads build/web, an output tree with no pubspec.lock in it, and
+      # only runs behind a five-minute Flutter web build; this is the failure
+      # a `flutter pub upgrade` PR should hit in seconds with no toolchain.
+      # What gen-sw-manifest DOES now check is that the provenance file reaches
+      # the deployed output, which is the half only it can see.
+      #
+      # NOT the derived check retro gets below. The setup compiles the worker
+      # with the local dart2js, so the bytes depend on the Dart SDK too, and
+      # this runner takes Flutter's floating `stable` — rebuilding to compare
+      # would go red on an SDK release rather than on a real drift.
+      - name: the committed sqflite worker matches the package it speaks to
+        run: ./scripts/check-sqflite-provenance.sh
+
       # vendor/retro/wasm_exec.js is Go's runtime shim with ONE local patch,
       # and the documented way to refresh it is `cp` from $(go env GOROOT) —
       # which silently removes the patch. Without this, that loss shows up as

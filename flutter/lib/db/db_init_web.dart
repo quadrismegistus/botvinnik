@@ -49,6 +49,19 @@ import 'package:sqflite_common_ffi_web/sqflite_ffi_web.dart';
 /// committed rather than generated, and e2e/web_db.spec.ts asserts the app
 /// really constructs a SharedWorker — not merely that the script was fetched,
 /// which the fallback does too.
+///
+/// Being committed means it can go stale against the client encoding compiled
+/// into this file's imports, which pubspec.yaml pins only to a caret range. To
+/// move it, from `flutter/`:
+///
+/// ```
+/// dart run sqflite_common_ffi_web:setup
+/// ```
+///
+/// That rewrites `web/sqflite_sw.js` AND `web/sqlite3.wasm` — one command, two
+/// files — after which `flutter/web/sqflite_sw.version` needs the new version
+/// and hashes. `scripts/check-sqflite-provenance.sh` fails CI if either half of
+/// that is skipped (#256).
 void initDatabaseFactory() {
   databaseFactory = databaseFactoryFfiWeb;
 }
