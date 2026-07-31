@@ -96,8 +96,9 @@ pull is genuinely enough — there is no bundle step on the server.
 ssh <vps>
 cd ~/botvinnik-web && git pull && npm ci
 # ONLY if the config changed (chat, time controls, concurrency) — a pull does
-# not re-render it, and this is idempotent:
-LICHESS_TOKEN=<bot:play token> bash scripts/squarefish/deploy/render-config.sh
+# not re-render it. Idempotent, and it reads the token back out of the existing
+# config.yml, so updating never means handling the secret again:
+bash scripts/squarefish/deploy/render-config.sh
 sudo systemctl restart squarefish
 journalctl -fu squarefish
 ```
