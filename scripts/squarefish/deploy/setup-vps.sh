@@ -28,6 +28,20 @@ cd "$HOME"
 [ -d lichess-bot ] || git clone https://github.com/lichess-bot-devs/lichess-bot
 cd lichess-bot
 python3 -m venv venv && ./venv/bin/pip -q install -r requirements.txt
+# The bridge cannot reach lichess chat from a UCI engine on its own, so it
+# carries our `info string CHAT:` lines. This patch lived ONLY on the server as
+# an uncommitted edit to a third-party checkout — any `git pull` in lichess-bot
+# would have silently removed the feature (#149).
+if git apply --check "$HOME/botvinnik-web/scripts/squarefish/deploy/lichess-bot-chat.patch" 2>/dev/null; then
+	git apply "$HOME/botvinnik-web/scripts/squarefish/deploy/lichess-bot-chat.patch"
+	echo "applied the chat relay patch"
+elif grep -q pending_chat lib/engine_wrapper.py; then
+	echo "chat relay patch already applied"
+else
+	echo "WARNING: the chat relay patch does not apply — lichess-bot has moved." >&2
+	echo "         SquareFish will play fine but say nothing. Re-site the hook." >&2
+fi
+
 # Render config.yml from lichess-bot's default + our committed overrides. Its
 # own script, so an existing box can re-render after a config change without
 # re-running any of the above (#149).
