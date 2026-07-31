@@ -6,9 +6,12 @@
 // The stockfish package supports iOS/Android only. Desktop uses
 // process_engine.dart instead; engine_factory.dart picks between them.
 //
-// NOTE (calibration): this bundles Stockfish 16 full-NNUE, not the WASM
-// lite-single the labels were calibrated on. Accepted for M1; the M4
-// calibration pass re-measures the gym curve against this build.
+// NOTE (calibration): this bundles Stockfish 18 full-NNUE, not the WASM
+// lite-single the labels were calibrated on — `package:stockfish` 1.8.1,
+// whose `misc.cpp` reads `constexpr std::string_view version = "18"`. Three
+// places in this repo said 16 until 2026-07-31; they were M1-era comments
+// left behind when 1.8.0 moved to 18, and the native grid has since been
+// re-measured against this build (brain/bot.ts, SHAPED_KNOTS_SCAN.native).
 
 import 'dart:async';
 

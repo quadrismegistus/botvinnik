@@ -112,10 +112,26 @@ export async function tap(page: Page, text: string) {
 	await page.evaluate(
 		([wanted, src]) => {
 			const names = eval(src) as (n: Element) => string[];
-			const hit = [...document.querySelectorAll('flt-semantics')].find((n) =>
+			const hits = [...document.querySelectorAll('flt-semantics')].filter((n) =>
 				names(n).includes(wanted)
 			);
-			(hit as HTMLElement).click();
+			// Ambiguity is an ERROR, not a coin toss. This used to `.find()` and
+			// click the first match, so a name that reached two controls would
+			// click one of them and the test would pass while exercising the
+			// other. Nothing could have caught it: `count()` has never been
+			// called by a spec in this file's history, and its only consumer
+			// asserts `> 0` — so the suite had no way to observe over-matching
+			// at all. That matters more since the matcher was widened to
+			// aria-label and to any LINE of a name: the selectable namespace is
+			// now the app's copy deck, where a one-line paragraph equal to a
+			// button's label would collide silently.
+			if (hits.length > 1) {
+				throw new Error(
+					`tap('${wanted}') matched ${hits.length} controls — ambiguous. ` +
+						'Use a more specific name.'
+				);
+			}
+			(hits[0] as HTMLElement).click();
 		},
 		[text, NAMES] as const
 	);
