@@ -28,14 +28,38 @@ cd "$HOME"
 [ -d lichess-bot ] || git clone https://github.com/lichess-bot-devs/lichess-bot
 cd lichess-bot
 python3 -m venv venv && ./venv/bin/pip -q install -r requirements.txt
-python3 - <<PY
-import re
-cfg = open('config.yml.default').read()
-cfg = cfg.replace('token: "xxxxxxxxxxxxxxxxx"', 'token: "${LICHESS_TOKEN}"')
-cfg = re.sub(r'dir: "\./engines/"', 'dir: "$HOME/botvinnik-web"', cfg)
-cfg = re.sub(r'name: "engine_name"', 'name: "scripts/squarefish/squarefish.sh"', cfg)
-open('config.yml','w').write(cfg)
-print('config.yml written — REVIEW IT (time_controls, concurrency) before enabling')
+# Render config.yml = lichess-bot's own default, deep-merged with OUR settings
+# from the repo, plus the token and engine dir. Previously this string-replaced
+# three lines of config.yml.default and everything else about the bot's
+# behaviour — chat included — existed only on this box, in no repo (#149).
+#
+# The bridge's venv has PyYAML (it parses its own config), so no extra install.
+./venv/bin/python - <<PY
+import yaml
+overrides = yaml.safe_load(open('$HOME/botvinnik-web/scripts/squarefish/deploy/config.overrides.yml'))
+cfg = yaml.safe_load(open('config.yml.default'))
+
+def merge(base, over):
+    for k, v in over.items():
+        if isinstance(v, dict) and isinstance(base.get(k), dict):
+            merge(base[k], v)
+        else:
+            base[k] = v
+
+merge(cfg, overrides)
+cfg['token'] = '${LICHESS_TOKEN}'
+cfg.setdefault('engine', {})['dir'] = '$HOME/botvinnik-web'
+
+# Fail loudly rather than shipping a config that quietly means nothing: if the
+# bridge ever renames these, the merge would write dead keys and the bot would
+# go silent with no error anywhere.
+for key in ('hello', 'goodbye', 'hello_spectators', 'goodbye_spectators'):
+    if key not in cfg.get('greeting', {}):
+        raise SystemExit(f'greeting.{key} missing after merge — has lichess-bot renamed it?')
+
+with open('config.yml', 'w') as f:
+    yaml.safe_dump(cfg, f, sort_keys=False, allow_unicode=True)
+print('wrote', __import__('os').path.abspath('config.yml'))
 PY
 
 sudo tee /etc/systemd/system/squarefish.service >/dev/null <<UNIT
@@ -55,4 +79,4 @@ RestartSec=10
 WantedBy=multi-user.target
 UNIT
 sudo systemctl daemon-reload
-echo "Review ~/lichess-bot/config.yml, then: sudo systemctl enable --now squarefish"
+echo "Review the config.yml path printed above, then: sudo systemctl enable --now squarefish"
