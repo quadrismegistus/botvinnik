@@ -7,6 +7,7 @@ import 'dart:convert';
 
 import 'package:sqflite/sqflite.dart';
 
+import 'db_path.dart';
 import 'db_reset.dart';
 
 // Callers of [AppDb.moveAside] have to be able to catch what it throws.
@@ -122,11 +123,10 @@ class AppDb {
   /// forecloses that, and a rename costs nothing.
   ///
   /// Only ever called from the button a human presses.
-  static Future<String?> moveAside() async =>
-      moveDatabaseAside('${await getDatabasesPath()}/botvinnik.db');
+  static Future<String?> moveAside() async => moveDatabaseAside(await databasePath());
 
   static Future<AppDb> open() async {
-    final path = '${await getDatabasesPath()}/botvinnik.db';
+    final path = await databasePath();
     final db = await openDatabase(
       path,
       version: 1,
