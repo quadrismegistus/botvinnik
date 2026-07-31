@@ -24,6 +24,7 @@ import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:botvinnik_mobile/db/app_db.dart';
+import 'package:botvinnik_mobile/db/db_path.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
@@ -71,7 +72,10 @@ void tearPages(String path, {int from = 4, int count = 8}) {
 
 /// Run the real [AppDb.openChecked] against a database at [dir].
 Future<AppDb> openCheckedAt(String path) async {
-  await databaseFactory.setDatabasesPath(File(path).parent.path);
+  // Through the override, not sqflite's setDatabasesPath: on macOS the app
+  // resolves its path through path_provider now (#255), so setDatabasesPath
+  // would leave these tests operating on the real Application Support copy.
+  databasePathOverride = path;
   return AppDb.openChecked();
 }
 
@@ -81,7 +85,10 @@ void main() {
 
   late Directory tmp;
   setUp(() => tmp = Directory.systemTemp.createTempSync('db-unreadable'));
-  tearDown(() => tmp.deleteSync(recursive: true));
+  tearDown(() {
+    databasePathOverride = null; // never leak a path into another test
+    tmp.deleteSync(recursive: true);
+  });
 
   test('a torn database opens fine and only fails when READ', () async {
     // The precondition that made the first recovery attempt useless. If this
@@ -221,7 +228,7 @@ void main() {
     final path = await buildDb(tmp.path);
     expect(File(path).existsSync(), isTrue, reason: 'precondition');
 
-    await databaseFactory.setDatabasesPath(tmp.path);
+    databasePathOverride = path;
     final movedTo = await AppDb.moveAside();
 
     expect(File(path).existsSync(), isFalse,
@@ -236,7 +243,7 @@ void main() {
     // the same corrupt file and boot failed identically.
     final path = await buildDb(tmp.path);
     tearPages(path);
-    await databaseFactory.setDatabasesPath(tmp.path);
+    databasePathOverride = path;
 
     await expectLater(AppDb.openChecked(), throwsA(isA<DatabaseUnreadable>()));
     await AppDb.moveAside();
