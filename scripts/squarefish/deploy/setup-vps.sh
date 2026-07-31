@@ -28,39 +28,10 @@ cd "$HOME"
 [ -d lichess-bot ] || git clone https://github.com/lichess-bot-devs/lichess-bot
 cd lichess-bot
 python3 -m venv venv && ./venv/bin/pip -q install -r requirements.txt
-# Render config.yml = lichess-bot's own default, deep-merged with OUR settings
-# from the repo, plus the token and engine dir. Previously this string-replaced
-# three lines of config.yml.default and everything else about the bot's
-# behaviour — chat included — existed only on this box, in no repo (#149).
-#
-# The bridge's venv has PyYAML (it parses its own config), so no extra install.
-./venv/bin/python - <<PY
-import yaml
-overrides = yaml.safe_load(open('$HOME/botvinnik-web/scripts/squarefish/deploy/config.overrides.yml'))
-cfg = yaml.safe_load(open('config.yml.default'))
-
-def merge(base, over):
-    for k, v in over.items():
-        if isinstance(v, dict) and isinstance(base.get(k), dict):
-            merge(base[k], v)
-        else:
-            base[k] = v
-
-merge(cfg, overrides)
-cfg['token'] = '${LICHESS_TOKEN}'
-cfg.setdefault('engine', {})['dir'] = '$HOME/botvinnik-web'
-
-# Fail loudly rather than shipping a config that quietly means nothing: if the
-# bridge ever renames these, the merge would write dead keys and the bot would
-# go silent with no error anywhere.
-for key in ('hello', 'goodbye', 'hello_spectators', 'goodbye_spectators'):
-    if key not in cfg.get('greeting', {}):
-        raise SystemExit(f'greeting.{key} missing after merge — has lichess-bot renamed it?')
-
-with open('config.yml', 'w') as f:
-    yaml.safe_dump(cfg, f, sort_keys=False, allow_unicode=True)
-print('wrote', __import__('os').path.abspath('config.yml'))
-PY
+# Render config.yml from lichess-bot's default + our committed overrides. Its
+# own script, so an existing box can re-render after a config change without
+# re-running any of the above (#149).
+LICHESS_TOKEN="$LICHESS_TOKEN" bash "$HOME/botvinnik-web/scripts/squarefish/deploy/render-config.sh"
 
 sudo tee /etc/systemd/system/squarefish.service >/dev/null <<UNIT
 [Unit]
