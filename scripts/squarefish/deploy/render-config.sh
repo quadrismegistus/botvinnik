@@ -77,13 +77,20 @@ drop_nulls(cfg)
 cfg['token'] = os.environ['LICHESS_TOKEN']
 cfg.setdefault('engine', {})['dir'] = repo
 
-# Fail loudly rather than writing a config that quietly means nothing. If the
-# bridge renames these, the merge would leave dead keys and the bot would go
-# silent with no error anywhere — which is how the chat went undocumented for
-# months in the first place.
+# Fail loudly if the bridge has renamed a greeting key, because the symptom
+# otherwise is a bot that silently stops talking.
+#
+# Checked against the DEFAULT, not the merged config. The first version of this
+# checked the merge — which our own overrides populate, so all four keys were
+# always present and the guard could never fail. A guard a missing subject
+# satisfies is not a guard.
+default_greeting = yaml.safe_load(open('config.yml.default')).get('greeting', {})
 for key in ('hello', 'goodbye', 'hello_spectators', 'goodbye_spectators'):
-    if key not in cfg.get('greeting', {}):
-        raise SystemExit(f'greeting.{key} missing after merge — has lichess-bot renamed it?')
+    if key not in default_greeting:
+        raise SystemExit(
+            f'greeting.{key} is not in this lichess-bot\'s config.yml.default — '
+            'renamed upstream? Our override would write a key nothing reads.'
+        )
 
 # Back up whatever is there before overwriting it. config.yml has historically
 # been hand-edited on the server and nowhere else (#149) — this script replaced
