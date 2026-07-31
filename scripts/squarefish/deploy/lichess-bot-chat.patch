@@ -1,0 +1,51 @@
+Relay the engine's `info string CHAT:` lines into lichess game chat.
+
+SquareFish narrates its own decisions (scripts/squarefish/chat.mts). A UCI
+engine has no way to reach lichess chat, so the bridge has to carry it: the
+engine emits `info string CHAT:<text>` alongside its bestmove and this forwards
+it after the move is played.
+
+Sent to BOTH rooms. The original lived only on the server and sent to "player",
+so anyone watching saw a silent bot (#149) — the spectator is the one who most
+benefits, having no other reason to know what this account is.
+
+Failures are swallowed on purpose: chat is a garnish, and lichess rate-limits
+it. A bot that stops playing because it could not say something is worse than a
+quiet bot.
+
+Applies to lichess-bot @ 2026.7.11.2. `git apply --check` first; if it fails,
+the bridge has moved and the hook needs re-siting rather than forcing.
+
+--- a/lib/engine_wrapper.py
++++ b/lib/engine_wrapper.py
+@@ -99,6 +99,7 @@ class EngineWrapper:
+         self.go_commands = Configuration(cast(GO_COMMANDS_TYPE, options.pop("go_commands", {})) or {})
+         self.move_commentary: list[InfoStrDict] = []
+         self.comment_start_index = -1
++        self.pending_chat: str = ""
+ 
+     def configure(self, options: OPTIONS_GO_EGTB_TYPE, game: model.Game | None) -> None:
+         """
+@@ -206,6 +207,13 @@ class EngineWrapper:
+             li.resign(game.id)
+         else:
+             li.make_move(game.id, best_move)
++            if self.pending_chat:
++                for room in ("player", "spectator"):
++                    try:
++                        li.chat(game.id, room, self.pending_chat)
++                    except Exception:
++                        pass
++                self.pending_chat = ""
+ 
+     def add_go_commands(self, time_limit: chess.engine.Limit) -> chess.engine.Limit:
+         """Add extra commands to send to the engine. For example, to search for 1000 nodes or up to depth 10."""
+@@ -271,6 +279,8 @@ class EngineWrapper:
+         # Use null_score to have no effect on draw/resign decisions
+         null_score = chess.engine.PovScore(chess.engine.Mate(1), board.turn)
+         self.scores.append(result.info.get("score", null_score))
++        info_str = result.info.get("string", "")
++        self.pending_chat = info_str[5:] if info_str.startswith("CHAT:") else ""
+         return self.offer_draw_or_resign(result, board)
+ 
+     def comment_index(self, move_stack_index: int) -> int:

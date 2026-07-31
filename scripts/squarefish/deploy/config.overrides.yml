@@ -23,6 +23,28 @@ engine:
   name: "scripts/squarefish/squarefish.sh"
   protocol: "uci"
   ponder: false
+  uci_options:
+    # SquareFish declares exactly four options — Label, Move Overhead, Threads,
+    # Hash (see squarefish-uci.mts's `uci` response). lichess-bot sends every
+    # option in this block and its default config assumes a full Stockfish, so
+    # an option we do not declare is not ignored: python-chess raises
+    #   EngineError: engine does not support option SyzygyPath
+    # at handshake and the service crash-loops. Deleted rather than overridden
+    # (`null` removes a key from the merged config) — there is no value of
+    # SyzygyPath that works, because there is no such option.
+    #
+    # Label is deliberately NOT set here: it comes from $SQUAREFISH_LABEL in the
+    # systemd unit, via squarefish.sh, so the deployed strength lives in one
+    # place.
+    SyzygyPath: null
+    UCI_ShowWDL: null
+
+# lichess-bot's default aborts a game if the opponent has not moved within 30
+# seconds. For a bot whose entire purpose is accumulating rated human games,
+# that throws away the game every time someone reads the board before starting
+# — observed twice while deploying #149. Two minutes is still short enough that
+# a genuinely absent opponent does not tie the bot up.
+abort_time: 120
 
 challenge:
   concurrency: 1
@@ -44,5 +66,8 @@ greeting:
   # measures our scale's bottom end against the human pool.
   hello: "Hi {opponent}, I'm {me}. Good luck!"
   goodbye: "Good game!"
-  hello_spectators: "I'm {me}, a bot from botvinnik.app. I play at one fixed strength setting on purpose — my lichess rating is the measurement that tells us what that setting is really worth against human opposition."
+  # lichess DROPS anything over 140 chars, silently as far as the player is
+  # concerned — the bridge logs a warning nobody reads. The first version of
+  # this was 206 and never reached a single spectator.
+  hello_spectators: "I'm {me}, a bot from botvinnik.app, playing at one fixed strength so my rating measures what that setting is worth."
   goodbye_spectators: "Thanks for watching! Another data point for the calibration."
