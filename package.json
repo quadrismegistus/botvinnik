@@ -11,7 +11,8 @@
     "fixtures": "tsx scripts/emit-golden-fixtures.mts",
     "fixtures:maia": "tsx scripts/emit-maia-brain-fixtures.mts",
     "test": "vitest run",
-    "test:e2e:flutter": "playwright test -c flutter/playwright.config.ts"
+    "test:e2e:flutter": "playwright test -c flutter/playwright.config.ts",
+    "shots": "bash scripts/screenshots/run.sh"
   },
   "devDependencies": {
     "@playwright/test": "^1.61.1",
