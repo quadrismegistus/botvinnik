@@ -20,9 +20,10 @@ import { createInterface } from 'node:readline';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Chess } from 'chess.js';
-import { shapedBotMove, shapedSearchDepth } from '../../brain/bot';
+import { shapedBotMove, shapedSearchDepth, type DecisionTrace } from '../../brain/bot';
 import { avoidRepetition } from '../../brain/repetition';
 import type { EngineMove } from '../../brain/engine/types';
+import { isChatWorthy, formatChat, newChatState, type ChatState } from './chat.mts';
 
 const argv = process.argv.slice(2);
 function opt(name: string, dflt: number): number {
@@ -119,6 +120,7 @@ class Backend {
 const backend = new Backend();
 const chess = new Chess();
 let gameSeed = `sf${Math.floor(Math.random() * 1e9)}`;
+let chatState: ChatState = newChatState();
 
 function out(line: string) {
 	process.stdout.write(line + '\n');
@@ -143,9 +145,31 @@ function fenHistory(): string[] {
 	return h.length === 0 ? [chess.fen()] : [h[0].before, ...h.map((m) => m.after)];
 }
 
+/** UCI → SAN for chat, on the CURRENT board. Plays and takes back, so it must
+ * only ever be called with the board where the move is legal. */
+function uciToSan(uci: string): string {
+	try {
+		const m = chess.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci[4] });
+		const san = m.san;
+		chess.undo();
+		return san;
+	} catch {
+		return uci;
+	}
+}
+
 async function go() {
+	const ply = chess.history().length;
+	chatState.ply = ply;
+
 	const moves = await backend.search(chess.fen(), shapedSearchDepth(label));
 	const lastTo = chess.history({ verbose: true }).at(-1)?.to;
+	// The bot EXPLAINS itself in game chat, so it asks the choice layer to
+	// report why. An optional callback rather than a second, traced copy of
+	// shapedBotMove: the lichess deployment ran such a copy on an unmerged
+	// branch for two weeks — 144 duplicated lines of the choice layer every
+	// bot in the product depends on, with nothing to catch them drifting.
+	let trace: DecisionTrace | null = null;
 	const move = shapedBotMove(
 		moves,
 		label,
@@ -153,8 +177,22 @@ async function go() {
 		gameSeed,
 		SCAN ? chess.fen() : undefined,
 		undefined,
-		SCAN ? lastTo : undefined
+		SCAN ? lastTo : undefined,
+		(t) => {
+			trace = t;
+		}
 	);
+
+	if (trace && isChatWorthy(trace, chatState)) {
+		const t: DecisionTrace = trace;
+		// SAN while the board is still the one the move was chosen on
+		t.bestMove = uciToSan(t.bestMove);
+		t.playedMove = uciToSan(t.playedMove);
+		out(`info string CHAT:${formatChat(t, ply)}`);
+		chatState.budget--;
+		if (t.branch === 'quiet') chatState.quietBudget--;
+		chatState.lastChatPly = ply;
+	}
 	// same guard the app applies: the shaped layer can't see game history, so
 	// a winning SquareFish could shuffle into threefold — bot opponents would
 	// farm that draw relentlessly
@@ -187,6 +225,7 @@ rl.on('line', (line) => {
 		} else if (cmd === 'ucinewgame') {
 			chess.reset();
 			gameSeed = `sf${Math.floor(Math.random() * 1e9)}`; // fresh eyes per game
+			chatState = newChatState(); // and a fresh chat budget
 			backend.send('ucinewgame');
 		} else if (cmd === 'position') {
 			setPosition(parts.slice(1));

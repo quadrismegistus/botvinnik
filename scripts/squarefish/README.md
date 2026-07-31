@@ -61,6 +61,30 @@ mute with no error anywhere.
 chosen label. Run the bridge with `./venv/bin/python lichess-bot.py` on any
 machine that stays up (this Mac, or a $4 VPS + a clone of botvinnik-web).
 
+## In-game chat
+
+The bot explains its own decisions in lichess game chat — a human reaction plus
+a terse technical bracket, inside lichess's 140-char limit:
+
+```
+Felt ok but maybe not. [played d4 (w31%) vs d3 (w51%)]
+```
+
+`shapedBotMove` takes an optional `onTrace` callback reporting which branch it
+took, the engine's best move against what it played, and — in the tactical
+branch — the miss probability it actually used and the roll against it. That is
+what the bracket renders. `chat.mts` decides which moments are worth speaking
+about (misses, missed blunders, conversion fumbles; quiet mush is silent) and
+budgets ~8 messages a game.
+
+A callback rather than a traced copy of the decision function, deliberately:
+this feature first shipped as a second 144-line copy of `shapedBotMove`, which
+is the choice layer every bot in the product depends on, and lived on the
+server's branch for two weeks where nothing could notice the two diverging.
+
+Player and spectator greetings are separate, and live in
+`deploy/config.overrides.yml`.
+
 ## Reading the result
 
 Rating stabilizes after ~50-100 rated games (weak bots get farmed quickly —
