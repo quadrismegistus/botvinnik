@@ -1,0 +1,48 @@
+# Everything about the lichess bot's behaviour that is OURS, in the repo.
+#
+# Deep-merged into lichess-bot's own `config.yml.default` by setup-vps.sh, which
+# then injects the token from $LICHESS_TOKEN and the engine dir from $HOME.
+#
+# Why a merge rather than a committed config.yml:
+#
+#   * The token cannot be committed, so a whole config could never be the real
+#     one anyway.
+#   * lichess-bot's schema is large and it validates what it loads. A full copy
+#     here would silently rot against upstream — a key renamed in the bridge
+#     would leave us shipping a config that no longer means what it says. The
+#     default file travels with the bridge version actually installed, so
+#     merging keeps upstream authoritative and reduces OUR file to the deltas.
+#
+# Before this file, `config.yml` existed only on the VPS. The bot's entire
+# user-visible behaviour — including the chat below — was unreproducible from
+# this repository, and a rebuild of the box would have silently lost it (#149).
+
+engine:
+  # dir is set by setup-vps.sh to the botvinnik-web checkout; name is the
+  # wrapper that execs the tsx entrypoint with $SQUAREFISH_LABEL.
+  name: "scripts/squarefish/squarefish.sh"
+  protocol: "uci"
+  ponder: false
+
+challenge:
+  concurrency: 1
+  accept_bot: true
+  variants: ["standard"]
+  # No bullet, deliberately: moves are well under a second but the BRIDGE
+  # overhead is not, and a flagged game is a corrupted rating sample. This
+  # account's rating is a measurement instrument (see deployments.json).
+  time_controls: ["blitz", "rapid", "classical"]
+
+greeting:
+  # {me} and {opponent} are substituted by the bridge.
+  #
+  # The player and the spectator are told DIFFERENT things, because they want
+  # different things. An opponent is being addressed mid-game and wants brevity.
+  # A spectator is being informed, and is the one person who benefits from
+  # knowing what this account actually is: a calibration instrument for
+  # botvinnik.app, playing at one fixed shaped label so that its lichess rating
+  # measures our scale's bottom end against the human pool.
+  hello: "Hi {opponent}, I'm {me}. Good luck!"
+  goodbye: "Good game!"
+  hello_spectators: "I'm {me}, a bot from botvinnik.app. I play at one fixed strength setting on purpose — my lichess rating is the measurement that tells us what that setting is really worth against human opposition."
+  goodbye_spectators: "Thanks for watching! Another data point for the calibration."
