@@ -374,8 +374,25 @@ async function shotPlay(ctx: BrowserContext, viewport: Viewport) {
 	}
 }
 
-/** The Lines Tree: the game-long graph of every line the engine explored. */
+/** The Lines Tree — DESKTOP ONLY, and the skip is the point.
+ *
+ * At phone width the panel selector is single-select and drives a local
+ * `int _view` in `main.dart`; only the wide, multi-select row reads the
+ * persisted `botvinnik-panels`. `settings_store.dart` says so — "which panels
+ * are open on a WIDE window". So seeding `panels: [PANEL.tree]` is a no-op
+ * here and Insights, index 0, wins by default.
+ *
+ * That shipped once: `lines-tree-phone.webp` was a picture of the Insights
+ * panel under a filename saying otherwise, and it went unnoticed because this
+ * is the one shot with no content assertion — the Tree draws no text to poll
+ * for. Skipping is honest; a wrong picture is not, and it would live in git
+ * for good.
+ */
 async function shotTree(ctx: BrowserContext, viewport: Viewport) {
+	if (viewport === 'phone') {
+		console.log('  skipped: the phone layout cannot be steered to the Tree panel');
+		return;
+	}
 	// The Tree panel draws no text, so there is no ply counter to poll for —
 	// this is the one shot timed rather than triggered. At 2s a move, ~70s is
 	// deep enough for the tree to have a shape and short of where a Squarefish

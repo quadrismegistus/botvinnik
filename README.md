@@ -31,16 +31,16 @@ what survived it is `brain/`.
 - **Move insights** — every move graded against the engine's best: eval,
   %-of-best, win-chance delta, chess.com-style labels (brilliant → blunder),
   and prose built only from *detected* facts — mates, hanging pieces, forks,
-  pins, material over a quoted line. A claim that no longer holds is rewritten
-  or dropped on load rather than shown
+  pins, material over a quoted line
 - **Board overlays** — engine arrows, a threat arrow with red rings on what
   that threat wins, blue rings in the arrows' own colour on what *your* line
   wins, and a square-control wash graded by how much the exchange is worth
   (green your squares, red theirs). One glyph per square, by a precedence rule
-  (`board_pane.dart`): rings and arrowheads outrank the control ring, so the
-  board never draws two facts on one piece
-- **Lines Tree** — the game-long graph of every line the engine explored, with
-  past alternatives kept as ghosts
+  (`board_pane.dart`): rings and arrowheads outrank the control ring, so
+  control never doubles up with a ring on the same piece
+- **Lines Tree** — a game-long graph of the lines the engine explored, pruned:
+  a fresh analysis replaces a position's earlier suggestions, and past
+  positions keep their first branching move as a ghost
 - **Practice** — moves that drop enough win chance are collected automatically
   and drilled on a Leitner schedule; fail one and it plays the punishing line
   back at you. Hints escalate — a motif, then the square, then the move. You can
@@ -54,7 +54,7 @@ what survived it is `brain/`.
   **Retro** (3), Go re-implementations of Turochamp 1948, Bernstein 1957 and
   Sargon 1978; **Horizon** (2), an engine with no quiescence, so it starts
   exchanges it cannot finish; **Garbo** (1), Gary Linscott's 2011 JavaScript
-  engine, verbatim. **32 play on the web** (ChessGPT needs native onnxruntime),
+  engine, verbatim. **32 play on the web** (ChessGPT has no web worker — the same onnxruntime runs Maia there),
   **26 on iOS Safari** (Maia's runtime will not fit beside Flutter's under
   mobile Safari's memory ceiling), all 35 on macOS and iOS natively. See
   [ARCHITECTURE.md](ARCHITECTURE.md#where-each-persona-gets-its-move)
@@ -207,12 +207,14 @@ Nothing, by default — and every exception is one you asked for:
 
 | | When |
 |---|---|
-| **huggingface.co** | you pick a Maia; its net is fetched once and cached |
+| **huggingface.co** | **on the macOS and iOS apps, at first launch** — `main.dart` prefetches all three Maia bands (~10.5MB) without being asked, so one connected session covers every Maia offline. On the web nothing is fetched until you pick a Maia. Redirects to the Hugging Face LFS CDN |
 | **raw.githubusercontent.com** | you open the Humans panel — the Maia-3 net, from the CSSLab repo |
-| **github.com** | you install a catalogue engine or a ChessGPT net — release assets from each engine's own upstream (seven orgs; `engine_catalog.dart`), every one checked against a pinned SHA-256. Desktop and native only |
+| **github.com** | you install a catalogue engine (**desktop only**) or a ChessGPT net (**macOS/iOS only**) — six upstream projects plus `quadrismegistus/botvinnik-engines`, a first-party mirror for four builds nobody publishes binaries for; every artefact checked against a pinned SHA-256. Redirects to `objects.githubusercontent.com` |
 | **lichess.org / api.chess.com** | you import a username's games |
-| **the sync Worker** | you turn sync on. It stores one AES-256-GCM blob under an id derived from your phrase, so it can neither read your games nor enumerate whose they are |
+| **`botvinnik-sync.…workers.dev`** (Cloudflare) | once sync is paired: on launch and on every resume. It stores one AES-256-GCM blob under an id derived from your phrase, so it can neither read your games nor enumerate whose they are — though Cloudflare, like any host, sees the connection |
 
-There is no account, no analytics, and no third-party request on a plain visit.
+There is no account and no analytics. **A plain visit to botvinnik.app makes no
+third-party request** — CanvasKit is served locally (`--no-web-resources-cdn`)
+and the ORT runtime is vendored. The native apps are the exception, above.
 Games, practice items and settings live in sqflite and `shared_preferences` on
 the device.
