@@ -1013,9 +1013,9 @@ var brain = (() => {
         if (kingBitboard === 0n) {
           return false;
         }
-        const kingSquare2 = (0, conversion_1.getLowestSetBit)(kingBitboard);
+        const kingSquare3 = (0, conversion_1.getLowestSetBit)(kingBitboard);
         const opponentColor = board.turn === types_1.InternalColor.WHITE ? types_1.InternalColor.BLACK : types_1.InternalColor.WHITE;
-        return isSquareAttacked(board, kingSquare2, opponentColor);
+        return isSquareAttacked(board, kingSquare3, opponentColor);
       }
       function getAttackedSquares(board, attackerColor) {
         let attacked = 0n;
@@ -1057,8 +1057,8 @@ var brain = (() => {
         }
         const king = attackerColor === types_1.InternalColor.WHITE ? board.whiteKing : board.blackKing;
         if (king !== 0n) {
-          const kingSquare2 = (0, conversion_1.getLowestSetBit)(king);
-          attacked |= (0, Position_1.getKingAttacks)(kingSquare2);
+          const kingSquare3 = (0, conversion_1.getLowestSetBit)(king);
+          attacked |= (0, Position_1.getKingAttacks)(kingSquare3);
         }
         return attacked;
       }
@@ -1445,9 +1445,9 @@ var brain = (() => {
           if (kingBitboardAfter === 0n) {
             return true;
           }
-          const kingSquare2 = (0, conversion_1.getLowestSetBit)(kingBitboardAfter);
+          const kingSquare3 = (0, conversion_1.getLowestSetBit)(kingBitboardAfter);
           const opponentColor = originalTurn === types_1.InternalColor.WHITE ? types_1.InternalColor.BLACK : types_1.InternalColor.WHITE;
-          return !(0, AttackDetector_1.isSquareAttacked)(testBoard, kingSquare2, opponentColor);
+          return !(0, AttackDetector_1.isSquareAttacked)(testBoard, kingSquare3, opponentColor);
         });
       }
       function makeMove(board, move) {
@@ -1902,9 +1902,9 @@ var brain = (() => {
           board.isStalemate = false;
           return;
         }
-        const kingSquare2 = (0, conversion_1.getLowestSetBit)(kingBitboard);
+        const kingSquare3 = (0, conversion_1.getLowestSetBit)(kingBitboard);
         const opponentColor = currentColor === types_1.InternalColor.WHITE ? types_1.InternalColor.BLACK : types_1.InternalColor.WHITE;
-        const inCheck = (0, AttackDetector_1.isSquareAttacked)(board, kingSquare2, opponentColor);
+        const inCheck = (0, AttackDetector_1.isSquareAttacked)(board, kingSquare3, opponentColor);
         board.isCheck = inCheck;
         board.isCheckmate = false;
         board.isStalemate = false;
@@ -7951,6 +7951,29 @@ var brain = (() => {
     if (hunters.length > 0 && after.attackers(to, color).length === 0) return false;
     return true;
   }
+  function speaksHere(after, m) {
+    if (m.captured || m.promotion) return false;
+    return !after.isCheck() && !after.isGameOver();
+  }
+  function kingSquare(c, color) {
+    for (const row of c.board()) {
+      for (const cell of row) {
+        if (cell && cell.color === color && cell.type === "k") return cell.square;
+      }
+    }
+    return void 0;
+  }
+  function heldByPawn(c, to, color) {
+    const them = color === "w" ? "b" : "w";
+    const king = kingSquare(c, color);
+    return c.attackers(to, color).some((sq) => {
+      if (c.get(sq)?.type !== "p") return false;
+      if (!king) return true;
+      const probe = new Chess(c.fen());
+      probe.remove(sq);
+      return probe.attackers(king, them).length === 0;
+    });
+  }
   function passedPawns(c, color) {
     const up = color === "w" ? 1 : -1;
     const out = [];
@@ -7983,19 +8006,19 @@ var brain = (() => {
     const after = new Chess(fenBefore);
     const m = apply(after, uci);
     if (!m) return void 0;
-    if (after.isCheckmate()) return void 0;
+    if (!speaksHere(after, m)) return void 0;
     if (!landsSafely(after, m.to, m.color, m.piece)) return void 0;
-    const carried = m.piece === "p" && wasPassed.has(m.from) ? m.to : void 0;
-    const fresh = passedPawns(after, mover).filter((sq2) => !wasPassed.has(sq2) && sq2 !== carried);
-    if (fresh.length === 0) return void 0;
-    const sq = fresh[0];
-    return sq === m.to ? `${m.san} makes a passed pawn on ${sq} \u2014 no enemy pawn can stop it.` : `${m.san} leaves the ${FILE_NAMES[fileOf(sq)]}-pawn passed \u2014 no enemy pawn can stop it.`;
+    const carried = wasPassed.has(m.from) ? m.to : void 0;
+    if (after.moves({ verbose: true }).some((mv) => mv.flags.includes("e"))) return void 0;
+    const fresh = passedPawns(after, mover).filter((sq) => !wasPassed.has(sq) && sq !== carried);
+    if (!fresh.includes(m.to)) return void 0;
+    return `${m.san} makes a passed pawn on ${m.to} \u2014 no enemy pawn can stop it.`;
   }
   function outpostPoint(fenBefore, uci) {
     const c = new Chess(fenBefore);
     const m = apply(c, uci);
     if (!m || m.piece !== "n") return void 0;
-    if (c.isCheckmate()) return void 0;
+    if (!speaksHere(c, m)) return void 0;
     const to = m.to;
     const f = fileOf(to);
     const r = rankOf(to);
@@ -8010,38 +8033,41 @@ var brain = (() => {
         if (p && p.type === "p" && p.color !== m.color) return void 0;
       }
     }
-    const held = c.attackers(to, m.color).some((sq) => c.get(sq)?.type === "p");
-    if (!held) return void 0;
-    return `${m.san} plants the knight on ${to}, where no pawn can chase it away.`;
+    if (!heldByPawn(c, to, m.color)) return void 0;
+    return `${m.san} puts the knight on an outpost \u2014 no enemy pawn can advance to attack ${to}.`;
   }
   function blockadePoint(fenBefore, uci) {
     const c = new Chess(fenBefore);
     const m = apply(c, uci);
     if (!m || m.piece === "k") return void 0;
-    if (c.isCheckmate()) return void 0;
+    if (!speaksHere(c, m)) return void 0;
     const them = m.color === "w" ? "b" : "w";
     const to = m.to;
     const f = fileOf(to);
     const theirUp = them === "w" ? 1 : -1;
     const behind = toSquare(f, rankOf(to) - theirUp);
     if (!behind) return void 0;
-    const pawn = c.get(behind);
-    if (!pawn || pawn.type !== "p" || pawn.color !== them) return void 0;
     if (!passedPawns(c, them).includes(behind)) return void 0;
     if (!landsSafely(c, to, m.color, m.piece)) return void 0;
+    const br = rankOf(behind);
+    for (const df of [-1, 1]) {
+      const diag = toSquare(fileOf(behind) + df, br + theirUp);
+      const piece = diag ? c.get(diag) : void 0;
+      if (piece && piece.color === m.color) return void 0;
+    }
     return `${m.san} blockades the passed ${FILE_NAMES[f]}-pawn.`;
   }
   function openFilePoint(fenBefore, uci) {
     const c = new Chess(fenBefore);
     const m = apply(c, uci);
     if (!m || m.piece !== "r") return void 0;
-    if (c.isCheckmate()) return void 0;
+    if (!speaksHere(c, m)) return void 0;
     const to = m.to;
     const f = fileOf(to);
     if (fileOf(m.from) === f) return void 0;
     let ours = 0;
     let theirs = 0;
-    let friends = 0;
+    const friends = [];
     for (let r = 0; r < 8; r++) {
       const sq = toSquare(f, r);
       const p = sq ? c.get(sq) : void 0;
@@ -8049,12 +8075,31 @@ var brain = (() => {
       if (p.type === "p") {
         if (p.color === m.color) ours++;
         else theirs++;
-      } else if (p.type === "r" && p.color === m.color && sq !== to) friends++;
+      } else if (p.type === "r" && p.color === m.color && sq !== to) friends.push(sq);
     }
     if (ours > 0) return void 0;
     if (!landsSafely(c, to, m.color, m.piece)) return void 0;
     const kind = theirs === 0 ? "open" : "half-open";
-    return friends > 0 ? `${m.san} doubles the rooks on the ${kind} ${FILE_NAMES[f]}-file.` : `${m.san} takes the ${kind} ${FILE_NAMES[f]}-file.`;
+    for (const dr of [1, -1]) {
+      for (let step = 1; step <= 7; step++) {
+        const sq = toSquare(f, rankOf(to) + dr * step);
+        if (!sq) break;
+        const p = c.get(sq);
+        if (!p) continue;
+        if (p.color === m.color && p.type !== "r" && p.type !== "q") return void 0;
+        break;
+      }
+    }
+    const connected = friends.some((sq) => {
+      const lo = Math.min(rankOf(sq), rankOf(to)) + 1;
+      const hi = Math.max(rankOf(sq), rankOf(to));
+      for (let r = lo; r < hi; r++) {
+        const between = toSquare(f, r);
+        if (between && c.get(between)) return false;
+      }
+      return true;
+    });
+    return connected ? `${m.san} doubles the rooks on the ${kind} ${FILE_NAMES[f]}-file.` : `${m.san} takes the ${kind} ${FILE_NAMES[f]}-file.`;
   }
   function positionalPoint(fenBefore, uci) {
     return passedPawnPoint(fenBefore, uci) ?? outpostPoint(fenBefore, uci) ?? blockadePoint(fenBefore, uci) ?? openFilePoint(fenBefore, uci);
@@ -8196,13 +8241,11 @@ var brain = (() => {
           };
         }
       }
-    }
-    const positional = positionalPoint(fenBefore, playedUci);
-    if (positional) return { text: positional, evidence: evidence(1) };
-    if (playedPv.length > 1) {
       const story = summarizeLine(fenBefore, playedPv.slice(0, 9));
       if (story) return { text: `In this line, ${story}.`, evidence: evidence(9) };
     }
+    const positional = positionalPoint(fenBefore, playedUci);
+    if (positional) return { text: positional, evidence: evidence(1) };
     return void 0;
   }
 
@@ -9242,7 +9285,7 @@ var brain = (() => {
     if (!nullFen || !best || best.pv.length === 0) return null;
     if (best.mate !== null) {
       if (best.mate <= 0) return null;
-      const king = kingSquare(fen, new Chess(fen).turn());
+      const king = kingSquare2(fen, new Chess(fen).turn());
       return withProse({
         fen,
         uci: best.pv[0],
@@ -9295,7 +9338,7 @@ var brain = (() => {
     const prose = threatProse(t);
     return prose ? { ...t, prose } : t;
   }
-  function kingSquare(fen, color) {
+  function kingSquare2(fen, color) {
     const c = new Chess(fen);
     for (const row of c.board()) {
       for (const cell of row) {
@@ -9314,7 +9357,7 @@ var brain = (() => {
     if (base.isGameOver() || !best || best.pv.length === 0) return null;
     if (best.mate !== null) {
       if (best.mate <= 0) return null;
-      const king = kingSquare(fen, base.turn() === "w" ? "b" : "w");
+      const king = kingSquare2(fen, base.turn() === "w" ? "b" : "w");
       return {
         fen,
         uci: best.pv[0],
