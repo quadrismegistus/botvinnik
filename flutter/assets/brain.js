@@ -7625,8 +7625,8 @@ var brain = (() => {
     const victim = c.get(target);
     if (!victim || victim.color !== played.color || victim.type === "p" || victim.type === "k")
       return void 0;
-    const defenders = c.attackers(target, played.color).length;
-    if (defenders > 0) return void 0;
+    const defenders2 = c.attackers(target, played.color).length;
+    if (defenders2 > 0) return void 0;
     const ref = apply(c, refutationUci);
     if (!ref || !ref.captured) return void 0;
     return `This leaves the ${NAME[victim.type]} on ${target} undefended \u2014 ${ref.san} just takes it.`;
@@ -7794,8 +7794,8 @@ var brain = (() => {
         }
         if (attackerTypes(e.to, us).length === 0) return false;
         if (minAttackerVal(e.to, us) < VAL[type]) return true;
-        const defenders = board.attackers(e.to, them).filter((d) => d !== sq);
-        return defenders.length === 0;
+        const defenders2 = board.attackers(e.to, them).filter((d) => d !== sq);
+        return defenders2.length === 0;
       });
     };
     let pre = null;
@@ -7948,11 +7948,21 @@ var brain = (() => {
     const them = color === "w" ? "b" : "w";
     const hunters = after.attackers(to, them).map((sq) => after.get(sq)?.type ?? "k");
     if (hunters.some((t) => t !== "k" && VAL[t] < VAL[piece])) return false;
-    if (hunters.length > 0 && after.attackers(to, color).length === 0) return false;
+    if (hunters.length > 0 && !defenders(after, to, color).length) return false;
     return true;
   }
+  function defenders(c, sq, color) {
+    const them = color === "w" ? "b" : "w";
+    const king = kingSquare(c, color);
+    return c.attackers(sq, color).filter((from) => {
+      if (!king || from === king) return true;
+      const probe = new Chess(c.fen());
+      probe.remove(from);
+      return probe.attackers(king, them).length === 0;
+    });
+  }
   function speaksHere(after, m) {
-    if (m.captured || m.promotion) return false;
+    if (m.captured) return false;
     return !after.isCheck() && !after.isGameOver();
   }
   function kingSquare(c, color) {
@@ -7964,15 +7974,7 @@ var brain = (() => {
     return void 0;
   }
   function heldByPawn(c, to, color) {
-    const them = color === "w" ? "b" : "w";
-    const king = kingSquare(c, color);
-    return c.attackers(to, color).some((sq) => {
-      if (c.get(sq)?.type !== "p") return false;
-      if (!king) return true;
-      const probe = new Chess(c.fen());
-      probe.remove(sq);
-      return probe.attackers(king, them).length === 0;
-    });
+    return defenders(c, to, color).some((sq) => c.get(sq)?.type === "p");
   }
   function passedPawns(c, color) {
     const up = color === "w" ? 1 : -1;
@@ -8012,7 +8014,7 @@ var brain = (() => {
     if (after.moves({ verbose: true }).some((mv) => mv.flags.includes("e"))) return void 0;
     const fresh = passedPawns(after, mover).filter((sq) => !wasPassed.has(sq) && sq !== carried);
     if (!fresh.includes(m.to)) return void 0;
-    return `${m.san} makes a passed pawn on ${m.to} \u2014 no enemy pawn can stop it.`;
+    return `${m.san} makes a passed pawn on ${m.to} \u2014 no enemy pawn stands in its way.`;
   }
   function outpostPoint(fenBefore, uci) {
     const c = new Chess(fenBefore);

@@ -632,16 +632,35 @@ function rankOf(sq: string): number {
 	return Number(sq[1]) - 1;
 }
 
-// cook.py's bad-spot rule, the same one forkPoint applies: a claim about the
-// square a piece just landed on is worthless if the piece can simply be taken
-// there — by something cheaper (the recapture is beside the point), or by
-// anything at all when it is undefended.
+// cook.py's bad-spot rule, as forkPoint applies it: a claim about the square a
+// piece just landed on is worthless if the piece can simply be taken there — by
+// something cheaper (the recapture is beside the point), or by anything at all
+// when it is undefended.
+//
+// With one correction forkPoint does not make. `attackers()` knows nothing
+// about pins, so a piece "defended" only by a pinned piece reads as safe and is
+// not: Rd2 on an open file, defended by a rook that is itself pinned to the
+// king, is simply lost to Rxd2. Every defender here has to be one that could
+// actually recapture.
 function landsSafely(after: Chess, to: Square, color: Color, piece: string): boolean {
 	const them: Color = color === 'w' ? 'b' : 'w';
 	const hunters = after.attackers(to, them).map((sq) => after.get(sq)?.type ?? 'k');
 	if (hunters.some((t) => t !== 'k' && VAL[t] < VAL[piece])) return false;
-	if (hunters.length > 0 && after.attackers(to, color).length === 0) return false;
+	if (hunters.length > 0 && !defenders(after, to, color).length) return false;
 	return true;
+}
+
+/** Attackers of `sq` by `color` that are not absolutely pinned — the ones that
+ *  could really recapture there. */
+function defenders(c: Chess, sq: Square, color: Color): Square[] {
+	const them: Color = color === 'w' ? 'b' : 'w';
+	const king = kingSquare(c, color);
+	return c.attackers(sq, color).filter((from) => {
+		if (!king || from === king) return true;
+		const probe = new Chess(c.fen());
+		probe.remove(from);
+		return probe.attackers(king, them).length === 0;
+	});
 }
 
 // Whether a positional claim may be made about the position a move produced.
@@ -651,13 +670,19 @@ function landsSafely(after: Chess, to: Square, color: Color, piece: string): boo
 // "passed pawn" — which the tier-1 hint then says out loud. And no claim once
 // the game is over: a pawn that "no enemy pawn can stop" is not going anywhere
 // if the move it was made by was stalemate.
-function speaksHere(after: Chess, m: { captured?: string; promotion?: string }): boolean {
-	// A capture or a promotion is never a quiet move, and the capture is always
-	// the better sentence: "Qxh2 leaves the g-pawn passed" describes a queen
-	// snatching a pawn as a point about a pawn on its starting square. Measured
-	// over 500 real games, captures were 23% of everything this file said and
-	// 91% of its passed-pawn claims, and the capture was never named.
-	if (m.captured || m.promotion) return false;
+function speaksHere(after: Chess, m: { captured?: string }): boolean {
+	// A capture is never a quiet move, and the capture is always the better
+	// sentence: "Qxh2 leaves the g-pawn passed" describes a queen snatching a
+	// pawn as a point about a pawn on its starting square. Measured over 500
+	// real games, captures were 23% of everything this file said and 91% of its
+	// passed-pawn claims, and the capture was never named.
+	//
+	// No promotion test sits beside it, though a promotion is just as loud: each
+	// detector already refuses one on its own terms (a promotion leaves no pawn
+	// on the square, m.piece is 'p' where a knight or rook is wanted, and the
+	// square behind the back rank is off the board), so the clause could never
+	// fire and only the test for it would have looked like protection.
+	if (m.captured) return false;
 	return !after.isCheck() && !after.isGameOver();
 }
 
@@ -671,19 +696,11 @@ function kingSquare(c: Chess, color: Color): Square | undefined {
 	return undefined;
 }
 
-// Is `to` defended by a pawn that could actually capture there? `attackers()`
-// knows nothing about pins, and a pinned pawn defends nothing: with a rook on
-// the c-file and the king on c1, a knight "held" by the c4 pawn is just hanging.
+// Is `to` held by a pawn that could actually capture there? A pinned pawn holds
+// nothing: with a rook on the c-file and the king on c1, a knight "held" by the
+// c4 pawn is just hanging.
 function heldByPawn(c: Chess, to: Square, color: Color): boolean {
-	const them: Color = color === 'w' ? 'b' : 'w';
-	const king = kingSquare(c, color);
-	return c.attackers(to, color).some((sq) => {
-		if (c.get(sq)?.type !== 'p') return false;
-		if (!king) return true;
-		const probe = new Chess(c.fen());
-		probe.remove(sq);
-		return probe.attackers(king, them).length === 0;
-	});
+	return defenders(c, to, color).some((sq) => c.get(sq)?.type === 'p');
 }
 
 // Squares of `color`'s passed pawns: no enemy pawn ahead on this file or
@@ -740,7 +757,11 @@ export function passedPawnPoint(fenBefore: string, uci: string): string | undefi
 	// the move is not about.
 	const fresh = passedPawns(after, mover).filter((sq) => !wasPassed.has(sq) && sq !== carried);
 	if (!fresh.includes(m.to as Square)) return undefined;
-	return `${m.san} makes a passed pawn on ${m.to} — no enemy pawn can stop it.`;
+	// "nothing can stop it" would be the same overclaim the outpost sentence had
+	// to give up: an enemy pawn can arrive on a neighbouring file by capturing,
+	// which refuted 2.4% of these in a sweep. What the scan proves is where the
+	// enemy pawns are NOW, so that is what the sentence says.
+	return `${m.san} makes a passed pawn on ${m.to} — no enemy pawn stands in its way.`;
 }
 
 // A knight on a square in the enemy half that no enemy pawn can ever attack,

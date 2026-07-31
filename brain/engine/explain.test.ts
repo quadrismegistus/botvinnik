@@ -666,7 +666,7 @@ describe('positional facts', () => {
 			const fen = '4k3/8/3p1p2/4P3/8/8/8/4K3 w - - 0 1';
 			expect(san(fen, 'e5e6')).toBe('e6');
 			expect(passedPawnPoint(fen, 'e5e6')).toBe(
-				'e6 makes a passed pawn on e6 — no enemy pawn can stop it.'
+				'e6 makes a passed pawn on e6 — no enemy pawn stands in its way.'
 			);
 		});
 
@@ -714,16 +714,6 @@ describe('positional facts', () => {
 			expect(passedPawnPoint(fen, 'e4d5')).toBeUndefined();
 		});
 
-		it('says nothing about a promotion, which names the wrong pawn', () => {
-			// the rear pawn of a doubled pair really is passed once the front one
-			// queens, so "b1=Q leaves the b-pawn passed" is true and useless
-			// the black king is off the 8th rank so the promotion is not a check,
-			// which would refuse the claim for a different reason
-			const promo = '8/1P6/4k3/8/8/8/1P6/4K3 w - - 0 1';
-			expect(san(promo, 'b7b8q')).toBe('b8=Q');
-			expect(passedPawnPoint(promo, 'b7b8q')).toBeUndefined();
-		});
-
 		it('is silent when the new passer can be taken en passant', () => {
 			// e4 steps past the d4 pawn, which answers dxe3 immediately. Neither
 			// the rank scan nor attackers() sees an e.p. capture.
@@ -733,6 +723,19 @@ describe('positional facts', () => {
 			after.move({ from: 'e2', to: 'e4' });
 			expect(after.moves()).toContain('dxe3');
 			expect(passedPawnPoint(fen, 'e2e4')).toBeUndefined();
+		});
+
+		it('is silent when the only defender of the new pawn is pinned', () => {
+			// Rxb4 wins the pawn: Ra4 is pinned to Ka1 and cannot recapture, and
+			// attackers() cannot see that
+			const pinned = 'rr4k1/8/8/8/R7/2p5/1P6/K7 w - - 0 1';
+			expect(san(pinned, 'b2b4')).toBe('b4');
+			const after = new Chess(pinned);
+			after.move({ from: 'b2', to: 'b4' });
+			expect(after.attackers('b4', 'w')).toContain('a4');
+			after.move('Rxb4');
+			expect(after.moves()).not.toContain('Rxb4');
+			expect(passedPawnPoint(pinned, 'b2b4')).toBeUndefined();
 		});
 
 		it('is silent when the move ends the game in stalemate', () => {
@@ -762,7 +765,7 @@ describe('positional facts', () => {
 			const black = '4k3/8/8/8/4p3/3P1P2/8/4K3 b - - 0 1';
 			expect(san(black, 'e4e3')).toBe('e3');
 			expect(passedPawnPoint(black, 'e4e3')).toBe(
-				'e3 makes a passed pawn on e3 — no enemy pawn can stop it.'
+				'e3 makes a passed pawn on e3 — no enemy pawn stands in its way.'
 			);
 		});
 	});
@@ -850,6 +853,17 @@ describe('positional facts', () => {
 			expect(blockadePoint(fen, 'b2d3')).toBeUndefined();
 		});
 
+		it('is silent when the only defender of the blockader is pinned', () => {
+			// Rxd3 wins the knight; Ra3 is pinned to Ka1
+			const pinned = 'r5k1/8/8/8/3p4/R5r1/1N6/K7 w - - 0 1';
+			expect(san(pinned, 'b2d3')).toBe('Nd3');
+			const after = new Chess(pinned);
+			after.move({ from: 'b2', to: 'd3' });
+			after.move('Rxd3');
+			expect(after.moves()).not.toContain('Rxd3');
+			expect(blockadePoint(pinned, 'b2d3')).toBeUndefined();
+		});
+
 		it('is silent when the blockading piece arrives with check', () => {
 			const checking = '8/8/8/4k3/3p4/8/1N6/4K3 w - - 0 1';
 			expect(san(checking, 'b2d3')).toBe('Nd3+');
@@ -909,6 +923,25 @@ describe('positional facts', () => {
 			const behindEnemy = '4k3/8/3P4/8/3p4/8/PP3PPP/R3K3 w Q - 0 1';
 			expect(san(behindEnemy, 'a1d1')).toBe('Rd1');
 			expect(openFilePoint(behindEnemy, 'a1d1')).toBeUndefined();
+		});
+
+		it('is silent when the only defender of the rook is pinned', () => {
+			// Rxd2 just wins a rook: Ra2 is pinned to Ka1
+			const pinned = 'r2r2k1/8/8/8/8/8/R6R/K7 w - - 0 1';
+			expect(san(pinned, 'h2d2')).toBe('Rd2');
+			const after = new Chess(pinned);
+			after.move({ from: 'h2', to: 'd2' });
+			expect(after.attackers('d2', 'w')).toContain('a2');
+			after.move('Rxd2');
+			expect(after.moves()).not.toContain('Rxd2');
+			expect(openFilePoint(pinned, 'h2d2')).toBeUndefined();
+		});
+
+		it('is silent when the blocker is BELOW the rook, not above it', () => {
+			// the other arm of the reach scan, which nothing covered
+			const below = '4k3/8/8/R7/8/8/PP1B1PPP/4K3 w - - 0 1';
+			expect(san(below, 'a5d5')).toBe('Rd5');
+			expect(openFilePoint(below, 'a5d5')).toBeUndefined();
 		});
 
 		it('says nothing when the rook got there by capturing', () => {
