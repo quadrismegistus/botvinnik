@@ -11,9 +11,14 @@
 //
 // So the UI IS reachable. Three things to know, each learned the hard way:
 //
-//   * The text is in `textContent`, NOT in `aria-label`. Flutter leaves
-//     aria-label null and lets the accessible name come from the content. A
-//     first attempt matched on the attribute and found nothing at all.
+//   * The name is USUALLY in `textContent` and sometimes only in
+//     `aria-label` — so both are matched. Flutter picks per widget: a button
+//     gets its name from the content and leaves the attribute null (a first
+//     attempt matched the attribute alone and found nothing), while the
+//     `NavigationBar` at phone width emits `role="tab"` nodes that are
+//     textually EMPTY and carry `aria-label="Practice"`. Matching content
+//     alone therefore worked on the desktop rail and made the entire phone
+//     layout unreachable, which is how this was found.
 //
 //   * Match LEAVES. Semantics nest, and an ancestor's textContent is the
 //     concatenation of everything beneath it — the root node here reads as the
@@ -57,22 +62,40 @@ export async function enableSemantics(page: Page) {
 }
 
 /**
- * How many leaf controls read as [text].
+ * Every name a leaf node answers to — its aria-label and each line of its text.
  *
- * A tab's content is "Settings\nTab 4 of 4", so the first LINE is matched as
- * well as the whole string — callers should be able to say 'Settings' and mean
- * the Settings tab without restating Flutter's positional suffix, which moves
- * whenever a tab is added.
+ * Defined as SOURCE rather than a function because it runs inside the page,
+ * where nothing from this module is in scope; `count`, `tap` and `controls`
+ * all inline it so a match can never mean three different things.
+ *
+ * Lines rather than the whole string, and both sources split the same way: a
+ * tab's content is "Settings\nTab 4 of 4", and callers should be able to say
+ * 'Settings' without restating Flutter's positional suffix, which moves
+ * whenever a tab is added. ANY line rather than the first, because a `Badge`
+ * renders BEFORE its child — the moment a puzzle is due, the Practice tab
+ * reads "1\nPractice\nTab 2 of 4" on the desktop rail and carries the
+ * aria-label "1\nPractice" on the phone bar.
  */
+const NAMES = `((n) => {
+	if (n.children.length) return [];
+	const out = [];
+	for (const s of [n.getAttribute('aria-label'), n.textContent]) {
+		const v = (s || '').trim();
+		if (v) out.push(v, ...v.split('\\n').map((line) => line.trim()));
+	}
+	return out.filter(Boolean);
+})`;
+
+/** How many leaf controls answer to [text]. */
 export function count(page: Page, text: string): Promise<number> {
 	return page.evaluate(
-		(wanted) =>
-			[...document.querySelectorAll('flt-semantics')].filter((n) => {
-				if (n.children.length) return false;
-				const t = (n.textContent || '').trim();
-				return t === wanted || t.split('\n')[0] === wanted;
-			}).length,
-		text
+		([wanted, src]) => {
+			const names = eval(src) as (n: Element) => string[];
+			return [...document.querySelectorAll('flt-semantics')].filter((n) =>
+				names(n).includes(wanted)
+			).length;
+		},
+		[text, NAMES] as const
 	);
 }
 
@@ -86,26 +109,34 @@ export async function waitForControl(page: Page, text: string) {
 /** Click the control reading [text]. */
 export async function tap(page: Page, text: string) {
 	await waitForControl(page, text);
-	await page.evaluate((wanted) => {
-		const hit = [...document.querySelectorAll('flt-semantics')].find((n) => {
-			if (n.children.length) return false;
-			const t = (n.textContent || '').trim();
-			return t === wanted || t.split('\n')[0] === wanted;
-		});
-		(hit as HTMLElement).click();
-	}, text);
+	await page.evaluate(
+		([wanted, src]) => {
+			const names = eval(src) as (n: Element) => string[];
+			const hit = [...document.querySelectorAll('flt-semantics')].find((n) =>
+				names(n).includes(wanted)
+			);
+			(hit as HTMLElement).click();
+		},
+		[text, NAMES] as const
+	);
 }
 
 /**
  * Every leaf control on screen — for writing a test, and for putting in a
  * failure message. These selectors are widget TEXT, so a copy change renames
  * them, and the first thing anyone debugging a miss needs is the real list.
+ *
+ * The first name of each node, so the list reads as the labels a caller would
+ * pass rather than every alias of every one.
  */
 export async function controls(page: Page): Promise<string[]> {
-	return page.evaluate(() =>
-		[...document.querySelectorAll('flt-semantics')]
-			.filter((n) => n.children.length === 0)
-			.map((n) => (n.textContent || '').trim())
-			.filter(Boolean)
+	return page.evaluate(
+		(src) => {
+			const names = eval(src) as (n: Element) => string[];
+			return [...document.querySelectorAll('flt-semantics')]
+				.map((n) => names(n)[0])
+				.filter(Boolean);
+		},
+		NAMES
 	);
 }
