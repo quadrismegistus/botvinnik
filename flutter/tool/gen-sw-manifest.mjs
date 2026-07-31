@@ -119,6 +119,14 @@ for (const required of [
   // database eventually corrupts — see lib/db/db_init_web.dart. Silent at
   // build time and days later in someone's browser, so: loud here.
   'sqflite_sw.js',
+  // Which sqflite_common_ffi_web produced the worker above. Checked against
+  // pubspec.lock in CI by scripts/check-sqflite-provenance.sh — that is the
+  // check, and it does not need a build. This is the half that does: the file
+  // is only useful on a LIVE deploy, where a SharedWorker outliving its deploy
+  // means `curl https://botvinnik.app/sqflite_sw.version` is the only way to
+  // ask what a tab is actually running (#256). A repo check cannot see it
+  // failing to ship.
+  'sqflite_sw.version',
 ]) {
   if (!all.includes(required)) {
     throw new Error(`gen-sw-manifest: ${required} is missing from the build`);

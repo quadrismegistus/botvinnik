@@ -216,6 +216,22 @@ apps existed, and there is no reason to churn them now that one does.
 On web, sqflite runs against sqlite3 compiled to wasm, which itself persists
 into IndexedDB.
 
+Both web artefacts — `flutter/web/sqflite_sw.js` (the SharedWorker) and
+`flutter/web/sqlite3.wasm` — are committed rather than fetched at build time,
+and both come out of one command run in `flutter/`:
+
+```
+dart run sqflite_common_ffi_web:setup
+```
+
+It overwrites the two together, so regenerating the worker silently replaces
+the wasm as well. Afterwards, update `flutter/web/sqflite_sw.version` with the
+new resolved version, the package sha256 from `pubspec.lock`, and both file
+hashes. `scripts/check-sqflite-provenance.sh` runs in CI and fails if the
+recorded version drifts from `pubspec.lock` — `pubspec.yaml` pins only a caret
+range, so `flutter pub upgrade` can otherwise move the client in
+`main.dart.js` while the committed worker stays frozen (#256).
+
 ## What keeps the two apps honest
 
 The brain is shared, but the *hosts* are not, so a bug can hide in the seam
