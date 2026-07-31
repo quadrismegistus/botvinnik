@@ -63,8 +63,9 @@ SUBSTRATE=wasm
 # native Squares (#104).
 #
 # This pointed at src-tauri/binaries/ until the Tauri shell was removed
-# (2026-07-20). NB iOS is a THIRD substrate — Stockfish 16 over FFI — which
-# this harness cannot drive; see #104.
+# (2026-07-20). NB iOS is a THIRD substrate — Stockfish 18 over FFI, the same
+# engine and nets as the macOS binary — which this harness cannot drive; see
+# #104.
 # flags combine: --native picks the substrate, --scan picks the model, and
 # each (out, state) pairing stays distinct so no baseline is ever overwritten
 for arg in "$@"; do
