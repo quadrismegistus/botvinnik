@@ -23,6 +23,21 @@ engine:
   name: "scripts/squarefish/squarefish.sh"
   protocol: "uci"
   ponder: false
+  uci_options:
+    # SquareFish declares exactly four options — Label, Move Overhead, Threads,
+    # Hash (see squarefish-uci.mts's `uci` response). lichess-bot sends every
+    # option in this block and its default config assumes a full Stockfish, so
+    # an option we do not declare is not ignored: python-chess raises
+    #   EngineError: engine does not support option SyzygyPath
+    # at handshake and the service crash-loops. Deleted rather than overridden
+    # (`null` removes a key from the merged config) — there is no value of
+    # SyzygyPath that works, because there is no such option.
+    #
+    # Label is deliberately NOT set here: it comes from $SQUAREFISH_LABEL in the
+    # systemd unit, via squarefish.sh, so the deployed strength lives in one
+    # place.
+    SyzygyPath: null
+    UCI_ShowWDL: null
 
 challenge:
   concurrency: 1
