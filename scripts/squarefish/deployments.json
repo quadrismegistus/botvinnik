@@ -11,20 +11,34 @@
 		"model": "v4-scan",
 		"label": 1015,
 		"displayTarget": 900,
-		"notes": "scan model: visibility-weighted misses (swept mults), danger penalty, opening damp, recapture salience, scanSkill ramp; no discovery depth (matches gym config); label from merged wasm curve 2026-07-16 (900\u2192983, 1050\u21921188)"
+		"notes": "scan model: visibility-weighted misses (swept mults), danger penalty, opening damp, recapture salience, scanSkill ramp; no discovery depth (matches gym config); label from merged wasm curve 2026-07-16 (900→983, 1050→1188)"
 	},
 	{
 		"from": "2026-07-16T15:18:35Z",
 		"model": "v4.1-scan",
 		"label": 1015,
 		"displayTarget": 900,
-		"notes": "saturated-loss fix: grab/recapture coin runs before the win%-gap gate \u2014 takes the queen even in lost positions (V8emJhj7 class). Calibration-neutral in live positions."
+		"notes": "saturated-loss fix: grab/recapture coin runs before the win%-gap gate — takes the queen even in lost positions (V8emJhj7 class). Calibration-neutral in live positions."
 	},
 	{
 		"from": "2026-07-17T06:23:09Z",
 		"model": "v4.1-scan",
 		"label": 600,
 		"displayTarget": 900,
-		"notes": "label floor: v4.1 grid re-measure (+140-220/ladder, neutrality claim falsified by control) put display-900 at label 849 ENGINE-pool; human punish-premium (~+270 vs maia-t1, more vs humans) means NO v4.1 label reaches human-900 \u2014 floor (600) deployed as closest achievable while the sub-600 params extension is designed. Expect ~1200-1350 vs humans; measuring."
+		"notes": "label floor: v4.1 grid re-measure (+140-220/ladder, neutrality claim falsified by control) put display-900 at label 849 ENGINE-pool; human punish-premium (~+270 vs maia-t1, more vs humans) means NO v4.1 label reaches human-900 — floor (600) deployed as closest achievable while the sub-600 params extension is designed. Expect ~1200-1350 vs humans; measuring."
+	},
+	{
+		"from": "2026-07-18T00:39:27Z",
+		"model": "v4.1-scan",
+		"label": 600,
+		"displayTarget": 900,
+		"notes": "BACKFILLED 2026-07-31. This deployment happened and was never recorded — the branch `squarefish-chat` (5 commits, never merged) was running on the VPS and nobody could tell from the repo. It added in-game chat: a DecisionTrace copy of shapedBotMove so the bot could narrate its own moves. NO playing-strength change, measured rather than assumed: a move-by-move diff is meaningless here (the seed covers only the tactical-miss roll; the weighted picks use unseeded Math.random, so a build differs from ITSELF on ~28% of single decisions), so the comparison is distributional — the rate at which the engine's top line is played, per label, n=1500. Branch vs its base: 0 of 7 labels outside 3 SE. The rating series therefore POOLS across this entry."
+	},
+	{
+		"from": "2026-07-31T07:48:01Z",
+		"model": "v4.1-scan",
+		"label": 600,
+		"displayTarget": 900,
+		"notes": "VPS moved off the unmerged `squarefish-chat` branch onto main (#149, #261, #262). NO playing-strength change: the chat trace is now an optional onTrace callback on the single shapedBotMove rather than a duplicated 144-line copy, verified distributionally against develop at 0 of 7 labels outside 3 SE (n=2000). So this entry and the 2026-07-18 one are both neutral and the whole series since 2026-07-17 pools. Behaviour that DID change, none of it strength: chat now reaches spectators as well as the player (greetings and per-move commentary both); config.yml is rendered from config.overrides.yml in the repo instead of existing only on the server; abort_time raised 30s->120s, so a human who pauses to look at the board no longer has the game aborted under them."
 	}
 ]

@@ -39,6 +39,13 @@ engine:
     SyzygyPath: null
     UCI_ShowWDL: null
 
+# lichess-bot's default aborts a game if the opponent has not moved within 30
+# seconds. For a bot whose entire purpose is accumulating rated human games,
+# that throws away the game every time someone reads the board before starting
+# — observed twice while deploying #149. Two minutes is still short enough that
+# a genuinely absent opponent does not tie the bot up.
+abort_time: 120
+
 challenge:
   concurrency: 1
   accept_bot: true
@@ -59,5 +66,8 @@ greeting:
   # measures our scale's bottom end against the human pool.
   hello: "Hi {opponent}, I'm {me}. Good luck!"
   goodbye: "Good game!"
-  hello_spectators: "I'm {me}, a bot from botvinnik.app. I play at one fixed strength setting on purpose — my lichess rating is the measurement that tells us what that setting is really worth against human opposition."
+  # lichess DROPS anything over 140 chars, silently as far as the player is
+  # concerned — the bridge logs a warning nobody reads. The first version of
+  # this was 206 and never reached a single spectator.
+  hello_spectators: "I'm {me}, a bot from botvinnik.app, playing at one fixed strength so my rating measures what that setting is worth."
   goodbye_spectators: "Thanks for watching! Another data point for the calibration."

@@ -84,6 +84,26 @@ cfg.setdefault('engine', {})['dir'] = repo
 # checked the merge — which our own overrides populate, so all four keys were
 # always present and the guard could never fail. A guard a missing subject
 # satisfies is not a guard.
+# lichess silently drops a chat message over 140 characters — the bridge logs a
+# warning and moves on, so the only symptom is a greeting nobody ever sees.
+#
+# Measured AFTER substitution, which is the whole point. The first version of
+# this counted the template: `{me}` is 4 characters here and 14 on the wire as
+# `SquareFish-900`, so a line that measured 135 arrived as 145 and was dropped —
+# a length guard that passed the exact message it existed to catch. Worst case
+# assumed, since lichess usernames run to 20 characters.
+LONGEST_NAME = 'x' * 20
+for key, text in (cfg.get('greeting') or {}).items():
+    if not isinstance(text, str):
+        continue
+    on_the_wire = text.replace('{me}', LONGEST_NAME).replace('{opponent}', LONGEST_NAME)
+    if len(on_the_wire) > 140:
+        raise SystemExit(
+            f'greeting.{key} reaches {len(on_the_wire)} characters once {{me}}/'
+            f'{{opponent}} are substituted (template is {len(text)}); lichess '
+            'drops anything over 140 and says nothing to the player.'
+        )
+
 default_greeting = yaml.safe_load(open('config.yml.default')).get('greeting', {})
 for key in ('hello', 'goodbye', 'hello_spectators', 'goodbye_spectators'):
     if key not in default_greeting:
