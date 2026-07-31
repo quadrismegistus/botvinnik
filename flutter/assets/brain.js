@@ -7937,6 +7937,128 @@ var brain = (() => {
     if (!mates && payoff.net < 2) return void 0;
     return { piece, mates, net: payoff.net, plies: payoff.plies };
   }
+  var FILE_NAMES = "abcdefgh";
+  function fileOf(sq) {
+    return sq.charCodeAt(0) - 97;
+  }
+  function rankOf(sq) {
+    return Number(sq[1]) - 1;
+  }
+  function landsSafely(after, to, color, piece) {
+    const them = color === "w" ? "b" : "w";
+    const hunters = after.attackers(to, them).map((sq) => after.get(sq)?.type ?? "k");
+    if (hunters.some((t) => t !== "k" && VAL[t] < VAL[piece])) return false;
+    if (hunters.length > 0 && after.attackers(to, color).length === 0) return false;
+    return true;
+  }
+  function passedPawns(c, color) {
+    const up = color === "w" ? 1 : -1;
+    const out = [];
+    for (const row of c.board()) {
+      for (const cell of row) {
+        if (!cell || cell.color !== color || cell.type !== "p") continue;
+        const f = fileOf(cell.square);
+        const r = rankOf(cell.square);
+        let stopped = false;
+        for (let df = -1; df <= 1 && !stopped; df++) {
+          for (let step = 1; step <= 7; step++) {
+            const sq = toSquare(f + df, r + up * step);
+            if (!sq) break;
+            const p = c.get(sq);
+            if (!p || p.type !== "p") continue;
+            if (p.color !== color) stopped = true;
+            else if (df === 0) stopped = true;
+            if (stopped) break;
+          }
+        }
+        if (!stopped) out.push(cell.square);
+      }
+    }
+    return out;
+  }
+  function passedPawnPoint(fenBefore, uci) {
+    const before = new Chess(fenBefore);
+    const mover = before.turn();
+    const wasPassed = new Set(passedPawns(before, mover));
+    const after = new Chess(fenBefore);
+    const m = apply(after, uci);
+    if (!m) return void 0;
+    if (after.isCheckmate()) return void 0;
+    if (!landsSafely(after, m.to, m.color, m.piece)) return void 0;
+    const carried = m.piece === "p" && wasPassed.has(m.from) ? m.to : void 0;
+    const fresh = passedPawns(after, mover).filter((sq2) => !wasPassed.has(sq2) && sq2 !== carried);
+    if (fresh.length === 0) return void 0;
+    const sq = fresh[0];
+    return sq === m.to ? `${m.san} makes a passed pawn on ${sq} \u2014 no enemy pawn can stop it.` : `${m.san} leaves the ${FILE_NAMES[fileOf(sq)]}-pawn passed \u2014 no enemy pawn can stop it.`;
+  }
+  function outpostPoint(fenBefore, uci) {
+    const c = new Chess(fenBefore);
+    const m = apply(c, uci);
+    if (!m || m.piece !== "n") return void 0;
+    if (c.isCheckmate()) return void 0;
+    const to = m.to;
+    const f = fileOf(to);
+    const r = rankOf(to);
+    const up = m.color === "w" ? 1 : -1;
+    const advanced = m.color === "w" ? r >= 4 && r <= 6 : r >= 1 && r <= 3;
+    if (!advanced) return void 0;
+    for (const df of [-1, 1]) {
+      for (let step = 1; step <= 7; step++) {
+        const sq = toSquare(f + df, r + up * step);
+        if (!sq) break;
+        const p = c.get(sq);
+        if (p && p.type === "p" && p.color !== m.color) return void 0;
+      }
+    }
+    const held = c.attackers(to, m.color).some((sq) => c.get(sq)?.type === "p");
+    if (!held) return void 0;
+    return `${m.san} plants the knight on ${to}, where no pawn can chase it away.`;
+  }
+  function blockadePoint(fenBefore, uci) {
+    const c = new Chess(fenBefore);
+    const m = apply(c, uci);
+    if (!m || m.piece === "k") return void 0;
+    if (c.isCheckmate()) return void 0;
+    const them = m.color === "w" ? "b" : "w";
+    const to = m.to;
+    const f = fileOf(to);
+    const theirUp = them === "w" ? 1 : -1;
+    const behind = toSquare(f, rankOf(to) - theirUp);
+    if (!behind) return void 0;
+    const pawn = c.get(behind);
+    if (!pawn || pawn.type !== "p" || pawn.color !== them) return void 0;
+    if (!passedPawns(c, them).includes(behind)) return void 0;
+    if (!landsSafely(c, to, m.color, m.piece)) return void 0;
+    return `${m.san} blockades the passed ${FILE_NAMES[f]}-pawn.`;
+  }
+  function openFilePoint(fenBefore, uci) {
+    const c = new Chess(fenBefore);
+    const m = apply(c, uci);
+    if (!m || m.piece !== "r") return void 0;
+    if (c.isCheckmate()) return void 0;
+    const to = m.to;
+    const f = fileOf(to);
+    if (fileOf(m.from) === f) return void 0;
+    let ours = 0;
+    let theirs = 0;
+    let friends = 0;
+    for (let r = 0; r < 8; r++) {
+      const sq = toSquare(f, r);
+      const p = sq ? c.get(sq) : void 0;
+      if (!p || !sq) continue;
+      if (p.type === "p") {
+        if (p.color === m.color) ours++;
+        else theirs++;
+      } else if (p.type === "r" && p.color === m.color && sq !== to) friends++;
+    }
+    if (ours > 0) return void 0;
+    if (!landsSafely(c, to, m.color, m.piece)) return void 0;
+    const kind = theirs === 0 ? "open" : "half-open";
+    return friends > 0 ? `${m.san} doubles the rooks on the ${kind} ${FILE_NAMES[f]}-file.` : `${m.san} takes the ${kind} ${FILE_NAMES[f]}-file.`;
+  }
+  function positionalPoint(fenBefore, uci) {
+    return passedPawnPoint(fenBefore, uci) ?? outpostPoint(fenBefore, uci) ?? blockadePoint(fenBefore, uci) ?? openFilePoint(fenBefore, uci);
+  }
   function explainMove(input) {
     const { fenBefore, playedUci, refutationPv, bestUci, bestPv, playedMate, bestMate, isBest } = input;
     if (isBest) return {};
@@ -8004,9 +8126,9 @@ var brain = (() => {
         return pawnsOnly ? `Instead, ${sanLine(fenBefore, bestPv, plies)} wins a pawn.` : `Instead, ${sanLine(fenBefore, bestPv, plies)} wins a point of material.`;
       }
     }
-    return void 0;
+    return positionalPoint(fenBefore, bestUci);
   }
-  var MOTIF_TAGS_VERSION = 4;
+  var MOTIF_TAGS_VERSION = 5;
   function motifTags(fenBefore, uci, pv, mate) {
     const tags = [];
     const post = new Chess(fenBefore);
@@ -8030,6 +8152,12 @@ var brain = (() => {
     if (pv.length > 0 && promotionPoint(fenBefore, pv)) tags.push("promotion");
     if (tags.length === 0 && pv.length > 1 && quietMaterialOverLine(fenBefore, pv.slice(0, 9)).net >= 2) {
       tags.push("material");
+    }
+    if (tags.length === 0) {
+      if (passedPawnPoint(fenBefore, uci)) tags.push("passed pawn");
+      else if (outpostPoint(fenBefore, uci)) tags.push("outpost");
+      else if (blockadePoint(fenBefore, uci)) tags.push("blockade");
+      else if (openFilePoint(fenBefore, uci)) tags.push("open file");
     }
     return tags;
   }
@@ -8068,6 +8196,10 @@ var brain = (() => {
           };
         }
       }
+    }
+    const positional = positionalPoint(fenBefore, playedUci);
+    if (positional) return { text: positional, evidence: evidence(1) };
+    if (playedPv.length > 1) {
       const story = summarizeLine(fenBefore, playedPv.slice(0, 9));
       if (story) return { text: `In this line, ${story}.`, evidence: evidence(9) };
     }

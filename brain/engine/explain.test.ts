@@ -1,12 +1,19 @@
 import { describe, expect, it } from 'vitest';
+import { Chess } from 'chess.js';
+
 import {
 	bestMovePoint,
+	blockadePoint,
 	discoveredPoint,
 	explainGoodMove,
 	explainMove,
 	materialOverLine,
 	motifTags,
+	openFilePoint,
+	outpostPoint,
+	passedPawnPoint,
 	pinOrSkewerPoint,
+	positionalPoint,
 	promotionPoint,
 	sacrificeStory,
 	summarizeLine,
@@ -514,5 +521,199 @@ describe('claims that used to lie', () => {
 		// absolutely pinned by Bh5 and cannot legally recapture
 		const fen = '3k4/8/8/3q3b/8/7R/4B3/3K4 w - - 0 1';
 		expect(pinOrSkewerPoint(fen, 'h3d3')).toBeUndefined();
+	});
+});
+
+// The positional detectors. Every one of these positions was checked against
+// chess.js before it was written down — no FEN here is described by a comment
+// that was not also asserted.
+describe('positional facts', () => {
+	/** The SAN of `uci` in `fen`, so a test can assert what it thinks it set up. */
+	function san(fen: string, uci: string): string {
+		const c = new Chess(fen);
+		return c.move({ from: uci.slice(0, 2), to: uci.slice(2, 4) })?.san ?? 'ILLEGAL';
+	}
+
+	describe('outpost', () => {
+		// white Nc3 and pawn c4; black pawns a7 b7 f7 g7 h7 — nothing on c or e
+		const fen = '4k3/pp3ppp/8/8/2P5/2N5/8/4K3 w - - 0 1';
+
+		it('names a knight no pawn can ever attack, held by a pawn', () => {
+			expect(san(fen, 'c3d5')).toBe('Nd5');
+			expect(outpostPoint(fen, 'c3d5')).toBe(
+				'Nd5 plants the knight on d5, where no pawn can chase it away.'
+			);
+		});
+
+		it('is silent while an enemy pawn is still behind the square', () => {
+			// the same position plus a black pawn on e7, which can play e6 next
+			const withPawn = '4k3/pp2pppp/8/8/2P5/2N5/8/4K3 w - - 0 1';
+			expect(san(withPawn, 'c3d5')).toBe('Nd5');
+			expect(outpostPoint(withPawn, 'c3d5')).toBeUndefined();
+		});
+
+		it('is silent when no pawn holds the square', () => {
+			// the same position with the c4 pawn removed
+			const noPawn = '4k3/pp3ppp/8/8/8/2N5/8/4K3 w - - 0 1';
+			expect(san(noPawn, 'c3d5')).toBe('Nd5');
+			expect(outpostPoint(noPawn, 'c3d5')).toBeUndefined();
+		});
+
+		it('is silent in your own half, where the word means nothing', () => {
+			// Nb4-d3 satisfies every other condition — the c2 pawn holds d3 and
+			// no black pawn can ever attack it — so the rank is the only thing
+			// refusing the claim. An easier position passes this test with the
+			// rank check deleted, which is no test at all.
+			const home = '4k3/pp3ppp/8/8/1N6/8/2P5/4K3 w - - 0 1';
+			const after = new Chess(home);
+			expect(after.move({ from: 'b4', to: 'd3' })?.san).toBe('Nd3');
+			expect(after.attackers('d3', 'w').map((sq) => after.get(sq)?.type)).toContain('p');
+			expect(outpostPoint(home, 'b4d3')).toBeUndefined();
+		});
+	});
+
+	describe('passed pawn', () => {
+		it('names one made by a push', () => {
+			// white e5; black d6 and f6 — both level with e6, so neither stops it
+			const fen = '4k3/8/3p1p2/4P3/8/8/8/4K3 w - - 0 1';
+			expect(san(fen, 'e5e6')).toBe('e6');
+			expect(passedPawnPoint(fen, 'e5e6')).toBe(
+				'e6 makes a passed pawn on e6 — no enemy pawn can stop it.'
+			);
+		});
+
+		it('does not re-announce a pawn that was already passed', () => {
+			// the bug this guards: every further push of a passer reads as new
+			const fen = '4k3/8/8/4P3/8/8/8/4K3 w - - 0 1';
+			expect(san(fen, 'e5e6')).toBe('e6');
+			expect(passedPawnPoint(fen, 'e5e6')).toBeUndefined();
+		});
+
+		it('names one freed by a capture, which is a different pawn from the mover', () => {
+			// Nxc6 removes the black pawn holding back white's d5 pawn
+			const fen = '4k3/8/2p5/3P4/1N6/8/8/4K3 w - - 0 1';
+			expect(san(fen, 'b4c6')).toBe('Nxc6');
+			expect(passedPawnPoint(fen, 'b4c6')).toBe(
+				'Nxc6 leaves the d-pawn passed — no enemy pawn can stop it.'
+			);
+		});
+
+		it('is silent when an enemy pawn on a neighbouring file still covers the path', () => {
+			// black c7 can meet d5-d6 with cxd6, so d5 is not passed either way
+			const fen = '4k3/2p5/8/3P4/8/8/8/4K3 w - - 0 1';
+			expect(san(fen, 'd5d6')).toBe('d6');
+			expect(passedPawnPoint(fen, 'd5d6')).toBeUndefined();
+		});
+	});
+
+	describe('blockade', () => {
+		it('names a piece that sits in front of an enemy passed pawn', () => {
+			const fen = '4k3/8/8/8/3p4/8/1N6/4K3 w - - 0 1';
+			expect(san(fen, 'b2d3')).toBe('Nd3');
+			expect(blockadePoint(fen, 'b2d3')).toBe('Nd3 blockades the passed d-pawn.');
+		});
+
+		it('is silent in front of a pawn that is not passed', () => {
+			// a white pawn on d2 is ahead of black's d4 pawn, so it is not passed
+			const fen = '4k3/8/8/8/3p4/8/1N1P4/4K3 w - - 0 1';
+			expect(blockadePoint(fen, 'b2c4')).toBeUndefined();
+		});
+
+		it('is silent beside the pawn rather than in front of it', () => {
+			const fen = '4k3/8/8/8/3p4/8/1N6/4K3 w - - 0 1';
+			expect(san(fen, 'b2c4')).toBe('Nc4');
+			expect(blockadePoint(fen, 'b2c4')).toBeUndefined();
+		});
+	});
+
+	describe('open file', () => {
+		// white pawns a2 b2 f2 g2 h2, black pawns a7 b7 f7 g7 h7 — the d-file
+		// is empty of pawns on both sides
+		const open = 'r3k3/pp3ppp/8/8/8/8/PP3PPP/R3K3 w Qq - 0 1';
+
+		it('names a rook arriving on a file with no pawns at all', () => {
+			expect(san(open, 'a1d1')).toBe('Rd1');
+			expect(openFilePoint(open, 'a1d1')).toBe('Rd1 takes the open d-file.');
+		});
+
+		it('calls it half-open when only the enemy has a pawn there', () => {
+			const half = 'r2qk3/pp1p1ppp/8/8/8/8/PP3PPP/R3K3 w Qq - 0 1';
+			expect(openFilePoint(half, 'a1d1')).toBe('Rd1 takes the half-open d-file.');
+		});
+
+		it('says doubles when a friendly rook is already on the file', () => {
+			const doubled = 'r3k3/pp3ppp/8/3R4/8/8/PP3PPP/R3K3 w Qq - 0 1';
+			expect(san(doubled, 'a1d1')).toBe('Rad1');
+			expect(openFilePoint(doubled, 'a1d1')).toBe('Rad1 doubles the rooks on the open d-file.');
+		});
+
+		it('is silent when one of your own pawns is on the file', () => {
+			const blocked = 'r3k3/pp3ppp/8/8/8/8/PP1P1PPP/R3K3 w Qq - 0 1';
+			expect(san(blocked, 'a1d1')).toBe('Rd1');
+			expect(openFilePoint(blocked, 'a1d1')).toBeUndefined();
+		});
+
+		it('is silent when the rook can simply be taken there', () => {
+			// a black pawn on e2 covers d1: the file is open and the claim is
+			// still worthless
+			const hangs = '4k3/8/8/8/8/8/PP2pPPP/R3K3 w Q - 0 1';
+			expect(san(hangs, 'a1d1')).toBe('Rd1');
+			expect(openFilePoint(hangs, 'a1d1')).toBeUndefined();
+		});
+
+		it('still speaks when the rook is met by an equal that it is defended against', () => {
+			// black Rd8 hits d1, white Ke1 defends it — a trade offer, not a loss
+			const contested = '3rk3/8/8/8/8/8/PP3PPP/R3K3 w Q - 0 1';
+			expect(openFilePoint(contested, 'a1d1')).toBe('Rd1 takes the open d-file.');
+		});
+
+		it('does not say it about a queen', () => {
+			const queen = 'r3k3/pp3ppp/8/8/8/8/PP3PPP/Q3K3 w q - 0 1';
+			expect(san(queen, 'a1d1')).toBe('Qd1');
+			expect(openFilePoint(queen, 'a1d1')).toBeUndefined();
+		});
+
+		it('is silent for a rook already on the file — nothing new is claimed', () => {
+			const already = 'r3k3/pp3ppp/8/8/8/8/PP3PPP/3RK3 w q - 0 1';
+			expect(san(already, 'd1d5')).toBe('Rd5');
+			expect(openFilePoint(already, 'd1d5')).toBeUndefined();
+		});
+	});
+
+	describe('where they sit in the chain', () => {
+		it('bestMovePoint speaks for a quiet best move that used to get nothing', () => {
+			const fen = '4k3/pp3ppp/8/8/2P5/2N5/8/4K3 w - - 0 1';
+			expect(bestMovePoint(fen, 'c3d5', ['c3d5'])).toContain('plants the knight on d5');
+		});
+
+		it('explainGoodMove speaks for a quiet played move', () => {
+			const fen = '4k3/pp3ppp/8/8/2P5/2N5/8/4K3 w - - 0 1';
+			expect(explainGoodMove(fen, 'c3d5', ['c3d5'], null)?.text).toContain('no pawn can chase it');
+		});
+
+		it('never outranks a tactic: a rook that forks keeps the fork', () => {
+			// Rh5-d5 forks the undefended knights on b5 and d7, and arrives on a
+			// d-file with no pawns on it. Both detectors genuinely fire here —
+			// the second assertion proves the first is not passing by accident.
+			const fen = '7k/3n4/8/1n5R/8/8/8/4K3 w - - 0 1';
+			expect(san(fen, 'h5d5')).toBe('Rd5');
+			expect(openFilePoint(fen, 'h5d5')).toBe('Rd5 takes the open d-file.');
+			expect(motifTags(fen, 'h5d5', ['h5d5'], null)).toEqual(['fork']);
+		});
+
+		it('tags the positional motif when nothing else fired', () => {
+			const fen = '4k3/pp3ppp/8/8/2P5/2N5/8/4K3 w - - 0 1';
+			expect(motifTags(fen, 'c3d5', ['c3d5'], null)).toEqual(['outpost']);
+		});
+
+		it('stays quiet on the moves that deserve nothing', () => {
+			// the opening of the Opera Game, where no positional fact is true yet
+			const c = new Chess();
+			for (const s of ['e4', 'e5', 'Nf3', 'd6', 'd4', 'Bg4', 'dxe5', 'Bxf3']) {
+				const before = c.fen();
+				const m = c.move(s);
+				expect(positionalPoint(before, m.from + m.to)).toBeUndefined();
+			}
+		});
 	});
 });
