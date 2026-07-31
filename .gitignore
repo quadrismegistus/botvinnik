@@ -74,7 +74,9 @@ flutter/web/brain.js
 # database of anyone with the app open twice. It is vendored like sqlite3.wasm
 # beside it rather than regenerated at build time, because
 # `sqflite_common_ffi_web:setup` downloads from a GitHub release and a deploy
-# should not depend on that.
+# should not depend on that. flutter/web/sqflite_sw.version records which
+# package version that setup ran at, and is committed for the same reason —
+# see scripts/check-sqflite-provenance.sh.
 
 # Gradle's build cache. Not merely noise: it is hundreds of MB of binaries, and
 # it slipped into a calibration PR (#110) because checking out a branch without
