@@ -8548,11 +8548,21 @@ var brain = (() => {
       return 1;
     }
   }
-  function shapedBotMove(lines, elo, params, seed, fen, discoveryDepth, lastMoveTo) {
+  function shapedBotMove(lines, elo, params, seed, fen, discoveryDepth, lastMoveTo, onTrace) {
     if (lines.length === 0) return null;
     const sorted = [...lines].sort((a, b) => a.multipv - b.multipv);
     const best = sorted[0];
-    if (sorted.length === 1) return best.pv[0];
+    if (sorted.length === 1) {
+      onTrace?.({
+        branch: "only-move",
+        bestMove: best.pv[0],
+        bestWin: Math.round(moveWin(best)),
+        playedMove: best.pv[0],
+        playedWin: Math.round(moveWin(best)),
+        candidates: 1
+      });
+      return best.pv[0];
+    }
     const { missProb, tacticalGapPct, temperature, quietWindowPct, scan, scanMults } = {
       ...shapedParams(elo),
       ...params
@@ -8562,6 +8572,21 @@ var brain = (() => {
     const damp = scanning ? bySkill(openingDamp(fen), skill) : 1;
     const wins = sorted.map(moveWin);
     const bestWin = wins[0];
+    function fin(move, branch, extra = {}) {
+      if (onTrace) {
+        const i = sorted.findIndex((l) => l.pv[0] === move);
+        onTrace({
+          branch,
+          bestMove: best.pv[0],
+          bestWin: Math.round(bestWin),
+          playedMove: move,
+          playedWin: Math.round(i >= 0 ? wins[i] : bestWin),
+          candidates: sorted.length,
+          ...extra
+        });
+      }
+      return move;
+    }
     let missedVisibleBest = false;
     if (scanning) {
       const mults = { ...SCAN_MULTS, ...scanMults };
@@ -8570,7 +8595,15 @@ var brain = (() => {
         const s = vis.kind === "recapture" ? Math.max(skill, 0.7) : skill;
         const p = Math.min(missProb * bySkill(vis.multiplier, s) * damp, mults.pCap);
         const roll = seed !== void 0 ? hash01(`${seed}:${best.pv[0].slice(2, 4)}`) : Math.random();
-        if (roll >= p) return best.pv[0];
+        if (roll >= p)
+          return fin(best.pv[0], "tactical-seen", {
+            missProb,
+            effectiveP: p,
+            roll,
+            visKind: vis.kind,
+            visMult: vis.multiplier,
+            openingDamp: damp
+          });
         missedVisibleBest = true;
       }
     }
@@ -8584,31 +8617,55 @@ var brain = (() => {
         cands2.push({ move: l.pv[0], win: v });
       }
       if (cands2.length > 0)
-        return softmaxPick(
-          cands2,
-          temperature / 4,
-          scanning ? cands2.map((c) => bySkill(dangerVisibility(fen, c.move), skill)) : void 0
+        return fin(
+          softmaxPick(
+            cands2,
+            temperature / 4,
+            scanning ? cands2.map((c) => bySkill(dangerVisibility(fen, c.move), skill)) : void 0
+          ),
+          "conversion",
+          { candidates: cands2.length, openingDamp: damp }
         );
     }
     if (bestWin - wins[1] >= tacticalGapPct) {
+      let p;
+      let roll;
+      let visKind;
+      let visMult;
       if (!missedVisibleBest) {
         const mateSoon = best.mate !== null && best.mate > 0 && best.mate <= 2;
-        let p = mateSoon ? missProb * 0.25 : missProb;
+        p = mateSoon ? missProb * 0.25 : missProb;
+        visKind = mateSoon ? "mate-soon" : "flat";
+        visMult = mateSoon ? 0.25 : 1;
         if (scanning) {
           const mults = { ...SCAN_MULTS, ...scanMults };
           const vis = tacticVisibility(fen, best.pv, best.mate, discoveryDepth, mults, lastMoveTo);
           const s = vis.kind === "recapture" ? Math.max(skill, 0.7) : skill;
           p = missProb * bySkill(vis.multiplier, s) * damp;
           p = Math.min(p, mults.pCap);
+          visKind = vis.kind;
+          visMult = vis.multiplier;
         }
-        const roll = seed !== void 0 ? hash01(`${seed}:${best.pv[0].slice(2, 4)}`) : Math.random();
-        if (roll >= p) return best.pv[0];
+        roll = seed !== void 0 ? hash01(`${seed}:${best.pv[0].slice(2, 4)}`) : Math.random();
+        if (roll >= p)
+          return fin(best.pv[0], "tactical-seen", {
+            missProb,
+            effectiveP: p,
+            roll,
+            visKind,
+            visMult,
+            openingDamp: damp
+          });
       }
       const rest = sorted.slice(1).map((l, i) => ({ move: l.pv[0], win: wins[i + 1] }));
-      return softmaxPick(
-        rest,
-        temperature,
-        scanning ? rest.map((c) => bySkill(dangerVisibility(fen, c.move), skill)) : void 0
+      return fin(
+        softmaxPick(
+          rest,
+          temperature,
+          scanning ? rest.map((c) => bySkill(dangerVisibility(fen, c.move), skill)) : void 0
+        ),
+        "tactical-miss",
+        { candidates: rest.length, missProb, effectiveP: p, roll, visKind, visMult, openingDamp: damp }
       );
     }
     const cands = [];
@@ -8616,11 +8673,16 @@ var brain = (() => {
       if (i === 0 && missedVisibleBest) continue;
       if (bestWin - wins[i] <= quietWindowPct) cands.push({ move: sorted[i].pv[0], win: wins[i] });
     }
-    if (cands.length === 0) return sorted[1].pv[0];
-    return softmaxPick(
-      cands,
-      temperature * damp,
-      scanning ? cands.map((c) => bySkill(dangerVisibility(fen, c.move), skill)) : void 0
+    if (cands.length === 0)
+      return fin(sorted[1].pv[0], "quiet", { candidates: 1, quietWindow: quietWindowPct });
+    return fin(
+      softmaxPick(
+        cands,
+        temperature * damp,
+        scanning ? cands.map((c) => bySkill(dangerVisibility(fen, c.move), skill)) : void 0
+      ),
+      "quiet",
+      { candidates: cands.length, quietWindow: quietWindowPct, openingDamp: damp }
     );
   }
   var SHAPED_KNOTS_SCAN = {

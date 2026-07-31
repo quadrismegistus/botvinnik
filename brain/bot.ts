@@ -430,6 +430,40 @@ export function dangerVisibility(fen: string, uci: string): number {
 	}
 }
 
+/** Why the shaped bot played what it played — for anything that wants to
+ * EXPLAIN the choice rather than just take it (the lichess bot's game chat).
+ *
+ * Reported through an optional callback rather than a second, traced copy of
+ * the decision function. The lichess deployment carried such a copy on an
+ * unmerged branch from 2026-07-18: 144 duplicated lines of the choice layer
+ * that every bot in the product depends on, waiting to drift from the original
+ * in a way nothing would have caught.
+ */
+export interface DecisionTrace {
+	branch: 'only-move' | 'tactical-seen' | 'tactical-miss' | 'conversion' | 'quiet';
+	/** The engine's top line. */
+	bestMove: string;
+	/** Win% of the engine's top line, mover POV. */
+	bestWin: number;
+	/** What the bot actually played. */
+	playedMove: string;
+	playedWin: number;
+	/** How many moves the bot was choosing between. */
+	candidates: number;
+	/** The BASE miss probability for this label, before any shaping. */
+	missProb?: number;
+	/** The miss probability actually used — base × visibility × damp, capped. */
+	effectiveP?: number;
+	/** The roll taken against [effectiveP]. roll < effectiveP means it missed. */
+	roll?: number;
+	/** What made the tactic visible or not: 'grab', 'recapture', 'mate-soon'… */
+	visKind?: string;
+	/** The visibility multiplier that produced [effectiveP] from [missProb]. */
+	visMult?: number;
+	openingDamp?: number;
+	quietWindow?: number;
+}
+
 export function shapedBotMove(
 	lines: EngineMove[],
 	elo: number,
@@ -437,12 +471,24 @@ export function shapedBotMove(
 	seed?: string | number,
 	fen?: string,
 	discoveryDepth?: number,
-	lastMoveTo?: string
+	lastMoveTo?: string,
+	onTrace?: (t: DecisionTrace) => void
 ): string | null {
 	if (lines.length === 0) return null;
 	const sorted = [...lines].sort((a, b) => a.multipv - b.multipv);
 	const best = sorted[0];
-	if (sorted.length === 1) return best.pv[0];
+	if (sorted.length === 1) {
+		// Before `fin` exists (it needs `wins`), so traced by hand.
+		onTrace?.({
+			branch: 'only-move',
+			bestMove: best.pv[0],
+			bestWin: Math.round(moveWin(best)),
+			playedMove: best.pv[0],
+			playedWin: Math.round(moveWin(best)),
+			candidates: 1
+		});
+		return best.pv[0];
+	}
 
 	const { missProb, tacticalGapPct, temperature, quietWindowPct, scan, scanMults } = {
 		...shapedParams(elo),
@@ -456,6 +502,27 @@ export function shapedBotMove(
 
 	const wins = sorted.map(moveWin); // win% per candidate, mover POV
 	const bestWin = wins[0];
+
+	/** Return a move, telling [onTrace] why first. A no-op when nobody asked. */
+	function fin(
+		move: string,
+		branch: DecisionTrace['branch'],
+		extra: Partial<DecisionTrace> = {}
+	): string {
+		if (onTrace) {
+			const i = sorted.findIndex((l) => l.pv[0] === move);
+			onTrace({
+				branch,
+				bestMove: best.pv[0],
+				bestWin: Math.round(bestWin),
+				playedMove: move,
+				playedWin: Math.round(i >= 0 ? wins[i] : bestWin),
+				candidates: sorted.length,
+				...extra
+			});
+		}
+		return move;
+	}
 
 	// SATURATED-LOSS blindness (observed live, twice — Ryan's game V8emJhj7 and
 	// three API-scanned games within two hours of the v4 cutover): when every
@@ -478,7 +545,15 @@ export function shapedBotMove(
 			const s = vis.kind === 'recapture' ? Math.max(skill, 0.7) : skill;
 			const p = Math.min(missProb * bySkill(vis.multiplier, s) * damp, mults.pCap);
 			const roll = seed !== undefined ? hash01(`${seed}:${best.pv[0].slice(2, 4)}`) : Math.random();
-			if (roll >= p) return best.pv[0];
+			if (roll >= p)
+				return fin(best.pv[0], 'tactical-seen', {
+					missProb,
+					effectiveP: p,
+					roll,
+					visKind: vis.kind,
+					visMult: vis.multiplier,
+					openingDamp: damp
+				});
 			// blind to it: exclude the best move from whatever branch follows —
 			// a player who hasn't registered the queen can't "accidentally"
 			// sample the move that takes it
@@ -511,10 +586,14 @@ export function shapedBotMove(
 		}
 		// temperature is in win% points; evals are in pawns — rescale
 		if (cands.length > 0)
-			return softmaxPick(
-				cands,
-				temperature / 4,
-				scanning ? cands.map((c) => bySkill(dangerVisibility(fen!, c.move), skill)) : undefined
+			return fin(
+				softmaxPick(
+					cands,
+					temperature / 4,
+					scanning ? cands.map((c) => bySkill(dangerVisibility(fen!, c.move), skill)) : undefined
+				),
+				'conversion',
+				{ candidates: cands.length, openingDamp: damp }
 			);
 	}
 
@@ -532,9 +611,17 @@ export function shapedBotMove(
 		// generalizes this to the whole scan order (see tacticVisibility).
 		// the grab/recapture tier already flipped its coin pre-gate; a second
 		// roll here would let unseeded runs rescue half the misses
+		// Hoisted out of the `if` ONLY so the miss branch below can report the
+		// same numbers the see branch used. Nothing reads them for a decision.
+		let p: number | undefined;
+		let roll: number | undefined;
+		let visKind: string | undefined;
+		let visMult: number | undefined;
 		if (!missedVisibleBest) {
 			const mateSoon = best.mate !== null && best.mate > 0 && best.mate <= 2;
-			let p = mateSoon ? missProb * 0.25 : missProb;
+			p = mateSoon ? missProb * 0.25 : missProb;
+			visKind = mateSoon ? 'mate-soon' : 'flat';
+			visMult = mateSoon ? 0.25 : 1;
 			if (scanning) {
 				const mults = { ...SCAN_MULTS, ...scanMults };
 				const vis = tacticVisibility(fen!, best.pv, best.mate, discoveryDepth, mults, lastMoveTo);
@@ -543,9 +630,19 @@ export function shapedBotMove(
 				const s = vis.kind === 'recapture' ? Math.max(skill, 0.7) : skill;
 				p = missProb * bySkill(vis.multiplier, s) * damp;
 				p = Math.min(p, mults.pCap);
+				visKind = vis.kind;
+				visMult = vis.multiplier;
 			}
-			const roll = seed !== undefined ? hash01(`${seed}:${best.pv[0].slice(2, 4)}`) : Math.random();
-			if (roll >= p) return best.pv[0];
+			roll = seed !== undefined ? hash01(`${seed}:${best.pv[0].slice(2, 4)}`) : Math.random();
+			if (roll >= p)
+				return fin(best.pv[0], 'tactical-seen', {
+					missProb,
+					effectiveP: p,
+					roll,
+					visKind,
+					visMult,
+					openingDamp: damp
+				});
 		}
 		// …or it doesn't. Choose among the REST as if the best move didn't exist —
 		// still preferring the more plausible of what it can see. No severity cap
@@ -553,10 +650,14 @@ export function shapedBotMove(
 		// mode, candidates with a VISIBLE refutation are near-unplayable: a
 		// human who missed the tactic still doesn't hang a queen to a pawn.
 		const rest = sorted.slice(1).map((l, i) => ({ move: l.pv[0], win: wins[i + 1] }));
-		return softmaxPick(
-			rest,
-			temperature,
-			scanning ? rest.map((c) => bySkill(dangerVisibility(fen!, c.move), skill)) : undefined
+		return fin(
+			softmaxPick(
+				rest,
+				temperature,
+				scanning ? rest.map((c) => bySkill(dangerVisibility(fen!, c.move), skill)) : undefined
+			),
+			'tactical-miss',
+			{ candidates: rest.length, missProb, effectiveP: p, roll, visKind, visMult, openingDamp: damp }
 		);
 	}
 
@@ -568,11 +669,17 @@ export function shapedBotMove(
 		if (i === 0 && missedVisibleBest) continue; // unseen is unplayable
 		if (bestWin - wins[i] <= quietWindowPct) cands.push({ move: sorted[i].pv[0], win: wins[i] });
 	}
-	if (cands.length === 0) return sorted[1].pv[0]; // window held only the unseen best
-	return softmaxPick(
-		cands,
-		temperature * damp,
-		scanning ? cands.map((c) => bySkill(dangerVisibility(fen!, c.move), skill)) : undefined
+	// window held only the unseen best
+	if (cands.length === 0)
+		return fin(sorted[1].pv[0], 'quiet', { candidates: 1, quietWindow: quietWindowPct });
+	return fin(
+		softmaxPick(
+			cands,
+			temperature * damp,
+			scanning ? cands.map((c) => bySkill(dangerVisibility(fen!, c.move), skill)) : undefined
+		),
+		'quiet',
+		{ candidates: cands.length, quietWindow: quietWindowPct, openingDamp: damp }
 	);
 }
 
