@@ -12,7 +12,7 @@ builds for macOS and iOS; **Linux and Windows are the PWA** — install the site
 
 <p align="center">
   <img src="docs/screenshots/insights-desktop.webp" width="820"
-       alt="A mid-game board with square-control tint, engine arrows and a threat arrow, beside the Insights card grading h4 a mistake."><br>
+       alt="A mid-game board with the square-control tint and engine arrows, beside the Insights card grading Kd8 a mistake and quoting the line that refutes it."><br>
   <em>More in <a href="docs/screenshots/">docs/screenshots/</a> — captured by
   <a href="scripts/screenshots/capture.mts"><code>npm run shots</code></a>,
   from a staged profile, never a real one.</em>
@@ -34,10 +34,11 @@ what survived it is `brain/`.
   pins, material over a quoted line. A claim that no longer holds is rewritten
   or dropped on load rather than shown
 - **Board overlays** — engine arrows, a threat arrow with red rings on what
-  that threat wins, green rings on what your own line wins, and a square-control
-  wash graded by how much the exchange is worth. One glyph per square, by a
-  precedence rule (`board_pane.dart`): rings and arrowheads outrank the control
-  ring, so the board never draws two facts on one piece
+  that threat wins, blue rings in the arrows' own colour on what *your* line
+  wins, and a square-control wash graded by how much the exchange is worth
+  (green your squares, red theirs). One glyph per square, by a precedence rule
+  (`board_pane.dart`): rings and arrowheads outrank the control ring, so the
+  board never draws two facts on one piece
 - **Lines Tree** — the game-long graph of every line the engine explored, with
   past alternatives kept as ghosts
 - **Practice** — moves that drop enough win chance are collected automatically
@@ -85,9 +86,11 @@ what survived it is `brain/`.
 - **Private sync** — optional, no account: type the same phrase on two devices
   and the archive and practice queue converge through an encrypted blob the
   server cannot read or enumerate
-- **Custom engines** (macOS, Linux, Windows) — a catalogue of nine UCI engines
-  installed by content hash, several with named playing styles; their games
-  count toward your rating
+- **Custom engines** — a catalogue of nine UCI engines installed from their
+  release assets and checked against a pinned SHA-256, several with named
+  playing styles; their games count toward your rating. The code supports every
+  desktop platform, but macOS is the only one scaffolded today
+  (`docs/desktop.md`), and a browser cannot spawn a binary at all
 - **Blind mode**, start-from-FEN, backup/restore as one JSON file, and keyboard
   shortcuts throughout — the list is under the keyboard icon on a wide window,
   or Help → Keyboard shortcuts
@@ -101,7 +104,7 @@ One app, one brain — and a brain that is deliberately separable from it.
 
 ```mermaid
 flowchart LR
-    subgraph BRAIN["brain/ — pure TypeScript: no DOM, no fetch, no storage"]
+    subgraph BRAIN["brain-entry.ts exports pure TypeScript:<br/>no DOM, no fetch, no storage"]
         R["bots.ts · bot.ts<br/>38 personas in 8 families,<br/>ELO-scaled move choice"]
         G["engine/insights.ts · explain.ts<br/>grading, win chance,<br/>fact-checked prose"]
         O["engine/threats.ts · control.ts<br/>board overlays"]
@@ -125,12 +128,17 @@ end to end.
 
 ```
 brain/      the shared truth: bot move selection, grading, explanations,
-            practice scheduling — pure TypeScript, no DOM, no framework.
-            The app bundles it to flutter/assets/brain.js
-            (npm run build:brain) and runs it in an embedded JS engine.
+            practice scheduling — plain TypeScript, no framework. The app
+            bundles it to flutter/assets/brain.js (npm run build:brain) and
+            runs it in an embedded JS engine. The purity is a property of
+            brain-entry.ts, not of the directory: a few Svelte-era modules
+            still touch fetch and localStorage, and are deliberately left
+            unexported, because JavaScriptCore has no fetch at all and a
+            native call would throw rather than fail.
 flutter/    the app — web, macOS, iOS
 vendor/     third-party code we carry: the Stockfish WASM build, the retro
-            engines, Garbochess, and our dartchess fork (see each FORK.md)
+            engines (vendor/retro/BUILD.txt pins the revision), Garbochess,
+            and our dartchess fork (vendor/dartchess/FORK.md)
 worker/     the sync blob store: a small Cloudflare Worker over R2 that only
             ever sees ciphertext. Deployed by hand, not by CI
 scripts/    tooling and research: the brain bundle, golden fixtures, the
@@ -177,10 +185,11 @@ The rest of the suites, and what each one is for, are in
 integration tests that need a device because they are the only thing that
 exercises the real JavaScriptCore bridge.
 
-`npm run shots` rebuilds the web app and captures
-[docs/screenshots/](docs/screenshots/) from a fresh profile per shot, staging a
-bot-vs-bot game and a synthetic practice queue so no picture can contain
-anyone's real data.
+`npm run shots` ([`run.sh`](scripts/screenshots/run.sh) builds and serves,
+[`capture.mts`](scripts/screenshots/capture.mts) drives) rewrites
+[docs/screenshots/](docs/screenshots/) from a fresh browser profile per shot,
+staging a bot-vs-bot game and a synthetic practice queue so no picture can
+contain anyone's real data.
 
 `flutter/README.md` covers the app itself, including the native engine staging
 scripts for macOS and iOS.
@@ -200,7 +209,7 @@ Nothing, by default — and every exception is one you asked for:
 |---|---|
 | **huggingface.co** | you pick a Maia; its net is fetched once and cached |
 | **raw.githubusercontent.com** | you open the Humans panel — the Maia-3 net, from the CSSLab repo |
-| **github.com** | you install a catalogue engine or a ChessGPT net (release assets, checked against a pinned SHA-256) — desktop and native only |
+| **github.com** | you install a catalogue engine or a ChessGPT net — release assets from each engine's own upstream (seven orgs; `engine_catalog.dart`), every one checked against a pinned SHA-256. Desktop and native only |
 | **lichess.org / api.chess.com** | you import a username's games |
 | **the sync Worker** | you turn sync on. It stores one AES-256-GCM blob under an id derived from your phrase, so it can neither read your games nor enumerate whose they are |
 
