@@ -4,7 +4,7 @@
 
 ## Where the project is (2026-07-19)
 
-The **Flutter web app is live at botvinnik.app** and at roster parity: 32 of 35 personas, which is the ceiling for any browser (Dala needs a native lc0 sidecar). Since 2026-07-20 **macOS and iOS offer the same 32**. It is a real offline PWA and makes no third-party request unless you pick a Maia.
+The **Flutter web app is live at botvinnik.app**: 32 of the 35 playable personas, the ceiling for any browser (ChessGPT has no web worker). Since 2026-07-20 **macOS and iOS offer all 35**. It is a real offline PWA and makes no third-party request on a plain visit — note the native apps DO prefetch the Maia nets at first launch.
 
 The **SvelteKit app the project began as was retired on 2026-07-20**, having shipped the site until 2026-07-19 and been frozen since. It is preserved whole at the `svelte-eol` tag; `brain/` is what outlived it. One app, one codebase, one review.
 
@@ -14,7 +14,7 @@ The **synchronous brain bridge** is the constraint that shaped the port: one eva
 
 Grouped by GitHub-issue label. Nothing here blocks the deploy — the roster is closed.
 
-- **[native-port](https://github.com/quadrismegistus/botvinnik/labels/native-port)** — Dala's lc0 sidecar (#45) and Android, which needs JavaScriptCore rather than QuickJS (#46, measured). The roster gap CLOSED on 2026-07-20: Maia (#44), iOS retro (#80) and Garbo (#43) all landed, so macOS and iOS now offer the same 32 personas the web does.
+- **[native-port](https://github.com/quadrismegistus/botvinnik/labels/native-port)** — Dala's lc0 sidecar (#45) and Android, which needs JavaScriptCore rather than QuickJS (#46, measured). The roster gap CLOSED on 2026-07-20: Maia (#44), iOS retro (#80) and Garbo (#43) all landed. Native now offers all 35 playable personas; the web offers 32.
 - **[compliance](https://github.com/quadrismegistus/botvinnik/labels/compliance)** — the App Store submission chores, gated on one **[decision](https://github.com/quadrismegistus/botvinnik/labels/decision)**: the GPLv3-on-App-Store posture (recommended: the Lichess one).
 - **[roster](https://github.com/quadrismegistus/botvinnik/labels/roster)** — the bot-feel and anchoring work: a position-adaptive weak-bot sampler, sampled/Maia-3 personas, the SquareFish lichess accounts, and engine scouting.
 - **[ui](https://github.com/quadrismegistus/botvinnik/labels/ui)** — the Flutter UI backlog: new-game flow, keyboard shortcuts, panel order, PGN import.

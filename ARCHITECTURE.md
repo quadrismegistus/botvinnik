@@ -15,7 +15,7 @@ browser, inside JavaScriptCore on an iPhone, and inside Node during CI.
 ```mermaid
 flowchart LR
     subgraph BRAIN["brain/ — pure TypeScript: no DOM, no fetch, no storage"]
-        R["bots.ts · bot.ts<br/>35 personas in 7 families,<br/>ELO-scaled move choice"]
+        R["bots.ts · bot.ts<br/>38 personas in 8 families,<br/>ELO-scaled move choice"]
         G["engine/insights.ts · explain.ts<br/>grading, win chance,<br/>fact-checked prose"]
         O["engine/threats.ts · control.ts<br/>board overlays"]
         P["practice.ts · gameStore.ts<br/>Leitner schedule, accuracy"]
@@ -81,20 +81,21 @@ on the UI isolate.
 
 ## Where each persona gets its move
 
-This is the part the roster hides. Seven families, and *every one of them
+This is the part the roster hides. Eight families, and *every one of them
 computes its move by a different mechanism*. Three need nothing but
 JavaScript; three download weights at runtime; one needs a native binary.
 
 ```mermaid
 flowchart LR
-    subgraph FAM["brain/bots.ts — 35 personas"]
+    subgraph FAM["brain/bots.ts — 38 personas"]
         SQ["Squarefish ×12<br/>600–1700"]
         FI["Stockfish ×8<br/>1800–2500"]
         MA["Maia ×6"]
         RE["Retro ×3"]
         HO["Horizon ×2"]
         GA["Garbo ×1"]
-        DA["Dala ×3"]
+        CG["ChessGPT ×3<br/>native only"]
+        DA["Dala ×3<br/>unplayable"]
     end
 
     SQ -->|"full-strength wide search,<br/>then a pure-JS layer that<br/>decides what it fails to see"| SF["Stockfish"]
@@ -103,10 +104,12 @@ flowchart LR
     RE --> GOW["Go reimplementations<br/>compiled to wasm, UCI in a Worker"]
     HO --> JSCE["js-chess-engine at level 1–2<br/>synchronous, inline, no worker"]
     GA --> GARBO["Garbochess-JS 2011<br/>in a Worker"]
+    CG --> ONNX2["one ONNX pass over a<br/>transformer trained on games<br/>no web worker written"]
     DA --> LC0["lc0 at go nodes 1,<br/>sample its policy priors"]
 
     ONNX -.->|"~3.5MB per band, fetched at runtime<br/>cached in IndexedDB (web)<br/>or Application Support (macOS/iOS)"| HF[("HuggingFace")]
-    ONNX -.->|"onnxruntime-web 1.27"| CDN[("jsDelivr")]
+    ONNX -.->|"onnxruntime-web, VENDORED —<br/>no CDN, see vendor/ and<br/>build-web.sh --no-web-resources-cdn"| ORTV[("flutter/web/maia/")]
+    ONNX2 -.-> CGW[("botvinnik-engines<br/>nets, native only")]
     GOW -.-> RW[("vendor/retro/retro.wasm<br/>4.4MB, in the repo")]
     GARBO -.-> GB[("vendor/garbo/garbochess.js<br/>82KB, vendored")]
     LC0 -.->|"59MB–330MB, fetched to disk"| GH[("GitHub Releases")]
@@ -136,7 +139,7 @@ The same UCI protocol, five different ways of speaking it:
 | Platform | Transport | Binary |
 |---|---|---|
 | Web | Web Worker | Stockfish 18 **lite-single**, `vendor/wasm/`, staged into the build |
-| iOS | **FFI**, `package:stockfish` | Stockfish 16, full NNUE |
+| iOS | **FFI**, `package:stockfish` | Stockfish 18, full NNUE |
 | macOS | child process | the binary bundled in `Contents/MacOS`, else one on the system |
 
 "lite-single" is load-bearing rather than incidental. Single-threaded means no
@@ -260,12 +263,20 @@ web branch of every conditional import.
 
 ## Known gaps
 
-- **The roster gap is closed on the web** (2026-07-19). The brain ships 35
-  personas; Flutter web offers **32**, which is parity — Dala needs a native
-  lc0 sidecar and is desktop-only in *both* apps. **Native Flutter now offers
-  the same 32**, closed over 2026-07-19/20: retro as spawned binaries on macOS
-  and a Go c-archive on iOS, Maia over FFI on both, and Garbo in a background
-  isolate. Nothing is web-only any more.
+- **The roster gap is closed on the web** (2026-07-19). The brain defines 38
+  personas in 8 families; **35 are playable anywhere**, since Dala's three want
+  an lc0 sidecar nobody has built (#45) and `playable_families.dart` leaves the
+  family out entirely rather than letting it ride a flag that means something
+  else. Of those, **web offers 32** — ChessGPT's three are native-only, not for
+  want of onnxruntime (the same runtime runs Maia in the browser) but because
+  nobody wrote its web worker. **Native offers all 35**, closed over
+  2026-07-19/20: retro as spawned binaries on macOS and a Go c-archive on iOS,
+  Maia over FFI on both, and Garbo in a background isolate. Nothing is web-only
+  any more.
+
+  These numbers are test-backed — `brain/bots.test.ts` asserts 38 defined and
+  32 on the web — which is why they are worth stating precisely rather than
+  approximately.
 
   The way it closed is the interesting part: **none of the last three families
   uses the brain bridge at all.** Retro, Garbo and Maia are Workers, so their
