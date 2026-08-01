@@ -37,6 +37,7 @@ import 'review_controller.dart';
 import 'review_tree.dart';
 import 'redo_stack.dart';
 import 'chess_clock.dart';
+import 'think_timer.dart';
 import 'settings_store.dart';
 
 /// How long archiving a finished game waits for in-flight grading.
@@ -57,6 +58,14 @@ class MoveRecord {
   final String fenAfter;
   MoveGrade? grade;
 
+  /// Wall time spent in front of this position before the move was played, or
+  /// null when it is not knowable — an imported game with no clock comments, a
+  /// move after a takeback, or a game rehydrated from the archive. Measured by
+  /// [ThinkTimer], independently of any chess clock, because most games have
+  /// no clock at all. Optional on purpose: every archive written before #267
+  /// has no such number and must keep loading.
+  int? thinkMs;
+
   MoveRecord({
     required this.ply,
     required this.san,
@@ -64,6 +73,7 @@ class MoveRecord {
     required this.color,
     required this.fenBefore,
     required this.fenAfter,
+    this.thinkMs,
   });
 }
 
@@ -388,6 +398,14 @@ class GameController extends ChangeNotifier {
   /// Owned here rather than by the screen because it has to survive a rebuild
   /// and because flag-fall is a RESULT, which only the controller can archive.
   ChessClock? _clock;
+
+  /// Wall time in front of each position, for every game — unlike [_clock],
+  /// which only exists in a rated game with a time control (#267).
+  ThinkTimer _think = ThinkTimer();
+
+  /// Tests need a time source they control; nothing else may replace this.
+  @visibleForTesting
+  set thinkTimer(ThinkTimer t) => _think = t;
   ChessClock? get clock => _clock;
 
   /// The side that ran out of time, if one did. Like [_resigned], the position
@@ -930,6 +948,8 @@ class GameController extends ChangeNotifier {
     _refusalPendingGen = null;
     _clearRefusalUi();
     _clock?.dispose();
+    // a fresh game: the first move's think time starts counting now
+    _think.restart();
     _flagged = null;
     _clock = rated && timeControl != null
         ? (ChessClock(timeControl)
@@ -1165,6 +1185,11 @@ class GameController extends ChangeNotifier {
     }
     // prepended: this batch is OLDER than anything a previous undo stored
     _redoStack.pushUndone(undone);
+    // the clock in front of the NEXT move no longer measures one decision: the
+    // player has already seen this position and the line that followed it.
+    // redo needs no matching call: the stack it reads is only ever filled here,
+    // and a divergent move clears it, so a redo is always already discarded.
+    _think.discard();
     final fen = moves.isEmpty ? _startFen : moves.last.fenAfter;
     position = Chess.fromSetup(Setup.parseFen(fen));
     lastMove =
@@ -1449,6 +1474,7 @@ class GameController extends ChangeNotifier {
             'color': color,
             'fenBefore': fenBefore,
             'fenAfter': candidateFen,
+            if (_think.isRunning) 'thinkMs': _think.peek()?.inMilliseconds,
             'evalPawns': basis.evalPawns,
             'mate': basis.mate,
             'pctBest': basis.pctBest,
@@ -1623,7 +1649,9 @@ class GameController extends ChangeNotifier {
       color: position.turn == Side.white ? 'b' : 'w',
       fenBefore: fenBefore,
       fenAfter: position.fen,
+      thinkMs: _think.take()?.inMilliseconds,
     );
+    _think.restart(); // the next side's turn starts now, not when it moves
     moves.add(record);
     // NOW the clock, with the move on the board — see the note at the top of
     // this method. First move starts it rather than pressing: there is nothing
@@ -1717,17 +1745,29 @@ class GameController extends ChangeNotifier {
   /// on `_running == null`. A guard that cannot be reached is worse than none:
   /// it reads as the thing keeping the invariant when the real keeper is
   /// somewhere else.
-  void pauseForBackground() => _clock?.pause();
+  void pauseForBackground() {
+    _clock?.pause();
+    _think.pause();
+  }
 
   /// Back in front of the player: unfreeze.
   ///
   /// Resumes immediately rather than waiting for a move, which is what every
   /// other clock does on return. No UI indication of the paused state is
   /// needed — by definition nobody is looking at it while it holds.
-  void resumeFromBackground() => _clock?.resume();
+  void resumeFromBackground() {
+    _clock?.resume();
+    _think.resume();
+  }
 
   /// Debug/self-test only: archive the game regardless of game-over state.
   Future<void> debugForceSave() => _saveGame();
+
+  /// Debug/self-test only: the moves exactly as they would be archived, so a
+  /// test can assert what reaches storage rather than what is in memory.
+  @visibleForTesting
+  List<Map<String, dynamic>> debugStoredMoves() =>
+      [for (final m in moves) _storedMoveOf(m)];
 
   String get _result {
     // Before the position checks: the board is still playable, which is the
@@ -1872,6 +1912,10 @@ class GameController extends ChangeNotifier {
     for (var i = 0; i < played.length; i++) {
       if (i.isEven) sb.write('${i ~/ 2 + 1}. ');
       sb.write('${played[i].san} ');
+      // %emt is "elapsed move time", the standard PGN annotation for exactly
+      // this, and what our own importer reads back
+      final ms = played[i].thinkMs;
+      if (ms != null) sb.write('{[%emt ${(ms / 1000).toStringAsFixed(1)}]} ');
     }
     sb.write(result);
     return sb.toString();
@@ -2597,6 +2641,7 @@ class GameController extends ChangeNotifier {
             color: m['color'] as String,
             fenBefore: m['fenBefore'] as String,
             fenAfter: m['fenAfter'] as String,
+            thinkMs: (m['thinkMs'] as num?)?.toInt(),
           )
       ]);
     _startFen = moves.first.fenBefore;
@@ -3261,6 +3306,7 @@ class GameController extends ChangeNotifier {
       'color': m.color,
       'fenBefore': m.fenBefore,
       'fenAfter': m.fenAfter,
+      if (m.thinkMs != null) 'thinkMs': m.thinkMs,
       'evalPawns': g?.evalPawns,
       'mate': g?.mate,
       'pctBest': g?.pctBest,
