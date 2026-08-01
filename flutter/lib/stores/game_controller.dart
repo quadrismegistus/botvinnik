@@ -390,6 +390,10 @@ class GameController extends ChangeNotifier {
   ChessClock? _clock;
   ChessClock? get clock => _clock;
 
+  /// The grading bridge this board was built with. Exposed so a widget can
+  /// ask the brain a question without a second provider in its tree.
+  GradingApi get grading => _grading;
+
   /// The side that ran out of time, if one did. Like [_resigned], the position
   /// cannot express it.
   ClockSide? _flagged;

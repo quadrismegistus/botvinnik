@@ -114,7 +114,13 @@ export { ccGameToStored } from './chesscomCore';
 export type { CcGame } from './chesscomCore';
 
 // ---- stored-game math (pure parts of gameStore) ----
-export { moveAccuracy, gameAccuracy, labelCounts, LABEL_VERSION } from './gameStore';
+export {
+	moveAccuracy,
+	gameAccuracy,
+	labelCounts,
+	engineCorrelation,
+	LABEL_VERSION
+} from './gameStore';
 export { estimatePlayerElo } from './playerElo';
 
 // ---- Maia-3 (ELO-conditioned human-move model) ----

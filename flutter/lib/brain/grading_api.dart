@@ -50,6 +50,21 @@ class GradingApi {
       (_bridge.call('gameAccuracy', args: [storedMoves, color]) as num?)
           ?.toDouble();
 
+  /// How often a side played the engine's own first choice: {played, total},
+  /// or null when nothing could be counted (an import nobody analysed, or a
+  /// game of nothing but forced moves). Derived from the stored moves rather
+  /// than saved on the record, so it is available for the whole archive and
+  /// not only for games played after it existed.
+  ({int played, int total})? engineCorrelation(
+      List<Map<String, dynamic>> storedMoves, String color) {
+    final r = _bridge.call('engineCorrelation', args: [storedMoves, color]);
+    if (r is! Map) return null;
+    final played = (r['played'] as num?)?.toInt();
+    final total = (r['total'] as num?)?.toInt();
+    if (played == null || total == null) return null;
+    return (played: played, total: total);
+  }
+
   /// {blunder: n, mistake: n, ...} for one side of a stored game.
   Map<String, dynamic> labelCounts(
           List<Map<String, dynamic>> storedMoves, String color) =>

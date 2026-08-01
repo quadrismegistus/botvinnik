@@ -16,6 +16,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 
+import 'package:botvinnik_mobile/brain/grading_api.dart';
 import 'package:botvinnik_mobile/db/app_db.dart';
 import 'package:botvinnik_mobile/stores/pgn_import.dart';
 import 'package:botvinnik_mobile/stores/review_controller.dart';
@@ -53,6 +54,20 @@ const _kClassRaw = {
   'miss': {'glyph': '×', 'color': '#d9683a', 'noun': 'a miss'},
   'blunder': {'glyph': '??', 'color': '#ca3431', 'noun': 'a blunder'},
 };
+
+/// A grading bridge that answers the correlation question with fixed numbers.
+/// The arithmetic itself is tested in brain/engineCorrelation.test.ts; what is
+/// under test here is that the widget draws it, and draws it in the right
+/// column.
+class _CorrelatingGrading extends FakeGrading {
+  _CorrelatingGrading(this._w, this._b);
+  final ({int played, int total})? _w;
+  final ({int played, int total})? _b;
+  @override
+  ({int played, int total})? engineCorrelation(
+          List<Map<String, dynamic>> moves, String color) =>
+      color == 'w' ? _w : _b;
+}
 
 class _StubDb implements AppDb {
   @override
@@ -139,6 +154,7 @@ Future<ReviewController> _pumpReview(
   Map<String, dynamic> game, {
   List<String> order = _kLabelOrder,
   double? split,
+  GradingApi? grading,
 }) async {
   final settings = await loadSettings();
   if (split != null) settings.split = split;
@@ -153,7 +169,7 @@ Future<ReviewController> _pumpReview(
       ChangeNotifierProvider<SettingsStore>.value(value: settings),
       ChangeNotifierProvider<ReviewController>.value(value: review),
       ChangeNotifierProvider<ReviewBoardController>.value(
-          value: fakeReviewBoard(review, settings)),
+          value: fakeReviewBoard(review, settings, grading: grading)),
     ],
     child: const MaterialApp(home: Scaffold(body: ReviewBody())),
   ));
@@ -195,6 +211,33 @@ void main() {
     await _pumpReview(tester, _played(botColor: 'w'));
     expect(find.text('Black (you)'), findsOneWidget);
     expect(find.text('White (bot)'), findsOneWidget);
+  });
+
+  testWidgets('shows how often each side played the engine\'s top move',
+      (tester) async {
+    await _pumpReview(tester, _played(),
+        grading: _CorrelatingGrading((played: 31, total: 40), (played: 12, total: 39)));
+
+    expect(find.text('Played the top move'), findsOneWidget);
+    // in their own columns, left to right, for the same reason the accuracy
+    // test says so: asserting both strings exist somewhere passes just as
+    // happily with the two cells swapped
+    expect(_correlationCells(tester), ['31 of 40', '12 of 39']);
+  });
+
+  testWidgets('says nothing at all when nothing could be counted',
+      (tester) async {
+    // an import nobody analysed: a row of dashes would claim a measurement
+    await _pumpReview(tester, _played(), grading: _CorrelatingGrading(null, null));
+    expect(find.text('Played the top move'), findsNothing);
+    expect(find.byKey(const ValueKey('summary-row-correlation')), findsNothing);
+  });
+
+  testWidgets('still draws the row when only one side has a number',
+      (tester) async {
+    await _pumpReview(tester, _played(),
+        grading: _CorrelatingGrading((played: 5, total: 9), null));
+    expect(_correlationCells(tester), ['5 of 9', '—']);
   });
 
   testWidgets('each label row shows the right count per side', (tester) async {
@@ -338,6 +381,21 @@ String _columnUnder(WidgetTester tester, String heading) {
     if ((tester.getBottomRight(f).dx - x).abs() < 1.0) return data;
   }
   return '<none aligned>';
+}
+
+/// The two cells on the correlation row, left to right. Its values are not
+/// integers, so [_countsInRow]'s parse filter cannot be reused.
+List<String> _correlationCells(WidgetTester tester) {
+  final row = find.byKey(const ValueKey('summary-row-correlation'));
+  final cells = <(double, String)>[];
+  for (final e in tester
+      .widgetList<Text>(find.descendant(of: row, matching: find.byType(Text)))) {
+    final data = e.data;
+    if (data == null || data == 'Played the top move') continue;
+    cells.add((tester.getCenter(find.byWidget(e)).dx, data));
+  }
+  cells.sort((a, b) => a.$1.compareTo(b.$1));
+  return [for (final c in cells) c.$2];
 }
 
 /// The two count cells on [label]'s row, left to right.

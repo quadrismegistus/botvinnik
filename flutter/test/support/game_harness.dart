@@ -393,9 +393,9 @@ Future<GameController> makeGame({String? fromFen}) async {
 /// never resolve by default, which is right here — these tests are about the
 /// archive's furniture around the board, not about what the engine says.
 ReviewBoardController fakeReviewBoard(ReviewController review,
-        SettingsStore settings, {FakeArbiter? arbiter}) =>
+        SettingsStore settings, {FakeArbiter? arbiter, GradingApi? grading}) =>
     ReviewBoardController(arbiter ?? FakeArbiter(), FakeBot(),
-        FakeGrading(), settings, review);
+        grading ?? FakeGrading(), settings, review);
 
 /// The standard starting position, for asserting a FEN game did NOT fall back
 /// to it.

@@ -20,6 +20,8 @@ import 'package:dartchess/dartchess.dart' show Side;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../brain/grading_api.dart';
+
 import '../stores/game_controller.dart';
 import '../stores/review_tree.dart';
 import '../stores/practice_controller.dart';
@@ -53,7 +55,8 @@ class ReviewBody extends StatelessWidget {
     final m = board.reviewStoredMove;
     // The brain's ranking, not one written out here — the grade strip and the
     // brain both order by LABEL_ORDER, and a second list would drift from it.
-    final summary = _summary(game, table, table.labelOrder);
+    final summary =
+        _summary(game, table, table.labelOrder, board.grading);
     // Both ride in the move-list header (index 0) so they cost the board no
     // height — Review's board is sized against kReviewFixed, and anything in
     // the fixed column comes straight out of the board.
@@ -355,6 +358,7 @@ class ReviewBody extends StatelessWidget {
     Map<String, dynamic> game,
     ClassTable table,
     List<String> order,
+    GradingApi grading,
   ) {
     final counts = game['labelCounts'] as Map?;
     final w = counts?['w'] as Map?;
@@ -367,6 +371,18 @@ class ReviewBody extends StatelessWidget {
     // An import was never analysed — no labels and no accuracy, says
     // pgn_import — and records written before accuracy existed have neither
     // either. A grid of dashes would say nothing, so say nothing.
+    // How often each side found the engine's own first choice (#276). Derived
+    // here rather than read off the record, so it works for the whole archive
+    // and not only for games saved after it existed — and it disagrees with
+    // accuracy in a useful way, because accuracy is dominated by the worst
+    // move in the game while this counts how often you actually saw it.
+    final storedMoves = ((game['moves'] as List?) ?? const [])
+        .whereType<Map>()
+        .map((m) => m.cast<String, dynamic>())
+        .toList();
+    final wCorr = grading.engineCorrelation(storedMoves, 'w');
+    final bCorr = grading.engineCorrelation(storedMoves, 'b');
+
     if (wAcc == null && bAcc == null && rows.isEmpty) return const SizedBox();
 
     // botColor names the side the player did NOT take. It is absent from
@@ -397,6 +413,18 @@ class ReviewBody extends StatelessWidget {
             style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
           ),
         ],
+      ),
+    );
+
+    // "31 of 40" rather than a bare percentage: the denominator is the point,
+    // because forced moves are excluded and a short game says less than a long
+    // one. A side with nothing countable gets a dash, never 0%.
+    Widget correlationCell(({int played, int total})? c) => SizedBox(
+      width: kCol,
+      child: Text(
+        c == null ? '—' : '${c.played} of ${c.total}',
+        textAlign: TextAlign.end,
+        style: const TextStyle(fontSize: 12.5, color: Colors.white70),
       ),
     );
 
@@ -431,6 +459,23 @@ class ReviewBody extends StatelessWidget {
               accuracyCell('b', bAcc),
             ],
           ),
+          if (wCorr != null || bCorr != null)
+            Padding(
+              key: const ValueKey('summary-row-correlation'),
+              padding: const EdgeInsets.only(top: 6),
+              child: Row(
+                children: [
+                  const Expanded(
+                    child: Text(
+                      'Played the top move',
+                      style: TextStyle(color: Colors.white54, fontSize: 12.5),
+                    ),
+                  ),
+                  correlationCell(wCorr),
+                  correlationCell(bCorr),
+                ],
+              ),
+            ),
           if (rows.isNotEmpty) const SizedBox(height: 8),
           for (final label in rows)
             Padding(
