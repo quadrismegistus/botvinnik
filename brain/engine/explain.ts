@@ -607,6 +607,301 @@ export function sacrificeStory(fenBefore: string, pv: string[]): SacrificeStory 
 	return { piece, mates, net: payoff.net, plies: payoff.plies };
 }
 
+// ---- positional facts ----------------------------------------------------
+//
+// Every detector above rests on something a search can settle: a fork is two
+// attacked pieces, a pin is a ray, a sacrifice is a material count. Positional
+// language has no such guarantee, and most of the vocabulary a coach would
+// reach for — space, the initiative, a bad bishop, "improving the worst piece"
+// — is judgement rather than fact. Only concepts that can be PROVED from the
+// board are here. The rest are absent on purpose: a claim we cannot check is
+// exactly the kind this file exists to refuse, and a plausible-sounding
+// positional sentence is more corrosive than silence, because there is nothing
+// in the position for the reader to catch it with.
+//
+// These rank below every tactical and material claim, so they speak only for
+// the quiet moves that used to get nothing at all.
+
+const FILE_NAMES = 'abcdefgh';
+
+function fileOf(sq: string): number {
+	return sq.charCodeAt(0) - 97;
+}
+
+function rankOf(sq: string): number {
+	return Number(sq[1]) - 1;
+}
+
+// cook.py's bad-spot rule, as forkPoint applies it: a claim about the square a
+// piece just landed on is worthless if the piece can simply be taken there — by
+// something cheaper (the recapture is beside the point), or by anything at all
+// when it is undefended.
+//
+// With one correction forkPoint does not make. `attackers()` knows nothing
+// about pins, so a piece "defended" only by a pinned piece reads as safe and is
+// not: Rd2 on an open file, defended by a rook that is itself pinned to the
+// king, is simply lost to Rxd2. Every defender here has to be one that could
+// actually recapture.
+function landsSafely(after: Chess, to: Square, color: Color, piece: string): boolean {
+	const them: Color = color === 'w' ? 'b' : 'w';
+	const hunters = after.attackers(to, them).map((sq) => after.get(sq)?.type ?? 'k');
+	if (hunters.some((t) => t !== 'k' && VAL[t] < VAL[piece])) return false;
+	if (hunters.length > 0 && !defenders(after, to, color).length) return false;
+	return true;
+}
+
+/** Attackers of `sq` by `color` that are not absolutely pinned — the ones that
+ *  could really recapture there. */
+function defenders(c: Chess, sq: Square, color: Color): Square[] {
+	const them: Color = color === 'w' ? 'b' : 'w';
+	const king = kingSquare(c, color);
+	return c.attackers(sq, color).filter((from) => {
+		if (!king || from === king) return true;
+		const probe = new Chess(c.fen());
+		probe.remove(from);
+		return probe.attackers(king, them).length === 0;
+	});
+}
+
+// Whether a positional claim may be made about the position a move produced.
+//
+// No claim on a checking move: the check is the point, and motifTags cannot see
+// engine mate when practice collects an item, so a mate-in-2 was being tagged
+// "passed pawn" — which the tier-1 hint then says out loud. And no claim once
+// the game is over: a pawn that "no enemy pawn can stop" is not going anywhere
+// if the move it was made by was stalemate.
+function speaksHere(after: Chess, m: { captured?: string }): boolean {
+	// A capture is never a quiet move, and the capture is always the better
+	// sentence: "Qxh2 leaves the g-pawn passed" describes a queen snatching a
+	// pawn as a point about a pawn on its starting square. Measured over 500
+	// real games, captures were 23% of everything this file said and 91% of its
+	// passed-pawn claims, and the capture was never named.
+	//
+	// No promotion test sits beside it, though a promotion is just as loud: each
+	// detector already refuses one on its own terms (a promotion leaves no pawn
+	// on the square, m.piece is 'p' where a knight or rook is wanted, and the
+	// square behind the back rank is off the board), so the clause could never
+	// fire and only the test for it would have looked like protection.
+	if (m.captured) return false;
+	return !after.isCheck() && !after.isGameOver();
+}
+
+/** The square `color`'s king stands on, or undefined (never, in a legal game). */
+function kingSquare(c: Chess, color: Color): Square | undefined {
+	for (const row of c.board()) {
+		for (const cell of row) {
+			if (cell && cell.color === color && cell.type === 'k') return cell.square as Square;
+		}
+	}
+	return undefined;
+}
+
+// Is `to` held by a pawn that could actually capture there? A pinned pawn holds
+// nothing: with a rook on the c-file and the king on c1, a knight "held" by the
+// c4 pawn is just hanging.
+function heldByPawn(c: Chess, to: Square, color: Color): boolean {
+	return defenders(c, to, color).some((sq) => c.get(sq)?.type === 'p');
+}
+
+// Squares of `color`'s passed pawns: no enemy pawn ahead on this file or
+// either neighbour, and nothing of its own already occupying the file in
+// front (the rear pawn of a doubled pair is not going anywhere).
+function passedPawns(c: Chess, color: Color): Square[] {
+	const up = color === 'w' ? 1 : -1;
+	const out: Square[] = [];
+	for (const row of c.board()) {
+		for (const cell of row) {
+			if (!cell || cell.color !== color || cell.type !== 'p') continue;
+			const f = fileOf(cell.square);
+			const r = rankOf(cell.square);
+			let stopped = false;
+			for (let df = -1; df <= 1 && !stopped; df++) {
+				for (let step = 1; step <= 7; step++) {
+					const sq = toSquare(f + df, r + up * step);
+					if (!sq) break;
+					const p = c.get(sq);
+					if (!p || p.type !== 'p') continue;
+					if (p.color !== color) stopped = true;
+					else if (df === 0) stopped = true; // own pawn in the way
+					if (stopped) break;
+				}
+			}
+			if (!stopped) out.push(cell.square as Square);
+		}
+	}
+	return out;
+}
+
+// A move that leaves a pawn passed where none was. Covers both the push that
+// runs past the last enemy pawn and the capture that removes the pawn holding
+// one back; the difference is only which pawn ends up named.
+export function passedPawnPoint(fenBefore: string, uci: string): string | undefined {
+	const before = new Chess(fenBefore);
+	const mover = before.turn();
+	const wasPassed = new Set<string>(passedPawns(before, mover));
+	const after = new Chess(fenBefore);
+	const m = apply(after, uci);
+	if (!m) return undefined;
+	if (!speaksHere(after, m)) return undefined;
+	if (!landsSafely(after, m.to as Square, m.color, m.piece)) return undefined;
+	// the pawn that moved keeps its identity — judge it by the square it left,
+	// or every pawn push onto a passed file reads as a new passer
+	const carried = wasPassed.has(m.from) ? m.to : undefined;
+	// A pawn that has just stepped past an enemy pawn on the adjacent file can
+	// be taken en passant on the very next move, and neither the rank scan nor
+	// attackers() sees it — chess.js reports no attacker for an e.p. capture.
+	if (after.moves({ verbose: true }).some((mv) => mv.flags.includes('e'))) return undefined;
+	// only ever about the pawn that just moved. The other way a passer appears
+	// is that a capture removed the pawn holding it back — and captures do not
+	// speak here at all, so naming a third pawn would be describing a position
+	// the move is not about.
+	const fresh = passedPawns(after, mover).filter((sq) => !wasPassed.has(sq) && sq !== carried);
+	if (!fresh.includes(m.to as Square)) return undefined;
+	// "nothing can stop it" would be the same overclaim the outpost sentence had
+	// to give up: an enemy pawn can arrive on a neighbouring file by capturing,
+	// which refuted 2.4% of these in a sweep. What the scan proves is where the
+	// enemy pawns are NOW, so that is what the sentence says.
+	return `${m.san} makes a passed pawn on ${m.to} — no enemy pawn stands in its way.`;
+}
+
+// A knight on a square in the enemy half that no enemy pawn can ever attack,
+// held by a pawn of its own. All three parts are geometry.
+export function outpostPoint(fenBefore: string, uci: string): string | undefined {
+	const c = new Chess(fenBefore);
+	const m = apply(c, uci);
+	if (!m || m.piece !== 'n') return undefined;
+	if (!speaksHere(c, m)) return undefined;
+	const to = m.to as Square;
+	const f = fileOf(to);
+	const r = rankOf(to);
+	const up = m.color === 'w' ? 1 : -1;
+	// the enemy half, and not the last rank, where "outpost" means nothing
+	const advanced = m.color === 'w' ? r >= 4 && r <= 6 : r >= 1 && r <= 3;
+	if (!advanced) return undefined;
+	// No enemy pawn on either neighbouring file is still behind the square, so
+	// none can ever ADVANCE to attack it — which is the textbook definition of
+	// an outpost, and exactly as much as this geometry proves. A pawn two files
+	// away can still arrive by capturing (d7xc6 hits d5), so the sentence below
+	// says "advance" rather than claiming the knight can never be chased off.
+	for (const df of [-1, 1]) {
+		for (let step = 1; step <= 7; step++) {
+			const sq = toSquare(f + df, r + up * step);
+			if (!sq) break;
+			const p = c.get(sq);
+			if (p && p.type === 'p' && p.color !== m.color) return undefined;
+		}
+	}
+	// and a pawn of its own holds the square — one that can legally capture
+	// there, which is not the same question `attackers()` answers
+	if (!heldByPawn(c, to, m.color)) return undefined;
+	// No bad-spot rule follows, and this time the reasoning holds: the only
+	// piece cheaper than a knight is a pawn, the scan above proves no enemy pawn
+	// attacks this square, and heldByPawn has just found a defender that is not
+	// pinned. Both clauses are therefore unreachable — and an unreachable guard
+	// reads as protection nobody is getting.
+	return `${m.san} puts the knight on an outpost — no enemy pawn can advance to attack ${to}.`;
+}
+
+// A piece that sits down directly in front of an enemy passed pawn. A pawn
+// cannot capture forward, so the square is held as a matter of geometry.
+export function blockadePoint(fenBefore: string, uci: string): string | undefined {
+	const c = new Chess(fenBefore);
+	const m = apply(c, uci);
+	if (!m || m.piece === 'k') return undefined; // king blockades are endgame judgement
+	if (!speaksHere(c, m)) return undefined;
+	const them: Color = m.color === 'w' ? 'b' : 'w';
+	const to = m.to as Square;
+	const f = fileOf(to);
+	const theirUp = them === 'w' ? 1 : -1;
+	const behind = toSquare(f, rankOf(to) - theirUp);
+	if (!behind) return undefined;
+	// no separate "is it an enemy pawn" check: passedPawns only ever returns
+	// squares holding a pawn of the colour asked for, so this one test carries
+	// the type, the colour and the passedness. A guard that cannot fire is
+	// worse than no guard — it reads as protection nobody is getting.
+	if (!passedPawns(c, them).includes(behind)) return undefined;
+	if (!landsSafely(c, to, m.color, m.piece)) return undefined;
+	// A pawn cannot capture forward, but it can capture DIAGONALLY forward and
+	// carry on down the next file — which is not being blockaded at all. If
+	// either diagonal holds one of our pieces, the pawn simply walks around.
+	const br = rankOf(behind);
+	for (const df of [-1, 1]) {
+		const diag = toSquare(fileOf(behind) + df, br + theirUp);
+		const piece = diag ? c.get(diag) : undefined;
+		if (piece && piece.color === m.color) return undefined;
+	}
+	return `${m.san} blockades the passed ${FILE_NAMES[f]}-pawn.`;
+}
+
+// A rook arriving on a file with none of its own pawns on it. "Open" is a
+// count, so the claim is checkable; whether the file MATTERS is not, which is
+// why the sentence says only what it can see. Rooks only — the same words
+// about a queen would be advice nobody should follow.
+export function openFilePoint(fenBefore: string, uci: string): string | undefined {
+	const c = new Chess(fenBefore);
+	const m = apply(c, uci);
+	if (!m || m.piece !== 'r') return undefined;
+	if (!speaksHere(c, m)) return undefined;
+	const to = m.to as Square;
+	const f = fileOf(to);
+	if (fileOf(m.from) === f) return undefined; // already on it — nothing new
+	let ours = 0;
+	let theirs = 0;
+	const friends: Square[] = [];
+	for (let r = 0; r < 8; r++) {
+		const sq = toSquare(f, r);
+		const p = sq ? c.get(sq) : undefined;
+		if (!p || !sq) continue;
+		if (p.type === 'p') {
+			if (p.color === m.color) ours++;
+			else theirs++;
+		} else if (p.type === 'r' && p.color === m.color && sq !== to) friends.push(sq);
+	}
+	if (ours > 0) return undefined;
+	if (!landsSafely(c, to, m.color, m.piece)) return undefined;
+	const kind = theirs === 0 ? 'open' : 'half-open';
+	// "doubles" means the rooks defend each other, so nothing may stand between
+	// them — a black queen on d4 between Rd1 and Rd5 is forking them, not
+	// being doubled against
+	// A rook does not "take" a file it cannot see down. Measured over 500 games,
+	// 11.7% of these claims had one of the mover's own pieces in the way — Re8
+	// with your own bishop still on e7 sees exactly one square.
+	for (const dr of [1, -1]) {
+		for (let step = 1; step <= 7; step++) {
+			const sq = toSquare(f, rankOf(to) + dr * step);
+			if (!sq) break;
+			const p = c.get(sq);
+			if (!p) continue;
+			if (p.color === m.color && p.type !== 'r' && p.type !== 'q') return undefined;
+			break;
+		}
+	}
+	const connected = friends.some((sq) => {
+		const lo = Math.min(rankOf(sq), rankOf(to)) + 1;
+		const hi = Math.max(rankOf(sq), rankOf(to));
+		for (let r = lo; r < hi; r++) {
+			const between = toSquare(f, r);
+			if (between && c.get(between)) return false;
+		}
+		return true;
+	});
+	return connected
+		? `${m.san} doubles the rooks on the ${kind} ${FILE_NAMES[f]}-file.`
+		: `${m.san} takes the ${kind} ${FILE_NAMES[f]}-file.`;
+}
+
+// The named positional fact a move exhibits, as a standalone sentence.
+// Deliberately NOT folded into tacticalMotifPoint: the threat box asks what a
+// threat wins, and an outpost wins nothing.
+export function positionalPoint(fenBefore: string, uci: string): string | undefined {
+	return (
+		passedPawnPoint(fenBefore, uci) ??
+		outpostPoint(fenBefore, uci) ??
+		blockadePoint(fenBefore, uci) ??
+		openFilePoint(fenBefore, uci)
+	);
+}
+
 export function explainMove(input: {
 	fenBefore: string;
 	playedUci: string;
@@ -737,7 +1032,8 @@ export function bestMovePoint(
 				: `Instead, ${sanLine(fenBefore, bestPv, plies)} wins a point of material.`;
 		}
 	}
-	return undefined;
+	// nothing tactical, nothing material — the quiet case, which used to end here
+	return positionalPoint(fenBefore, bestUci);
 }
 
 // The motif vocabulary — which named facts a move exhibits. Used to tag
@@ -756,7 +1052,13 @@ export type Motif =
 	| 'trapped piece'
 	| 'sacrifice'
 	| 'promotion'
-	| 'material';
+	| 'material'
+	// positional — only ever tagged when nothing tactical or material fired,
+	// so a drill filed under "outpost" is one where the outpost WAS the point
+	| 'passed pawn'
+	| 'outpost'
+	| 'blockade'
+	| 'open file';
 
 // Bump whenever a detector's semantics change so stored practice tags get
 // recomputed on load. 2: pins/skewers require a profitable capture behind.
@@ -767,7 +1069,17 @@ export type Motif =
 // restraint tags (pin/skewer/trapped) dropped inside a known forced mate;
 // no trapped claims on checking moves (check makes "no safe square" vacuous);
 // no pin/skewer when the front piece profitably captures the pinner.
-export const MOTIF_TAGS_VERSION = 4;
+// 5: positional tags (passed pawn / outpost / blockade / open file) on moves
+// where nothing tactical or material fired, and never on a checking move.
+//
+// A correction to the line above, which has been wrong for some time: the
+// recompute-on-load it describes lives in practice.ts's `loadItems`, and
+// `loadItems` is not exported from brain-entry.ts, so it is not in the bundle
+// and the Flutter app never calls it (practice_controller.dart:371 says so).
+// Bumping this number retags nothing that is already stored — only newly
+// collected items carry new tags. Wiring a backfill into PracticeController is
+// worth doing; until then the constant documents intent, not behaviour.
+export const MOTIF_TAGS_VERSION = 5;
 
 export function motifTags(
 	fenBefore: string,
@@ -804,6 +1116,14 @@ export function motifTags(
 		quietMaterialOverLine(fenBefore, pv.slice(0, 9)).net >= 2
 	) {
 		tags.push('material');
+	}
+	// positional facts are the last resort, and never share a drill with a
+	// tactic: a fork that happens to land on an open file is a fork
+	if (tags.length === 0) {
+		if (passedPawnPoint(fenBefore, uci)) tags.push('passed pawn');
+		else if (outpostPoint(fenBefore, uci)) tags.push('outpost');
+		else if (blockadePoint(fenBefore, uci)) tags.push('blockade');
+		else if (openFilePoint(fenBefore, uci)) tags.push('open file');
 	}
 	return tags;
 }
@@ -866,5 +1186,11 @@ export function explainGoodMove(
 		const story = summarizeLine(fenBefore, playedPv.slice(0, 9));
 		if (story) return { text: `In this line, ${story}.`, evidence: evidence(9) };
 	}
+	// dead last, after even the line narration: on the Opera Game's 14.Rd1 the
+	// story is "…and mate follows", and "Rd1 takes the open d-file" is a true
+	// sentence that buries it. Positional facts speak only where nothing else
+	// would have.
+	const positional = positionalPoint(fenBefore, playedUci);
+	if (positional) return { text: positional, evidence: evidence(1) };
 	return undefined;
 }
