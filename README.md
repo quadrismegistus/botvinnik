@@ -31,7 +31,14 @@ what survived it is `brain/`.
 - **Move insights** — every move graded against the engine's best: eval,
   %-of-best, win-chance delta, chess.com-style labels (brilliant → blunder),
   and prose built only from *detected* facts — mates, hanging pieces, forks,
-  pins, material over a quoted line
+  pins, material over a quoted line, and for the quiet moves where none of that
+  fires, the positional facts a board can prove: a new passed pawn, a knight on
+  an outpost no enemy pawn can advance to attack, a blockade, a rook taking an
+  open file. These speak only for genuinely quiet moves — never a capture, a
+  check or a promotion, where the capture or the check is the better sentence.
+  Concepts that cannot be checked — space, the initiative, a bad bishop — are
+  deliberately absent, because a positional sentence nobody can catch being
+  wrong is worse than silence
 - **Board overlays** — engine arrows, a threat arrow with red rings on what
   that threat wins, blue rings in the arrows' own colour on what *your* line
   wins, and a square-control wash graded by how much the exchange is worth
