@@ -408,6 +408,23 @@ class GameController extends ChangeNotifier {
   set thinkTimer(ThinkTimer t) => _think = t;
   ChessClock? get clock => _clock;
 
+  final Map<String, ({int played, int total})?> _correlation = {};
+
+  /// How often [color] played the engine's own first choice, or null when the
+  /// question cannot be answered for this game (#276).
+  ///
+  /// Memoised, and deliberately not computed in [showReview]: it costs ~110ms
+  /// for a long game — 500x the accuracy call it sits beside, because it walks
+  /// every move through chess.js — and the caller is a widget build method that
+  /// reruns on every cursor move. Once per game, lazily, on the first draw.
+  ({int played, int total})? correlationFor(String color) =>
+      _correlation.putIfAbsent(
+          color, () => _grading.engineCorrelation(_reviewRawMoves, color));
+
+  /// The stored moves of the game under review, after `_loadReview`'s
+  /// validation — the list the correlation is computed from.
+  List<Map<String, dynamic>> _reviewRawMoves = const [];
+
   /// The side that ran out of time, if one did. Like [_resigned], the position
   /// cannot express it.
   ClockSide? _flagged;
@@ -2609,6 +2626,7 @@ class GameController extends ChangeNotifier {
       if (movesField is List)
         for (final e in movesField.whereType<Map>()) e.cast<String, dynamic>()
     ];
+
     // Checked BEFORE anything is read out, not after — the guard used to sit
     // below the casts it was there to protect, so a record missing a field
     // threw a _TypeError on the way to it. That throw lands inside a
@@ -2626,13 +2644,20 @@ class GameController extends ChangeNotifier {
             m['ply'] is num &&
             _parses(m['fenBefore']) &&
             _parses(m['fenAfter']));
+    _correlation.clear(); // a different game, a different answer
     if (!usable) {
       moves.clear();
+      _reviewRawMoves = const [];
       _startFen = Chess.initial.fen;
       _tree = ReviewTree(_startFen);
       _reviewColor = 'w';
       return;
     }
+    // AFTER the guard, never before: this is the list the correlation walks
+    // through chess.js, and the archive is the one input here we do not
+    // control. A record that fails `usable` must reach the brain no more than
+    // it reaches the board.
+    _reviewRawMoves = raw;
     moves
       ..clear()
       ..addAll([
