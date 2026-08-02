@@ -55,6 +55,50 @@ void main() {
     expect(t.take(), const Duration(seconds: 30));
   });
 
+  test('the real clock, unmocked, actually advances', () {
+    // Every other test here injects a source. The DEFAULT is the only thing
+    // that ships, and an unstarted Stopwatch returns zero forever — which
+    // would have made thinkMs 0 on every move of every real game with the
+    // suite green.
+    final real = ThinkTimer();
+    real.restart();
+    final spin = Stopwatch()..start();
+    while (spin.elapsedMilliseconds < 5) {/* burn a few real milliseconds */}
+    final spent = real.take();
+    expect(spent, isNotNull);
+    expect(spent!.inMicroseconds, greaterThan(0),
+        reason: 'the default source must be a running clock');
+  });
+
+  test('pausing three times banks the span once', () {
+    // Not hypothetical: clock_lifecycle pauses on every state that is not
+    // resumed, and the platforms deliver inactive -> hidden -> paused in
+    // sequence, so this really is called three times per backgrounding.
+    // Without the re-entrancy guard a 30-second think becomes 90.
+    t.restart();
+    advance(30);
+    t.pause();
+    t.pause();
+    t.pause();
+    t.resume();
+    advance(5);
+    expect(t.take(), const Duration(seconds: 35));
+  });
+
+  test('two separate pauses each add to the bank', () {
+    // With `_banked = ` instead of `+=` a single pause looks identical; only a
+    // second cycle shows the first one being thrown away.
+    t.restart();
+    advance(4);
+    t.pause();
+    t.resume();
+    advance(5);
+    t.pause();
+    t.resume();
+    advance(6);
+    expect(t.take(), const Duration(seconds: 15));
+  });
+
   test('a pause with nothing running changes nothing', () {
     t.pause();
     t.resume();
@@ -118,23 +162,4 @@ void main() {
         reason: 'the banked forty seconds belong to the abandoned turn');
   });
 
-  test('peek reads without ending the turn', () {
-    t.restart();
-    advance(6);
-    expect(t.peek(), const Duration(seconds: 6));
-    advance(4);
-    expect(t.peek(), const Duration(seconds: 10), reason: 'still counting');
-    expect(t.take(), const Duration(seconds: 10));
-    expect(t.peek(), isNull, reason: 'and now the turn is over');
-  });
-
-  test('isRunning tracks whether anything is being timed', () {
-    expect(t.isRunning, isFalse);
-    t.restart();
-    expect(t.isRunning, isTrue);
-    t.pause();
-    expect(t.isRunning, isTrue, reason: 'paused is still a turn in progress');
-    t.take();
-    expect(t.isRunning, isFalse);
-  });
 }

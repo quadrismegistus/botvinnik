@@ -11,7 +11,10 @@ import 'package:botvinnik_mobile/stores/game_controller.dart';
 import 'package:botvinnik_mobile/stores/think_timer.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:botvinnik_mobile/stores/pgn_import.dart';
+
 import 'support/game_harness.dart';
+import 'support/memory_db.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -123,6 +126,87 @@ void main() {
   // A review board never writes a variation into `moves` — the played line is
   // the record and a variation is explored on the board — so there is nothing
   // to time there, and no discard is needed on the load path.
+  test('a game built with no injected timer uses a running clock', () async {
+    // The field initialiser is the only ThinkTimer that ships, and every other
+    // test here replaces it. Frozen at zero, every move of every real game
+    // would record 0ms with the suite green.
+    final game = await makeGame();
+    game.newGame(); // the field initialiser's timer, started by the real path
+    final spin = Stopwatch()..start();
+    while (spin.elapsedMilliseconds < 5) {/* burn a few real milliseconds */}
+    game.playUci('e2e4');
+    expect(game.moves.single.thinkMs, isNotNull);
+    expect(game.moves.single.thinkMs, greaterThan(0));
+    game.dispose();
+  });
+
+  test('the refusal check\'s own search is not the player thinking', () async {
+    // refuse-blunders awaits an engine search of up to 2.5s BEFORE the move is
+    // applied. Measured before the fix: an instant move recorded 412ms with
+    // the check on and 0 with it off. The reading is taken when the human
+    // commits, so time that passes during the check is not charged to them.
+    final settings = await loadSettings(black: kTestBotId);
+    final game = GameController(
+        FakeArbiter(analysisLines: kFakeLines),
+        FakeBot({kTestBotId: testBotPersona}),
+        FakeGrading(),
+        settings);
+    game.newGame(refuseBlunders: true);
+    var now = Duration.zero;
+    game.thinkTimer = ThinkTimer(source: () => now)..restart();
+
+    now += const Duration(seconds: 3); // the player thinking
+    game.playUci('e2e4');
+    now += const Duration(seconds: 90); // the check grinding away
+    await Future<void>.delayed(const Duration(milliseconds: 200));
+
+    expect(game.moves, isNotEmpty, reason: 'precondition: the move went through');
+    expect(game.moves.first.thinkMs, 3000,
+        reason: 'three seconds of thinking, not ninety-three');
+
+    // and the sample is consumed, not left to stamp every later move too
+    game.newGame(refuseBlunders: false);
+    now += const Duration(seconds: 7);
+    game.playUci('e2e4');
+    expect(game.moves.single.thinkMs, 7000,
+        reason: 'its own time, not the reading the refusal check sampled');
+    game.dispose();
+  });
+
+  group('the exported PGN', () {
+    /// A game played with controlled time, archived, and its movetext read back.
+    Future<String> pgnOf(List<int> seconds) async {
+      final settings = await loadSettings();
+      final db = MemoryDb();
+      final game = GameController(
+          FakeArbiter(), FakeBot(), SavingGrading(), settings, db);
+      var now = Duration.zero;
+      game.thinkTimer = ThinkTimer(source: () => now)..restart();
+      const ucis = ['e2e4', 'e7e5', 'g1f3'];
+      for (var i = 0; i < seconds.length; i++) {
+        now += Duration(seconds: seconds[i]);
+        game.playUci(ucis[i]);
+      }
+      await game.debugForceSave();
+      game.dispose();
+      return db.games.values.single['pgn'] as String;
+    }
+
+    test('writes %emt in SECONDS, at a precision that round-trips', () async {
+      // the units are the trap: `ms.toStringAsFixed(1)` writes 9000.0 for a
+      // nine-second think — two and a half hours — and this branch's own
+      // reader believes it
+      final pgn = await pgnOf([9, 11]);
+      expect(pgn, contains('{[%emt 9.000]}'));
+      expect(pgn, contains('{[%emt 11.000]}'));
+
+      final back = gameFromPgn(pgn, now: DateTime.utc(2026, 8, 2))!;
+      final moves = (back['moves'] as List).cast<Map<String, dynamic>>();
+      expect(moves[0]['thinkMs'], 9000);
+      expect(moves[1]['thinkMs'], 11000);
+    });
+  });
+
   group('a game reopened in Review', () {
     /// The archive's shape, as `_storedMoveOf` writes it.
     Map<String, dynamic> storedGame() => {
@@ -135,8 +219,9 @@ void main() {
               'uci': 'e2e4',
               'color': 'w',
               'fenBefore': kStandardStartFen,
+              // with the e3 en-passant field, as _storedMoveOf writes it
               'fenAfter':
-                  'rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1',
+                  'rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1',
               'thinkMs': 4200,
             },
           ],
@@ -152,6 +237,28 @@ void main() {
       final game = await reviewBoard();
       game.showReview(storedGame());
       expect(game.moves.single.thinkMs, 4200);
+      game.dispose();
+    });
+
+    test('a record written before this existed reads as unknown, not zero',
+        () async {
+      final game = await reviewBoard();
+      final old = storedGame();
+      (old['moves'] as List).first.remove('thinkMs');
+      game.showReview(old);
+      expect(game.moves.single.thinkMs, isNull,
+          reason: 'absent is not zero — zero is a measurement');
+      game.dispose();
+    });
+
+    test('a nonsense value in the archive is refused, not cast', () async {
+      // the archive is the one input here we do not control: BackupService
+      // validates only id and endedAt and writes the rest verbatim
+      final game = await reviewBoard();
+      final bad = storedGame();
+      (bad['moves'] as List).first['thinkMs'] = 'quite a while';
+      expect(() => game.showReview(bad), returnsNormally);
+      expect(game.moves.single.thinkMs, isNull);
       game.dispose();
     });
 

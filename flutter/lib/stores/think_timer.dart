@@ -37,9 +37,6 @@ class ThinkTimer {
   Duration _banked = Duration.zero;
   bool _paused = false;
 
-  /// True while a turn is being timed (whether or not it is paused).
-  bool get isRunning => _origin != null;
-
   /// A new turn begins. Any part-timed turn is abandoned.
   void restart() {
     _banked = Duration.zero;
@@ -59,14 +56,6 @@ class ThinkTimer {
     if (_origin == null || !_paused) return;
     _origin = _now();
     _paused = false;
-  }
-
-  /// The elapsed time so far, without stopping. For a reading taken before the
-  /// move is applied (the practice collector runs there).
-  Duration? peek() {
-    final origin = _origin;
-    if (origin == null) return null;
-    return _paused ? _banked : _banked + (_now() - origin);
   }
 
   /// The elapsed time for the turn just ended, and stop timing. Null when

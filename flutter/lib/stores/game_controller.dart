@@ -1253,7 +1253,11 @@ class GameController extends ChangeNotifier {
     // directly, so only human moves are sampled.
     if (botEnabled && _assisted) _botHintsUsed = true;
     if (_refuseBlunders && botEnabled) {
-      unawaited(_maybeRefuse(move, san));
+      // The refusal check awaits a search of up to 2.5s before the move is
+      // applied, and an engine search is not the player thinking. Sampled here,
+      // before anything awaits, or every human move in a protected game is
+      // inflated by the check — measured at 412ms on an instant move.
+      unawaited(_maybeRefuse(move, san, _think.take()?.inMilliseconds));
       return;
     }
     _apply(move, san);
@@ -1313,7 +1317,7 @@ class GameController extends ChangeNotifier {
   ///
   /// Both paths additionally require the pre-move lines to have reached
   /// [kMinUsefulDepth], since `bestEval` comes from them either way.
-  Future<void> _maybeRefuse(NormalMove move, String san) async {
+  Future<void> _maybeRefuse(NormalMove move, String san, int? thinkMs) async {
     final gen = _gen;
     _refusalPending = true;
     _refusalPendingGen = gen;
@@ -1474,7 +1478,6 @@ class GameController extends ChangeNotifier {
             'color': color,
             'fenBefore': fenBefore,
             'fenAfter': candidateFen,
-            if (_think.isRunning) 'thinkMs': _think.peek()?.inMilliseconds,
             'evalPawns': basis.evalPawns,
             'mate': basis.mate,
             'pctBest': basis.pctBest,
@@ -1536,7 +1539,7 @@ class GameController extends ChangeNotifier {
       // Before the call, not after: a throw from inside [_apply] leaves the
       // move half-applied, and re-applying it is worse than not.
       decided = true;
-      _apply(move, san);
+      _apply(move, san, thinkMs: thinkMs);
       _maybeBotTurn();
     } catch (e, st) {
       // FAIL OPEN, and this is the whole point of the branch. Every await
@@ -1568,7 +1571,7 @@ class GameController extends ChangeNotifier {
       // makes a player start a new game in the middle of a check.
       if (!decided && gen == _gen) {
         _clearRefusalUi();
-        _apply(move, san);
+        _apply(move, san, thinkMs: thinkMs);
         _maybeBotTurn();
       }
     } finally {
@@ -1604,16 +1607,16 @@ class GameController extends ChangeNotifier {
 
   // ---- internals ----
 
-  void _apply(NormalMove move, String san) {
+  void _apply(NormalMove move, String san, {int? thinkMs}) {
     _applying = true;
     try {
-      _applyInner(move, san);
+      _applyInner(move, san, thinkMs: thinkMs);
     } finally {
       _applying = false;
     }
   }
 
-  void _applyInner(NormalMove move, String san) {
+  void _applyInner(NormalMove move, String san, {int? thinkMs}) {
     // Who will have pressed, read BEFORE playUnchecked flips the turn — but
     // the press itself happens after the move is on the board, further down.
     //
@@ -1649,7 +1652,7 @@ class GameController extends ChangeNotifier {
       color: position.turn == Side.white ? 'b' : 'w',
       fenBefore: fenBefore,
       fenAfter: position.fen,
-      thinkMs: _think.take()?.inMilliseconds,
+      thinkMs: thinkMs ?? _think.take()?.inMilliseconds,
     );
     _think.restart(); // the next side's turn starts now, not when it moves
     moves.add(record);
@@ -1915,7 +1918,7 @@ class GameController extends ChangeNotifier {
       // %emt is "elapsed move time", the standard PGN annotation for exactly
       // this, and what our own importer reads back
       final ms = played[i].thinkMs;
-      if (ms != null) sb.write('{[%emt ${(ms / 1000).toStringAsFixed(1)}]} ');
+      if (ms != null) sb.write('{[%emt ${(ms / 1000).toStringAsFixed(3)}]} ');
     }
     sb.write(result);
     return sb.toString();
@@ -2641,7 +2644,7 @@ class GameController extends ChangeNotifier {
             color: m['color'] as String,
             fenBefore: m['fenBefore'] as String,
             fenAfter: m['fenAfter'] as String,
-            thinkMs: (m['thinkMs'] as num?)?.toInt(),
+            thinkMs: m['thinkMs'] is num ? (m['thinkMs'] as num).toInt() : null,
           )
       ]);
     _startFen = moves.first.fenBefore;
