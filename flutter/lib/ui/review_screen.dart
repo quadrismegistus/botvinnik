@@ -346,10 +346,15 @@ class ReviewBody extends StatelessWidget {
     );
   }
 
-  /// The whole-game summary: both sides' accuracy, and how many of their moves
-  /// fell into each label. Everything here was computed at save time and is
-  /// stored on the record (game_controller's save path) — nothing is
-  /// recalculated, and nothing crosses the engine.
+  /// The whole-game summary: both sides' accuracy, how many of their moves
+  /// fell into each label, and how often each side played the engine's own
+  /// move.
+  ///
+  /// Accuracy and the label counts were computed at save time and are read off
+  /// the record — nothing recalculates them here. The correlation row is the
+  /// exception and crosses the bridge, which is why it is memoised on the board
+  /// controller rather than computed in this method: it walks every move
+  /// through chess.js, and this rebuilds on every cursor step.
   ///
   /// [order] is the brain's LABEL_ORDER. Rows are dropped when neither side
   /// has any, so a clean game is a short grid rather than seven zeroes.
@@ -463,8 +468,14 @@ class ReviewBody extends StatelessWidget {
               child: Row(
                 children: [
                   const Expanded(
+                    // maxLines/overflow for the same reason every label row
+                    // below has them: at 720px with the splitter at kMaxSplit
+                    // this wrapped to fifteen lines, one character each, and
+                    // ate 276px of the pane without ever throwing.
                     child: Text(
                       'Played the top move',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                       style: TextStyle(color: Colors.white54, fontSize: 12.5),
                     ),
                   ),

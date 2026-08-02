@@ -377,6 +377,10 @@ void main() {
       await _pumpReview(
           tester,
           split: split,
+          // WITH a correlation, or the row under test never renders: the
+          // default stub returns null and every one of these cases passed
+          // while the new row wrapped to fifteen lines at 720px
+          grading: _CorrelatingGrading((played: 31, total: 40), (played: 12, total: 39)),
           _played(counts: {
             // the widest realistic grid: every label, two-digit counts
             'w': {for (final l in _kLabelOrder) l: 24},
@@ -388,6 +392,14 @@ void main() {
           reason: 'the grid must be on screen, or this proves nothing');
       expect(tester.takeException(), isNull,
           reason: 'the summary overflowed at ${width.toInt()}px');
+
+      // Text WRAPS rather than overflowing, so takeException cannot see the
+      // failure this guards: at 720px the label grew to 270px tall, one
+      // character per line, and no exception was ever thrown.
+      final label = find.text('Played the top move');
+      expect(label, findsOneWidget);
+      expect(tester.getSize(label).height, lessThan(40),
+          reason: 'the label wrapped at ${width.toInt()}px');
     });
   }
 }
