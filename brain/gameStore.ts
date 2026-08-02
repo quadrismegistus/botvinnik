@@ -1,6 +1,8 @@
 // Finished-game archive in IndexedDB: PGN plus the per-move grades, labels and
 // explanations the app computed while the game was played.
 
+import { Chess } from 'chess.js';
+
 import { bestMovePoint, type Explanation } from './engine/explain';
 import { isCapture } from './engine/chess';
 import { winChance, type MoveLabel } from './engine/insights';
@@ -26,6 +28,10 @@ export interface StoredMove {
 	bestSan?: string;
 	bestUci?: string;
 	explanation?: Explanation;
+	/** Wall time spent on this move, where it is known (#267): an in-app game,
+	 *  or a PGN carrying %emt/%clk. Absent everywhere else, including every
+	 *  archive written before it existed. */
+	thinkMs?: number;
 }
 
 export type LabelCounts = Partial<Record<MoveLabel, number>>;
@@ -128,6 +134,116 @@ export function gameAccuracy(moves: StoredMove[], color: 'w' | 'b'): number | nu
 	const harmonic = n / invSum;
 	return Math.max(0, Math.min(100, (weighted + harmonic) / 2));
 }
+
+/** How often a side played the engine's own first choice (#276). */
+export interface EngineCorrelation {
+	/** Moves that matched the top line. */
+	played: number;
+	/** Moves the question could be asked of — graded, and with a real choice. */
+	total: number;
+}
+
+/**
+ * How often `color` played the move the engine had first.
+ *
+ * Deliberately beside accuracy rather than instead of it, because the two
+ * disagree in a useful way. Accuracy is a weighted average of win-chance loss
+ * and is dominated by the worst move in the game, so one blunder buries forty
+ * good moves. "You found the engine's move 31 times out of 40" is a different
+ * and more legible fact, and a game with high correlation and low accuracy is
+ * one where you saw everything and then hung a rook — which is a specific and
+ * useful thing to be told.
+ *
+ * Two exclusions, both of which would otherwise make the number a lie:
+ *
+ *   * **Forced moves.** A position with one legal move is not a choice, and a
+ *     game of recaptures would score 100%. Counting them measures how forcing
+ *     the game was, not how well it was played.
+ *   * **Ungraded moves.** No `bestUci` means the question was never asked. An
+ *     import that was never analysed returns null rather than zero.
+ *
+ * Castling reaches the archive spelled two ways — dartchess normalises to
+ * king-takes-rook (e1h1) while the importers write king-two-squares (e1g1) —
+ * so both sides of the comparison go through the SAN of the move rather than
+ * its UCI. Comparing the raw strings scored every castling move as a miss.
+ *
+ * Returns null when nothing could be counted; the caller shows a dash, not 0%.
+ */
+export function engineCorrelation(
+	moves: StoredMove[],
+	color: 'w' | 'b'
+): EngineCorrelation | null {
+	let played = 0;
+	let total = 0;
+	for (const m of moves) {
+		if (m.color !== color) continue;
+		// `bestUci` is NOT "the engine's answer" on the import paths, and reading
+		// it as one inverts the whole statistic. chesscomCore.ts writes it only
+		// when `rBefore.pv[0] !== playedUci`, and lichess's own field is
+		// documented as "present on flagged moves" — so an imported move that
+		// carries a bestUci is by construction a move that did NOT match, and
+		// one that matched carries nothing at all. Measured on the 500-game
+		// archive in data/: 15,765 moves carry a bestUci and exactly 0 of them
+		// equal the move played. Counting those would have printed
+		// "0 of 39" under every imported game.
+		//
+		// `pctBest` is the signal that this app graded the move itself, and it
+		// is null on all 26,326 imported moves — so this fails safe to a dash on
+		// an import rather than to a lie. Recovering the number for chess.com
+		// imports means changing what the importer stores; see #281.
+		if (m.pctBest == null || !m.bestUci) continue;
+		try {
+			const chess = new Chess(m.fenBefore);
+			// Deduped on from+to: chess.moves() expands a promotion into four,
+			// so a position whose only move is a promotion would read as four
+			// choices and score as a free hit — in exactly the endgames this
+			// rule exists to exclude.
+			const choices = new Set(chess.moves({ verbose: true }).map((v) => v.from + v.to));
+			if (choices.size < 2) continue; // no choice was on offer
+			const mine = sanOf(m.fenBefore, m.uci);
+			const best = sanOf(m.fenBefore, m.bestUci);
+			if (mine === null || best === null) continue; // unreadable either side
+			total++;
+			if (mine === best) played++;
+		} catch {
+			continue; // a record chess.js cannot even set up: skip the move, not the game
+		}
+	}
+	return total === 0 ? null : { played, total };
+}
+
+/**
+ * The SAN of `uci` in `fen`, or null if it is not a legal move there.
+ *
+ * Castling is why this exists. dartchess spells it king-TAKES-ROOK (e1h1) and
+ * chess.js rejects that outright in standard chess, so without the rewrite
+ * below every castling move in the archive was unreadable and silently skipped
+ * — and the two spellings never compared equal as raw strings either.
+ */
+function sanOf(fen: string, uci: string): string | null {
+	try {
+		const c = new Chess(fen);
+		const from = uci.slice(0, 2);
+		let to = uci.slice(2, 4);
+		const moved = c.get(from as never);
+		const landed = c.get(to as never);
+		// Only a rook on its ORIGINAL file can be a castling target. Accepting
+		// any friendly rook rewrote a king's move onto a rook on f1 into O-O-O,
+		// which is a match for a move that was never made.
+		if (
+			moved?.type === 'k' &&
+			landed?.type === 'r' &&
+			landed.color === moved.color &&
+			(to[0] === 'a' || to[0] === 'h')
+		) {
+			to = (to[0] === 'h' ? 'g' : 'c') + to[1];
+		}
+		return c.move({ from, to, promotion: uci.length > 4 ? uci[4] : undefined }).san;
+	} catch {
+		return null;
+	}
+}
+
 
 export function labelCounts(moves: StoredMove[], color: 'w' | 'b'): LabelCounts {
 	const out: LabelCounts = {};

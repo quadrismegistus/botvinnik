@@ -37,6 +37,7 @@ import 'review_controller.dart';
 import 'review_tree.dart';
 import 'redo_stack.dart';
 import 'chess_clock.dart';
+import 'think_timer.dart';
 import 'settings_store.dart';
 
 /// How long archiving a finished game waits for in-flight grading.
@@ -57,6 +58,14 @@ class MoveRecord {
   final String fenAfter;
   MoveGrade? grade;
 
+  /// Wall time spent in front of this position before the move was played, or
+  /// null when it is not knowable — an imported game with no clock comments, a
+  /// move after a takeback, or a game rehydrated from the archive. Measured by
+  /// [ThinkTimer], independently of any chess clock, because most games have
+  /// no clock at all. Optional on purpose: every archive written before #267
+  /// has no such number and must keep loading.
+  int? thinkMs;
+
   MoveRecord({
     required this.ply,
     required this.san,
@@ -64,6 +73,7 @@ class MoveRecord {
     required this.color,
     required this.fenBefore,
     required this.fenAfter,
+    this.thinkMs,
   });
 }
 
@@ -388,7 +398,32 @@ class GameController extends ChangeNotifier {
   /// Owned here rather than by the screen because it has to survive a rebuild
   /// and because flag-fall is a RESULT, which only the controller can archive.
   ChessClock? _clock;
+
+  /// Wall time in front of each position, for every game — unlike [_clock],
+  /// which only exists in a rated game with a time control (#267).
+  ThinkTimer _think = ThinkTimer();
+
+  /// Tests need a time source they control; nothing else may replace this.
+  @visibleForTesting
+  set thinkTimer(ThinkTimer t) => _think = t;
   ChessClock? get clock => _clock;
+
+  final Map<String, ({int played, int total})?> _correlation = {};
+
+  /// How often [color] played the engine's own first choice, or null when the
+  /// question cannot be answered for this game (#276).
+  ///
+  /// Memoised, and deliberately not computed in [showReview]: it costs ~110ms
+  /// for a long game — 500x the accuracy call it sits beside, because it walks
+  /// every move through chess.js — and the caller is a widget build method that
+  /// reruns on every cursor move. Once per game, lazily, on the first draw.
+  ({int played, int total})? correlationFor(String color) =>
+      _correlation.putIfAbsent(
+          color, () => _grading.engineCorrelation(_reviewRawMoves, color));
+
+  /// The stored moves of the game under review, after `_loadReview`'s
+  /// validation — the list the correlation is computed from.
+  List<Map<String, dynamic>> _reviewRawMoves = const [];
 
   /// The side that ran out of time, if one did. Like [_resigned], the position
   /// cannot express it.
@@ -930,6 +965,8 @@ class GameController extends ChangeNotifier {
     _refusalPendingGen = null;
     _clearRefusalUi();
     _clock?.dispose();
+    // a fresh game: the first move's think time starts counting now
+    _think.restart();
     _flagged = null;
     _clock = rated && timeControl != null
         ? (ChessClock(timeControl)
@@ -1165,6 +1202,11 @@ class GameController extends ChangeNotifier {
     }
     // prepended: this batch is OLDER than anything a previous undo stored
     _redoStack.pushUndone(undone);
+    // the clock in front of the NEXT move no longer measures one decision: the
+    // player has already seen this position and the line that followed it.
+    // redo needs no matching call: the stack it reads is only ever filled here,
+    // and a divergent move clears it, so a redo is always already discarded.
+    _think.discard();
     final fen = moves.isEmpty ? _startFen : moves.last.fenAfter;
     position = Chess.fromSetup(Setup.parseFen(fen));
     lastMove =
@@ -1228,7 +1270,11 @@ class GameController extends ChangeNotifier {
     // directly, so only human moves are sampled.
     if (botEnabled && _assisted) _botHintsUsed = true;
     if (_refuseBlunders && botEnabled) {
-      unawaited(_maybeRefuse(move, san));
+      // The refusal check awaits a search of up to 2.5s before the move is
+      // applied, and an engine search is not the player thinking. Sampled here,
+      // before anything awaits, or every human move in a protected game is
+      // inflated by the check — measured at 412ms on an instant move.
+      unawaited(_maybeRefuse(move, san, _think.take()?.inMilliseconds));
       return;
     }
     _apply(move, san);
@@ -1288,7 +1334,7 @@ class GameController extends ChangeNotifier {
   ///
   /// Both paths additionally require the pre-move lines to have reached
   /// [kMinUsefulDepth], since `bestEval` comes from them either way.
-  Future<void> _maybeRefuse(NormalMove move, String san) async {
+  Future<void> _maybeRefuse(NormalMove move, String san, int? thinkMs) async {
     final gen = _gen;
     _refusalPending = true;
     _refusalPendingGen = gen;
@@ -1510,7 +1556,7 @@ class GameController extends ChangeNotifier {
       // Before the call, not after: a throw from inside [_apply] leaves the
       // move half-applied, and re-applying it is worse than not.
       decided = true;
-      _apply(move, san);
+      _apply(move, san, thinkMs: thinkMs);
       _maybeBotTurn();
     } catch (e, st) {
       // FAIL OPEN, and this is the whole point of the branch. Every await
@@ -1542,7 +1588,7 @@ class GameController extends ChangeNotifier {
       // makes a player start a new game in the middle of a check.
       if (!decided && gen == _gen) {
         _clearRefusalUi();
-        _apply(move, san);
+        _apply(move, san, thinkMs: thinkMs);
         _maybeBotTurn();
       }
     } finally {
@@ -1578,16 +1624,16 @@ class GameController extends ChangeNotifier {
 
   // ---- internals ----
 
-  void _apply(NormalMove move, String san) {
+  void _apply(NormalMove move, String san, {int? thinkMs}) {
     _applying = true;
     try {
-      _applyInner(move, san);
+      _applyInner(move, san, thinkMs: thinkMs);
     } finally {
       _applying = false;
     }
   }
 
-  void _applyInner(NormalMove move, String san) {
+  void _applyInner(NormalMove move, String san, {int? thinkMs}) {
     // Who will have pressed, read BEFORE playUnchecked flips the turn — but
     // the press itself happens after the move is on the board, further down.
     //
@@ -1623,7 +1669,9 @@ class GameController extends ChangeNotifier {
       color: position.turn == Side.white ? 'b' : 'w',
       fenBefore: fenBefore,
       fenAfter: position.fen,
+      thinkMs: thinkMs ?? _think.take()?.inMilliseconds,
     );
+    _think.restart(); // the next side's turn starts now, not when it moves
     moves.add(record);
     // NOW the clock, with the move on the board — see the note at the top of
     // this method. First move starts it rather than pressing: there is nothing
@@ -1717,17 +1765,29 @@ class GameController extends ChangeNotifier {
   /// on `_running == null`. A guard that cannot be reached is worse than none:
   /// it reads as the thing keeping the invariant when the real keeper is
   /// somewhere else.
-  void pauseForBackground() => _clock?.pause();
+  void pauseForBackground() {
+    _clock?.pause();
+    _think.pause();
+  }
 
   /// Back in front of the player: unfreeze.
   ///
   /// Resumes immediately rather than waiting for a move, which is what every
   /// other clock does on return. No UI indication of the paused state is
   /// needed — by definition nobody is looking at it while it holds.
-  void resumeFromBackground() => _clock?.resume();
+  void resumeFromBackground() {
+    _clock?.resume();
+    _think.resume();
+  }
 
   /// Debug/self-test only: archive the game regardless of game-over state.
   Future<void> debugForceSave() => _saveGame();
+
+  /// Debug/self-test only: the moves exactly as they would be archived, so a
+  /// test can assert what reaches storage rather than what is in memory.
+  @visibleForTesting
+  List<Map<String, dynamic>> debugStoredMoves() =>
+      [for (final m in moves) _storedMoveOf(m)];
 
   String get _result {
     // Before the position checks: the board is still playable, which is the
@@ -1872,6 +1932,10 @@ class GameController extends ChangeNotifier {
     for (var i = 0; i < played.length; i++) {
       if (i.isEven) sb.write('${i ~/ 2 + 1}. ');
       sb.write('${played[i].san} ');
+      // %emt is "elapsed move time", the standard PGN annotation for exactly
+      // this, and what our own importer reads back
+      final ms = played[i].thinkMs;
+      if (ms != null) sb.write('{[%emt ${(ms / 1000).toStringAsFixed(3)}]} ');
     }
     sb.write(result);
     return sb.toString();
@@ -2562,6 +2626,7 @@ class GameController extends ChangeNotifier {
       if (movesField is List)
         for (final e in movesField.whereType<Map>()) e.cast<String, dynamic>()
     ];
+
     // Checked BEFORE anything is read out, not after — the guard used to sit
     // below the casts it was there to protect, so a record missing a field
     // threw a _TypeError on the way to it. That throw lands inside a
@@ -2579,13 +2644,20 @@ class GameController extends ChangeNotifier {
             m['ply'] is num &&
             _parses(m['fenBefore']) &&
             _parses(m['fenAfter']));
+    _correlation.clear(); // a different game, a different answer
     if (!usable) {
       moves.clear();
+      _reviewRawMoves = const [];
       _startFen = Chess.initial.fen;
       _tree = ReviewTree(_startFen);
       _reviewColor = 'w';
       return;
     }
+    // AFTER the guard, never before: this is the list the correlation walks
+    // through chess.js, and the archive is the one input here we do not
+    // control. A record that fails `usable` must reach the brain no more than
+    // it reaches the board.
+    _reviewRawMoves = raw;
     moves
       ..clear()
       ..addAll([
@@ -2597,6 +2669,7 @@ class GameController extends ChangeNotifier {
             color: m['color'] as String,
             fenBefore: m['fenBefore'] as String,
             fenAfter: m['fenAfter'] as String,
+            thinkMs: m['thinkMs'] is num ? (m['thinkMs'] as num).toInt() : null,
           )
       ]);
     _startFen = moves.first.fenBefore;
@@ -3261,6 +3334,7 @@ class GameController extends ChangeNotifier {
       'color': m.color,
       'fenBefore': m.fenBefore,
       'fenAfter': m.fenAfter,
+      if (m.thinkMs != null) 'thinkMs': m.thinkMs,
       'evalPawns': g?.evalPawns,
       'mate': g?.mate,
       'pctBest': g?.pctBest,

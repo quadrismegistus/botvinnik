@@ -3916,6 +3916,7 @@ var brain = (() => {
     enPassantSetup: () => enPassantSetup,
     encodeBoard: () => encodeBoard,
     encodeBoardArray: () => encodeBoardArray,
+    engineCorrelation: () => engineCorrelation,
     estimatePlayerElo: () => estimatePlayerElo,
     expectedScore: () => expectedScore,
     explainGoodMove: () => explainGoodMove,
@@ -9751,6 +9752,42 @@ var brain = (() => {
     const weighted = weightedSum / weightSum;
     const harmonic = n / invSum;
     return Math.max(0, Math.min(100, (weighted + harmonic) / 2));
+  }
+  function engineCorrelation(moves, color) {
+    let played = 0;
+    let total = 0;
+    for (const m of moves) {
+      if (m.color !== color) continue;
+      if (m.pctBest == null || !m.bestUci) continue;
+      try {
+        const chess = new Chess(m.fenBefore);
+        const choices = new Set(chess.moves({ verbose: true }).map((v) => v.from + v.to));
+        if (choices.size < 2) continue;
+        const mine = sanOf(m.fenBefore, m.uci);
+        const best = sanOf(m.fenBefore, m.bestUci);
+        if (mine === null || best === null) continue;
+        total++;
+        if (mine === best) played++;
+      } catch {
+        continue;
+      }
+    }
+    return total === 0 ? null : { played, total };
+  }
+  function sanOf(fen, uci) {
+    try {
+      const c = new Chess(fen);
+      const from = uci.slice(0, 2);
+      let to = uci.slice(2, 4);
+      const moved = c.get(from);
+      const landed = c.get(to);
+      if (moved?.type === "k" && landed?.type === "r" && landed.color === moved.color && (to[0] === "a" || to[0] === "h")) {
+        to = (to[0] === "h" ? "g" : "c") + to[1];
+      }
+      return c.move({ from, to, promotion: uci.length > 4 ? uci[4] : void 0 }).san;
+    } catch {
+      return null;
+    }
   }
   function labelCounts(moves, color) {
     const out = {};
