@@ -26,6 +26,10 @@ export interface StoredMove {
 	bestSan?: string;
 	bestUci?: string;
 	explanation?: Explanation;
+	/** Wall time spent on this move, where it is known (#267): an in-app game,
+	 *  or a PGN carrying %emt/%clk. Absent everywhere else, including every
+	 *  archive written before it existed. */
+	thinkMs?: number;
 }
 
 export type LabelCounts = Partial<Record<MoveLabel, number>>;
