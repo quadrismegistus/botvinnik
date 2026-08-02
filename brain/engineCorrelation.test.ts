@@ -5,6 +5,8 @@
 // ones, while this counts how often you actually saw it.
 import { describe, expect, it } from 'vitest';
 
+import { Chess } from 'chess.js';
+
 import { engineCorrelation, type StoredMove } from './gameStore';
 
 const START = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
@@ -96,6 +98,38 @@ describe('engineCorrelation', () => {
 				'w'
 			)
 		).toBeNull();
+	});
+
+	it('excludes a move whose ENGINE move is the unreadable one', () => {
+		// the other arm of the unreadable guard. Without it a record whose
+		// bestUci does not fit its position is counted as a MISS, scoring the
+		// player down for the engine's bad data.
+		const moves = [
+			move({ color: 'w', uci: 'e2e4', bestUci: 'e2e4', fenBefore: START }),
+			move({ color: 'w', uci: 'd2d4', bestUci: 'h7h8', fenBefore: START })
+		];
+		expect(engineCorrelation(moves, 'w')).toEqual({ played: 1, total: 1 });
+	});
+
+	it('does not rewrite a king CAPTURING an enemy rook on the a-file', () => {
+		// Kb1xa1 is the one shape where the colour test is the only thing
+		// standing between a king capture and a rewritten "O-O-O": the square is
+		// on the a-file and holds a rook, so the file and type tests both pass.
+		const fen = '4k3/8/8/8/8/8/8/rK6 w - - 0 1';
+		expect(new Chess(fen).move({ from: 'b1', to: 'a1' }).san).toBe('Kxa1');
+		expect(
+			engineCorrelation([move({ color: 'w', uci: 'b1a1', bestUci: 'b1a1', fenBefore: fen })], 'w')
+		).toEqual({ played: 1, total: 1 });
+	});
+
+	it('does not rewrite a king capturing a QUEEN on the a-file', () => {
+		// same square, same file, not a rook — so here the type test is the only
+		// refusal, and dropping it rewrites Kxa1 into a castle that never was
+		const fen = '4k3/8/8/8/8/8/8/qK6 w - - 0 1';
+		expect(new Chess(fen).move({ from: 'b1', to: 'a1' }).san).toBe('Kxa1');
+		expect(
+			engineCorrelation([move({ color: 'w', uci: 'b1a1', bestUci: 'b1a1', fenBefore: fen })], 'w')
+		).toEqual({ played: 1, total: 1 });
 	});
 
 	it('does not read a king move onto some other friendly rook as castling', () => {

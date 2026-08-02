@@ -59,10 +59,13 @@ class GradingApi {
       List<Map<String, dynamic>> storedMoves, String color) {
     final r = _bridge.call('engineCorrelation', args: [storedMoves, color]);
     if (r is! Map) return null;
-    final played = (r['played'] as num?)?.toInt();
-    final total = (r['total'] as num?)?.toInt();
-    if (played == null || total == null) return null;
-    return (played: played, total: total);
+    // `is num`, not `as num?`: a cast throws on anything else, and this call is
+    // made from a widget build method, where a throw is a red screen rather
+    // than a missing row.
+    final played = r['played'];
+    final total = r['total'];
+    if (played is! num || total is! num) return null;
+    return (played: played.toInt(), total: total.toInt());
   }
 
   /// {blunder: n, mistake: n, ...} for one side of a stored game.
