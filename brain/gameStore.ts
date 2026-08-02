@@ -173,39 +173,73 @@ export function engineCorrelation(
 	let total = 0;
 	for (const m of moves) {
 		if (m.color !== color) continue;
-		if (!m.bestUci) continue; // never graded: the question was not asked
-		const chess = new Chess(m.fenBefore);
-		if (chess.moves().length < 2) continue; // no choice was on offer
-		const san = (uci: string) => {
-			const c = new Chess(m.fenBefore);
-			let to = uci.slice(2, 4);
-			// dartchess spells castling king-TAKES-ROOK (e1h1) and chess.js
-			// rejects that outright in standard chess, so without this every
-			// castling move in the archive was unreadable and silently skipped
-			const from = uci.slice(0, 2);
-			const moved = c.get(from as never);
-			const landed = c.get(to as never);
-			if (moved?.type === 'k' && landed?.type === 'r' && landed.color === moved.color) {
-				to = (to[0] === 'h' ? 'g' : 'c') + to[1];
-			}
-			try {
-				return c.move({
-					from,
-					to,
-					promotion: uci.length > 4 ? uci[4] : undefined
-				}).san;
-			} catch {
-				return null;
-			}
-		};
-		const mine = san(m.uci);
-		const best = san(m.bestUci);
-		if (mine === null || best === null) continue; // unreadable either side
-		total++;
-		if (mine === best) played++;
+		// `bestUci` is NOT "the engine's answer" on the import paths, and reading
+		// it as one inverts the whole statistic. chesscomCore.ts writes it only
+		// when `rBefore.pv[0] !== playedUci`, and lichess's own field is
+		// documented as "present on flagged moves" — so an imported move that
+		// carries a bestUci is by construction a move that did NOT match, and
+		// one that matched carries nothing at all. Measured on the 500-game
+		// archive in data/: 15,765 moves carry a bestUci and exactly 0 of them
+		// equal the move played. Counting those would have printed
+		// "0 of 39" under every imported game.
+		//
+		// `pctBest` is the signal that this app graded the move itself, and it
+		// is null on all 26,326 imported moves — so this fails safe to a dash on
+		// an import rather than to a lie. Recovering the number for chess.com
+		// imports means changing what the importer stores; see #281.
+		if (m.pctBest == null || !m.bestUci) continue;
+		try {
+			const chess = new Chess(m.fenBefore);
+			// Deduped on from+to: chess.moves() expands a promotion into four,
+			// so a position whose only move is a promotion would read as four
+			// choices and score as a free hit — in exactly the endgames this
+			// rule exists to exclude.
+			const choices = new Set(chess.moves({ verbose: true }).map((v) => v.from + v.to));
+			if (choices.size < 2) continue; // no choice was on offer
+			const mine = sanOf(m.fenBefore, m.uci);
+			const best = sanOf(m.fenBefore, m.bestUci);
+			if (mine === null || best === null) continue; // unreadable either side
+			total++;
+			if (mine === best) played++;
+		} catch {
+			continue; // a record chess.js cannot even set up: skip the move, not the game
+		}
 	}
 	return total === 0 ? null : { played, total };
 }
+
+/**
+ * The SAN of `uci` in `fen`, or null if it is not a legal move there.
+ *
+ * Castling is why this exists. dartchess spells it king-TAKES-ROOK (e1h1) and
+ * chess.js rejects that outright in standard chess, so without the rewrite
+ * below every castling move in the archive was unreadable and silently skipped
+ * — and the two spellings never compared equal as raw strings either.
+ */
+function sanOf(fen: string, uci: string): string | null {
+	try {
+		const c = new Chess(fen);
+		const from = uci.slice(0, 2);
+		let to = uci.slice(2, 4);
+		const moved = c.get(from as never);
+		const landed = c.get(to as never);
+		// Only a rook on its ORIGINAL file can be a castling target. Accepting
+		// any friendly rook rewrote a king's move onto a rook on f1 into O-O-O,
+		// which is a match for a move that was never made.
+		if (
+			moved?.type === 'k' &&
+			landed?.type === 'r' &&
+			landed.color === moved.color &&
+			(to[0] === 'a' || to[0] === 'h')
+		) {
+			to = (to[0] === 'h' ? 'g' : 'c') + to[1];
+		}
+		return c.move({ from, to, promotion: uci.length > 4 ? uci[4] : undefined }).san;
+	} catch {
+		return null;
+	}
+}
+
 
 export function labelCounts(moves: StoredMove[], color: 'w' | 'b'): LabelCounts {
 	const out: LabelCounts = {};

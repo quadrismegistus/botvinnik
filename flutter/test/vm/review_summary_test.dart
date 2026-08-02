@@ -63,10 +63,20 @@ class _CorrelatingGrading extends FakeGrading {
   _CorrelatingGrading(this._w, this._b);
   final ({int played, int total})? _w;
   final ({int played, int total})? _b;
+
+  /// What the widget actually handed the bridge, so a test can prove the
+  /// memoised path passes the game's moves and not an empty list — which a
+  /// stub that ignores its argument would happily hide.
+  final List<List<Map<String, dynamic>>> seen = [];
+  int calls = 0;
+
   @override
   ({int played, int total})? engineCorrelation(
-          List<Map<String, dynamic>> moves, String color) =>
-      color == 'w' ? _w : _b;
+      List<Map<String, dynamic>> moves, String color) {
+    calls++;
+    seen.add(moves);
+    return color == 'w' ? _w : _b;
+  }
 }
 
 class _StubDb implements AppDb {
@@ -223,6 +233,22 @@ void main() {
     // test says so: asserting both strings exist somewhere passes just as
     // happily with the two cells swapped
     expect(_correlationCells(tester), ['31 of 40', '12 of 39']);
+  });
+
+  testWidgets('asks the brain about this game\'s moves, once per side',
+      (tester) async {
+    final grading = _CorrelatingGrading((played: 1, total: 2), (played: 0, total: 1));
+    await _pumpReview(tester, _played(), grading: grading);
+
+    expect(grading.seen, hasLength(2), reason: 'one call per side');
+    for (final moves in grading.seen) {
+      expect(moves.map((m) => m['uci']), ['e2e4', 'e7e5'],
+          reason: 'the game\'s own moves, not an empty list');
+    }
+
+    // and it is memoised: a rebuild must not recompute
+    await tester.pump();
+    expect(grading.calls, 2);
   });
 
   testWidgets('says nothing at all when nothing could be counted',

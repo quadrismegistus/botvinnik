@@ -394,6 +394,25 @@ class GameController extends ChangeNotifier {
   /// ask the brain a question without a second provider in its tree.
   GradingApi get grading => _grading;
 
+  final Map<String, ({int played, int total})?> _correlation = {};
+
+  /// How often [color] played the engine's own first choice, or null when the
+  /// question cannot be answered for this game (#276).
+  ///
+  /// Memoised, and deliberately not computed in [showReview]: it costs ~110ms
+  /// for a long game — 500x the accuracy call it sits beside, because it walks
+  /// every move through chess.js — and the caller is a widget build method that
+  /// reruns on every cursor move. Once per game, lazily, on the first draw.
+  ({int played, int total})? correlationFor(String color) =>
+      _correlation.putIfAbsent(
+          color, () => _grading.engineCorrelation(debugStoredMovesRaw(), color));
+
+  /// The stored-move maps as they sit in the archive — the review board's own
+  /// copy, which already carries the grades.
+  List<Map<String, dynamic>> debugStoredMovesRaw() => _reviewRawMoves;
+
+  List<Map<String, dynamic>> _reviewRawMoves = const [];
+
   /// The side that ran out of time, if one did. Like [_resigned], the position
   /// cannot express it.
   ClockSide? _flagged;
@@ -2566,6 +2585,8 @@ class GameController extends ChangeNotifier {
       if (movesField is List)
         for (final e in movesField.whereType<Map>()) e.cast<String, dynamic>()
     ];
+    _reviewRawMoves = raw;
+    _correlation.clear(); // a different game, a different answer
     // Checked BEFORE anything is read out, not after — the guard used to sit
     // below the casts it was there to protect, so a record missing a field
     // threw a _TypeError on the way to it. That throw lands inside a

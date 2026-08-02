@@ -20,7 +20,6 @@ import 'package:dartchess/dartchess.dart' show Side;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import '../brain/grading_api.dart';
 
 import '../stores/game_controller.dart';
 import '../stores/review_tree.dart';
@@ -56,7 +55,7 @@ class ReviewBody extends StatelessWidget {
     // The brain's ranking, not one written out here — the grade strip and the
     // brain both order by LABEL_ORDER, and a second list would drift from it.
     final summary =
-        _summary(game, table, table.labelOrder, board.grading);
+        _summary(game, table, table.labelOrder, board);
     // Both ride in the move-list header (index 0) so they cost the board no
     // height — Review's board is sized against kReviewFixed, and anything in
     // the fixed column comes straight out of the board.
@@ -358,7 +357,7 @@ class ReviewBody extends StatelessWidget {
     Map<String, dynamic> game,
     ClassTable table,
     List<String> order,
-    GradingApi grading,
+    ReviewBoardController board,
   ) {
     final counts = game['labelCounts'] as Map?;
     final w = counts?['w'] as Map?;
@@ -372,16 +371,14 @@ class ReviewBody extends StatelessWidget {
     // pgn_import — and records written before accuracy existed have neither
     // either. A grid of dashes would say nothing, so say nothing.
     // How often each side found the engine's own first choice (#276). Derived
-    // here rather than read off the record, so it works for the whole archive
-    // and not only for games saved after it existed — and it disagrees with
+    // rather than read off the record, so it works for the whole archive and
+    // not only for games saved after it existed — and it disagrees with
     // accuracy in a useful way, because accuracy is dominated by the worst
     // move in the game while this counts how often you actually saw it.
-    final storedMoves = ((game['moves'] as List?) ?? const [])
-        .whereType<Map>()
-        .map((m) => m.cast<String, dynamic>())
-        .toList();
-    final wCorr = grading.engineCorrelation(storedMoves, 'w');
-    final bCorr = grading.engineCorrelation(storedMoves, 'b');
+    // Memoised on the board controller: it walks every move through chess.js,
+    // and this method reruns on every cursor move.
+    final wCorr = board.correlationFor('w');
+    final bCorr = board.correlationFor('b');
 
     if (wAcc == null && bAcc == null && rows.isEmpty) return const SizedBox();
 
