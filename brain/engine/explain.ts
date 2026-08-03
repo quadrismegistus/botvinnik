@@ -1077,8 +1077,12 @@ export type Motif =
 // `loadItems` is not exported from brain-entry.ts, so it is not in the bundle
 // and the Flutter app never calls it (practice_controller.dart:371 says so).
 // Bumping this number retags nothing that is already stored — only newly
-// collected items carry new tags. Wiring a backfill into PracticeController is
-// worth doing; until then the constant documents intent, not behaviour.
+// collected items carry new tags.
+//
+// And a backfill would not rescue them either, which is the stronger reason:
+// it recomputes from what the ITEM holds, and an item stored before #283 has
+// mateBest: null because the input was lost on the way in, not because the
+// tagger was wrong. Old items are unfixable without re-analysing the game.
 export const MOTIF_TAGS_VERSION = 5;
 
 export function motifTags(

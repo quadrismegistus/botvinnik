@@ -1,3 +1,4 @@
+import { Chess } from 'chess.js';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
 	addItem,
@@ -56,6 +57,42 @@ function move(overrides: Partial<StoredMove> = {}): StoredMove {
 }
 
 describe('itemDataFromStoredMove', () => {
+	it('carries the best line\'s mate distance through, rather than null', () => {
+		// The grade has always known this and storage used to drop it (#283), so
+		// the tagger saw every position as one where nothing forced mate.
+		const withMate = itemDataFromStoredMove(move({ bestMate: 2 }));
+		expect(withMate?.mateBest).toBe(2);
+		expect(itemDataFromStoredMove(move())?.mateBest).toBeNull();
+	});
+
+	it('tags a quiet move that forces mate as mate, not as a positional fact', () => {
+		// Rd5 is quiet, gives no check, and forces mate in two. Collected with
+		// mate: null it was filed under "open file" — which the tier-1 hint then
+		// says out loud on a mating puzzle. The control below is the same
+		// position with the mate distance withheld, which is what used to reach
+		// the tagger and is why the tag was wrong rather than merely missing.
+		const mating = {
+			fenBefore: '5B2/2P5/8/1P4R1/5k2/4p3/p3P1K1/B2R2N1 w - - 3 75',
+			fenAfter: '5B2/2P5/8/1P1R4/5k2/4p3/p3P1K1/B2R2N1 b - - 4 75',
+			san: 'Rd5',
+			uci: 'g5d5',
+			bestSan: 'Rgd5',
+			bestUci: 'g5d5',
+		};
+		// played !== best, or there is no puzzle at all — the drill asks the
+		// player to find Rgd5 after some other move. Kf1 is legal here; a
+		// described-but-unasserted fixture is how a FEN comment starts lying.
+		expect(new Chess(mating.fenBefore).move({ from: 'g2', to: 'f1' }).san).toBe('Kf1');
+		const item = itemDataFromStoredMove(
+			move({ ...mating, san: 'Kf1', uci: 'g2f1', bestMate: 2 })
+		);
+		expect(item?.motifs).toContain('mate');
+		expect(item?.motifs).not.toContain('open file');
+
+		const blind = itemDataFromStoredMove(move({ ...mating, san: 'Kf1', uci: 'g2f1' }));
+		expect(blind?.motifs).toEqual(['open file']);
+	});
+
 	it('returns null without a best move', () => {
 		expect(itemDataFromStoredMove(move({ bestUci: undefined }))).toBeNull();
 		expect(itemDataFromStoredMove(move({ bestSan: undefined }))).toBeNull();
