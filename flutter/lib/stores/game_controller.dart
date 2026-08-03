@@ -1497,6 +1497,11 @@ class GameController extends ChangeNotifier {
             'fenAfter': candidateFen,
             'evalPawns': basis.evalPawns,
             'mate': basis.mate,
+            // the mate distance on the best line, or a refused blunder reaches
+            // the tagger as though nothing forced mate — and a MISSED forced
+            // mate is the single likeliest way a refusal happens at all, since
+            // wcBest is then 100 and any alternative clears the bar
+            'bestMate': basis.bestMate,
             'pctBest': basis.pctBest,
             'wcDrop': drop,
             'depth': basis.depth,

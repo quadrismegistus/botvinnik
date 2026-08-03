@@ -13,6 +13,8 @@
 //   cd flutter && flutter test test/background_grader_test.dart
 
 import 'package:flutter/foundation.dart';
+
+import 'package:botvinnik_mobile/stores/game_controller.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:botvinnik_mobile/brain/types.dart';
@@ -148,6 +150,50 @@ BackgroundGrader _grader(
     );
 
 void main() {
+  test('writes the same fields a played game writes', () async {
+    // `_withGrade`'s own doc comment promises this — "matching
+    // GameController._storedMoveOf field for field so a background-graded game
+    // is indistinguishable from a played one downstream". Nothing asserted it,
+    // and two fields went into one and not the other: correlation regressed to
+    // a dash on every in-app chess.com import and pasted PGN (both are graded
+    // HERE, not by the importer), and their practice items reached the tagger
+    // with no mate distance.
+    final db = MemoryDb([_ungraded('g1')]);
+    final live = ValueNotifier(false);
+    final grader = _grader(db, RecordingPractice(), live);
+    grader.start();
+    await grader.pass;
+    final graded = (db.games['g1']!['moves'] as List).first as Map;
+
+    // the same grading stub, through the played-game path
+    final settings = await loadSettings();
+    final game = GameController(
+        FakeArbiter(analysisLines: kFakeLines, searchLines: kFakeLines),
+        FakeBot(),
+        SavingGrading(),
+        settings);
+    game.newGame();
+    game.playUci('e2e4');
+    await Future<void>.delayed(const Duration(milliseconds: 200));
+    final played = game.debugStoredMoves().single;
+    game.dispose();
+
+    expect(played['bestUci'], isNotNull, reason: 'precondition: it graded');
+    // thinkMs is the one legitimate difference: it measures PLAY, not grading,
+    // and _withGrade passes through whatever the record already had.
+    const ofPlay = {'thinkMs'};
+    expect(
+      graded.keys.toSet().difference(played.keys.toSet()).difference(ofPlay),
+      isEmpty,
+      reason: 'the grader wrote a grading field the played path does not',
+    );
+    expect(
+      played.keys.toSet().difference(graded.keys.toSet()).difference(ofPlay),
+      isEmpty,
+      reason: 'the played path wrote a grading field the grader does not',
+    );
+  });
+
   test('grades every ungraded game and leaves graded ones alone', () async {
     final db = MemoryDb([_ungraded('g1'), _graded('done'), _ungraded('g2')]);
     final practice = RecordingPractice();

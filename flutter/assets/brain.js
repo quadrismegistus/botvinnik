@@ -9763,7 +9763,7 @@ var brain = (() => {
     let total = 0;
     for (const m of moves) {
       if (m.color !== color) continue;
-      if (!m.topRecorded || !m.bestUci) continue;
+      if (!(m.topRecorded || m.pctBest != null) || !m.bestUci) continue;
       try {
         const chess = new Chess(m.fenBefore);
         const choices = new Set(chess.moves({ verbose: true }).map((v) => v.from + v.to));
@@ -9878,7 +9878,11 @@ var brain = (() => {
       }
       const label = labelForDrop(wcDrop);
       let explanation;
-      if ((label === "inaccuracy" || label === "mistake" || label === "blunder") && bestUci && bestPv.length >= 1) {
+      if ((label === "inaccuracy" || label === "mistake" || label === "blunder") && bestUci && // the same guard the practice gate needed, for the same reason: now
+      // that a bestUci exists on agreement too (#281), this could produce
+      // "Instead, Qxd5+ … wins a pawn" under a move that WAS Qxd5+. Rare
+      // (1 explanation in 90 over 25 real games) and plainly wrong.
+      bestUci !== uci && bestPv.length >= 1) {
         const point = bestMovePoint(fenBefore, bestUci, bestPv);
         if (point) {
           explanation = { bestPoint: point, evidence: { fen: fenBefore, ucis: bestPv.slice(0, 9) } };

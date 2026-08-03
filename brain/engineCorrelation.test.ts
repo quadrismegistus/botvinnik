@@ -66,9 +66,14 @@ describe('engineCorrelation', () => {
 		// Counting those printed "0 of 39" under every analysed game in a real
 		// 500-game archive — 15,765 moves carried a bestUci and exactly 0 of
 		// them matched. Without the promise, the absence means nothing.
+		// pctBest null as well as no promise: that is the import shape — no
+		// importer writes pctBest, on any of the 26,326 imported moves in the
+		// archive in data/
 		const lichess = [
-			move({ color: 'w', uci: 'e2e4', bestUci: 'd2d4', fenBefore: START, topRecorded: undefined }),
-			move({ color: 'w', uci: 'g1f3', bestUci: 'b1c3', fenBefore: START, topRecorded: undefined })
+			move({ color: 'w', uci: 'e2e4', bestUci: 'd2d4', fenBefore: START,
+				topRecorded: undefined, pctBest: null }),
+			move({ color: 'w', uci: 'g1f3', bestUci: 'b1c3', fenBefore: START,
+				topRecorded: undefined, pctBest: null })
 		];
 		expect(engineCorrelation(lichess, 'w')).toBeNull();
 	});
@@ -80,6 +85,40 @@ describe('engineCorrelation', () => {
 			move({ color: 'w', uci: 'g1f3', bestUci: 'g1f3', fenBefore: START })
 		];
 		expect(engineCorrelation(graded, 'w')).toEqual({ played: 1, total: 2 });
+	});
+
+	it('still counts a game played before the promise existed', () => {
+		// Every live game already in the archive has pctBest and a bestUci and
+		// no topRecorded — this app's graders have always written the first two.
+		// Requiring the new flag alone turned the row into a dash on the whole
+		// existing archive, which no migration could undo.
+		const legacy = [
+			move({ color: 'w', uci: 'e2e4', bestUci: 'e2e4', fenBefore: START,
+				topRecorded: undefined, pctBest: 100 }),
+			move({ color: 'w', uci: 'd2d4', bestUci: 'g1f3', fenBefore: START,
+				topRecorded: undefined, pctBest: 62 })
+		];
+		expect(engineCorrelation(legacy, 'w')).toEqual({ played: 1, total: 2 });
+	});
+
+	it('counts a fresh chess.com import, which has the promise and no pctBest', () => {
+		// The other side of the same gate: the importer sets topRecorded and no
+		// importer writes pctBest, so requiring pctBest would exclude exactly
+		// the games #281 exists to make countable.
+		const fresh = [
+			move({ color: 'w', uci: 'e2e4', bestUci: 'e2e4', fenBefore: START, pctBest: null })
+		];
+		expect(engineCorrelation(fresh, 'w')).toEqual({ played: 1, total: 1 });
+	});
+
+	it('does not count an import, which has neither', () => {
+		// the control: no promise AND no pctBest is the import shape, and it is
+		// the case the whole gate exists for
+		const imported = [
+			move({ color: 'w', uci: 'e2e4', bestUci: 'd2d4', fenBefore: START,
+				topRecorded: undefined, pctBest: null })
+		];
+		expect(engineCorrelation(imported, 'w')).toBeNull();
 	});
 
 	it('counts a match, which is the whole point and was unreachable before', () => {

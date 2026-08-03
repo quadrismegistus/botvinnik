@@ -1,6 +1,7 @@
 import { Chess } from 'chess.js';
 import { describe, expect, it } from 'vitest';
 import { ccGameToAnalysed, ccGameToStored, mapOneGame, type CcGame } from './chesscomCore';
+import { bestMovePoint } from './engine/explain';
 import { analysedGameToStored } from './lichessImport';
 import type { UciEval } from './engine/types';
 
@@ -200,19 +201,69 @@ describe('ccGameToAnalysed', () => {
 		// meaning two different things. Measured on a 500-game archive: 15,765
 		// moves carried a best and exactly 0 of them matched the move played.
 		// We search every position ourselves; there is no reason to keep half.
+		// Named plies, not "the first legal move": chess.js's generation order
+		// decides that, so the old stub agreed on ONE ply of seven — Black's —
+		// and a chess.js upgrade that reorders it would flip the test with no
+		// code change. Here White's first move is the engine's own choice and
+		// its second is not, both by construction.
 		const agrees: (fen: string) => Promise<UciEval> = async (fen) => {
-			// always name the first legal move, so most plies AGREE with play
+			const played: Record<string, string> = { e2e4: 'e2e4', d1h5: 'a2a3' };
 			const c = new Chess(fen);
-			const m = c.moves({ verbose: true })[0];
-			return { cp: 0, pv: m ? [m.from + m.to + (m.promotion ?? '')] : [] };
+			const legal = c.moves({ verbose: true });
+			const mine = legal.find((m) => played[m.from + m.to]);
+			const pick = mine ? played[mine.from + mine.to] : legal[0];
+			const uci = typeof pick === 'string' ? pick : pick ? pick.from + pick.to : undefined;
+			if (!uci) return { cp: 0, pv: [] };
+			// a REAL three-ply line, played out legally: bestPv feeds the
+			// sacrifice and material detectors, which need more than one move
+			const line = [uci];
+			const w = new Chess(fen);
+			w.move({ from: uci.slice(0, 2), to: uci.slice(2, 4) });
+			for (let k = 0; k < 2; k++) {
+				const nxt = w.moves({ verbose: true })[0];
+				if (!nxt) break;
+				line.push(nxt.from + nxt.to + (nxt.promotion ?? ''));
+				w.move(nxt);
+			}
+			return { cp: 0, pv: line };
 		};
 		const game = await ccGameToAnalysed(SCHOLARS_MATE, agrees);
 		const withBest = game!.analysis!.filter((a) => a.best !== undefined);
+		expect(withBest).toHaveLength(7);
 		expect(withBest).toHaveLength(game!.analysis!.length);
-		expect(withBest.length).toBeGreaterThan(0);
-		// and at least one of them names the move that was actually played
+		// The SAN line follows a different rule from `best`, deliberately: it is
+		// read only for a FLAGGED move, so a ply the engine agreed with does not
+		// need one and walking ten plies to build it is waste. Ply 0 is the
+		// agreement (best e2e4 = played e2e4); ply 2 is not (best a2a3).
+		expect(game!.analysis![0]!.best).toBe('e2e4');
+		expect(game!.analysis![0]!.variation).toBeUndefined();
+		expect(game!.analysis![2]!.best).toBe('a2a3');
+		// more than one move, or sacrifice and material can never be detected
+		expect(game!.analysis![2]!.variation!.split(' ').length).toBeGreaterThan(1);
+
 		const mapped = analysedGameToStored(game!, 'botvinnik_fan', 'chesscom')!;
-		expect(mapped.stored.moves.some((m) => m.bestUci === m.uci)).toBe(true);
+		expect(mapped.stored.moves[0]!.bestUci).toBe('e2e4');
+		expect(mapped.stored.moves[0]!.uci).toBe('e2e4');
+	});
+
+	it('never explains a move by recommending the move that was played', async () => {
+		// The explanation backfill fires on flagged moves. Now that a bestUci
+		// exists on agreement too, a ply that is BOTH flagged and matched would
+		// have produced "Instead, <the move you played> … wins a pawn".
+		// Ply 6 is Qxf7#, so bestMovePoint genuinely HAS something to say about
+		// it — a quiet move would leave the detectors silent and the test would
+		// pass with the guard deleted, which is no test at all.
+		const game = await ccGameToAnalysed(SCHOLARS_MATE, flatEval);
+		game!.analysis![5]!.eval = 400; // winning before...
+		game!.analysis![6] = { eval: -400, best: 'h5f7', variation: 'Qxf7#' }; // ...and flagged
+		const mapped = analysedGameToStored(game!, 'botvinnik_fan', 'chesscom')!;
+		const last = mapped.stored.moves[6]!;
+
+		expect(last.uci).toBe('h5f7');
+		expect(last.bestUci).toBe('h5f7');
+		expect(last.label).toBe('blunder'); // precondition: it IS flagged
+		expect(bestMovePoint(last.fenBefore, 'h5f7', ['h5f7'])).toContain('checkmate');
+		expect(last.explanation).toBeUndefined();
 	});
 
 	it('promises that every ply was looked at; the lichess importer does not', async () => {
@@ -221,9 +272,13 @@ describe('ccGameToAnalysed', () => {
 		// that no judgment fired — which is weaker, and uncountable.
 		const game = await ccGameToAnalysed(SCHOLARS_MATE, flatEval);
 		const asChesscom = analysedGameToStored(game!, 'botvinnik_fan', 'chesscom')!;
+		// the length FIRST, and as a literal: [].every(...) is true, so without
+		// this the whole assertion passes over an empty move list
+		expect(asChesscom.stored.moves).toHaveLength(7);
 		expect(asChesscom.stored.moves.every((m) => m.topRecorded === true)).toBe(true);
 
 		const asLichess = analysedGameToStored(game!, 'botvinnik_fan', 'lichess')!;
+		expect(asLichess.stored.moves).toHaveLength(7);
 		expect(asLichess.stored.moves.every((m) => m.topRecorded === undefined)).toBe(true);
 	});
 

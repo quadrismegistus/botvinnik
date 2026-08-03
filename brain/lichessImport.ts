@@ -174,6 +174,11 @@ export function analysedGameToStored(
 		if (
 			(label === 'inaccuracy' || label === 'mistake' || label === 'blunder') &&
 			bestUci &&
+			// the same guard the practice gate needed, for the same reason: now
+			// that a bestUci exists on agreement too (#281), this could produce
+			// "Instead, Qxd5+ … wins a pawn" under a move that WAS Qxd5+. Rare
+			// (1 explanation in 90 over 25 real games) and plainly wrong.
+			bestUci !== uci &&
 			bestPv.length >= 1
 		) {
 			const point = bestMovePoint(fenBefore, bestUci, bestPv);

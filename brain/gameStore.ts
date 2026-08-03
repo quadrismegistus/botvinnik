@@ -197,10 +197,19 @@ export function engineCorrelation(
 	let total = 0;
 	for (const m of moves) {
 		if (m.color !== color) continue;
-		// `topRecorded`, not `bestUci` alone: on a lichess import the absence of a
-		// bestUci is uninformative, so a game whose writer did not promise to
-		// record every ply cannot be counted at all. See the field's own comment.
-		if (!m.topRecorded || !m.bestUci) continue;
+		// Not `bestUci` alone: on a lichess import its absence is uninformative,
+		// so a game whose writer did not promise to record every ply cannot be
+		// counted. See the field's own comment.
+		//
+		// `pctBest` is accepted as the same promise by another name, for games
+		// already in the archive. This app's own graders — live and background —
+		// have always written it, and have always written `bestUci`
+		// unconditionally beside it; no importer writes it at all (null on every
+		// one of 26,326 imported moves in the archive in data/). Requiring the
+		// new flag alone would have made the row a dash on every game the player
+		// had already played, which is most of them, and there is no migration
+		// that could fix that after the fact.
+		if (!(m.topRecorded || m.pctBest != null) || !m.bestUci) continue;
 		try {
 			const chess = new Chess(m.fenBefore);
 			// Deduped on from+to: chess.moves() expands a promotion into four,

@@ -1,3 +1,4 @@
+import { Chess } from 'chess.js';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
 	addItem,
@@ -79,14 +80,16 @@ describe('itemDataFromStoredMove', () => {
 			bestUci: 'g5d5',
 		};
 		// played !== best, or there is no puzzle at all — the drill asks the
-		// player to find Rgd5 after some other move
+		// player to find Rgd5 after some other move. Kf1 is legal here; a
+		// described-but-unasserted fixture is how a FEN comment starts lying.
+		expect(new Chess(mating.fenBefore).move({ from: 'g2', to: 'f1' }).san).toBe('Kf1');
 		const item = itemDataFromStoredMove(
-			move({ ...mating, san: 'Kg1', uci: 'g2g1', bestMate: 2 })
+			move({ ...mating, san: 'Kf1', uci: 'g2f1', bestMate: 2 })
 		);
 		expect(item?.motifs).toContain('mate');
 		expect(item?.motifs).not.toContain('open file');
 
-		const blind = itemDataFromStoredMove(move({ ...mating, san: 'Kg1', uci: 'g2g1' }));
+		const blind = itemDataFromStoredMove(move({ ...mating, san: 'Kf1', uci: 'g2f1' }));
 		expect(blind?.motifs).toEqual(['open file']);
 	});
 
