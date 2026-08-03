@@ -334,22 +334,12 @@ class PracticeController extends ChangeNotifier {
   /// last left showing the collection browser (#197 nav).
   int gameSessionSerial = 0;
 
-  /// What a running session actually draws from. A game session serves EVERY
-  /// collected mistake in scope, threshold or not — you picked the game
-  /// deliberately, the way [serveItem] drills a hand-picked sub-threshold
-  /// position — so it draws from the whole collection filtered to the scope,
-  /// not from the threshold-gated [servable]. A normal session draws
-  /// [servable].
-  List<Map<String, dynamic>> get _pool {
-    final scope = gameScope;
-    if (scope == null) return servable;
-    return items.where((i) => scope.contains(i['id'] as String)).toList();
-  }
-
   /// How many collected puzzles fall on the positions [fens] (a reviewed
   /// game's move-before fens) — what the Review affordance labels itself with
-  /// and gates on. Counted over the whole collection, matching [_pool]'s game
-  /// branch, so the number the button shows is the number the session serves.
+  /// and gates on. Counted over the whole collection, matching what
+  /// [_serveNextInGame] draws from (a game session serves EVERY collected
+  /// mistake in scope, threshold or not — you picked the game), so the number
+  /// the button shows is the number the session serves.
   int countForGame(Set<String> fens) =>
       items.where((i) => fens.contains(i['id'] as String)).length;
 
@@ -501,7 +491,7 @@ class PracticeController extends ChangeNotifier {
     gameDoneNote = null;
     sessionSolved = 0;
     sessionStreak = 0;
-    _serve(_api.nextItem(_pool, motif: motifFilter, easyFirst: _easeIn));
+    _serve(_api.nextItem(servable, motif: motifFilter, easyFirst: _easeIn));
   }
 
   /// Practise one reviewed game's own mistakes (#197): restrict the session to
@@ -574,7 +564,7 @@ class PracticeController extends ChangeNotifier {
     gameScope = null;
     _gameServed.clear();
     gameDoneNote = null;
-    _serve(_api.nextItem(_pool, motif: motifFilter, easyFirst: _easeIn));
+    _serve(_api.nextItem(servable, motif: motifFilter, easyFirst: _easeIn));
   }
 
   void nextPuzzle() {
@@ -588,9 +578,9 @@ class PracticeController extends ChangeNotifier {
     // out". Under a motif filter down to a single item, honouring it empties
     // the pool and the tab announces there is nothing to practise while
     // holding a puzzle — so fall back to the unexcluded draw.
-    final next = _api.nextItem(_pool,
+    final next = _api.nextItem(servable,
             excludeId: id, motif: motifFilter, easyFirst: _easeIn) ??
-        _api.nextItem(_pool, motif: motifFilter, easyFirst: _easeIn);
+        _api.nextItem(servable, motif: motifFilter, easyFirst: _easeIn);
     _serve(next);
   }
 
@@ -621,10 +611,22 @@ class PracticeController extends ChangeNotifier {
 
   /// Restrict the drill to [motif] (null = everything) and serve at once.
   /// Waiting for the next Skip to feel it reads as the filter not working.
+  ///
+  /// In a game session the serve routes through [_serveNextInGame], exactly
+  /// as [nextPuzzle] and [remove] do — the scope is its own filter (the same
+  /// reason [startGameSession] clears any leftover motif), so a tap here
+  /// walks the session forward under its rules: served-once, the drop bar,
+  /// the finite end. This was the one path that bypassed all three (#289).
+  /// The filter itself still lands: it narrows the browser rows now and the
+  /// queue once the session is left.
   void setMotifFilter(String? motif) {
     if (motif == motifFilter) return;
     motifFilter = motif;
-    _serve(_api.nextItem(_pool, motif: motif, easyFirst: _easeIn));
+    if (inGameSession) {
+      _serveNextInGame();
+      return;
+    }
+    _serve(_api.nextItem(servable, motif: motif, easyFirst: _easeIn));
   }
 
   void _serve(Map<String, dynamic>? item) {
@@ -1001,7 +1003,7 @@ class PracticeController extends ChangeNotifier {
       if (inGameSession) {
         _serveNextInGame();
       } else {
-        _serve(_api.nextItem(_pool, motif: motifFilter, easyFirst: _easeIn));
+        _serve(_api.nextItem(servable, motif: motifFilter, easyFirst: _easeIn));
       }
     }
     await _persist();
