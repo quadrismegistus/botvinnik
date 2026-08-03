@@ -171,6 +171,8 @@ void main() {
     expect(handed, _sentinel);
     expect(find.textContaining("Practise this game"), findsNothing,
         reason: 'both collected positions are the bot\'s');
+     expect(find.text('Nf3'), findsOneWidget,
+        reason: 'positive control: the screen really did build');
   });
 
   testWidgets('still offers a blunder that never reached the move list',
@@ -202,6 +204,8 @@ void main() {
 
     expect(handed, _sentinel);
     expect(find.textContaining("Practise this game"), findsNothing);
+     expect(find.text('Nf3'), findsOneWidget,
+        reason: 'positive control: the screen really did build');
   });
 
   testWidgets('offers nothing for a bot-vs-bot game', (tester) async {
@@ -217,6 +221,8 @@ void main() {
     expect(handed, _sentinel);
     expect(find.textContaining("Practise this game"), findsNothing,
         reason: 'the same record without botBothSides DOES offer two');
+     expect(find.text('Nf3'), findsOneWidget,
+        reason: 'positive control: the screen really did build');
   });
 
   testWidgets('pluralises the count when the game has several mistakes',
@@ -271,6 +277,8 @@ void main() {
     expect(handed, _sentinel);
     expect(find.textContaining("Practise this game"), findsNothing,
         reason: 'an ungraded or already-curated game offers no dead button');
+     expect(find.text('Nf3'), findsOneWidget,
+        reason: 'positive control: the screen really did build');
   });
 
   testWidgets('no button when the shell provides no target', (tester) async {

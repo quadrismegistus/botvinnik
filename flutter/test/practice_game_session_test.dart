@@ -67,6 +67,23 @@ void main() {
             'of the queue threshold');
   });
 
+  test('a second game session starts its walk over', () {
+    // `_gameServed` is cleared on both entering and leaving a session, and only
+    // the leaving half was covered: no test had ever started a SECOND one.
+    // Without the clear, practising game B after game A skips every position
+    // they share — worst case the new session opens already finished.
+    final h = makePractice([practiceItem(_fenA), practiceItem(_fenB)]);
+
+    h.practice.startGameSession({_fenA, _fenB});
+    h.practice.nextPuzzle();
+    h.practice.nextPuzzle();
+    expect(h.practice.current, isNull, reason: 'precondition: walked out');
+
+    h.practice.startGameSession({_fenA, _fenB});
+    expect(h.practice.current, isNotNull,
+        reason: 'a new session serves its first mistake, not nothing');
+  });
+
   test('countForGame counts collection items on the given fens', () {
     final h = makePractice([
       practiceItem(_fenA, drop: 8), // sub-threshold, still collected & counted
