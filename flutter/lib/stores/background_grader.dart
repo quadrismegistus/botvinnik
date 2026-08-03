@@ -348,6 +348,15 @@ class BackgroundGrader {
       if (g.label != null) 'label': g.label,
       'bestSan': g.bestSan,
       'bestUci': g.bestUci,
+      // Both of these are why the doc comment above says "field for field".
+      // They were added to _storedMoveOf and not here, and the consequence was
+      // not cosmetic: this grader is what analyses an in-app chess.com import
+      // (ccGameToStored writes no grades) and every pasted PGN, so correlation
+      // regressed to a dash on exactly those games, and their practice items
+      // kept reaching the tagger with no mate distance.
+      'bestMate': g.bestMate,
+      // earned honestly: this grader searches every ply itself
+      'topRecorded': true,
       if (g.explanation != null) 'explanation': g.explanation!.raw,
     };
   }

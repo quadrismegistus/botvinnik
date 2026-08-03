@@ -188,26 +188,42 @@ export async function ccGameToAnalysed(
 		}
 		const rBefore = results[i];
 		if (rBefore && rBefore.pv.length) {
+			// UNCONDITIONALLY, including when it is the move that was played
+			// (#281). This used to be written only on a mismatch, mirroring
+			// lichess's "present on flagged moves" — which made `best` a marker
+			// for "you got this wrong" rather than "the engine's move", and left
+			// its absence meaning two different things. Measured on a 500-game
+			// archive: 15,765 moves carried a best and 0 of them matched.
+			//
+			// We searched every position ourselves, so we know the answer on
+			// every ply and there is no reason to throw half of it away. The
+			// cost is one UCI string per matched move.
+			entry.best = rBefore.pv[0];
+			// The SAN line is only ever read for a FLAGGED move (the explanation
+			// backfill), and a ply the engine agreed with is never flagged — so
+			// walking ten plies through chess.js for one is pure waste. Measured
+			// at ~0.43ms per ply across a real import.
 			const playedUci = history[i].from + history[i].to + (history[i].promotion ?? '');
-			if (rBefore.pv[0] !== playedUci) {
-				entry.best = rBefore.pv[0];
-				const t = new Chess(fens[i]);
-				const sans: string[] = [];
-				for (const uci of rBefore.pv.slice(0, 10)) {
-					try {
-						const m = t.move({
-							from: uci.slice(0, 2) as Square,
-							to: uci.slice(2, 4) as Square,
-							promotion: uci.length > 4 ? uci[4] : undefined
-						});
-						if (!m) break;
-						sans.push(m.san);
-					} catch {
-						break;
-					}
-				}
-				entry.variation = sans.join(' ');
+			if (entry.best === playedUci) {
+				analysis.push(entry);
+				continue;
 			}
+			const t = new Chess(fens[i]);
+			const sans: string[] = [];
+			for (const uci of rBefore.pv.slice(0, 10)) {
+				try {
+					const m = t.move({
+						from: uci.slice(0, 2) as Square,
+						to: uci.slice(2, 4) as Square,
+						promotion: uci.length > 4 ? uci[4] : undefined
+					});
+					if (!m) break;
+					sans.push(m.san);
+				} catch {
+					break;
+				}
+			}
+			entry.variation = sans.join(' ');
 		}
 		analysis.push(entry);
 	}

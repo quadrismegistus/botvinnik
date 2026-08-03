@@ -244,7 +244,16 @@ class ReviewBody extends StatelessWidget {
                   ),
                 ),
               const Spacer(),
-              if (preview == null && m['bestSan'] != null && label != 'best')
+              // `m['uci'] != m['bestUci']`, not `label != 'best'`. The label was
+              // a valid proxy only while a bestSan implied a mistake; now that
+              // every analysed ply carries the engine's move (#281) it is not —
+              // and labelForDrop, which is what an import gets, never returns
+              // 'best' at all, so the old guard could not fire on one. It
+              // printed "best: e4" beside a move that WAS e4. _preview below
+              // already keys off the uci, with a comment saying why.
+              if (preview == null &&
+                  m['bestSan'] != null &&
+                  m['uci'] != m['bestUci'])
                 Text(
                   'best: ${m['bestSan']}',
                   style: const TextStyle(color: Colors.white38, fontSize: 12),

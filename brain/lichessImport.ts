@@ -174,6 +174,11 @@ export function analysedGameToStored(
 		if (
 			(label === 'inaccuracy' || label === 'mistake' || label === 'blunder') &&
 			bestUci &&
+			// the same guard the practice gate needed, for the same reason: now
+			// that a bestUci exists on agreement too (#281), this could produce
+			// "Instead, Qxd5+ … wins a pawn" under a move that WAS Qxd5+. Rare
+			// (1 explanation in 90 over 25 real games) and plainly wrong.
+			bestUci !== uci &&
 			bestPv.length >= 1
 		) {
 			const point = bestMovePoint(fenBefore, bestUci, bestPv);
@@ -196,11 +201,20 @@ export function analysedGameToStored(
 			label,
 			bestSan,
 			bestUci,
+			// chess.com's analysis is ours: we search every position and record
+			// the engine's move on every ply, so an absent bestUci there means
+			// the ply was not analysed. lichess's is the server's, and its
+			// absence means only that no judgment fired — see StoredMove.
+			topRecorded: source === 'chesscom' ? true : undefined,
 			explanation
 		});
 
 		// practice candidates: the importing user's own graded mistakes
-		if (humanColor === color && bestUci && bestSan) {
+		// `bestUci !== uci` is now explicit. It used to be implied — a bestUci
+		// existed only on a mistake — and dropping that guard in chesscomCore
+		// would otherwise have queued a practice candidate for every GOOD move
+		// of every imported game.
+		if (humanColor === color && bestUci && bestSan && bestUci !== uci) {
 			practice.push({
 				fen: fenBefore,
 				playedSan: m.san,

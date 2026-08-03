@@ -26,7 +26,27 @@ export interface StoredMove {
 	wcDrop: number; // win% lost vs the best move (0 when ungraded)
 	label?: MoveLabel;
 	bestSan?: string;
+	/** The engine's own first choice in the position before this move. */
 	bestUci?: string;
+	/** Mate distance on the BEST line, mover's perspective (#283). The grade has
+	 *  always carried it and storage always dropped it, so everything reading a
+	 *  stored move has been reasoning without it — which is how a quiet forced
+	 *  mate got filed under "open file". Absent on imports, which do not know it. */
+	bestMate?: number | null;
+	/** True when this game's writer recorded `bestUci` on EVERY analysed ply, so
+	 *  its absence here means "nobody looked" rather than "the engine agreed".
+	 *
+	 *  This exists because the same field meant two different things (#281).
+	 *  chesscomCore used to write `best` only when the played move was not the
+	 *  engine's, mirroring lichess's "present on flagged moves" — so on an import
+	 *  a bestUci marked a MISS, and 15,765 of them in a 500-game archive matched
+	 *  the played move exactly zero times. Live play always wrote the engine's
+	 *  move; the ambiguity was entirely in the absence.
+	 *
+	 *  Set by live grading and by the chess.com importer. NOT set by the lichess
+	 *  importer, which genuinely cannot know: lichess omits `best` when no
+	 *  judgment fired, which is weaker than "you played the top move". */
+	topRecorded?: true;
 	explanation?: Explanation;
 	/** Wall time spent on this move, where it is known (#267): an in-app game,
 	 *  or a PGN carrying %emt/%clk. Absent everywhere else, including every
@@ -177,21 +197,19 @@ export function engineCorrelation(
 	let total = 0;
 	for (const m of moves) {
 		if (m.color !== color) continue;
-		// `bestUci` is NOT "the engine's answer" on the import paths, and reading
-		// it as one inverts the whole statistic. chesscomCore.ts writes it only
-		// when `rBefore.pv[0] !== playedUci`, and lichess's own field is
-		// documented as "present on flagged moves" — so an imported move that
-		// carries a bestUci is by construction a move that did NOT match, and
-		// one that matched carries nothing at all. Measured on the 500-game
-		// archive in data/: 15,765 moves carry a bestUci and exactly 0 of them
-		// equal the move played. Counting those would have printed
-		// "0 of 39" under every imported game.
+		// Not `bestUci` alone: on a lichess import its absence is uninformative,
+		// so a game whose writer did not promise to record every ply cannot be
+		// counted. See the field's own comment.
 		//
-		// `pctBest` is the signal that this app graded the move itself, and it
-		// is null on all 26,326 imported moves — so this fails safe to a dash on
-		// an import rather than to a lie. Recovering the number for chess.com
-		// imports means changing what the importer stores; see #281.
-		if (m.pctBest == null || !m.bestUci) continue;
+		// `pctBest` is accepted as the same promise by another name, for games
+		// already in the archive. This app's own graders — live and background —
+		// have always written it, and have always written `bestUci`
+		// unconditionally beside it; no importer writes it at all (null on every
+		// one of 26,326 imported moves in the archive in data/). Requiring the
+		// new flag alone would have made the row a dash on every game the player
+		// had already played, which is most of them, and there is no migration
+		// that could fix that after the fact.
+		if (!(m.topRecorded || m.pctBest != null) || !m.bestUci) continue;
 		try {
 			const chess = new Chess(m.fenBefore);
 			// Deduped on from+to: chess.moves() expands a promotion into four,
