@@ -67,6 +67,47 @@ void main() {
             'of the queue threshold');
   });
 
+  test('a motif filter set DURING a session keeps the scope and the low drops',
+      () {
+    // `_pool`'s game branch and `_serveNextInGame` are two answers to "what
+    // does this session draw from", and setMotifFilter is the only live path
+    // into the first. Both halves of its contract are asserted here: the scope
+    // (or it serves another game's puzzle) and the docstring's promise that a
+    // game session serves EVERY collected mistake in scope, threshold or not —
+    // you picked the game.
+    final h = makePractice([
+      practiceItem(_fenA, motifs: const ['fork']),
+      practiceItem(_fenB, motifs: const ['fork']), // out of scope
+      practiceItem(_fenC, motifs: const ['fork'], drop: 8), // below the bar
+    ]);
+
+    h.practice.startGameSession({_fenA, _fenC});
+    h.bridge.nextItemArgs.clear();
+    h.practice.setMotifFilter('fork');
+
+    expect(h.practice.inGameSession, isTrue, reason: 'precondition');
+    expect(lastPoolIds(h.bridge), {_fenA, _fenC},
+        reason: 'the filter narrows the scope; it does not escape it, and it '
+            'does not reinstate the serve threshold the session waives');
+  });
+
+  test('a second game session starts its walk over', () {
+    // `_gameServed` is cleared on both entering and leaving a session, and only
+    // the leaving half was covered: no test had ever started a SECOND one.
+    // Without the clear, practising game B after game A skips every position
+    // they share — worst case the new session opens already finished.
+    final h = makePractice([practiceItem(_fenA), practiceItem(_fenB)]);
+
+    h.practice.startGameSession({_fenA, _fenB});
+    h.practice.nextPuzzle();
+    h.practice.nextPuzzle();
+    expect(h.practice.current, isNull, reason: 'precondition: walked out');
+
+    h.practice.startGameSession({_fenA, _fenB});
+    expect(h.practice.current, isNotNull,
+        reason: 'a new session serves its first mistake, not nothing');
+  });
+
   test('countForGame counts collection items on the given fens', () {
     final h = makePractice([
       practiceItem(_fenA, drop: 8), // sub-threshold, still collected & counted

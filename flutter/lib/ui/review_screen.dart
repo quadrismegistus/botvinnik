@@ -551,14 +551,39 @@ class ReviewBody extends StatelessWidget {
   /// ungraded import) or already curated away offers no button rather than a
   /// dead one. The scope handed on is every move-before fen; the controller
   /// intersects it with the collection, so what runs is exactly those [n].
+  ///
+  /// The fens handed over are the ones YOU faced, not every position in the
+  /// game. Matching the move played there as well would be exact for committed
+  /// moves and WRONG for the two kinds this app collects deliberately: a
+  /// blunder refusal mode caught before it was played, and one you took back —
+  /// neither is in the move list, and both are this game's own mistakes.
   Widget _practiseCta(BuildContext context, ReviewController review) {
     final onPractise = onPractiseGame;
     if (onPractise == null) return const SizedBox.shrink();
     final practice = context.watch<PracticeController>();
     if (!practice.loaded) return const SizedBox.shrink();
+    // YOUR positions, not every position in the game (#285). An item's id is
+    // its fen and items are deduped on that across the whole collection, so
+    // handing over the bot's positions too offered puzzles collected in some
+    // OTHER game where you had the other colour — moves you never made.
+    //
+    // No "you", no button. botColor names the side you did NOT play, so a game
+    // that names none — a pasted PGN, a spectator import, the analysis board —
+    // has no mistakes of yours to offer, and everything it COULD offer was
+    // collected somewhere else. The same reasoning games_list.dart already
+    // applies to Won/Lost: "meaningless for a game you were not a player in".
+    // Bot-vs-bot is the same case wearing a botColor: playerColor falls back to
+    // 'w' when both seats carry a persona, so the record says 'b' while nothing
+    // in it was ever yours — botBothSides is what tells them apart.
+    final game = review.current;
+    final botColor = game?['botColor'];
+    if (botColor is! String || game?['botBothSides'] == true) {
+      return const SizedBox.shrink();
+    }
     final fens = <String>{
       for (final m in review.moves)
-        if (m['fenBefore'] is String) m['fenBefore'] as String,
+        if (m['fenBefore'] is String && m['color'] != botColor)
+          m['fenBefore'] as String,
     };
     final n = practice.countForGame(fens);
     if (n == 0) return const SizedBox.shrink();
