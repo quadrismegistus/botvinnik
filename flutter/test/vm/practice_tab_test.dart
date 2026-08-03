@@ -434,6 +434,53 @@ void main() {
       await _pumpTab(tester, h.practice);
       expect(find.text("Practising this game's mistakes"), findsNothing);
     });
+
+    testWidgets('a game session offers no motif picker', (tester) async {
+      // The scope IS the session's filter, and the walk deliberately ignores
+      // motifs (#289) — so a visible picker could only lie: it lit a filter
+      // that did not apply, and tapping it advanced the finite walk as a side
+      // effect (set-then-undo burned two mistakes with zero attempts made).
+      final h = makePractice([
+        practiceItem(_forkFen, motifs: ['fork']),
+        practiceItem(_pinFen, motifs: ['pin']),
+      ]);
+      h.practice.startGameSession({_forkFen, _pinFen});
+      await _pumpTab(tester, h.practice);
+
+      expect(find.byIcon(Icons.filter_list), findsNothing,
+          reason: 'no filter to offer while the game scope narrows the queue');
+
+      // And it is the session that hides it, not the collection: the way out
+      // brings the picker straight back.
+      await tester.tap(find.text('Practise all'));
+      await tester.pumpAndSettle();
+      expect(find.byIcon(Icons.filter_list), findsOneWidget);
+    });
+
+    testWidgets('the browser mid-session hides the picker and says why',
+        (tester) async {
+      // _motifMenu mounts twice — the drill action row AND the collection
+      // header — and the browser is one tap away inside a live session. A
+      // guard on only the drill's mount point would leave the browser's copy
+      // advancing the finite walk from behind a list view. The scope banner
+      // comes along to explain the missing control and carry the way out.
+      final h = makePractice([
+        practiceItem(_forkFen, motifs: ['fork']),
+        practiceItem(_pinFen, motifs: ['pin']),
+      ]);
+      h.practice.startGameSession({_forkFen, _pinFen});
+      await _pumpTab(tester, h.practice);
+
+      await tester.tap(find.byIcon(Icons.format_list_bulleted));
+      await tester.pumpAndSettle();
+
+      expect(find.byIcon(Icons.filter_list), findsNothing,
+          reason: "the browser header's copy of the picker is hidden too");
+      expect(find.textContaining("Practising this game's mistakes"),
+          findsOneWidget,
+          reason: 'the banner explains the absence and offers Practise all');
+      expect(find.text('Practise all'), findsOneWidget);
+    });
   });
 
   group('why a move is bad (#215)', () {
