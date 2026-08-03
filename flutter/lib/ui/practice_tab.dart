@@ -976,6 +976,12 @@ class _PracticeTabState extends State<PracticeTab> {
   }
 
   Widget _motifMenu(PracticeController practice) {
+    // No picker while a game session runs (#289): the scope IS the filter, and
+    // the walk deliberately ignores motifs — so the menu could only lie (a lit
+    // filter that does not apply) and cost (a tap advances the finite walk).
+    // The way to a motif drill is "Practise all" first, one tap away on the
+    // session banner.
+    if (practice.inGameSession) return const SizedBox.shrink();
     final counts = practice.motifCounts;
     final active = practice.motifFilter;
     if (counts.isEmpty && active == null) return const SizedBox.shrink();

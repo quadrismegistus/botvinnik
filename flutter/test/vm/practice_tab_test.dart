@@ -434,6 +434,28 @@ void main() {
       await _pumpTab(tester, h.practice);
       expect(find.text("Practising this game's mistakes"), findsNothing);
     });
+
+    testWidgets('a game session offers no motif picker', (tester) async {
+      // The scope IS the session's filter, and the walk deliberately ignores
+      // motifs (#289) — so a visible picker could only lie: it lit a filter
+      // that did not apply, and tapping it advanced the finite walk as a side
+      // effect (set-then-undo burned two mistakes with zero attempts made).
+      final h = makePractice([
+        practiceItem(_forkFen, motifs: ['fork']),
+        practiceItem(_pinFen, motifs: ['pin']),
+      ]);
+      h.practice.startGameSession({_forkFen, _pinFen});
+      await _pumpTab(tester, h.practice);
+
+      expect(find.byIcon(Icons.filter_list), findsNothing,
+          reason: 'no filter to offer while the game scope narrows the queue');
+
+      // And it is the session that hides it, not the collection: the way out
+      // brings the picker straight back.
+      await tester.tap(find.text('Practise all'));
+      await tester.pumpAndSettle();
+      expect(find.byIcon(Icons.filter_list), findsOneWidget);
+    });
   });
 
   group('why a move is bad (#215)', () {
