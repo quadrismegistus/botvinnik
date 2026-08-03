@@ -321,14 +321,6 @@ class PracticeController extends ChangeNotifier {
   /// the tab pairs it with the way back to the full queue. Null otherwise.
   String? gameDoneNote;
 
-  /// How many collected mistakes the current game scope held at session start —
-  /// the number the Review button showed (`countForGame`). The completion note
-  /// reports THIS, not `gameScope.length`: the scope handed in is every one of
-  /// the game's move-before fens, and only the ones that intersect the
-  /// collection are ever drilled, so `gameScope.length` would miscount every
-  /// quiet position as a mistake.
-  int _gameScopeCount = 0;
-
   /// Bumped by [startGameSession]. The Practice tab watches it so "practise
   /// this game's mistakes" drops back to the drill view even if the tab was
   /// last left showing the collection browser (#197 nav).
@@ -510,7 +502,6 @@ class PracticeController extends ChangeNotifier {
     motifFilter = null;
     _gameServed.clear();
     gameDoneNote = null;
-    _gameScopeCount = countForGame(fens);
     gameSessionSerial++;
     sessionSolved = 0;
     sessionStreak = 0;
@@ -529,9 +520,10 @@ class PracticeController extends ChangeNotifier {
     // The bar applies here only if the player has asked it to (#213). Default
     // off — #197's rule, now visible in the session banner instead of implied:
     // you picked this game, so the queue's threshold is not the question you
-    // asked. `_gameServed` is still marked for the ones skipped this way, so a
-    // session with the bar on still ENDS rather than looping on items it will
-    // never serve.
+    // asked. Bar-withheld items are never in `remaining` at all — they are not
+    // marked served, just re-filtered out on every call — so a session with
+    // the bar on still ENDS rather than looping, and the note below counts
+    // them as withheld instead of claiming they were drilled.
     final all = settings?.gameSessionAllDrops ?? true;
     final remaining = items
         .where((i) =>
@@ -541,14 +533,28 @@ class PracticeController extends ChangeNotifier {
         .toList();
     final next = _api.nextItem(remaining, easyFirst: _easeIn);
     if (next == null) {
-      // Every scoped mistake has been served. End with a note rather than
-      // cycling: current == null routes the tab to the browser, where the note
-      // and the "Practise all" way out are shown on the idle banner. Set the
-      // note AFTER _serve (which clears any prior gameDoneNote), then notify.
-      final n = _gameScopeCount;
+      // The walk is over. End with a note rather than cycling: current == null
+      // routes the tab to the browser, where the note and the "Practise all"
+      // way out are shown on the idle banner. The note counts what the walk
+      // actually SERVED, not the start-of-session scope count: with the bar on
+      // sub-threshold items are withheld (never served), and a mid-session
+      // remove takes an item with it — "you've been through" has to mean the
+      // items this walk in fact put on the board. Withheld ones are named, or
+      // the note would report a finished job over a screen that quietly wasn't
+      // (#289 review). Set the note AFTER _serve (which clears any prior
+      // gameDoneNote), then notify.
+      final walked = _gameServed.length;
+      final withheld = items
+          .where((i) =>
+              scope.contains(i['id'] as String) &&
+              !_gameServed.contains(i['id'] as String))
+          .length;
       _serve(null);
-      gameDoneNote =
-          "You've been through all $n mistake${n == 1 ? '' : 's'} from this game.";
+      final noun = 'mistake${walked == 1 ? '' : 's'}';
+      gameDoneNote = withheld == 0
+          ? "You've been through all $walked $noun from this game."
+          : "You've been through the $walked $noun over the bar — "
+              '$withheld more below it.';
       notifyListeners();
       return;
     }
@@ -612,20 +618,21 @@ class PracticeController extends ChangeNotifier {
   /// Restrict the drill to [motif] (null = everything) and serve at once.
   /// Waiting for the next Skip to feel it reads as the filter not working.
   ///
-  /// In a game session the serve routes through [_serveNextInGame], exactly
-  /// as [nextPuzzle] and [remove] do — the scope is its own filter (the same
-  /// reason [startGameSession] clears any leftover motif), so a tap here
-  /// walks the session forward under its rules: served-once, the drop bar,
-  /// the finite end. This was the one path that bypassed all three (#289).
-  /// The filter itself still lands: it narrows the browser rows now and the
-  /// queue once the session is left.
+  /// In a game session there is no picker to tap — the scope is the session's
+  /// filter, so the tab hides the menu (see `_motifMenu`). The branch here is
+  /// the controller's backstop for any other caller (#289, where this was the
+  /// one live path around the session's rules): it does NOT set the filter —
+  /// a filter nothing on screen shows or clears must not exist — and it
+  /// routes the serve through [_serveNextInGame], exactly as [nextPuzzle] and
+  /// [remove] do, so even a stale tap obeys the walk: served-once, the drop
+  /// bar, the finite end. Both directions, setting AND clearing.
   void setMotifFilter(String? motif) {
     if (motif == motifFilter) return;
-    motifFilter = motif;
     if (inGameSession) {
       _serveNextInGame();
       return;
     }
+    motifFilter = motif;
     _serve(_api.nextItem(servable, motif: motif, easyFirst: _easeIn));
   }
 

@@ -80,19 +80,45 @@ void main() {
     ]);
 
     h.practice.startGameSession({_fenA, _fenC});
-    expect(h.practice.current?['id'], _fenA, reason: 'precondition: A served');
+    final first = h.practice.current!['id'] as String;
     h.bridge.nextItemArgs.clear();
     h.practice.setMotifFilter('fork');
 
     expect(h.practice.inGameSession, isTrue, reason: 'the scope holds');
-    expect(h.practice.motifFilter, 'fork',
-        reason: 'the filter still lands — the browser rows narrow now, the '
-            'queue narrows when the session ends');
-    expect(lastPoolIds(h.bridge), {_fenC},
+    expect(h.practice.motifFilter, isNull,
+        reason: 'no control on screen shows or clears a mid-session filter '
+            '(the picker is hidden), so the backstop must not set one');
+    // Which of the two scoped items comes first is the scheduler's pick (the
+    // real brain draws overdue-weighted RANDOM; the fake is deterministic),
+    // so assert against `first`, not a named fen.
+    expect(lastPoolIds(h.bridge), {_fenA, _fenC}.difference({first}),
         reason: 'the walk serves the unserved scoped item — not the already '
             'served one, not the out-of-game one — and still reaches below '
             'the serve threshold');
-    expect(h.practice.current?['id'], _fenC);
+    expect(h.practice.current?['id'], isNot(first));
+    expect({_fenA, _fenC}, contains(h.practice.current?['id']));
+  });
+
+  test('clearing the filter mid-session obeys the walk too', () {
+    // The backstop is for ANY filter change, not just setting one: null is a
+    // first-class input ("All puzzles", both "Show all puzzles" buttons). No
+    // UI path reaches here with a filter set today — startGameSession clears
+    // it and the picker is hidden — so this pins the guard against the future
+    // caller that would make it live (motifFilter is a public field). Without
+    // it, a mutant guarding only `motif != null` re-opens every #289 state on
+    // the clear direction and the whole suite stays green.
+    final h = makePractice([practiceItem(_fenA, motifs: const ['fork'])]);
+
+    h.practice.startGameSession({_fenA});
+    h.practice.nextPuzzle();
+    expect(h.practice.gameDoneNote, isNotNull, reason: 'precondition: walked');
+
+    h.practice.motifFilter = 'fork'; // a future caller's direct write
+    h.practice.setMotifFilter(null);
+
+    expect(h.practice.current, isNull,
+        reason: 'the clear direction must not re-open a finished walk');
+    expect(h.practice.gameDoneNote, isNotNull, reason: 'or wipe its note');
   });
 
   test('a motif tap honours the drop bar the session banner advertises', () async {
@@ -117,7 +143,11 @@ void main() {
     expect(h.practice.current, isNull,
         reason: 'the drop-6 item stays withheld — the walk ends instead of '
             'escaping the bar');
-    expect(h.practice.gameDoneNote, isNotNull);
+    // The note must not claim the withheld item was drilled: "all 2 mistakes"
+    // after serving one was a lie the bar's own end state told.
+    expect(h.practice.gameDoneNote, contains('1 mistake over the bar'));
+    expect(h.practice.gameDoneNote, contains('1 more below it'));
+    expect(h.practice.gameDoneNote, isNot(contains('all')));
   });
 
   test('a motif tap after every mistake was served ends the walk', () {
@@ -139,6 +169,26 @@ void main() {
     expect(h.practice.current, isNull,
         reason: 'nothing unserved remains — a third serve was the bug');
     expect(h.practice.gameDoneNote, contains('2 mistakes'));
+  });
+
+  test('the done note counts serves, so a mid-session remove cannot inflate it',
+      () async {
+    // The issue's "related" case: the old note reported the start-of-session
+    // figure, so removing a not-yet-served item mid-walk left it claiming
+    // "all 2" after one. Counting what the walk actually served fixes the bar
+    // case and this one with the same number.
+    final h = makePractice([practiceItem(_fenA), practiceItem(_fenB)]);
+
+    h.practice.startGameSession({_fenA, _fenB});
+    final firstServed = h.practice.current!['id'] as String;
+    final other = firstServed == _fenA ? _fenB : _fenA;
+    await h.practice.remove(other); // never served, deleted mid-session
+
+    h.practice.nextPuzzle();
+    expect(h.practice.current, isNull, reason: 'nothing left to walk');
+    expect(h.practice.gameDoneNote, contains('all 1 mistake'),
+        reason: 'one item was drilled; the deleted one must not be counted');
+    expect(h.practice.gameDoneNote, isNot(contains('2')));
   });
 
   test('a motif tap cannot restart a finished game session', () {

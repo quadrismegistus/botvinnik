@@ -456,6 +456,31 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byIcon(Icons.filter_list), findsOneWidget);
     });
+
+    testWidgets('the browser mid-session hides the picker and says why',
+        (tester) async {
+      // _motifMenu mounts twice — the drill action row AND the collection
+      // header — and the browser is one tap away inside a live session. A
+      // guard on only the drill's mount point would leave the browser's copy
+      // advancing the finite walk from behind a list view. The scope banner
+      // comes along to explain the missing control and carry the way out.
+      final h = makePractice([
+        practiceItem(_forkFen, motifs: ['fork']),
+        practiceItem(_pinFen, motifs: ['pin']),
+      ]);
+      h.practice.startGameSession({_forkFen, _pinFen});
+      await _pumpTab(tester, h.practice);
+
+      await tester.tap(find.byIcon(Icons.format_list_bulleted));
+      await tester.pumpAndSettle();
+
+      expect(find.byIcon(Icons.filter_list), findsNothing,
+          reason: "the browser header's copy of the picker is hidden too");
+      expect(find.textContaining("Practising this game's mistakes"),
+          findsOneWidget,
+          reason: 'the banner explains the absence and offers Practise all');
+      expect(find.text('Practise all'), findsOneWidget);
+    });
   });
 
   group('why a move is bad (#215)', () {
