@@ -189,6 +189,36 @@ void main() {
     expect(find.text("Practise this game's mistake"), findsOneWidget);
   });
 
+  testWidgets('offers nothing for a game with no "you" in it', (tester) async {
+    // A pasted PGN, a spectator import, the analysis board: botColor names the
+    // side you did NOT play, and a game that names none has no mistakes of
+    // yours. Nothing is ever collected from one either, so everything the
+    // button could offer came from somewhere else.
+    final noYou = _game()..remove('botColor');
+    final handed = await _pump(tester, game: noYou, collection: [
+      practiceItem(_kStartFen),
+      practiceItem(_kAfterE4),
+    ]);
+
+    expect(handed, _sentinel);
+    expect(find.textContaining("Practise this game"), findsNothing);
+  });
+
+  testWidgets('offers nothing for a bot-vs-bot game', (tester) async {
+    // playerColor falls back to 'w' when both seats carry a persona, so the
+    // record says botColor 'b' while nothing in it was ever yours. Without
+    // botBothSides this reads as a game you played as White.
+    final both = _game()..['botBothSides'] = true;
+    final handed = await _pump(tester, game: both, collection: [
+      practiceItem(_kStartFen),
+      practiceItem(_kAfterE5),
+    ]);
+
+    expect(handed, _sentinel);
+    expect(find.textContaining("Practise this game"), findsNothing,
+        reason: 'the same record without botBothSides DOES offer two');
+  });
+
   testWidgets('pluralises the count when the game has several mistakes',
       (tester) async {
     // Both of this game's move-before positions are collected.

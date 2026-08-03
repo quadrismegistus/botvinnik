@@ -567,12 +567,19 @@ class ReviewBody extends StatelessWidget {
     // handing over the bot's positions too offered puzzles collected in some
     // OTHER game where you had the other colour — moves you never made.
     //
-    // botColor names the side you did NOT play. It is absent on a pasted PGN
-    // and on an analysis game, where there is no "you" — and `!=` against null
-    // is true for both colours, so those keep every position without needing a
-    // guard of their own. (Neither collects anything anyway: the collector
-    // gates on botEnabled && isHumanSide.)
-    final botColor = review.current?['botColor'];
+    // No "you", no button. botColor names the side you did NOT play, so a game
+    // that names none — a pasted PGN, a spectator import, the analysis board —
+    // has no mistakes of yours to offer, and everything it COULD offer was
+    // collected somewhere else. The same reasoning games_list.dart already
+    // applies to Won/Lost: "meaningless for a game you were not a player in".
+    // Bot-vs-bot is the same case wearing a botColor: playerColor falls back to
+    // 'w' when both seats carry a persona, so the record says 'b' while nothing
+    // in it was ever yours — botBothSides is what tells them apart.
+    final game = review.current;
+    final botColor = game?['botColor'];
+    if (botColor is! String || game?['botBothSides'] == true) {
+      return const SizedBox.shrink();
+    }
     final fens = <String>{
       for (final m in review.moves)
         if (m['fenBefore'] is String && m['color'] != botColor)
