@@ -30,6 +30,10 @@ const _kStartFen = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
 const _kAfterE4 = 'rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1';
 const _kAfterE5 =
     'rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq e6 0 2';
+const _kAfterNf3 =
+    'rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2';
+const _kAfterNc6 =
+    'r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3';
 
 const _kClassRaw = {
   'best': {'glyph': '★', 'color': '#81b64c', 'noun': 'the best move'},
@@ -47,7 +51,7 @@ Map<String, dynamic> _game() => {
       'endedAt': '2026-07-20T10:11:00.000',
       'result': '1-0',
       'botColor': 'b',
-      'moveCount': 2,
+      'moveCount': 4,
       'whiteAccuracy': 84.2,
       'blackAccuracy': 71.9,
       'moves': [
@@ -71,6 +75,26 @@ Map<String, dynamic> _game() => {
           'bestSan': 'c5',
           'bestUci': 'c7c5',
         },
+        {
+          'ply': 3,
+          'san': 'Nf3',
+          'uci': 'g1f3',
+          'color': 'w',
+          'fenBefore': _kAfterE5,
+          'fenAfter': _kAfterNf3,
+          'label': 'blunder',
+          'bestSan': 'd4',
+          'bestUci': 'd2d4',
+        },
+        {
+          'ply': 4,
+          'san': 'Nc6',
+          'uci': 'b8c6',
+          'color': 'b',
+          'fenBefore': _kAfterNf3,
+          'fenAfter': _kAfterNc6,
+          'label': 'best',
+        },
       ],
     };
 
@@ -84,12 +108,12 @@ Future<void> _loadRoboto() async {
   }
 }
 
-Future<Set<String>?> _pump(
+Future<Map<String, String>> _pump(
   WidgetTester tester, {
   required List<Map<String, dynamic>> collection,
   Map<String, dynamic>? game,
 }) async {
-  Set<String>? handed;
+  Map<String, String>? handed;
   final settings = await loadSettings();
   final review = ReviewController(_StubDb())..open(game ?? _game());
   final h = makePractice(collection);
@@ -114,8 +138,8 @@ Future<Set<String>?> _pump(
 }
 
 // A private sentinel so "callback not yet fired" (null) is distinguishable
-// from "fired with an empty set". _pump returns this when nothing was handed.
-final Set<String> _sentinel = {'<not-fired>'};
+// from "fired with an empty map". _pump returns this when nothing was handed.
+final Map<String, String> _sentinel = {'<not-fired>': ''};
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -126,7 +150,7 @@ void main() {
     // Two collected items: one on this game's blundered position, one from
     // some other game. Only the first should count.
     await _pump(tester, collection: [
-      practiceItem(_kAfterE4), // the blunder position in this game
+      practiceItem(_kStartFen, playedUci: 'e2e4'), // your blunder here
       practiceItem('rnbqkbnr/ppp1pppp/8/3p4/8/8/PPPPPPPP/RNBQKBNR w KQkq d6 0 2'),
     ]);
 
@@ -134,12 +158,39 @@ void main() {
         reason: 'exactly one of this game\'s positions is collected');
   });
 
+  testWidgets('does not offer the bot\'s own blunders', (tester) async {
+    // botColor is 'b', so every black ply is the bot's. A puzzle sitting on one
+    // of those positions belongs to some OTHER game in which the player had
+    // Black — an item's id is its fen, deduped across the whole collection —
+    // and drilling it here is being asked to fix a move you never made (#285).
+    final handed = await _pump(tester, collection: [
+      practiceItem(_kAfterE4, playedUci: 'e7e5'), // the bot's ply, exactly
+      practiceItem(_kAfterNf3, playedUci: 'b8c6'), // and the other one
+    ]);
+
+    expect(handed, _sentinel);
+    expect(find.textContaining("Practise this game"), findsNothing,
+        reason: 'both collected positions are the bot\'s');
+  });
+
+  testWidgets('does not offer another game\'s puzzle at a shared position',
+      (tester) async {
+    // The same position, a different move played there — so a different game's
+    // mistake. Opening positions collide constantly.
+    final handed = await _pump(tester, collection: [
+      practiceItem(_kStartFen, playedUci: 'd2d4'), // you played e4 in THIS game
+    ]);
+
+    expect(handed, _sentinel);
+    expect(find.textContaining("Practise this game"), findsNothing);
+  });
+
   testWidgets('pluralises the count when the game has several mistakes',
       (tester) async {
     // Both of this game's move-before positions are collected.
     final handed = await _pump(tester, collection: [
-      practiceItem(_kStartFen),
-      practiceItem(_kAfterE4),
+      practiceItem(_kStartFen, playedUci: 'e2e4'),
+      practiceItem(_kAfterE5, playedUci: 'g1f3'),
     ]);
 
     expect(handed, _sentinel, reason: 'nothing handed on until the tap');
@@ -148,10 +199,10 @@ void main() {
 
   testWidgets('tapping hands the game\'s move-before fens to the callback',
       (tester) async {
-    Set<String>? handed;
+    Map<String, String>? handed;
     final settings = await loadSettings();
     final review = ReviewController(_StubDb())..open(_game());
-    final h = makePractice([practiceItem(_kAfterE4)]);
+    final h = makePractice([practiceItem(_kStartFen, playedUci: 'e2e4')]);
     await tester.pumpWidget(MultiProvider(
       providers: [
         Provider<ClassTable>.value(
@@ -173,9 +224,10 @@ void main() {
     await tester.tap(find.text("Practise this game's mistake"));
     await tester.pump();
 
-    expect(handed, {_kStartFen, _kAfterE4},
-        reason: 'every move-before fen goes; the controller intersects with '
-            'the collection');
+    expect(handed, {_kStartFen: 'e2e4', _kAfterE5: 'g1f3'},
+        reason: 'YOUR positions, each with the move you played there — the bot '
+            'plies are not yours to drill, and the move is what tells this '
+            "game's item apart from another game's at the same position");
   });
 
   testWidgets('no button when none of this game\'s positions are collected',
@@ -192,7 +244,7 @@ void main() {
     // onPractiseGame null — e.g. a standalone board with no tab to jump to.
     final settings = await loadSettings();
     final review = ReviewController(_StubDb())..open(_game());
-    final h = makePractice([practiceItem(_kAfterE4)]);
+    final h = makePractice([practiceItem(_kStartFen, playedUci: 'e2e4')]);
     await tester.pumpWidget(MultiProvider(
       providers: [
         Provider<ClassTable>.value(

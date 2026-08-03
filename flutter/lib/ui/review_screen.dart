@@ -37,7 +37,7 @@ class ReviewBody extends StatelessWidget {
   /// blunder fens (#197). Null when there is nowhere to send them (a plain
   /// game list with no shell around it, e.g. a widget test that only wants the
   /// board), which hides the affordance.
-  final void Function(Set<String> fens)? onPractiseGame;
+  final void Function(Map<String, String> game)? onPractiseGame;
 
   const ReviewBody({super.key, this.onPractiseGame});
 
@@ -556,9 +556,17 @@ class ReviewBody extends StatelessWidget {
     if (onPractise == null) return const SizedBox.shrink();
     final practice = context.watch<PracticeController>();
     if (!practice.loaded) return const SizedBox.shrink();
-    final fens = <String>{
+    // YOUR positions, each paired with the move you played there — not every
+    // position in the game (#285). botColor names the side you did NOT play;
+    // absent on an import and on an analysis game, where there is no "you" and
+    // the played-move match is left to do the work alone.
+    final botColor = review.current?['botColor'];
+    final fens = <String, String>{
       for (final m in review.moves)
-        if (m['fenBefore'] is String) m['fenBefore'] as String,
+        if (m['fenBefore'] is String &&
+            m['uci'] is String &&
+            (botColor is! String || m['color'] != botColor))
+          m['fenBefore'] as String: m['uci'] as String,
     };
     final n = practice.countForGame(fens);
     if (n == 0) return const SizedBox.shrink();

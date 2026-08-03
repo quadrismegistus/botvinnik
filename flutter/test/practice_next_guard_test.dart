@@ -215,7 +215,7 @@ void main() {
         practiceItem(_forkFen, motifs: ['fork']),
         practiceItem(_pinFen, motifs: ['pin']),
       ]);
-      h.practice.startGameSession({_forkFen, _pinFen});
+      h.practice.startGameSession({_forkFen: 'a2a3', _pinFen: 'a2a3'});
       expect(h.practice.inGameSession, isTrue, reason: 'precondition');
       final first = h.practice.current!['id'] as String;
 
@@ -235,7 +235,7 @@ void main() {
 
     test('a game session that is skipped all the way through still ends', () {
       final h = makePractice([practiceItem(_forkFen), practiceItem(_pinFen)]);
-      h.practice.startGameSession({_forkFen, _pinFen});
+      h.practice.startGameSession({_forkFen: 'a2a3', _pinFen: 'a2a3'});
       h.practice.nextPuzzle();
       h.practice.nextPuzzle();
       expect(h.practice.current, isNull);

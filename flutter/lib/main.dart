@@ -438,8 +438,8 @@ class _AppShellState extends State<AppShell> {
   /// tab to drill them. The controller filters these against the live
   /// collection, so this reuses the real spaced-repetition schedule rather than
   /// forking a throwaway one.
-  void _practiseGame(Set<String> fens) {
-    context.read<PracticeController>().startGameSession(fens);
+  void _practiseGame(Map<String, String> game) {
+    context.read<PracticeController>().startGameSession(game);
     setState(() {
       _tab = 1;
       _visited.add(1);
