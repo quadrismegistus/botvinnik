@@ -1,3 +1,4 @@
+import { Chess } from 'chess.js';
 import { describe, expect, it } from 'vitest';
 import { ccGameToAnalysed, ccGameToStored, mapOneGame, type CcGame } from './chesscomCore';
 import { analysedGameToStored } from './lichessImport';
@@ -190,6 +191,58 @@ describe('ccGameToAnalysed', () => {
 		const mapped = analysedGameToStored(game!, 'botvinnik_fan', 'chesscom');
 		expect(mapped).not.toBeNull();
 		expect(mapped!.stored.moveCount).toBe(7);
+	});
+
+	it('records the engine\'s move on EVERY analysed ply, agreement included', async () => {
+		// It used to be written only when the played move differed, mirroring
+		// lichess's "present on flagged moves" — which made `best` mean "you got
+		// this wrong" instead of "the engine's move", and left its ABSENCE
+		// meaning two different things. Measured on a 500-game archive: 15,765
+		// moves carried a best and exactly 0 of them matched the move played.
+		// We search every position ourselves; there is no reason to keep half.
+		const agrees: (fen: string) => Promise<UciEval> = async (fen) => {
+			// always name the first legal move, so most plies AGREE with play
+			const c = new Chess(fen);
+			const m = c.moves({ verbose: true })[0];
+			return { cp: 0, pv: m ? [m.from + m.to + (m.promotion ?? '')] : [] };
+		};
+		const game = await ccGameToAnalysed(SCHOLARS_MATE, agrees);
+		const withBest = game!.analysis!.filter((a) => a.best !== undefined);
+		expect(withBest).toHaveLength(game!.analysis!.length);
+		expect(withBest.length).toBeGreaterThan(0);
+		// and at least one of them names the move that was actually played
+		const mapped = analysedGameToStored(game!, 'botvinnik_fan', 'chesscom')!;
+		expect(mapped.stored.moves.some((m) => m.bestUci === m.uci)).toBe(true);
+	});
+
+	it('promises that every ply was looked at; the lichess importer does not', async () => {
+		// chess.com's analysis is ours, so an absent bestUci there means the ply
+		// was not analysed. lichess's is the server's, where absence means only
+		// that no judgment fired — which is weaker, and uncountable.
+		const game = await ccGameToAnalysed(SCHOLARS_MATE, flatEval);
+		const asChesscom = analysedGameToStored(game!, 'botvinnik_fan', 'chesscom')!;
+		expect(asChesscom.stored.moves.every((m) => m.topRecorded === true)).toBe(true);
+
+		const asLichess = analysedGameToStored(game!, 'botvinnik_fan', 'lichess')!;
+		expect(asLichess.stored.moves.every((m) => m.topRecorded === undefined)).toBe(true);
+	});
+
+	it('does not queue a practice puzzle for a move that WAS the best', async () => {
+		// The gate used to be `bestUci && bestSan`, which only worked because a
+		// bestUci implied a mistake. Now that every ply carries one, the gate has
+		// to say so itself or every good move of every import becomes a puzzle.
+		//
+		// botvinnik_fan is White, whose plies are e2e4 d1h5 f1c4 h5f7. The first
+		// is given as the engine's own choice — a MATCH — and the second is not.
+		const game = await ccGameToAnalysed(SCHOLARS_MATE, flatEval);
+		game!.analysis![0]!.best = 'e2e4'; // played it
+		game!.analysis![2]!.best = 'a2a3'; // did not
+		const mapped = analysedGameToStored(game!, 'botvinnik_fan', 'chesscom')!;
+
+		expect(mapped.stored.moves[0]!.bestUci).toBe('e2e4');
+		expect(mapped.stored.moves[0]!.uci).toBe('e2e4');
+		expect(mapped.practice.map((c) => c.playedUci)).toEqual(['d1h5'],
+			);
 	});
 
 	it('skips a shape-drifted record instead of throwing', async () => {

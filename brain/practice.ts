@@ -119,9 +119,14 @@ export function itemDataFromStoredMove(
 		bestUci: move.bestUci,
 		bestPv: [move.bestUci],
 		setupUci: setupUci ?? enPassantSetup(move.fenBefore) ?? undefined,
-		motifs: motifTags(move.fenBefore, move.bestUci, [move.bestUci], null),
+		// the REAL mate distance, not null (#283). The grade has always carried
+		// it and _storedMoveOf used to drop it, so a quiet move that forces mate
+		// reached the tagger indistinguishable from an ordinary quiet move — and
+		// got filed under whatever positional fact happened to be true of it,
+		// which the tier-1 hint then said out loud on a mating puzzle.
+		motifs: motifTags(move.fenBefore, move.bestUci, [move.bestUci], move.bestMate ?? null),
 		evalBestPawns,
-		mateBest: null,
+		mateBest: move.bestMate ?? null,
 		wcBest,
 		drop: move.wcDrop,
 		depth: 22

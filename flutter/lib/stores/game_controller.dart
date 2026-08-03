@@ -3343,6 +3343,13 @@ class GameController extends ChangeNotifier {
       if (g?.label != null) 'label': g!.label,
       if (g != null) 'bestSan': g.bestSan,
       if (g != null) 'bestUci': g.bestUci,
+      // the mate distance on the BEST line. Dropped here until #283, so
+      // everything downstream — the practice tagger above all — reasoned as
+      // though no line ever forced mate.
+      if (g != null) 'bestMate': g.bestMate,
+      // this writer records bestUci on every graded ply, so its absence means
+      // the ply was not graded rather than "the engine agreed" (#281)
+      if (g != null) 'topRecorded': true,
       if (g?.explanation != null) 'explanation': g!.explanation!.raw,
     };
   }

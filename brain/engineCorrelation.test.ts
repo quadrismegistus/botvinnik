@@ -12,7 +12,12 @@ import { engineCorrelation, type StoredMove } from './gameStore';
 const START = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
 const AFTER_E4 = 'rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1';
 
-/** A graded move: what was played, and what the engine wanted. */
+/** A graded move: what was played, and what the engine wanted.
+ *
+ * `topRecorded` by default, because that is what a live game and a chess.com
+ * import both write — the writer searched every position and recorded the
+ * engine's move on every ply. Pass it explicitly as undefined for a lichess
+ * import, where an absent bestUci means only that no judgment fired. */
 function move(
 	over: Partial<StoredMove> & { color: 'w' | 'b'; uci: string; fenBefore: string }
 ): StoredMove {
@@ -25,6 +30,7 @@ function move(
 		pctBest: 100,
 		wcDrop: 0,
 		depth: 12,
+		topRecorded: true,
 		...over
 	} as StoredMove;
 }
@@ -54,28 +60,33 @@ describe('engineCorrelation', () => {
 		expect(engineCorrelation(moves, 'w')).toEqual({ played: 1, total: 1 });
 	});
 
-	it('refuses an IMPORTED game, where bestUci means the opposite thing', () => {
-		// chesscomCore writes `best` only when the played move was NOT the top
-		// choice, and lichess's is "present on flagged moves" — so on an import
-		// a bestUci marks a MISS and a match carries nothing at all. Reading it
-		// as the engine's answer printed "0 of 39" under every imported game in
-		// the 500-game archive: 15,765 moves carry one and 0 of them match.
-		// pctBest is null on every one of those moves, and non-null on every
-		// move this app graded itself.
-		const imported = [
-			move({ color: 'w', uci: 'e2e4', bestUci: 'd2d4', fenBefore: START, pctBest: null }),
-			move({ color: 'w', uci: 'g1f3', bestUci: 'b1c3', fenBefore: START, pctBest: null })
+	it('refuses a game whose writer did not record the top move every ply', () => {
+		// A lichess import: `best` is present only where a judgment fired, so
+		// every bestUci marks a MISS and a match carries nothing at all.
+		// Counting those printed "0 of 39" under every analysed game in a real
+		// 500-game archive — 15,765 moves carried a bestUci and exactly 0 of
+		// them matched. Without the promise, the absence means nothing.
+		const lichess = [
+			move({ color: 'w', uci: 'e2e4', bestUci: 'd2d4', fenBefore: START, topRecorded: undefined }),
+			move({ color: 'w', uci: 'g1f3', bestUci: 'b1c3', fenBefore: START, topRecorded: undefined })
 		];
-		expect(engineCorrelation(imported, 'w')).toBeNull();
+		expect(engineCorrelation(lichess, 'w')).toBeNull();
 	});
 
-	it('counts the same moves once the app has graded them itself', () => {
-		// the control: identical records, with the grading signal present
+	it('counts the same moves once the writer does promise it', () => {
+		// the control: identical records, with the promise present
 		const graded = [
-			move({ color: 'w', uci: 'e2e4', bestUci: 'd2d4', fenBefore: START, pctBest: 88 }),
-			move({ color: 'w', uci: 'g1f3', bestUci: 'g1f3', fenBefore: START, pctBest: 100 })
+			move({ color: 'w', uci: 'e2e4', bestUci: 'd2d4', fenBefore: START }),
+			move({ color: 'w', uci: 'g1f3', bestUci: 'g1f3', fenBefore: START })
 		];
 		expect(engineCorrelation(graded, 'w')).toEqual({ played: 1, total: 2 });
+	});
+
+	it('counts a match, which is the whole point and was unreachable before', () => {
+		// With `best` written only on a mismatch, `mine === best` could not
+		// happen by construction. This is the case that used to be impossible.
+		const matched = [move({ color: 'w', uci: 'e2e4', bestUci: 'e2e4', fenBefore: START })];
+		expect(engineCorrelation(matched, 'w')).toEqual({ played: 1, total: 1 });
 	});
 
 	it('skips a record chess.js cannot set up, without losing the game', () => {

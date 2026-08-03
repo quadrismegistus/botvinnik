@@ -9568,9 +9568,14 @@ var brain = (() => {
       bestUci: move.bestUci,
       bestPv: [move.bestUci],
       setupUci: setupUci ?? enPassantSetup(move.fenBefore) ?? void 0,
-      motifs: motifTags(move.fenBefore, move.bestUci, [move.bestUci], null),
+      // the REAL mate distance, not null (#283). The grade has always carried
+      // it and _storedMoveOf used to drop it, so a quiet move that forces mate
+      // reached the tagger indistinguishable from an ordinary quiet move — and
+      // got filed under whatever positional fact happened to be true of it,
+      // which the tier-1 hint then said out loud on a mating puzzle.
+      motifs: motifTags(move.fenBefore, move.bestUci, [move.bestUci], move.bestMate ?? null),
       evalBestPawns,
-      mateBest: null,
+      mateBest: move.bestMate ?? null,
       wcBest,
       drop: move.wcDrop,
       depth: 22
@@ -9758,7 +9763,7 @@ var brain = (() => {
     let total = 0;
     for (const m of moves) {
       if (m.color !== color) continue;
-      if (m.pctBest == null || !m.bestUci) continue;
+      if (!m.topRecorded || !m.bestUci) continue;
       try {
         const chess = new Chess(m.fenBefore);
         const choices = new Set(chess.moves({ verbose: true }).map((v) => v.from + v.to));
@@ -9893,9 +9898,14 @@ var brain = (() => {
         label,
         bestSan,
         bestUci,
+        // chess.com's analysis is ours: we search every position and record
+        // the engine's move on every ply, so an absent bestUci there means
+        // the ply was not analysed. lichess's is the server's, and its
+        // absence means only that no judgment fired — see StoredMove.
+        topRecorded: source === "chesscom" ? true : void 0,
         explanation
       });
-      if (humanColor === color && bestUci && bestSan) {
+      if (humanColor === color && bestUci && bestSan && bestUci !== uci) {
         practice.push({
           fen: fenBefore,
           playedSan: m.san,
