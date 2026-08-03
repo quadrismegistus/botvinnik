@@ -551,10 +551,17 @@ class PracticeController extends ChangeNotifier {
           .length;
       _serve(null);
       final noun = 'mistake${walked == 1 ? '' : 's'}';
+      // Three sentences, because "the 0 mistakes over the bar" is what the
+      // two-way split said when nothing in the scope cleared the bar — a
+      // session that opens straight onto this note.
       gameDoneNote = withheld == 0
           ? "You've been through all $walked $noun from this game."
-          : "You've been through the $walked $noun over the bar — "
-              '$withheld more below it.';
+          : walked == 0
+              ? withheld == 1
+                  ? "This game's one mistake is below the bar."
+                  : 'All $withheld mistakes from this game are below the bar.'
+              : "You've been through the $walked $noun over the bar — "
+                  '$withheld more below it.';
       notifyListeners();
       return;
     }

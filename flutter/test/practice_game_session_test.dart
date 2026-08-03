@@ -150,6 +150,27 @@ void main() {
     expect(h.practice.gameDoneNote, isNot(contains('all')));
   });
 
+  test('a session whose every mistake is under the bar says so, not "0 over"',
+      () async {
+    // Reachable state: the bar on, and nothing in the scope clears it — the
+    // session opens straight onto the browser with the note. "You've been
+    // through the 0 mistakes over the bar" is truthful and not a sentence.
+    final h = makePractice([
+      practiceItem(_fenA, drop: 6),
+      practiceItem(_fenB, drop: 8),
+    ]);
+    h.practice.settings = await _settings({
+      'botvinnik-collect-threshold': '20',
+      'botvinnik-game-session-all': '0',
+    });
+
+    h.practice.startGameSession({_fenA, _fenB});
+    expect(h.practice.current, isNull, reason: 'nothing clears the bar');
+    expect(h.practice.gameDoneNote,
+        'All 2 mistakes from this game are below the bar.');
+    expect(h.practice.gameDoneNote, isNot(contains('0')));
+  });
+
   test('a motif tap after every mistake was served ends the walk', () {
     // Issue #289's second repro: a 2-mistake session, both served; a motif tap
     // re-served the first WITHOUT marking it, so the walk served it a third
