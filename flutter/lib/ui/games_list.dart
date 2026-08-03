@@ -74,7 +74,7 @@ class GamesListBody extends StatefulWidget {
   /// Hand this game's blunder fens to the Practice tab (#197). Threaded down
   /// to the open ReviewBody; null leaves the "practise this game's mistakes"
   /// affordance off, which is what a standalone test of the list wants.
-  final void Function(Map<String, String> game)? onPractiseGame;
+  final void Function(Set<String> fens)? onPractiseGame;
 
   const GamesListBody(
       {super.key,

@@ -408,7 +408,7 @@ void main() {
     testWidgets('a game session names its scope and offers the way out',
         (tester) async {
       final h = makePractice([practiceItem(_forkFen), practiceItem(_pinFen)]);
-      h.practice.startGameSession({_forkFen: 'a2a3'});
+      h.practice.startGameSession({_forkFen});
       await _pumpTab(tester, h.practice);
 
       // The banner now also states WHICH mistakes — #197 decided a game

@@ -298,23 +298,13 @@ class PracticeController extends ChangeNotifier {
       .where((i) => ((i['drop'] as num?)?.toDouble() ?? 0) >= threshold)
       .toList();
 
-  /// One game's own blunders, as position -> the move actually played there,
-  /// while a "practise this game's mistakes" session (#197) is running; null
-  /// the rest of the time.
-  ///
-  /// A MAP and not a set of fens, and only the human's positions, because an
-  /// item's id is its fen and items are deduped on that across the whole
-  /// collection (#285). "This position occurred in that game" therefore
-  /// admitted two things it should not: puzzles collected from other games at
-  /// a shared opening position, and puzzles on the side the BOT played, since
-  /// the bot's positions are in the game just as much as yours. Pairing each
-  /// position with the move played there settles both.
-  ///
-  /// Session-only, never persisted — the same discipline as [motifFilter]: a
-  /// scope is a property of the session you are sitting in, not of the
-  /// collection, and reopening the app onto three positions from a game you
-  /// reviewed weeks ago would read as the queue being broken.
-  Map<String, String>? gameScope;
+  /// The positions (item ids / fens) one game's blunders map to, while a
+  /// "practise this game's mistakes" session (#197) is running; null the rest
+  /// of the time. Session-only, never persisted — the same discipline as
+  /// [motifFilter]: a scope is a property of the session you are sitting in,
+  /// not of the collection, and reopening the app onto three positions from a
+  /// game you reviewed weeks ago would read as the queue being broken.
+  Set<String>? gameScope;
 
   bool get inGameSession => gameScope != null;
 
@@ -353,28 +343,15 @@ class PracticeController extends ChangeNotifier {
   List<Map<String, dynamic>> get _pool {
     final scope = gameScope;
     if (scope == null) return servable;
-    return items.where((i) => _inGame(i, scope)).toList();
+    return items.where((i) => scope.contains(i['id'] as String)).toList();
   }
 
   /// How many collected puzzles fall on the positions [fens] (a reviewed
   /// game's move-before fens) — what the Review affordance labels itself with
   /// and gates on. Counted over the whole collection, matching [_pool]'s game
   /// branch, so the number the button shows is the number the session serves.
-  int countForGame(Map<String, String> game) => items.where((i) => _inGame(i, game)).length;
-
-  /// Does [item] belong to [game] — fen -> the move actually played there?
-  ///
-  /// An item's id IS its fen, and it is deduped on that across the WHOLE
-  /// collection, so "its position occurred in this game" is not the same
-  /// question as "it was collected here" (#285). Matching the played move too
-  /// settles it without a schema change: both sides read the same stored
-  /// record, so the spellings cannot drift, and an item that survives is one
-  /// where the same mistake really was made in this game — which is the thing
-  /// the button offers to drill.
-  bool _inGame(Map<String, dynamic> item, Map<String, String> game) {
-    final uci = game[item['id'] as String];
-    return uci != null && item['playedUci'] == uci;
-  }
+  int countForGame(Set<String> fens) =>
+      items.where((i) => fens.contains(i['id'] as String)).length;
 
   int get due => loaded ? _api.dueCount(servable) : 0;
 
@@ -535,15 +512,15 @@ class PracticeController extends ChangeNotifier {
   /// Leitner boxes and the drill counts toward the same spaced-repetition
   /// schedule as any other. It filters rather than forks — the whole point is
   /// that these positions are already collected, so there is nothing to build.
-  void startGameSession(Map<String, String> game) {
-    gameScope = game;
+  void startGameSession(Set<String> fens) {
+    gameScope = fens;
     // A game scope is its own filter; stacking a leftover motif on top of it
     // could empty the pool and land the tab on "nothing tagged X" over a game
     // that has plenty.
     motifFilter = null;
     _gameServed.clear();
     gameDoneNote = null;
-    _gameScopeCount = countForGame(game);
+    _gameScopeCount = countForGame(fens);
     gameSessionSerial++;
     sessionSolved = 0;
     sessionStreak = 0;
@@ -568,7 +545,7 @@ class PracticeController extends ChangeNotifier {
     final all = settings?.gameSessionAllDrops ?? true;
     final remaining = items
         .where((i) =>
-            _inGame(i, scope) &&
+            scope.contains(i['id'] as String) &&
             !_gameServed.contains(i['id'] as String) &&
             (all || ((i['drop'] as num?)?.toDouble() ?? 0) >= threshold))
         .toList();

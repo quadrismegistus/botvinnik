@@ -104,7 +104,7 @@ void main() {
         practiceItem(_bFen, drop: 25), // over it
       ]);
       h.practice.settings = settings;
-      h.practice.startGameSession({_aFen: 'a2a3', _bFen: 'a2a3'});
+      h.practice.startGameSession({_aFen, _bFen});
       return h.practice;
     }
 
