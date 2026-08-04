@@ -47,6 +47,15 @@ export interface StoredMove {
 	 *  importer, which genuinely cannot know: lichess omits `best` when no
 	 *  judgment fired, which is weaker than "you played the top move". */
 	topRecorded?: true;
+	/** The engine's line behind `bestUci`, from the SAME search (#287). Written
+	 *  only when the move is a practice candidate (wcDrop at or over the 5%
+	 *  collect floor) — those are the only moves that can become items, and the
+	 *  tagger is the only reader, so storing it everywhere would grow the
+	 *  archive and the sync payload ~20% to no purpose. Its absence on a
+	 *  candidate means the writer predates #287; the item then keeps the
+	 *  one-move line and mate patterns/sacrifices stay untagged, which no
+	 *  migration can fix — the line was never recorded. */
+	bestPv?: string[];
 	explanation?: Explanation;
 	/** Wall time spent on this move, where it is known (#267): an in-app game,
 	 *  or a PGN carrying %emt/%clk. Absent everywhere else, including every

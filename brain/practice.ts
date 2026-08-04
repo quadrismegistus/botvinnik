@@ -108,6 +108,12 @@ export function itemDataFromStoredMove(
 	// best move. Found in a real queue: 1 item in 677, `played Qe2 / best Qe2`,
 	// drop 6.6%.
 	if (move.bestUci === move.uci) return null;
+	// The grade's own line, when the writer stored one (#287) — same search as
+	// bestUci, so the tags always describe the line the drill shows. A line
+	// that disagrees with bestUci is discarded rather than trusted, the same
+	// defence lichessImport applies to its variations.
+	const bestPv =
+		move.bestPv && move.bestPv[0] === move.bestUci ? move.bestPv : [move.bestUci];
 	const wcBest = Math.max(0, Math.min(100, winChance(move.evalPawns, move.mate) + move.wcDrop));
 	const w = Math.max(0.01, Math.min(0.99, wcBest / 100));
 	const evalBestPawns = Math.max(-15, Math.min(15, Math.log(w / (1 - w)) / 0.00368208 / 100));
@@ -117,14 +123,14 @@ export function itemDataFromStoredMove(
 		playedUci: move.uci,
 		bestSan: move.bestSan,
 		bestUci: move.bestUci,
-		bestPv: [move.bestUci],
+		bestPv,
 		setupUci: setupUci ?? enPassantSetup(move.fenBefore) ?? undefined,
 		// the REAL mate distance, not null (#283). The grade has always carried
 		// it and _storedMoveOf used to drop it, so a quiet move that forces mate
 		// reached the tagger indistinguishable from an ordinary quiet move — and
 		// got filed under whatever positional fact happened to be true of it,
 		// which the tier-1 hint then said out loud on a mating puzzle.
-		motifs: motifTags(move.fenBefore, move.bestUci, [move.bestUci], move.bestMate ?? null),
+		motifs: motifTags(move.fenBefore, move.bestUci, bestPv, move.bestMate ?? null),
 		evalBestPawns,
 		mateBest: move.bestMate ?? null,
 		wcBest,

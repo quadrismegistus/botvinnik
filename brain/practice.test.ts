@@ -100,6 +100,48 @@ describe('itemDataFromStoredMove', () => {
 		expect(itemDataFromStoredMove(move({ wcDrop: 0 }))).toBeNull();
 	});
 
+	it("carries the grade's own line through, so mates and sacrifices tag (#287)", () => {
+		// Qe8+!! Rxe8 Rxe8# — a queen sacrifice deflecting into a back-rank
+		// mate. With the one-move line a stored move used to carry, patternTag
+		// cannot walk to the mating position and sacrificeStory never fires, so
+		// this item was filed under bare "mate" and the sacrifice drill did not
+		// exist as a filter option at all.
+		const fen = 'r5k1/5ppp/8/q7/8/8/P3QPPP/4R1K1 w - - 0 1';
+		const pv = ['e2e8', 'a8e8', 'e1e8'];
+		// Assert the line, not the description of it.
+		const board = new Chess(fen);
+		expect(board.move({ from: 'e2', to: 'e8' }).san).toBe('Qe8+');
+		expect(board.move({ from: 'a8', to: 'e8' }).san).toBe('Rxe8');
+		expect(board.move({ from: 'e1', to: 'e8' }).san).toBe('Rxe8#');
+		expect(board.isCheckmate()).toBe(true);
+
+		const item = itemDataFromStoredMove(
+			move({
+				fenBefore: fen,
+				san: 'a3',
+				uci: 'a2a3',
+				bestSan: 'Qe8+',
+				bestUci: 'e2e8',
+				bestMate: 2,
+				bestPv: pv,
+			})
+		);
+		expect(item?.bestPv).toEqual(pv);
+		expect(item?.motifs).toContain('mate');
+		expect(item?.motifs).toContain('back-rank mate');
+		expect(item?.motifs).toContain('sacrifice');
+	});
+
+	it('discards a stored line that does not start with the best move', () => {
+		// The same defence lichessImport applies to its variations: a pv that
+		// disagrees with bestUci would make the tags describe a line the drill
+		// never shows. Fall back to the one-move line rather than trust it.
+		const item = itemDataFromStoredMove(
+			move({ bestPv: ['d2d4', 'g8f6'] }) // bestUci is e7e5
+		);
+		expect(item?.bestPv).toEqual(['e7e5']);
+	});
+
 	it('refuses a puzzle whose answer is the move you played', () => {
 		// Vacuous by construction, and worse than useless: checkAttempt
 		// short-circuits to a PASS when the played move equals the stored
