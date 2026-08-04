@@ -162,9 +162,18 @@ class _PracticeTabState extends State<PracticeTab> {
             ((i['motifs'] as List?)?.cast<String>() ?? const [])
                 .contains(motif))
         .toList();
-    rows.sort((a, b) => _dueAt(a).compareTo(_dueAt(b)));
+    rows.sort((a, b) {
+      final due = _dueAt(a).compareTo(_dueAt(b));
+      if (due != 0) return due;
+      // Repeats first among equals (#286): imports land whole batches on one
+      // due date, so this tiebreak decides exactly where due-order goes blind.
+      return _seenCount(b).compareTo(_seenCount(a));
+    });
     return rows;
   }
+
+  int _seenCount(Map<String, dynamic> item) =>
+      ((item['seenCount'] as num?) ?? 1).toInt();
 
   DateTime _dueAt(Map<String, dynamic> item) =>
       DateTime.tryParse(item['dueAt'] as String? ?? '') ??
@@ -550,6 +559,21 @@ class _PracticeTabState extends State<PracticeTab> {
                               fontSize: 13, fontWeight: FontWeight.w600),
                         ),
                       ),
+                      if (_seenCount(item) > 1) ...[
+                        Tooltip(
+                          message:
+                              'Collected ${_seenCount(item)} times — this one '
+                              'keeps beating you',
+                          child: Text(
+                            '×${_seenCount(item)}',
+                            style: const TextStyle(
+                                color: Color(0xFFF0C15C),
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700),
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                      ],
                       _difficultyChip(practice.difficultyOf(item)),
                     ],
                   ),

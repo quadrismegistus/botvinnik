@@ -10,7 +10,7 @@ import {
 	puzzleDifficulty,
 	puzzleSetupMove,
 	recordResult,
-	type PracticeItem, addItems} from './practice';
+	type PracticeItem, addItems, migratePracticeItems} from './practice';
 import { winChance } from './engine/insights';
 import type { StoredMove } from './gameStore';
 
@@ -100,6 +100,48 @@ describe('itemDataFromStoredMove', () => {
 		expect(itemDataFromStoredMove(move({ wcDrop: 0 }))).toBeNull();
 	});
 
+	it("carries the grade's own line through, so mates and sacrifices tag (#287)", () => {
+		// Qe8+!! Rxe8 Rxe8# — a queen sacrifice deflecting into a back-rank
+		// mate. With the one-move line a stored move used to carry, patternTag
+		// cannot walk to the mating position and sacrificeStory never fires, so
+		// this item was filed under bare "mate" and the sacrifice drill did not
+		// exist as a filter option at all.
+		const fen = 'r5k1/5ppp/8/q7/8/8/P3QPPP/4R1K1 w - - 0 1';
+		const pv = ['e2e8', 'a8e8', 'e1e8'];
+		// Assert the line, not the description of it.
+		const board = new Chess(fen);
+		expect(board.move({ from: 'e2', to: 'e8' }).san).toBe('Qe8+');
+		expect(board.move({ from: 'a8', to: 'e8' }).san).toBe('Rxe8');
+		expect(board.move({ from: 'e1', to: 'e8' }).san).toBe('Rxe8#');
+		expect(board.isCheckmate()).toBe(true);
+
+		const item = itemDataFromStoredMove(
+			move({
+				fenBefore: fen,
+				san: 'a3',
+				uci: 'a2a3',
+				bestSan: 'Qe8+',
+				bestUci: 'e2e8',
+				bestMate: 2,
+				bestPv: pv,
+			})
+		);
+		expect(item?.bestPv).toEqual(pv);
+		expect(item?.motifs).toContain('mate');
+		expect(item?.motifs).toContain('back-rank mate');
+		expect(item?.motifs).toContain('sacrifice');
+	});
+
+	it('discards a stored line that does not start with the best move', () => {
+		// The same defence lichessImport applies to its variations: a pv that
+		// disagrees with bestUci would make the tags describe a line the drill
+		// never shows. Fall back to the one-move line rather than trust it.
+		const item = itemDataFromStoredMove(
+			move({ bestPv: ['d2d4', 'g8f6'] }) // bestUci is e7e5
+		);
+		expect(item?.bestPv).toEqual(['e7e5']);
+	});
+
 	it('refuses a puzzle whose answer is the move you played', () => {
 		// Vacuous by construction, and worse than useless: checkAttempt
 		// short-circuits to a PASS when the played move equals the stored
@@ -127,7 +169,11 @@ describe('itemDataFromStoredMove', () => {
 		expect(data.bestPv).toEqual(['e7e5']);
 		expect(data.mateBest).toBeNull();
 		expect(data.drop).toBe(12);
+		// the fixture carries no depth, so the unknown-depth fallback engages;
+		// a real grade's depth passes through (the migration's deeper-grade
+		// tiebreak depends on it being real, not a constant 22)
 		expect(data.depth).toBe(22);
+		expect(itemDataFromStoredMove(move({ depth: 15 }))?.depth).toBe(15);
 
 		// win chance of the best move = after-move win chance + the drop
 		const wcAfter = winChance(m.evalPawns, m.mate);
@@ -182,11 +228,16 @@ describe('addItems (the bulk form)', () => {
 		expect(next).toHaveLength(1);
 	});
 
-	it('returns null when nothing was added, so the caller can skip persisting',
+	it('returns null only when nothing changed at all, so the caller can skip persisting',
 		() => {
-			const first = addItems([], [seed('a')])!;
-			expect(addItems(first, [seed('a')])).toBeNull();
+			// The old contract was "null when nothing was ADDED" — but a bumped
+			// repeat counter is a change worth saving (#286), so a duplicate no
+			// longer qualifies. What still does: an empty batch, and a re-seed
+			// of the same game (same seenKey), which is the grader's crash-redo
+			// and must stay a no-op.
+			const first = addItems([], [seed('a')], ['g1'])!;
 			expect(addItems(first, [])).toBeNull();
+			expect(addItems(first, [seed('a')], ['g1'])).toBeNull();
 		});
 
 	it('agrees with addItem on the fields it sets', () => {
@@ -198,11 +249,164 @@ describe('addItems (the bulk form)', () => {
 });
 
 describe('addItem', () => {
-	it('dedupes by fen', () => {
+	it('holds one item per position, counting repeats (#286)', () => {
 		const data = itemDataFromStoredMove(move())!;
 		const once = addItem([], data)!;
 		expect(once).toHaveLength(1);
-		expect(addItem(once, data)).toBeNull();
+		// A repeat is not discarded any more — it is the signal #286 exists to
+		// keep: the item stays one item, and remembers it has beaten you twice.
+		const twice = addItem(once, data)!;
+		expect(twice).toHaveLength(1);
+		expect(twice[0].seenCount).toBe(2);
+		expect(twice[0].lastSeenAt).toBeTruthy();
+	});
+});
+
+describe('the repeat key is the position, not the bookkeeping (#286)', () => {
+	const fenAt = (halfmove: number, fullmove: number) =>
+		`rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - ${halfmove} ${fullmove}`;
+
+	it('merges the same position reached on different move numbers', () => {
+		// The feature's poster child: the same opening trap walked into on move
+		// 12 in one game and move 14 in another. The full-fen key split these
+		// apart, which is precisely the repeat worth counting.
+		const first = addItem([], itemDataFromStoredMove(move({ fenBefore: fenAt(0, 1) }))!)!;
+		const next = addItem(first, itemDataFromStoredMove(move({ fenBefore: fenAt(3, 12) }))!)!;
+		expect(next).toHaveLength(1);
+		expect(next[0].seenCount).toBe(2);
+		// the drill still sets up from the full fen it first saw
+		expect(next[0].fen).toBe(fenAt(0, 1));
+	});
+
+	it('ignores an en-passant square no capture can use', () => {
+		// After 1.e4 chess.js records e3 as the target even though Black has no
+		// pawn to take with; dartchess writes "-" for the same position. Two
+		// writers, one position — the key must not split on the convention.
+		const withEp = 'rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1';
+		const bare = 'rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1';
+		expect(
+			new Chess(withEp).moves({ verbose: true }).some((m) => m.flags.includes('e'))
+		).toBe(false);
+		const first = addItem([], itemDataFromStoredMove(move({ fenBefore: withEp, color: 'b' }))!)!;
+		const next = addItem(first, itemDataFromStoredMove(move({ fenBefore: bare, color: 'b' }))!)!;
+		expect(next).toHaveLength(1);
+		expect(next[0].seenCount).toBe(2);
+	});
+
+	it('keeps an en-passant square a capture can actually use', () => {
+		// Here exd6 is legal, and en passant changes the answer — the position
+		// WITH the right is a different puzzle from the one without it.
+		const capturable = 'rnbqkbnr/ppp1pppp/8/3pP3/8/8/PPPP1PPP/RNBQKBNR w KQkq d6 0 3';
+		const expired = 'rnbqkbnr/ppp1pppp/8/3pP3/8/8/PPPP1PPP/RNBQKBNR w KQkq - 0 3';
+		expect(
+			new Chess(capturable).moves({ verbose: true }).some((m) => m.flags.includes('e'))
+		).toBe(true);
+		const first = addItem([], itemDataFromStoredMove(move({ fenBefore: capturable }))!)!;
+		const next = addItem(first, itemDataFromStoredMove(move({ fenBefore: expired }))!)!;
+		expect(next).toHaveLength(2);
+	});
+});
+
+describe('bulk repeats carry their game, so a redo cannot inflate the count (#286)', () => {
+	const seed = (fen: string) => ({
+		fen,
+		playedUci: 'e2e4',
+		bestUci: 'd2d4',
+		playedSan: 'e4',
+		bestSan: 'd4',
+		drop: 20,
+		depth: 22,
+		evalBestPawns: 0.3,
+		mateBest: null,
+		wcBest: 55,
+		motifs: [] as string[]
+	});
+
+	it('the same game re-seeded is a no-op — the grader seeds BEFORE it saves', () => {
+		// background_grader.dart's crash ordering depends on this: seed, crash,
+		// re-grade, re-seed must land exactly where one clean pass would.
+		const first = addItems([], [seed('a')], ['g1'])!;
+		expect(first[0].seenCount ?? 1).toBe(1);
+		expect(addItems(first, [seed('a')], ['g1'])).toBeNull();
+	});
+
+	it('the same mistake in ANOTHER game counts', () => {
+		const first = addItems([], [seed('a')], ['g1'])!;
+		const next = addItems(first, [seed('a')], ['g2'])!;
+		expect(next[0].seenCount).toBe(2);
+		// and re-seeding THAT game is now a no-op too
+		expect(addItems(next, [seed('a')], ['g2'])).toBeNull();
+	});
+
+	it('a live repeat (no key) always counts', () => {
+		const first = addItems([], [seed('a')], ['g1'])!;
+		const next = addItem(first, seed('a'))!;
+		expect(next[0].seenCount).toBe(2);
+	});
+});
+
+describe('migratePracticeItems (#286)', () => {
+	const fenAt = (fullmove: number) =>
+		`rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 ${fullmove}`;
+
+	it('re-keys full-fen ids and merges the twins the old key split', () => {
+		const twinA = {
+			...addItem([], itemDataFromStoredMove(move({ fenBefore: fenAt(1) }))!)![0],
+			id: fenAt(1), // as the old key stored it
+			box: 3,
+			dueAt: '2026-08-01T00:00:00.000Z',
+			attempts: 4,
+			correct: 3,
+			depth: 22
+		};
+		const twinB = {
+			...addItem([], itemDataFromStoredMove(move({ fenBefore: fenAt(9) }))!)![0],
+			id: fenAt(9),
+			box: 1,
+			dueAt: '2026-07-01T00:00:00.000Z',
+			attempts: 2,
+			correct: 0,
+			depth: 18
+		};
+		const merged = migratePracticeItems([twinA, twinB])!;
+		expect(merged).toHaveLength(1);
+		const item = merged[0];
+		expect(item.id).toBe('rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq -');
+		// each old item was a separate occurrence of the mistake
+		expect(item.seenCount).toBe(2);
+		// the schedule keeps the least-learned state; history is summed
+		expect(item.box).toBe(1);
+		expect(item.dueAt).toBe('2026-07-01T00:00:00.000Z');
+		expect(item.attempts).toBe(6);
+		expect(item.correct).toBe(3);
+		// the deeper grade's chess fields win
+		expect(item.fen).toBe(fenAt(1));
+	});
+
+	it('survives an item with no usable fen instead of bricking boot', () => {
+		// importJson accepts any Map as a practice item — its own comment
+		// defends a hand-edited file with a missing id — and load() awaits the
+		// migration at BOOT. One fen-less item in the kv row must not turn
+		// every later launch into a boot failure (found by review of #286).
+		const good = {
+			...addItem([], itemDataFromStoredMove(move({ fenBefore: fenAt(1) }))!)![0],
+			id: fenAt(1) // old shape, so the migration has real work to do
+		};
+		const poisoned = [good, { ...good, id: 'x', fen: null as unknown as string }];
+		expect(() => migratePracticeItems(poisoned)).not.toThrow();
+		const out = migratePracticeItems(poisoned)!;
+		expect(out).toHaveLength(2);
+		expect(out[0].id).toBe('rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq -');
+	});
+
+	it('returns null once the collection is already in the new shape', () => {
+		const oldShape = {
+			...addItem([], itemDataFromStoredMove(move({ fenBefore: fenAt(1) }))!)![0],
+			id: fenAt(1) // as the full-fen key stored it
+		};
+		const migrated = migratePracticeItems([oldShape]);
+		expect(migrated).not.toBeNull();
+		expect(migratePracticeItems(migrated!)).toBeNull();
 	});
 });
 

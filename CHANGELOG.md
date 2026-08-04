@@ -10,6 +10,35 @@ The full pre-2026-07-19 roadmap — with the complete calibration saga and every
 design note as it was written — is preserved in git history (it was this file's
 predecessor, `ROADMAP.md` before the 2026-07-19 trim).
 
+*(Entries for 2026-07-24 → 2026-08-03 — the Maia-3 chart, refuse-blunders
+mode, review-as-analysis-board, the retro engines, and the scouted-issue batch
+— are pending backfill; the git history of `main` has each release merge.)*
+
+## 2026-08-04 — practice knows the mistakes you keep making
+
+- **#286** — **one practice item per position, counting repeats.** The dedupe
+  key is now the position itself (first four FEN fields, en passant kept only
+  when a capture can use it), so the trap you walk into on move 12 and again
+  on move 14 is one item that remembers both. Repeats bump a visible **×N**
+  badge, break due-date ties in the collection browser, and survive redos:
+  bulk seeds carry their game id, a refusal barrage counts one occurrence per
+  (position, move), and a sync pull from a device on an older build re-keys
+  before merging. Existing collections migrate (and merge their split twins)
+  once, at load.
+- **#287** — **collected mates and sacrifices finally tag.** A stored move now
+  keeps the engine's line behind its best move — but only on practice
+  candidates, so the archive and the sync payload barely grow — and the motif
+  tagger walks that line: back-rank and smothered mates and sacrifices appear
+  on collected items and in the motif picker. All FOUR stored-move writers
+  (live play, the refusal path, the background grader, and the lichess
+  importer — the one the first pass missed and review caught) stay in step.
+- **#291** — deleting the last collected item mid-game-session no longer
+  strands the session behind the empty screen; the session ends with the
+  collection.
+- Hardening from the adversarial review: a malformed practice item can no
+  longer brick boot, and review scrubbing stops paying a bridge call per
+  frame for the practise-this-game count.
+
 ## 2026-07-23 — practice from your own games, deeper Insights
 
 A practice-focused batch: drill the mistakes from a game you just reviewed, keep

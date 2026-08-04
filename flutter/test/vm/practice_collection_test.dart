@@ -13,8 +13,10 @@
 //
 //   cd flutter && flutter test test/practice_collection_test.dart
 
+import 'dart:convert';
 import 'dart:io';
 
+import 'package:botvinnik_mobile/brain/practice_api.dart';
 import 'package:chessground/chessground.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -96,6 +98,41 @@ void main() {
           tester.getTopLeft(find.textContaining('played $san')).dy;
       expect(y('Nf3'), lessThan(y('Ke2')), reason: '3 days overdue before 4 hours');
       expect(y('Ke2'), lessThan(y('Qh5')), reason: 'overdue before not yet due');
+    });
+
+    testWidgets('a repeated mistake wears its count (#286)', (tester) async {
+      final h = makePractice([
+        practiceItem(_fenA, seenCount: 3),
+        practiceItem(_fenB),
+      ]);
+      h.practice.startSession();
+      await _pumpTab(tester, h.practice);
+      await tester.tap(find.byIcon(Icons.format_list_bulleted));
+      await tester.pumpAndSettle();
+
+      expect(find.text('×3'), findsOneWidget);
+      // a first offence carries no badge — ×1 on every row would be noise
+      expect(find.text('×1'), findsNothing);
+    });
+
+    testWidgets('among equally due rows, the repeat offender comes first (#286)',
+        (tester) async {
+      // Imports land whole batches on one due date, so the tiebreak is
+      // visible exactly where the primary sort goes blind.
+      final due = _ago(const Duration(days: 1));
+      final h = makePractice([
+        practiceItem(_fenA, playedSan: 'Qh5', dueAt: due),
+        practiceItem(_fenB, playedSan: 'Nf3', dueAt: due, seenCount: 4),
+      ]);
+      h.practice.startSession();
+      await _pumpTab(tester, h.practice);
+      await tester.tap(find.byIcon(Icons.format_list_bulleted));
+      await tester.pumpAndSettle();
+
+      double y(String san) =>
+          tester.getTopLeft(find.textContaining('played $san')).dy;
+      expect(y('Nf3'), lessThan(y('Qh5')),
+          reason: 'same due date, so the count decides');
     });
 
     testWidgets('counts the collection, the queue and what is due',
@@ -504,6 +541,77 @@ void main() {
           await h.practice.maybeCollect(stored(_fenA, depth: 5));
       expect(outcome, CollectOutcome.notEligible);
       expect(h.practice.items, isEmpty);
+    });
+
+    test('a repeat bumps the count, persists, and still reads as duplicate (#286)',
+        () async {
+      final h = makePractice([practiceItem(_fenA)]);
+      final outcome = await h.practice.maybeCollect(stored(_fenA));
+      expect(outcome, CollectOutcome.duplicate,
+          reason: 'the card still says already-collected');
+      expect(h.practice.items.single['seenCount'], 2,
+          reason: 'the second occurrence is the signal #286 keeps');
+      expect(h.db.kv, isNotEmpty,
+          reason: 'a moved counter is a change worth saving');
+    });
+
+    test('bulk seeds carry their game, so a redo cannot inflate the count (#286)',
+        () async {
+      final h = makePractice([]);
+      Future<int> seedGame(String gameId) => h.practice.collectAll([
+            (move: stored(_fenA), setupUci: null, gameId: gameId),
+          ]);
+      expect(await seedGame('g1'), 1);
+      expect(await seedGame('g1'), 0);
+      expect(h.practice.items.single['seenCount'] ?? 1, 1,
+          reason: 'the grader seeds BEFORE it saves; its crash-redo must not count');
+      await seedGame('g2');
+      expect(h.practice.items.single['seenCount'], 2,
+          reason: 'the same mistake in another game is a real repeat');
+    });
+  });
+
+  group('load-time reshaping (#286)', () {
+    test('adopts and persists what migratePracticeItems returns', () async {
+      final bridge = FakeBridge();
+      final db = FakeDb();
+      await db.kvPut('botvinnik-practice-v1', jsonEncode([practiceItem(_fenA)]));
+      bridge.migrateResult = [practiceItem(_fenB, seenCount: 2)];
+
+      final practice = PracticeController(
+          db, PracticeApi(bridge), FakeGrading(), FakeArbiter());
+      await practice.load();
+
+      expect(practice.items.single['fen'], _fenB);
+      final written = jsonDecode(db.kv['botvinnik-practice-v1']!) as List;
+      expect((written.single as Map)['seenCount'], 2,
+          reason: 'the reshaped collection is written back at once');
+    });
+
+    test('a migration failure cannot brick boot (#286 review)', () async {
+      // load() is awaited in _start(); before this guard, one poisoned item
+      // in the kv row (importJson validates no item shape, and a restore
+      // persists BEFORE the reload throws) turned every later launch into a
+      // boot failure with no way out short of hand-deleting the row.
+      final bridge = FakeBridge()..migrateThrows = true;
+      final db = FakeDb();
+      await db.kvPut('botvinnik-practice-v1', jsonEncode([practiceItem(_fenA)]));
+      final practice = PracticeController(
+          db, PracticeApi(bridge), FakeGrading(), FakeArbiter());
+      await practice.load();
+      expect(practice.loaded, isTrue);
+      expect(practice.items.single['fen'], _fenA,
+          reason: 'unmigrated but alive beats migrated but bricked');
+    });
+
+    test('a collection already in shape is left alone', () async {
+      final bridge = FakeBridge();
+      final db = FakeDb();
+      await db.kvPut('botvinnik-practice-v1', jsonEncode([practiceItem(_fenA)]));
+      final practice = PracticeController(
+          db, PracticeApi(bridge), FakeGrading(), FakeArbiter());
+      await practice.load();
+      expect(practice.items.single['fen'], _fenA);
     });
   });
 

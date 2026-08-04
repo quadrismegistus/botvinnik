@@ -48,10 +48,12 @@ class SyncController extends ChangeNotifier {
   SyncController({
     required AppDb db,
     required SyncKeyStore keyStore,
+    List<Map<String, dynamic>>? Function(List<Map<String, dynamic>>)?
+        migratePractice,
     SyncStore Function(SyncKeys keys)? storeFactory,
     SyncCryptoParams kdfParams = SyncCryptoParams.start,
     DateTime Function()? clock,
-  })  : _backup = BackupService(db),
+  })  : _backup = BackupService(db, migrateItems: migratePractice),
         // ignore: prefer_initializing_formals — keep the public `keyStore:` name
         _keyStore = keyStore,
         _storeFactory =

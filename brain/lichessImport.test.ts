@@ -87,6 +87,34 @@ describe('lichessGameToStored', () => {
 		expect(d3.explanation?.evidence).toEqual({ fen: d3.fenBefore, ucis: ['f3h4'] });
 	});
 
+	it('the ARCHIVED move keeps the line behind a flagged mistake (#287)', () => {
+		// This mapper is a stored-move writer — the fourth one — and it had the
+		// server's own line in hand and threw it away: the practice candidate
+		// carried bestPv while moves.push omitted it, so every lichess-imported
+		// item fell back to the one-move line and mate patterns/sacrifices
+		// could never tag. Unfixable after the fact: analysed imports arrive
+		// labelled, so the background grader never revisits them.
+		// the fixture's variation extended to the server's real shape: a SAN
+		// line, of which the archived move must keep the whole parsed pv
+		const withLine = {
+			...FREE_QUEEN,
+			analysis: [
+				...FREE_QUEEN.analysis.slice(0, 4),
+				{ ...FREE_QUEEN.analysis[4], variation: 'Nxh4 Nc6 Nf3' },
+			],
+		};
+		const mapped = lichessGameToStored(withLine, 'ryan')!;
+		const d3 = mapped.stored.moves[4];
+		expect(d3.label).toBe('blunder');
+		expect(d3.bestPv).toEqual(['f3h4', 'b8c6', 'h4f3']);
+		expect(d3.bestPv?.[0]).toBe(d3.bestUci);
+		// and an unflagged move stays lean — the same collect-floor gate every
+		// other writer applies (see StoredMove.bestPv)
+		for (const m of mapped.stored.moves) {
+			if (m.wcDrop < 5) expect(m.bestPv).toBeUndefined();
+		}
+	});
+
 	it('collects the importing user own mistakes as practice candidates', () => {
 		const mapped = lichessGameToStored(FOOLS_MATE, 'ryan')!;
 		expect(mapped.practice).toHaveLength(1);

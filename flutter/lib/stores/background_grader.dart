@@ -222,7 +222,8 @@ class BackgroundGrader {
 
     final human = _humanColor(game);
     final graded = <Map<String, dynamic>>[];
-    final seeds = <({Map<String, dynamic> move, String? setupUci})>[];
+    final seeds =
+        <({Map<String, dynamic> move, String? setupUci, String? gameId})>[];
 
     for (var i = 0; i < rawMoves.length; i++) {
       if (_paused || _disposed) return false;
@@ -262,6 +263,9 @@ class BackgroundGrader {
           // (ply is 1-based there; here i is 0-based) and the lichess importer's
           // `moves[i - 1]`
           setupUci: i >= 1 ? rawMoves[i - 1]['uci'] as String? : null,
+          // one count per game (#286): this id is what lets the crash-redo
+          // below re-seed without inflating the repeat counter
+          gameId: id,
         ));
       }
 
@@ -355,6 +359,9 @@ class BackgroundGrader {
       // regressed to a dash on exactly those games, and their practice items
       // kept reaching the tagger with no mate distance.
       'bestMate': g.bestMate,
+      // the line behind bestUci, gated the way _storedMoveOf gates it (#287):
+      // stored only when the drop makes the move a practice candidate
+      if (wcDrop >= kCollectMin && g.bestPv.isNotEmpty) 'bestPv': g.bestPv,
       // earned honestly: this grader searches every ply itself
       'topRecorded': true,
       if (g.explanation != null) 'explanation': g.explanation!.raw,

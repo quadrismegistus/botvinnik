@@ -3917,6 +3917,8 @@ var brain = (() => {
     encodeBoard: () => encodeBoard,
     encodeBoardArray: () => encodeBoardArray,
     engineCorrelation: () => engineCorrelation,
+    epdKey: () => epdKey,
+    epdKeys: () => epdKeys,
     estimatePlayerElo: () => estimatePlayerElo,
     expectedScore: () => expectedScore,
     explainGoodMove: () => explainGoodMove,
@@ -3938,6 +3940,7 @@ var brain = (() => {
     lichessGameToStored: () => lichessGameToStored,
     maskAndSoftmax: () => maskAndSoftmax,
     masteryStats: () => masteryStats,
+    migratePracticeItems: () => migratePracticeItems,
     motifTags: () => motifTags,
     moveAccuracy: () => moveAccuracy,
     nextItem: () => nextItem,
@@ -9546,6 +9549,25 @@ var brain = (() => {
   }
 
   // brain/practice.ts
+  function epdKey(fen) {
+    if (typeof fen !== "string") return String(fen);
+    const parts = fen.split(" ");
+    if (parts.length < 4) return fen;
+    const four = parts.slice(0, 4);
+    if (four[3] !== "-") {
+      try {
+        const board = new Chess(fen);
+        if (!board.moves({ verbose: true }).some((m) => m.flags.includes("e"))) {
+          four[3] = "-";
+        }
+      } catch {
+      }
+    }
+    return four.join(" ");
+  }
+  function epdKeys(fens) {
+    return fens.map(epdKey);
+  }
   var KEY = "botvinnik-practice-v1";
   var INTERVAL_DAYS = [7e-3, 1, 3, 7, 21];
   function hasStorage() {
@@ -9557,6 +9579,7 @@ var brain = (() => {
   function itemDataFromStoredMove(move, setupUci) {
     if (!move.bestSan || !move.bestUci || !move.fenBefore || move.wcDrop <= 0) return null;
     if (move.bestUci === move.uci) return null;
+    const bestPv = move.bestPv && move.bestPv[0] === move.bestUci ? move.bestPv : [move.bestUci];
     const wcBest = Math.max(0, Math.min(100, winChance(move.evalPawns, move.mate) + move.wcDrop));
     const w = Math.max(0.01, Math.min(0.99, wcBest / 100));
     const evalBestPawns = Math.max(-15, Math.min(15, Math.log(w / (1 - w)) / 368208e-8 / 100));
@@ -9566,19 +9589,22 @@ var brain = (() => {
       playedUci: move.uci,
       bestSan: move.bestSan,
       bestUci: move.bestUci,
-      bestPv: [move.bestUci],
+      bestPv,
       setupUci: setupUci ?? enPassantSetup(move.fenBefore) ?? void 0,
       // the REAL mate distance, not null (#283). The grade has always carried
       // it and _storedMoveOf used to drop it, so a quiet move that forces mate
       // reached the tagger indistinguishable from an ordinary quiet move — and
       // got filed under whatever positional fact happened to be true of it,
       // which the tier-1 hint then said out loud on a mating puzzle.
-      motifs: motifTags(move.fenBefore, move.bestUci, [move.bestUci], move.bestMate ?? null),
+      motifs: motifTags(move.fenBefore, move.bestUci, bestPv, move.bestMate ?? null),
       evalBestPawns,
       mateBest: move.bestMate ?? null,
       wcBest,
       drop: move.wcDrop,
-      depth: 22
+      // the move's real grading depth, not a constant: the migration's
+      // "deeper grade's chess fields win" tiebreak is vacuous if every item
+      // claims 22 (review of #286). || not ??— an ungraded 0 means unknown.
+      depth: move.depth || 22
     };
   }
   function puzzleSetupMove(item) {
@@ -9592,12 +9618,30 @@ var brain = (() => {
     if (ep[1] === "3") return `${file2}2${file2}4`;
     return null;
   }
+  function bumpRepeat(items, at, seenKey) {
+    const item = items[at];
+    if (seenKey && (item.seenIn ?? []).includes(seenKey)) return null;
+    const next = [...items];
+    next[at] = {
+      ...item,
+      seenCount: (item.seenCount ?? 1) + 1,
+      lastSeenAt: (/* @__PURE__ */ new Date()).toISOString(),
+      ...seenKey ? { seenIn: [...item.seenIn ?? [], seenKey] } : {}
+    };
+    return next;
+  }
   function addItem(items, data) {
-    if (items.some((i) => i.fen === data.fen)) return null;
+    const key = epdKey(data.fen);
+    const at = items.findIndex((i) => i.id === key);
+    if (at >= 0) {
+      const next2 = bumpRepeat(items, at);
+      if (next2) save(next2);
+      return next2;
+    }
     const now = /* @__PURE__ */ new Date();
     const item = {
       ...data,
-      id: data.fen,
+      id: key,
       createdAt: now.toISOString(),
       box: 0,
       dueAt: now.toISOString(),
@@ -9609,26 +9653,81 @@ var brain = (() => {
     save(next);
     return next;
   }
-  function addItems(items, dataList) {
-    const seen = new Set(items.map((i) => i.fen));
+  function addItems(items, dataList, seenKeys) {
     const now = (/* @__PURE__ */ new Date()).toISOString();
-    const added = [];
-    for (const data of dataList) {
-      if (seen.has(data.fen)) continue;
-      seen.add(data.fen);
-      added.push({
+    let next = [...items];
+    const at = new Map(next.map((i, n) => [i.id, n]));
+    let changed = false;
+    for (let n = 0; n < dataList.length; n++) {
+      const data = dataList[n];
+      const seenKey = seenKeys?.[n] ?? void 0;
+      const key = epdKey(data.fen);
+      const existing = at.get(key);
+      if (existing !== void 0) {
+        const bumped = bumpRepeat(next, existing, seenKey);
+        if (bumped) {
+          next = bumped;
+          changed = true;
+        }
+        continue;
+      }
+      at.set(key, next.length);
+      next.push({
         ...data,
-        id: data.fen,
+        id: key,
         createdAt: now,
         box: 0,
         dueAt: now,
         // due immediately
         attempts: 0,
-        correct: 0
+        correct: 0,
+        ...seenKey ? { seenIn: [seenKey] } : {}
+      });
+      changed = true;
+    }
+    if (!changed) return null;
+    save(next);
+    return next;
+  }
+  function migratePracticeItems(items) {
+    let changed = false;
+    const byKey = /* @__PURE__ */ new Map();
+    const order = [];
+    let unkeyed = 0;
+    for (const raw of items) {
+      if (typeof raw.fen !== "string") {
+        const key2 = `__unkeyed-${unkeyed++}`;
+        byKey.set(key2, raw);
+        order.push(key2);
+        continue;
+      }
+      const key = epdKey(raw.fen);
+      if (raw.id !== key) changed = true;
+      const item = { ...raw, id: key };
+      const prev = byKey.get(key);
+      if (!prev) {
+        byKey.set(key, item);
+        order.push(key);
+        continue;
+      }
+      changed = true;
+      const base = item.depth > prev.depth ? item : prev;
+      const seenIn = [.../* @__PURE__ */ new Set([...prev.seenIn ?? [], ...item.seenIn ?? []])];
+      const lastSeen = [prev.lastSeenAt, item.lastSeenAt].filter(Boolean).sort().pop();
+      byKey.set(key, {
+        ...base,
+        box: Math.min(prev.box, item.box),
+        dueAt: Date.parse(prev.dueAt) <= Date.parse(item.dueAt) ? prev.dueAt : item.dueAt,
+        createdAt: Date.parse(prev.createdAt) <= Date.parse(item.createdAt) ? prev.createdAt : item.createdAt,
+        attempts: prev.attempts + item.attempts,
+        correct: prev.correct + item.correct,
+        seenCount: (prev.seenCount ?? 1) + (item.seenCount ?? 1),
+        ...seenIn.length ? { seenIn } : {},
+        ...lastSeen ? { lastSeenAt: lastSeen } : {}
       });
     }
-    if (added.length === 0) return null;
-    const next = [...items, ...added];
+    if (!changed) return null;
+    const next = order.map((k) => byKey.get(k));
     save(next);
     return next;
   }
@@ -9902,6 +10001,11 @@ var brain = (() => {
         label,
         bestSan,
         bestUci,
+        // the server's line behind bestUci, under the same collect-floor
+        // gate every other stored-move writer applies (StoredMove.bestPv,
+        // #287): only a practice candidate keeps it, and the pv[0]/bestUci
+        // agreement was enforced when the variation was parsed above.
+        bestPv: wcDrop >= 5 && bestPv.length ? bestPv : void 0,
         // chess.com's analysis is ours: we search every position and record
         // the engine's move on every ply, so an absent bestUci there means
         // the ply was not analysed. lichess's is the server's, and its

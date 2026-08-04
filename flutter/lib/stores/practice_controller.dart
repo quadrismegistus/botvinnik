@@ -332,8 +332,33 @@ class PracticeController extends ChangeNotifier {
   /// [_serveNextInGame] draws from (a game session serves EVERY collected
   /// mistake in scope, threshold or not — you picked the game), so the number
   /// the button shows is the number the session serves.
-  int countForGame(Set<String> fens) =>
-      items.where((i) => fens.contains(i['id'] as String)).length;
+  int countForGame(Set<String> fens) {
+    if (fens.isEmpty || items.isEmpty) return 0;
+    // Item ids are position keys, not fens (#286) — translate before matching,
+    // or a move-counter difference silently zeroes the count.
+    final keys = _epdKeysOf(fens.toList()).toSet();
+    return items.where((i) => keys.contains(i['id'] as String)).length;
+  }
+
+  /// fen → position key, memoised. The review screen asks [countForGame] on
+  /// every scrub frame, and each translation is a synchronous bridge call
+  /// plus a chess.js move generation per live-ep fen — cached, a repeat costs
+  /// nothing. A fen's key never changes, so the cache needs no invalidation;
+  /// the clear is only a size backstop (~40 distinct fens per game browsed).
+  final Map<String, String> _epdCache = {};
+
+  List<String> _epdKeysOf(List<String> fens) {
+    if (_epdCache.length > 20000) _epdCache.clear();
+    final missing =
+        [for (final f in fens) if (!_epdCache.containsKey(f)) f];
+    if (missing.isNotEmpty) {
+      final keys = _api.epdKeys(missing);
+      for (var i = 0; i < missing.length; i++) {
+        _epdCache[missing[i]] = keys[i];
+      }
+    }
+    return [for (final f in fens) _epdCache[f]!];
+  }
 
   int get due => loaded ? _api.dueCount(servable) : 0;
 
@@ -410,6 +435,27 @@ class PracticeController extends ChangeNotifier {
             .toList();
       } catch (_) {/* corrupted store: start empty */}
     }
+    // Adopt the position key once (#286): the brain re-keys every id to
+    // epdKey(fen) and merges the twins the old full-fen key split apart.
+    // Null = already in shape, which is what makes this safe to run on every
+    // load. Persisted immediately — it changes ids, and the next sync upload
+    // should carry one shape, not whichever this session happened to write
+    // last.
+    if (items.isNotEmpty) {
+      try {
+        final migrated = _api.migrateItems(items);
+        if (migrated != null) {
+          items = migrated;
+          await _persist();
+        }
+      } catch (_) {
+        // load() is awaited at BOOT (_start), so a throw here is the app
+        // failing to open — forever, since Retry re-reads the same kv row. A
+        // poisoned item (importJson validates no item shape, and a restore
+        // persists BEFORE this reload runs) must degrade to "unmigrated but
+        // alive", never to a bricked launch.
+      }
+    }
     loaded = true;
     notifyListeners();
   }
@@ -433,11 +479,15 @@ class PracticeController extends ChangeNotifier {
     final data = _api.itemData(storedMove, setupUci);
     if (data == null) return CollectOutcome.notEligible;
     final next = _api.addItem(items, data);
-    if (next == null) return CollectOutcome.duplicate; // fen already a puzzle
+    if (next == null) return CollectOutcome.duplicate; // defensive; see below
+    // The brain now answers a duplicate with the SAME-LENGTH list, its
+    // repeat counter bumped (#286) — a change worth persisting, while the
+    // card still reports "already collected".
+    final added = next.length > items.length;
     items = next;
     await _persist();
     notifyListeners();
-    return CollectOutcome.added;
+    return added ? CollectOutcome.added : CollectOutcome.duplicate;
   }
 
   /// Collect many at once — the import path.
@@ -450,22 +500,31 @@ class PracticeController extends ChangeNotifier {
   /// desktop VM with no JS engine running at all.
   ///
   /// One bridge call, one write, one notify.
+  /// [seeds] carry the game they came from (#286): a repeat is counted once
+  /// per game, so the background grader's crash-redo (it seeds BEFORE it
+  /// saves, deliberately) re-seeds without inflating the count. Null gameId
+  /// counts every time, like [maybeCollect].
   Future<int> collectAll(
-      List<({Map<String, dynamic> move, String? setupUci})> seeds,
+      List<({Map<String, dynamic> move, String? setupUci, String? gameId})>
+          seeds,
       {int minDepth = 8}) async {
     if (!loaded) await load();
     final data = <Map<String, dynamic>>[];
+    final seenKeys = <String?>[];
     for (final s in seeds) {
       final drop = (s.move['wcDrop'] as num?)?.toDouble() ?? 0;
       final depth = (s.move['depth'] as num?)?.toInt() ?? 0;
       if (drop < kCollectMin || depth < minDepth) continue;
       final d = _api.itemData(s.move, s.setupUci);
-      if (d != null) data.add(d);
+      if (d != null) {
+        data.add(d);
+        seenKeys.add(s.gameId);
+      }
     }
     if (data.isEmpty) return 0;
     final before = items.length;
-    final next = _api.addItems(items, data);
-    if (next == null) return 0; // every one a duplicate
+    final next = _api.addItems(items, data, seenKeys);
+    if (next == null) return 0; // nothing changed — a redo of the same game
     items = next;
     await _persist();
     notifyListeners();
@@ -495,7 +554,10 @@ class PracticeController extends ChangeNotifier {
   /// schedule as any other. It filters rather than forks — the whole point is
   /// that these positions are already collected, so there is nothing to build.
   void startGameSession(Set<String> fens) {
-    gameScope = fens;
+    // The scope stores position KEYS (#286): the callers hand over the game's
+    // raw move-before fens, and the items they must match are keyed by
+    // epdKey. Translating here keeps every caller honest at once.
+    gameScope = _epdKeysOf(fens.toList()).toSet();
     // A game scope is its own filter; stacking a leftover motif on top of it
     // could empty the pool and land the tab on "nothing tagged X" over a game
     // that has plenty.
@@ -1013,7 +1075,19 @@ class PracticeController extends ChangeNotifier {
   /// "this one is noise" is a step through the queue, not the end of it.
   Future<void> remove(String id) async {
     items = _api.removeItem(items, id);
-    if (current?['id'] == id) {
+    if (items.isEmpty && inGameSession) {
+      // Deleting the last collected item ends the game session (#291). An
+      // empty collection routes the tab to its empty screen, which carries
+      // neither the session banner nor the done note — a scope kept alive
+      // here is state nothing on screen shows or can end, the same rule that
+      // keeps a motif filter out of a session. This branch, not the
+      // current-item one below: with the bar on the walk can finish onto the
+      // note with no current puzzle, and the delete that empties the
+      // collection then comes from the browser.
+      gameScope = null;
+      _gameServed.clear();
+      _serve(null);
+    } else if (current?['id'] == id) {
       if (inGameSession) {
         _serveNextInGame();
       } else {
