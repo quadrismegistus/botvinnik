@@ -172,6 +172,12 @@ class AppDb {
     await _db.delete('games', where: 'id = ?', whereArgs: [id]);
   }
 
+  /// The bulk clear behind Settings' "Clear local games" (#292). Games only:
+  /// the kv table (practice, misc) is someone else's data.
+  Future<void> deleteAllGames() async {
+    await _db.delete('games');
+  }
+
   // kv: whole-document storage (practice items in M3, misc)
   Future<String?> kvGet(String key) async {
     final rows = await _db.query('kv', where: 'key = ?', whereArgs: [key]);

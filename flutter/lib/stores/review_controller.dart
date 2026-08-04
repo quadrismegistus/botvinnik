@@ -44,6 +44,16 @@ class ReviewController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Settings' bulk clear (#292). Closes any open review first — a review of
+  /// a game the store no longer holds is a stale-cursor bug waiting for its
+  /// first tap. Games only; practice is not this controller's to touch.
+  Future<void> clearGames() async {
+    await _db.deleteAllGames();
+    games = [];
+    current = null;
+    notifyListeners();
+  }
+
   /// Archive a pasted PGN and open it. False when the text carries no legal
   /// moves, which is the caller's cue to say so rather than fail silently.
   /// The import has no grades — it was never analysed — and Review reads all
