@@ -118,6 +118,7 @@ export type { CcGame } from './chesscomCore';
 
 // ---- stored-game math (pure parts of gameStore) ----
 export {
+	clocksFromPgn,
 	moveAccuracy,
 	gameAccuracy,
 	labelCounts,

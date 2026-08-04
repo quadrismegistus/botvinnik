@@ -3909,6 +3909,7 @@ var brain = (() => {
     botRecipe: () => botRecipe,
     botSpec: () => botSpec,
     ccGameToStored: () => ccGameToStored,
+    clocksFromPgn: () => clocksFromPgn,
     computeMoveCurves: () => computeMoveCurves,
     confidences: () => confidences,
     controlSquares: () => controlSquares,
@@ -9816,6 +9817,40 @@ var brain = (() => {
 
   // brain/gameStore.ts
   var LABEL_VERSION = 1;
+  function clocksFromPgn(pgn2) {
+    const blank = pgn2.indexOf("\n\n");
+    let movetext = blank >= 0 ? pgn2.slice(blank + 2) : pgn2;
+    let depth = 0;
+    let flat = "";
+    for (const ch of movetext) {
+      if (ch === "(") depth++;
+      else if (ch === ")") depth = Math.max(0, depth - 1);
+      else if (depth === 0) flat += ch;
+    }
+    movetext = flat;
+    const out = [];
+    const RESULTS = /* @__PURE__ */ new Set(["1-0", "0-1", "1/2-1/2", "*"]);
+    const token = /\{([^}]*)\}|(\S+)/g;
+    let m;
+    while (m = token.exec(movetext)) {
+      if (m[1] !== void 0) {
+        if (out.length === 0) continue;
+        const clk = /\[%clk\s+(\d+):(\d{1,2}):(\d{1,2}(?:\.\d+)?)\]/.exec(m[1]);
+        if (clk) {
+          out[out.length - 1] = Math.round(
+            (Number(clk[1]) * 3600 + Number(clk[2]) * 60 + Number(clk[3])) * 1e3
+          );
+        }
+        continue;
+      }
+      const word = m[2];
+      if (/^\d+\.+$/.test(word)) continue;
+      if (RESULTS.has(word)) continue;
+      if (word.startsWith("$")) continue;
+      out.push(null);
+    }
+    return out;
+  }
   function moveAccuracy(wcDrop) {
     const a = 103.1668 * Math.exp(-0.04354 * Math.max(0, wcDrop)) - 3.1669 + 1;
     return Math.max(0, Math.min(100, a));

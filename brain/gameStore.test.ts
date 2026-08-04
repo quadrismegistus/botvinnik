@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+	clocksFromPgn,
 	gameAccuracy,
 	labelCounts,
 	LABEL_VERSION,
@@ -204,5 +205,32 @@ describe('sanitizeExplanations', () => {
 		};
 		expect(sanitizeExplanations([game([m])])).toEqual([]);
 		expect(m.explanation!.bestPoint).toContain('wins 3 points');
+	});
+});
+
+describe('clocksFromPgn (#268)', () => {
+	it('reads our own rated-game format, %emt and %clk sharing one comment', () => {
+		const pgn =
+			'[White "You"]\n[Black "Bot"]\n\n' +
+			'1. e4 {[%emt 0.000][%clk 0:03:00]} e5 {[%emt 9.000][%clk 0:02:51]} ' +
+			'2. Nf3 1-0';
+		expect(clocksFromPgn(pgn)).toEqual([180000, 171000, null]);
+	});
+
+	it('reads chess.com tenths and headerless movetext', () => {
+		expect(clocksFromPgn('1. d4 {[%clk 0:02:59.9]} d5 {[%clk 1:00:00]} 1/2-1/2')).toEqual([
+			179900, 3600000
+		]);
+	});
+
+	it('a game with no clocks is all null, same length as its moves', () => {
+		expect(clocksFromPgn('1. e4 e5 2. Nf3 Nc6 *')).toEqual([null, null, null, null]);
+	});
+
+	it('a variation cannot steal or shift attribution', () => {
+		// clocks belong to the mainline; a parenthesised sideline between two
+		// moves must neither add plies nor swallow the next move's comment
+		const pgn = '1. e4 {[%clk 0:05:00]} (1. d4 d5) 1... e5 {[%clk 0:04:58]} 0-1';
+		expect(clocksFromPgn(pgn)).toEqual([300000, 298000]);
 	});
 });
