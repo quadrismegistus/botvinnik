@@ -11,5 +11,10 @@ export default defineConfig({
 	resolve: {
 		alias: { $brain: fileURLToPath(new URL('./brain', import.meta.url)) }
 	},
-	test: { include: ['brain/**/*.test.ts', 'flutter/tool/**/*.test.mjs'] }
+	// pipeline/lichess: the peer-aggregate pipeline (#268) — plain .mjs modules,
+	// its own vitest suite so `npx vitest run pipeline/lichess/pipeline.test.ts`
+	// actually finds it.
+	test: {
+		include: ['brain/**/*.test.ts', 'flutter/tool/**/*.test.mjs', 'pipeline/lichess/**/*.test.ts']
+	}
 });

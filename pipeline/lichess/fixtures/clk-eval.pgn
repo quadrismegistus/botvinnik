@@ -1,0 +1,13 @@
+[Event "Rated Blitz game"]
+[Site "https://lichess.org/fixtureClkEval"]
+[White "Alice"]
+[Black "Bob"]
+[Result "1-0"]
+[UTCDate "2020.01.01"]
+[UTCTime "12:00:00"]
+[WhiteElo "1500"]
+[BlackElo "1500"]
+[TimeControl "300+0"]
+[Termination "Normal"]
+
+1. e4 { [%eval 0.2] [%clk 0:05:00] } 1... e5 { [%eval 0.1] [%clk 0:04:58] } 2. Bc4 { [%eval 0.3] [%clk 0:04:55] } 2... Nc6 { [%eval 0.2] [%clk 0:04:50] } 3. Qh5 { [%eval 0.1] [%clk 0:04:50] } 3... Nf6?? { [%eval #4] [%clk 0:04:30] } 4. Qxf7# { [%clk 0:04:28] } 1-0

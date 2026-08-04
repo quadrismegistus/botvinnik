@@ -1,0 +1,13 @@
+[Event "Rated Bullet game"]
+[Site "https://lichess.org/fixtureBullet"]
+[White "Gina"]
+[Black "Hank"]
+[Result "1-0"]
+[UTCDate "2020.01.01"]
+[UTCTime "12:15:00"]
+[WhiteElo "1500"]
+[BlackElo "1500"]
+[TimeControl "60+0"]
+[Termination "Time forfeit"]
+
+1. e4 e5 2. Nf3 Nc6 1-0

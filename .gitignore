@@ -93,4 +93,10 @@ flutter/web/brain.js
 # becomes a real target and commit the scaffold deliberately.
 flutter/android/
 
+# pipeline/lichess (#268): monthly dumps are multi-GB downloads (never
+# committed — re-fetch from database.lichess.org), and out/ is a reviewed,
+# regenerable build product, like flutter/assets/peer-tables.json's source.
+pipeline/lichess/data/dumps/
+pipeline/lichess/out/
+
 .claude

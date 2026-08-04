@@ -1,0 +1,14 @@
+[Event "Rated Chess960 game"]
+[Site "https://lichess.org/fixtureVariant"]
+[White "Erin"]
+[Black "Frank"]
+[Result "1-0"]
+[UTCDate "2020.01.01"]
+[UTCTime "12:10:00"]
+[WhiteElo "1500"]
+[BlackElo "1500"]
+[TimeControl "300+0"]
+[Variant "Chess960"]
+[Termination "Normal"]
+
+1. Nf3 Nf6 2. c4 g6 1-0
