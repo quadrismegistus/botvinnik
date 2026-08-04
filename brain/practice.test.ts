@@ -169,7 +169,11 @@ describe('itemDataFromStoredMove', () => {
 		expect(data.bestPv).toEqual(['e7e5']);
 		expect(data.mateBest).toBeNull();
 		expect(data.drop).toBe(12);
+		// the fixture carries no depth, so the unknown-depth fallback engages;
+		// a real grade's depth passes through (the migration's deeper-grade
+		// tiebreak depends on it being real, not a constant 22)
 		expect(data.depth).toBe(22);
+		expect(itemDataFromStoredMove(move({ depth: 15 }))?.depth).toBe(15);
 
 		// win chance of the best move = after-move win chance + the drop
 		const wcAfter = winChance(m.evalPawns, m.mate);
