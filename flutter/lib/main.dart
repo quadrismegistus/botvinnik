@@ -23,6 +23,7 @@ import 'brain/grading_api.dart';
 import 'brain/js_bridge.dart';
 import 'brain/practice_api.dart';
 import 'brain/rating_api.dart';
+import 'brain/report_api.dart';
 import 'db/app_db.dart';
 import 'db/db_init.dart';
 import 'engine/arbiter.dart';
@@ -64,6 +65,7 @@ import 'ui/player_plate.dart';
 import 'ui/player_rating_card.dart';
 import 'ui/practice_tab.dart';
 import 'ui/settings_tab.dart';
+import 'ui/skill_report_screen.dart';
 import 'ui/splash.dart';
 import 'ui/win_chart.dart';
 
@@ -279,6 +281,11 @@ class _BootGateState extends State<BootGate> {
             Provider(create: (_) => LichessImportApi(booted.bridge)),
             Provider(create: (_) => ChesscomImportApi(booted.bridge)),
             Provider(create: (_) => ExplorerApi(booted.bridge)),
+            // The skill report screen (#268): reads games from the tree
+            // (ReviewController) rather than being handed them, so this needs
+            // no `create` beyond the bridge — same shape as every other
+            // *Api provider here.
+            Provider(create: (_) => ReportApi(booted.bridge)),
             // Win chance for the review chart (#195): the stored evals turned
             // into White-POV percentages by the brain's own curve, so review
             // and live play draw the same line. Read by ReviewWinChart.
@@ -651,6 +658,16 @@ class _AppShellState extends State<AppShell> {
           return AppBar(
             title: const Text('Games', style: TextStyle(fontSize: 16)),
             actions: [
+              // The skill report (#268) lives off the Games list rather than
+              // Settings: it reads the same archive this tab already lists,
+              // and "how am I actually playing" is a question about the
+              // games right here, not a preference to configure.
+              IconButton(
+                onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                    builder: (_) => SkillReportScreen())),
+                icon: const Icon(Icons.insights_outlined),
+                tooltip: 'Skill report',
+              ),
               IconButton(
                 onPressed: () => showPgnImport(context),
                 icon: const Icon(Icons.file_download_outlined),

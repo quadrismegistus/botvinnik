@@ -36,6 +36,22 @@ class FakeBridge implements JsBridge {
   /// JS error — the poisoned-item boot hazard load() must survive.
   bool migrateThrows = false;
 
+  /// Canned 'skillReportUser' answer (#268), shape-faithful to
+  /// brain/report.ts's return — a screen test sets this before pumping.
+  /// Unset (null) throws rather than handing ReportApi a bad cast: unlike
+  /// [skillReportPeerResult], the real call never legitimately answers null,
+  /// so a test that forgot to set this wants a clear failure, not one from
+  /// deep inside `(r as Map).cast`.
+  Map<String, dynamic>? skillReportUserResult;
+
+  /// Canned 'skillReportPeer' answer. Null is a legitimate real answer too
+  /// (no baseline for that band/class), so — unlike [skillReportUserResult]
+  /// — the unset default stays null rather than throwing; the "no baseline"
+  /// test leaves it that way on purpose. Constant across every band/class
+  /// asked: the tests that exist assert on the REQUEST (`bridge.calls`), not
+  /// on a table of per-band answers.
+  Map<String, dynamic>? skillReportPeerResult;
+
   /// Every `nextItem` argument list, in order.
   List<List<Object?>> get nextItemArgs =>
       calls.where((c) => c.fn == 'nextItem').map((c) => c.args).toList();
@@ -128,6 +144,14 @@ class FakeBridge implements JsBridge {
           throw StateError('brain.migratePracticeItems failed: poisoned item');
         }
         return migrateResult;
+      case 'skillReportUser':
+        if (skillReportUserResult == null) {
+          throw StateError('FakeBridge.skillReportUserResult not set — a '
+              'skill report test must supply one');
+        }
+        return skillReportUserResult;
+      case 'skillReportPeer':
+        return skillReportPeerResult;
       default:
         throw StateError('FakeBridge has no answer for brain.$fn');
     }
