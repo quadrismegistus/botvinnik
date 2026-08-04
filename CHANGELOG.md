@@ -10,6 +10,36 @@ The full pre-2026-07-19 roadmap — with the complete calibration saga and every
 design note as it was written — is preserved in git history (it was this file's
 predecessor, `ROADMAP.md` before the 2026-07-19 trim).
 
+## 2026-08-04 (evening) — the skill report: your axes beside the typical player's
+
+The first visible face of #268, plus the data infrastructure underneath it —
+built end-to-end in one arc: decisions on the issue, an offline pipeline, a
+real month of lichess, and a screen.
+
+- **#268** — **the skill report.** Games tab → the insights icon: four axes —
+  keeping a won game, defence when worse, endgame, clock discipline — each
+  showing your mean win-chance drop and blunder rate beside the *typical
+  player of your rating band*, from a peer baseline distilled offline from
+  **56 million July 2026 lichess games** (624KB of tables shipped as an
+  asset; the pipeline that builds them lives in `pipeline/lichess/`, is
+  reproducible byte-for-byte, and computes with the app's own shipped brain
+  code so both sides of every comparison mean the same thing). Honesty is
+  structural: no percentile language (the tables pool moves, not players),
+  sample floors instead of confident numbers over thin data, visible
+  excluded-game counts, and "no baseline" rather than an invented one.
+  Tactics and opening axes come later (Maia's per-position judgment and an
+  ECO dataset respectively).
+- **#268** — **clocks are recorded now.** Rated games stamp `[%clk]` into
+  their archived PGNs; lichess imports fetch clock comments; one brain
+  parser reads clocks out of any PGN. Chess.com imports always carried them.
+  This is what feeds the clock-discipline axis — data accrues from the day
+  it ships.
+- **#292** — **Clear local games / Clear practice puzzles**, in Settings
+  beside backup. Both refuse while sync is on (a local wipe under live sync
+  is undone by the next pull — the same lesson as #258's server delete, in
+  the other direction), confirm with a count, and leave the other store
+  untouched.
+
 ## 2026-08-04 — practice knows the mistakes you keep making
 
 - **#286** — **one practice item per position, counting repeats.** The dedupe
