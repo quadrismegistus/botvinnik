@@ -16,13 +16,32 @@ class PracticeApi {
     return r == null ? null : (r as Map).cast<String, dynamic>();
   }
 
-  /// Returns the new items array, or null when the fen is already collected.
   /// The bulk form. One bridge round trip for a whole import, where a loop of
   /// [addItem] marshals the entire growing collection per seed — measured at
   /// 986MB of expression text for a 300-game import.
+  ///
+  /// [seenKeys] is parallel to [dataList] and names the game each seed came
+  /// from (#286): a repeat counts once per game, which is what keeps the
+  /// background grader's seed-before-save crash redo from inflating the
+  /// count. Null when nothing changed — no item added, no counter moved.
   List<Map<String, dynamic>>? addItems(
-      List<Map<String, dynamic>> items, List<Map<String, dynamic>> dataList) {
-    final r = _bridge.call('addItems', args: [items, dataList]);
+      List<Map<String, dynamic>> items, List<Map<String, dynamic>> dataList,
+      [List<String?>? seenKeys]) {
+    final r = _bridge.call('addItems',
+        args: [items, dataList, seenKeys ?? JsBridge.omit]);
+    return r == null ? null : _castItems(r);
+  }
+
+  /// Position keys for [fens], one bridge call. Item ids are epdKey(fen)
+  /// (#286), so anything matching ids against stored-move fens — a game
+  /// scope — must ask the brain, which owns the key.
+  List<String> epdKeys(List<String> fens) =>
+      (_bridge.call('epdKeys', args: [fens]) as List).cast<String>();
+
+  /// One-time reshaping of a stored collection to the position key (#286).
+  /// Null = already in shape, nothing to write.
+  List<Map<String, dynamic>>? migrateItems(List<Map<String, dynamic>> items) {
+    final r = _bridge.call('migratePracticeItems', args: [items]);
     return r == null ? null : _castItems(r);
   }
 

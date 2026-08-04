@@ -118,11 +118,14 @@ Map<String, dynamic> _graded(String id) => {
 /// Records the seeds handed to collectAll, without the brain round trip the
 /// real one makes. collectAll is the only method the grader calls on it.
 class RecordingPractice implements PracticeController {
-  final List<List<({Map<String, dynamic> move, String? setupUci})>> calls = [];
+  final List<
+          List<({Map<String, dynamic> move, String? setupUci, String? gameId})>>
+      calls = [];
 
   @override
   Future<int> collectAll(
-      List<({Map<String, dynamic> move, String? setupUci})> seeds,
+      List<({Map<String, dynamic> move, String? setupUci, String? gameId})>
+          seeds,
       {int minDepth = 8}) async {
     calls.add(seeds);
     return seeds.length;

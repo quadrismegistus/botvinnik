@@ -275,6 +275,28 @@ void main() {
       game.dispose();
     });
 
+    test('retrying the SAME refused move is one mistake, not two (#286)',
+        () async {
+      // Every refused attempt runs the collect branch, and with repeats now
+      // COUNTED (#286) a stubborn identical retry would inflate the number
+      // the practice sort ranks by. One ply, one move, one occurrence; a
+      // DIFFERENT blunder from the same position is its own mistake.
+      final (game, practice) = await newRefusalGame();
+      game.playUci('e2e4');
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+      game.playUci('e2e4'); // the identical retry
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+      expect(game.refusedMoves, 2, reason: 'both attempts were refused');
+      expect(practice.collected, hasLength(1),
+          reason: 'but it is one mistake, collected once');
+
+      game.playUci('g2g4'); // a different blunder, same position
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+      expect(game.refusedMoves, 3, reason: 'precondition: also refused');
+      expect(practice.collected, hasLength(2));
+      game.dispose();
+    });
+
     test("a refused blunder's stored move carries the engine's line (#287)",
         () async {
       // The inline map here is the third writer of a stored move. The other
@@ -1085,13 +1107,12 @@ void main() {
       expect(game.moves.single.san, 'e4');
       expect(game.refusedMoves, GameController.kMaxRefusalAttempts,
           reason: 'the relented-through move is not itself a refusal');
-      // 3 refusal-time collects, plus the ordinary POST-commit collect
-      // _gradePipeline runs for every move once it lands — the relented-
-      // through move is still a real blunder in this harness (its eval
-      // reads exactly as "bad" as the three that were refused), and it
-      // should still reach the practice queue like any played blunder does.
-      expect(
-          practice.collected, hasLength(GameController.kMaxRefusalAttempts + 1));
+      // ONE collect for the whole sequence (#286): four attempts at the same
+      // move at the same ply are one persistent mistake, not four. The first
+      // refusal collected it; the identical retries are guarded, and the
+      // post-commit pipeline recognises the (ply, move) the refusal already
+      // collected rather than counting the same occurrence twice.
+      expect(practice.collected, hasLength(1));
       game.dispose();
     });
 

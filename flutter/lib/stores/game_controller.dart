@@ -286,6 +286,13 @@ class GameController extends ChangeNotifier {
   /// relented after [kMaxRefusalAttempts]). Bounded by game length; cleared
   /// wholesale by [newGame].
   final Map<String, int> _refusalAttempts = {};
+
+  /// The last refusal already collected, as (ply, uci). Every refused attempt
+  /// runs the collect branch, and with repeats now COUNTED (#286) a stubborn
+  /// retry of the IDENTICAL move would inflate the number practice ranks by.
+  /// One ply, one move, one occurrence; a DIFFERENT refused move at the same
+  /// ply is its own mistake and still collects.
+  (int, String)? _refusalCollected;
   static const int kMaxRefusalAttempts = 3;
 
   /// True while a [_maybeRefuse] call for generation [_refusalPendingGen] is
@@ -961,6 +968,7 @@ class GameController extends ChangeNotifier {
     }
     _refusedMoves = 0;
     _refusalAttempts.clear();
+    _refusalCollected = null;
     _refusalPending = false;
     _refusalPendingGen = null;
     _clearRefusalUi();
@@ -1515,8 +1523,12 @@ class GameController extends ChangeNotifier {
             if (basis.explanation != null)
               'explanation': basis.explanation!.raw,
           };
-          final prevUci = moves.isNotEmpty ? moves.last.uci : null;
-          await practice.maybeCollect(storedMove, setupUci: prevUci);
+          final refusalKey = (moves.length + 1, uci);
+          if (_refusalCollected != refusalKey) {
+            _refusalCollected = refusalKey;
+            final prevUci = moves.isNotEmpty ? moves.last.uci : null;
+            await practice.maybeCollect(storedMove, setupUci: prevUci);
+          }
         }
         notifyListeners();
         return;
@@ -3306,6 +3318,15 @@ class GameController extends ChangeNotifier {
     // way out of a puzzle you consider noise, and it has no UI yet (#137).
     final practice = _practice;
     if (practice != null && botEnabled && isHumanSide(record.color)) {
+      // A refusal already collected this exact (ply, move): the relented-
+      // through commit is the same single occurrence of the mistake, and with
+      // repeats now counted (#286) a second collect would inflate the number.
+      // The card still gets a verdict — "already collected" is the truth.
+      if (_refusalCollected == (record.ply, record.uci)) {
+        _lastCollect = (ply: record.ply, outcome: CollectOutcome.duplicate);
+        notifyListeners();
+        return;
+      }
       final prevUci =
           record.ply >= 2 ? moves[record.ply - 2].uci : null;
       final outcome = await practice.maybeCollect(_storedMoveOf(record),

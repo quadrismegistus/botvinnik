@@ -118,7 +118,7 @@ class _LichessImportDialogState extends State<_LichessImportDialog> {
       // added, since items dedupe by position.
       final puzzles = await widget.practice.collectAll([
         for (final seed in result.practice)
-          (move: seed.move, setupUci: seed.setupUci),
+          (move: seed.move, setupUci: seed.setupUci, gameId: seed.gameId),
       ]);
 
       if (!mounted) return;

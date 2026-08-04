@@ -66,10 +66,19 @@ class PracticeSeed {
   final Map<String, dynamic> move;
   final String? setupUci;
   final double drop;
+
+  /// The imported game this seed came from (`lichess-<id>`), so a repeat of
+  /// the same mistake counts once per game (#286). Re-imports never get here
+  /// — [importGames] drops already-archived ids before seeding — but the id
+  /// costs nothing and keeps the counting rule uniform across every bulk
+  /// path.
+  final String? gameId;
+
   const PracticeSeed({
     required this.move,
     required this.setupUci,
     required this.drop,
+    this.gameId,
   });
 }
 
@@ -241,6 +250,7 @@ class LichessImportApi {
         move: {...move, 'depth': candidate['depth']},
         setupUci: candidate['setupUci'] as String?,
         drop: drop,
+        gameId: stored['id'] as String?,
       ));
     }
     return out;

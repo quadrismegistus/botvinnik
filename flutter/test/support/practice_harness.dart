@@ -27,6 +27,11 @@ class FakeBridge implements JsBridge {
   /// Difficulty per item id, for the tests that care which badge a row gets.
   final Map<Object?, String> difficulties = {};
 
+  /// What 'migratePracticeItems' answers. Null (the default) is the brain's
+  /// "already in shape"; a test exercising the load-time adoption sets a
+  /// replacement list here.
+  List<Map<String, dynamic>>? migrateResult;
+
   /// Every `nextItem` argument list, in order.
   List<List<Object?>> get nextItemArgs =>
       calls.where((c) => c.fn == 'nextItem').map((c) => c.args).toList();
@@ -94,15 +99,70 @@ class FakeBridge implements JsBridge {
           'depth': sm['depth'],
         };
       case 'addItem':
-        // brain: reject a fen already collected, else append. Returns null on a
-        // duplicate so maybeCollect can report CollectOutcome.duplicate.
+        // brain: one item per position, a repeat bumps seenCount (#286). The
+        // fake keys by fen — identity epd, same divergence as 'epdKeys'.
         final items = _items(args[0]);
         final data = (args[1] as Map).cast<String, dynamic>();
-        if (items.any((i) => i['fen'] == data['fen'])) return null;
-        return [...items, data];
+        final at = items.indexWhere((i) => i['id'] == data['fen']);
+        if (at < 0) return [...items, data];
+        final next = [...items];
+        next[at] = {
+          ...next[at],
+          'seenCount': ((next[at]['seenCount'] as num?) ?? 1) + 1,
+        };
+        return next;
+      case 'addItems':
+        return _addItems(args);
+      case 'epdKeys':
+        // Identity. The real key collapses move counters and dead en-passant
+        // squares (brain/practice.ts epdKey, pinned in vitest); no two fixture
+        // fens in these tests share a position, so the identity map is
+        // faithful for the routing questions the Dart tests ask.
+        return (args[0] as List).cast<String>();
+      case 'migratePracticeItems':
+        return migrateResult;
       default:
         throw StateError('FakeBridge has no answer for brain.$fn');
     }
+  }
+
+  /// Mirrors the bulk form's repeat rules (brain/practice.ts addItems): one
+  /// item per position, a repeat bumps seenCount, and a seenKey that already
+  /// counted here (the grader's crash-redo) is a no-op. Null when nothing
+  /// changed at all.
+  List<Map<String, dynamic>>? _addItems(List<Object?> args) {
+    var items = _items(args[0]);
+    final dataList = (args[1] as List).cast<Map>();
+    final seenKeys = args.length > 2 ? args[2] as List? : null;
+    var changed = false;
+    for (var n = 0; n < dataList.length; n++) {
+      final data = dataList[n].cast<String, dynamic>();
+      final seenKey = seenKeys == null ? null : seenKeys[n] as String?;
+      final at = items.indexWhere((i) => i['id'] == data['fen']);
+      if (at < 0) {
+        items = [
+          ...items,
+          {
+            ...data,
+            if (seenKey != null) 'seenIn': [seenKey],
+          },
+        ];
+        changed = true;
+        continue;
+      }
+      final seenIn =
+          ((items[at]['seenIn'] as List?) ?? const []).cast<String>();
+      if (seenKey != null && seenIn.contains(seenKey)) continue;
+      final next = [...items];
+      next[at] = {
+        ...next[at],
+        'seenCount': ((next[at]['seenCount'] as num?) ?? 1) + 1,
+        if (seenKey != null) 'seenIn': [...seenIn, seenKey],
+      };
+      items = next;
+      changed = true;
+    }
+    return changed ? items : null;
   }
 
   /// Mirrors `nextItem` in brain/practice.ts, with one deliberate divergence:
@@ -191,9 +251,11 @@ class FakeDb implements AppDb {
   dynamic noSuchMethod(Invocation invocation) => null;
 }
 
-/// A practice item in the brain's shape. [fen] doubles as the id, as
-/// `addItem` makes it. Defaults are due-now and above the 15% serve
-/// threshold, so an item counts unless a test says otherwise.
+/// A practice item in the brain's shape. [fen] doubles as the id — the fake
+/// bridge keys by fen where the brain keys by epdKey(fen); faithful here
+/// because no two fixture fens share a position (the collapse itself is
+/// pinned in brain/practice.test.ts). Defaults are due-now and above the 15%
+/// serve threshold, so an item counts unless a test says otherwise.
 Map<String, dynamic> practiceItem(
   String fen, {
   List<String> motifs = const [],
@@ -206,6 +268,7 @@ Map<String, dynamic> practiceItem(
   int attempts = 0,
   int correct = 0,
   String? lastResult,
+  int? seenCount,
 }) {
   final due = (dueAt ?? DateTime.now().subtract(const Duration(minutes: 5)))
       .toUtc()
@@ -231,6 +294,7 @@ Map<String, dynamic> practiceItem(
     'attempts': attempts,
     'correct': correct,
     'lastResult': ?lastResult,
+    'seenCount': ?seenCount,
   };
 }
 

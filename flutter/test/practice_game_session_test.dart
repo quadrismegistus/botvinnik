@@ -34,6 +34,20 @@ Set<String> lastPoolIds(FakeBridge bridge) => {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  test('a game scope asks the brain for position keys, not raw fens (#286)',
+      () {
+    // Item ids are epdKey(fen) now; a scope built from raw stored-move fens
+    // would silently match nothing the moment a fen and its key diverge — a
+    // move-counter difference is enough. Both scope builders must route
+    // through the brain's own key.
+    final h = makePractice([practiceItem(_fenA)]);
+    expect(h.practice.countForGame({_fenA}), 1);
+    h.practice.startGameSession({_fenA});
+    expect(h.practice.current?['id'], _fenA);
+    expect(h.bridge.calls.where((c) => c.fn == 'epdKeys'), hasLength(2),
+        reason: 'countForGame and startGameSession each asked for keys');
+  });
+
   test('a game session draws only the scoped positions', () {
     final h = makePractice([
       practiceItem(_fenA),
