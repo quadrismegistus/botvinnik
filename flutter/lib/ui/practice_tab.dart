@@ -176,6 +176,12 @@ class _PracticeTabState extends State<PracticeTab> {
     return Column(
       children: [
         _collectionHeader(context, practice),
+        // Browsing MID-session brings the drill's scope banner along: this is
+        // the screen the motif picker vanished from (#289), and the banner is
+        // what says why and carries "Practise all". Only while a puzzle is
+        // live — once the walk ends, the idle banner's gameDone branch below
+        // does both jobs, and two banners saying "Practise all" is clutter.
+        if (practice.current != null) _gameScopeBanner(practice),
         if (practice.current == null) _idleBanner(practice),
         // ListView.builder rather than a Column in a scroll view: it builds
         // only the rows in view. Every row carries a board, and a collection
@@ -920,10 +926,6 @@ class _PracticeTabState extends State<PracticeTab> {
     );
   }
 
-  /// The motif picker: built from the motifs the player's own items actually
-  /// carry, so every option serves something. Hidden entirely when there are
-  /// none — an untagged collection gets a menu with one item saying "all",
-  /// which is furniture pretending to be a feature.
   /// The drop a puzzle needs before practice will serve it (#213).
   ///
   /// Here rather than in Settings, beside the motif filter, because it is the
@@ -975,7 +977,18 @@ class _PracticeTabState extends State<PracticeTab> {
     );
   }
 
+  /// The motif picker: built from the motifs the player's own items actually
+  /// carry, so every option serves something. Hidden entirely when there are
+  /// none — an untagged collection gets a menu with one item saying "all",
+  /// which is furniture pretending to be a feature.
   Widget _motifMenu(PracticeController practice) {
+    // No picker while a game session runs (#289). Any tap here routes through
+    // the game serve, so it advances the finite walk — a cost even in the
+    // browser header, where narrowing the ROWS would otherwise be honest. The
+    // drill's copy would also lie outright: the walk deliberately ignores
+    // motifs, so it would light a filter that does not apply. The way to a
+    // motif drill is "Practise all" first, one tap away on the session banner.
+    if (practice.inGameSession) return const SizedBox.shrink();
     final counts = practice.motifCounts;
     final active = practice.motifFilter;
     if (counts.isEmpty && active == null) return const SizedBox.shrink();
