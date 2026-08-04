@@ -268,6 +268,30 @@ class SettingsTab extends StatelessWidget {
         ),
         Builder(
           builder: (context) {
+            final syncOn = context.watch<SyncController>().enabled;
+            final n = context.watch<PracticeController>().items.length;
+            return ListTile(
+              dense: true,
+              enabled: !syncOn,
+              leading: Icon(Icons.delete_sweep_outlined,
+                  size: 20,
+                  color:
+                      syncOn ? Colors.white24 : const Color(0xFFE07A5F)),
+              title: const Text('Clear practice puzzles'),
+              subtitle: Text(
+                syncOn
+                    ? 'Turn off sync first — the next sync would restore '
+                        'them from the server copy.'
+                    : 'Deletes all $n puzzle${n == 1 ? '' : 's'} and their '
+                        'training history. Games stay.',
+                style: const TextStyle(fontSize: 11.5, color: Colors.white38),
+              ),
+              onTap: syncOn ? null : () => _confirmClearPractice(context),
+            );
+          },
+        ),
+        Builder(
+          builder: (context) {
             final on = context.watch<SyncController>().enabled;
             return ListTile(
               dense: true,
@@ -358,6 +382,36 @@ class SettingsTab extends StatelessWidget {
     if (!context.mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Deleted $n game${n == 1 ? '' : 's'}.')));
+  }
+
+  Future<void> _confirmClearPractice(BuildContext context) async {
+    final practice = context.read<PracticeController>();
+    final n = practice.items.length;
+    if (n == 0) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Clear practice puzzles?'),
+        content: Text(
+            'Deletes all $n puzzle${n == 1 ? '' : 's'} and their training '
+            'history from this device, for good. Games stay — and their '
+            'mistakes can be collected again from Review. A backup made '
+            'first is the only way back.'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel')),
+          TextButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('Delete')),
+        ],
+      ),
+    );
+    if (confirmed != true || !context.mounted) return;
+    await practice.clearItems();
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Deleted $n puzzle${n == 1 ? '' : 's'}.')));
   }
 
   Future<void> _import(BuildContext context) async {

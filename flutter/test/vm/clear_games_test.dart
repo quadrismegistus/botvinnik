@@ -145,4 +145,52 @@ void main() {
         reason: 'no dialog — the row is inert while sync is on');
     expect(s.review.games, hasLength(2));
   });
+
+  testWidgets('clearing practice deletes every puzzle — and only the puzzles',
+      (tester) async {
+    final s = await _pump(tester);
+    expect(s.practice.items, hasLength(1), reason: 'precondition');
+
+    await _scrollTo(tester, 'Clear practice puzzles');
+    await tester.tap(find.text('Clear practice puzzles'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('1 puzzle'), findsWidgets);
+    await tester.tap(find.text('Delete'));
+    await tester.pumpAndSettle();
+
+    expect(s.practice.items, isEmpty);
+    expect(s.db.kv['botvinnik-practice-v1'], '[]',
+        reason: 'persisted empty, not merely forgotten in memory');
+    expect(s.review.games, hasLength(2),
+        reason: 'games are not puzzles and must survive');
+  });
+
+  testWidgets('clearing practice mid-game-session leaves no live session',
+      (tester) async {
+    // The #291 shape: state nothing on screen shows or can end must not
+    // exist. A cleared collection must take any running session with it.
+    final s = await _pump(tester);
+    s.practice.startGameSession({'fen-keep'});
+    expect(s.practice.inGameSession, isTrue, reason: 'precondition');
+
+    await _scrollTo(tester, 'Clear practice puzzles');
+    await tester.tap(find.text('Clear practice puzzles'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Delete'));
+    await tester.pumpAndSettle();
+
+    expect(s.practice.inGameSession, isFalse);
+    expect(s.practice.current, isNull);
+    expect(s.practice.motifFilter, isNull,
+        reason: 'a filter over nothing is the empty-screen trap again');
+  });
+
+  testWidgets('with sync on, the practice row is disabled too', (tester) async {
+    final s = await _pump(tester, syncOn: true);
+    await _scrollTo(tester, 'Clear practice puzzles');
+    await tester.tap(find.text('Clear practice puzzles'));
+    await tester.pumpAndSettle();
+    expect(find.text('Delete'), findsNothing);
+    expect(s.practice.items, hasLength(1));
+  });
 }

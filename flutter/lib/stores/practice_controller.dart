@@ -1065,6 +1065,22 @@ class PracticeController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Settings' bulk clear (#292): the whole collection, for good, persisted
+  /// empty. Session state goes with it — a game scope, a motif filter or a
+  /// served puzzle over a collection that no longer exists is the #291
+  /// empty-screen trap rebuilt on purpose. Counters reset too: "solved 4 this
+  /// sitting" is not a fact about an empty queue.
+  Future<void> clearItems() async {
+    items = [];
+    gameScope = null;
+    _gameServed.clear();
+    motifFilter = null;
+    sessionSolved = 0;
+    sessionStreak = 0;
+    _serve(null); // clears current, attempt state, gameDoneNote; notifies
+    await _persist();
+  }
+
   /// Drop a puzzle from the collection for good.
   ///
   /// The only escape hatch there is: nothing else removes an item, and #137
