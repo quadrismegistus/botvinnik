@@ -212,6 +212,48 @@ void main() {
     expect(h.practice.gameDoneNote, isNot(contains('2')));
   });
 
+  test('deleting the last collected item ends the game session', () async {
+    // Issue #291: an empty collection routes the tab to its empty screen,
+    // which carries neither the session banner nor the done note — a scope
+    // surviving this delete is state nothing on screen shows or can end.
+    // The session ends with the collection instead of haunting it.
+    final h = makePractice([practiceItem(_fenA)]);
+
+    h.practice.startGameSession({_fenA});
+    expect(h.practice.current?['id'], _fenA, reason: 'precondition');
+
+    await h.practice.remove(_fenA);
+    expect(h.practice.items, isEmpty, reason: 'precondition: nothing left');
+    expect(h.practice.inGameSession, isFalse,
+        reason: 'a session over an empty collection can serve nothing and '
+            'has no UI — it must not outlive the collection');
+    expect(h.practice.current, isNull);
+    expect(h.practice.gameDoneNote, isNull,
+        reason: 'no stale note to greet the next collected mistake');
+  });
+
+  test('emptying the collection from the browser ends a finished session too',
+      () async {
+    // The other door onto #291: with the bar on and nothing in scope clearing
+    // it, the session opens straight onto the note with no current puzzle.
+    // Deleting the leftover from the browser then empties the collection
+    // without touching the current-item branch of remove — the session must
+    // end on this path as well.
+    final h = makePractice([practiceItem(_fenA, drop: 6)]);
+    h.practice.settings = await _settings({
+      'botvinnik-collect-threshold': '20',
+      'botvinnik-game-session-all': '0',
+    });
+
+    h.practice.startGameSession({_fenA});
+    expect(h.practice.current, isNull, reason: 'precondition: withheld');
+    expect(h.practice.gameDoneNote, isNotNull, reason: 'precondition');
+
+    await h.practice.remove(_fenA);
+    expect(h.practice.inGameSession, isFalse);
+    expect(h.practice.gameDoneNote, isNull);
+  });
+
   test('a motif tap cannot restart a finished game session', () {
     // Issue #289's third repro: after the walk exhausted (current null, note
     // set), a motif tap re-served a walked item and wiped the note.

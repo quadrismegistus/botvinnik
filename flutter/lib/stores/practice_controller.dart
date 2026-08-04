@@ -1013,7 +1013,19 @@ class PracticeController extends ChangeNotifier {
   /// "this one is noise" is a step through the queue, not the end of it.
   Future<void> remove(String id) async {
     items = _api.removeItem(items, id);
-    if (current?['id'] == id) {
+    if (items.isEmpty && inGameSession) {
+      // Deleting the last collected item ends the game session (#291). An
+      // empty collection routes the tab to its empty screen, which carries
+      // neither the session banner nor the done note — a scope kept alive
+      // here is state nothing on screen shows or can end, the same rule that
+      // keeps a motif filter out of a session. This branch, not the
+      // current-item one below: with the bar on the walk can finish onto the
+      // note with no current puzzle, and the delete that empties the
+      // collection then comes from the browser.
+      gameScope = null;
+      _gameServed.clear();
+      _serve(null);
+    } else if (current?['id'] == id) {
       if (inGameSession) {
         _serveNextInGame();
       } else {
