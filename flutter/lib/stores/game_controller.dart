@@ -1508,6 +1508,10 @@ class GameController extends ChangeNotifier {
             if (basis.label != null) 'label': basis.label,
             'bestSan': basis.bestSan,
             'bestUci': basis.bestUci,
+            // the line behind that best move — same grade as every other
+            // field here, same collect-floor gate as _storedMoveOf (#287)
+            if (drop >= kCollectMin && basis.bestPv.isNotEmpty)
+              'bestPv': basis.bestPv,
             if (basis.explanation != null)
               'explanation': basis.explanation!.raw,
           };
@@ -3352,6 +3356,12 @@ class GameController extends ChangeNotifier {
       // everything downstream — the practice tagger above all — reasoned as
       // though no line ever forced mate.
       if (g != null) 'bestMate': g.bestMate,
+      // the line behind bestUci, from the same grade — only when the drop
+      // clears the collect floor: those are the only moves that can become
+      // practice items, and the tagger is the only reader (#287). On every
+      // ply it would grow the archive and the sync payload ~20% to no purpose.
+      if (g != null && wcDrop >= kCollectMin && g.bestPv.isNotEmpty)
+        'bestPv': g.bestPv,
       // this writer records bestUci on every graded ply, so its absence means
       // the ply was not graded rather than "the engine agreed" (#281)
       if (g != null) 'topRecorded': true,

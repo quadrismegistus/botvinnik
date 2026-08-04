@@ -275,6 +275,19 @@ void main() {
       game.dispose();
     });
 
+    test("a refused blunder's stored move carries the engine's line (#287)",
+        () async {
+      // The inline map here is the third writer of a stored move. The other
+      // two gained bestPv in the same change; this one drifting is exactly
+      // the #281/#283 failure shape — the field class where two writers move
+      // and the third quietly does not.
+      final (game, practice) = await newRefusalGame();
+      game.playUci('e2e4');
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+      expect(practice.collected.single['bestPv'], ['d2d4']);
+      game.dispose();
+    });
+
     // The depth mismatch. `bestEval` comes off the live position's analysis
     // (up to depth 22); the backfilled eval comes off the pre-commit child
     // search, which is depth 10. Subtracting one from the other charged the

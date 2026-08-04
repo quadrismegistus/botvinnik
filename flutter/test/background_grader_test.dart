@@ -194,6 +194,55 @@ void main() {
     );
   });
 
+  test('the pv is stored exactly when the move is a practice candidate (#287)',
+      () async {
+    // Both writers, one gate: the grade's own line lands beside bestUci when
+    // the drop clears the collect floor, and is omitted below it — a pv on
+    // every ply would grow the archive and the sync payload ~20% for moves
+    // that can never become items. The fake grade never sets evalPawns, so
+    // null-vs-not distinguishes the played side of the subtraction from the
+    // best side.
+    double drop10(double? eval, int? mate) => eval == null ? 40 : 50;
+    double drop3(double? eval, int? mate) => eval == null ? 47 : 50;
+
+    Future<Map> gradedWith(double Function(double?, int?) wc) async {
+      final db = MemoryDb([_ungraded('g1')]);
+      final live = ValueNotifier(false);
+      final grader = BackgroundGrader(
+        FakeArbiter(searchLines: kFakeLines),
+        db,
+        SavingGrading(winChanceOf: wc),
+        RecordingPractice(),
+        live,
+        () => live.value,
+      );
+      grader.start();
+      await grader.pass;
+      return (db.games['g1']!['moves'] as List).first as Map;
+    }
+
+    Future<Map> playedWith(double Function(double?, int?) wc) async {
+      final settings = await loadSettings();
+      final game = GameController(
+          FakeArbiter(analysisLines: kFakeLines, searchLines: kFakeLines),
+          FakeBot(),
+          SavingGrading(winChanceOf: wc),
+          settings);
+      game.newGame();
+      game.playUci('e2e4');
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+      final stored = game.debugStoredMoves().single;
+      game.dispose();
+      return stored;
+    }
+
+    expect((await gradedWith(drop10))['bestPv'], ['d2d4']);
+    expect((await playedWith(drop10))['bestPv'], ['d2d4']);
+    expect((await gradedWith(drop3)).containsKey('bestPv'), isFalse,
+        reason: 'below the collect floor the line is dead weight');
+    expect((await playedWith(drop3)).containsKey('bestPv'), isFalse);
+  });
+
   test('grades every ungraded game and leaves graded ones alone', () async {
     final db = MemoryDb([_ungraded('g1'), _graded('done'), _ungraded('g2')]);
     final practice = RecordingPractice();

@@ -355,6 +355,9 @@ class BackgroundGrader {
       // regressed to a dash on exactly those games, and their practice items
       // kept reaching the tagger with no mate distance.
       'bestMate': g.bestMate,
+      // the line behind bestUci, gated the way _storedMoveOf gates it (#287):
+      // stored only when the drop makes the move a practice candidate
+      if (wcDrop >= kCollectMin && g.bestPv.isNotEmpty) 'bestPv': g.bestPv,
       // earned honestly: this grader searches every ply itself
       'topRecorded': true,
       if (g.explanation != null) 'explanation': g.explanation!.raw,
