@@ -16,6 +16,11 @@ export const BAND_MAX = 2600;
 export const BAND_STEP = 100;
 export const TIME_CLASSES = ['blitz', 'rapid', 'classical'];
 
+/** T5's default per-cell budget of per-side game contributions. Replays are
+ *  bounded by cap / endgame-rate (~2-3× the cap in games), a few minutes of
+ *  chess.js per production month. */
+export const T5_SAMPLE_CAP = 2000;
+
 /** Lichess rating band a game-Elo falls into — 800-2600 step 100, open-ended
  *  tails (README: "do not bake any [rating-scale] conversion into the
  *  tables" — this is the lichess-native band, not a cross-scale mapping). */
@@ -120,6 +125,11 @@ class Cell {
 		this.t4 = new Samples();
 		this.t4Blunders = 0;
 
+		// T5: wcDrop distribution over endgame plies (sampled — see addGame)
+		this.t5 = new Samples();
+		this.t5Blunders = 0;
+		this.t5Games = 0; // per-SIDE contributions, like t6's convention
+
 		// T6 (book-ply half): ply of first out-of-book move
 		this.t6Deviation = new Samples();
 	}
@@ -167,6 +177,11 @@ class Cell {
 		if (wcDrop >= BLUNDER_WC_DROP) this.t4Blunders += 1;
 	}
 
+	recordT5(wcDrop) {
+		this.t5.push(wcDrop);
+		if (wcDrop >= BLUNDER_WC_DROP) this.t5Blunders += 1;
+	}
+
 	recordT6(deviationPly) {
 		this.t6Deviation.push(deviationPly);
 	}
@@ -176,10 +191,15 @@ export class Aggregator {
 	/**
 	 * @param {object} brain the loaded brain.js bundle (loadBrain.mjs)
 	 * @param {{ root: object, lines: number }} book buildBook() output
+	 * @param {{ t5SampleCap?: number }} [opts] T5's per-cell budget of
+	 *   per-side game contributions — the one place this pipeline replays a
+	 *   board (brain.endgameStartPly), so it is capped and the cap recorded
+	 *   in meta rather than silently sampling (README: no silent caps).
 	 */
-	constructor(brain, book) {
+	constructor(brain, book, opts = {}) {
 		this.brain = brain;
 		this.book = book;
+		this.t5SampleCap = opts.t5SampleCap ?? T5_SAMPLE_CAP;
 		/** @type {Map<string, Cell>} */
 		this.cells = new Map();
 	}
@@ -219,6 +239,34 @@ export class Aggregator {
 		// mirroring the clk gap rule above and for the same reason.
 		let prevEval = START_EVAL;
 
+		// ---- T5 (endgame): the one place the pipeline touches a board.
+		// Decided per SIDE before the loop: a side samples only if its cell
+		// still has budget, and the replay runs only when a side wants it AND
+		// the game has evals at all — the budget buys data, not replays of
+		// games that cannot yield any. Both players in one cell contend for
+		// that cell's budget (the fixture pins it).
+		const sanMoves = moves.map((m) => m.san);
+		const cellW = cellOf('w');
+		const cellB = cellOf('b');
+		let egPly = null;
+		let t5W = false;
+		let t5B = false;
+		if (moves.some((m) => m.eval)) {
+			const wantW = cellW !== null && cellW.t5Games < this.t5SampleCap;
+			const wantB = cellB !== null && cellB.t5Games < this.t5SampleCap;
+			if (wantW || wantB) egPly = this.brain.endgameStartPly(sanMoves);
+			if (egPly !== null) {
+				if (wantW) {
+					cellW.t5Games += 1;
+					t5W = true;
+				}
+				if (cellB !== null && cellB.t5Games < this.t5SampleCap) {
+					cellB.t5Games += 1;
+					t5B = true;
+				}
+			}
+		}
+
 		for (const m of moves) {
 			const cell = cellOf(m.color);
 
@@ -247,6 +295,9 @@ export class Aggregator {
 				if (bucketBefore !== null) cell.recordT2(bucketBefore, wcDrop);
 				if (moverBefore >= WINNING_THRESHOLD) cell.recordT3(wcDrop);
 				else if (moverBefore <= LOSING_THRESHOLD) cell.recordT4(wcDrop);
+				if (egPly !== null && m.ply >= egPly && (m.color === 'w' ? t5W : t5B)) {
+					cell.recordT5(wcDrop);
+				}
 			}
 			prevEval = afterEval;
 		}
@@ -256,7 +307,6 @@ export class Aggregator {
 		// each side's own rating band gets its own data point — it's a claim
 		// about the games players at that rating play, not about who caused
 		// the deviation.
-		const sanMoves = moves.map((m) => m.san);
 		const deviationPly = plyOfFirstDeviation(this.book, sanMoves);
 		if (deviationPly !== null) {
 			const cellW = cellOf('w');
@@ -280,12 +330,17 @@ export class Aggregator {
 			generatedAt: new Date().toISOString(),
 			brainVersion: meta.brainVersion,
 			meta: {
-				analysedOnly: ['t2', 't3', 't4'],
-				stubs: ['t5', 't7'],
+				analysedOnly: ['t2', 't3', 't4', 't5'],
+				// t7 is STRUCK, not deferred: the dumps' [%eval] comments carry
+				// no best move or variation, so "the best line carries a
+				// tactical motif" is uncomputable from this source. Tactics'
+				// peer column is Maia-3's per-position P_R(bestUci) at report
+				// time (README).
+				struck: ['t7'],
 				partial: {
 					t6: 'out-of-book-ply only; the plies-1-12 wcDrop distribution sub-table is deferred (see README T6 / task scope)'
 				},
-				caps: {},
+				caps: { t5: this.t5SampleCap },
 				plyBuckets: { openingMax: OPENING_PLY_MAX, lateMin: LATE_PLY_MIN },
 				clockBuckets: CLOCK_BUCKETS.map((b) => b.label),
 				bookLines: this.book.lines,
@@ -369,12 +424,8 @@ function cellToTables(cell) {
 		t2: t2Table(cell),
 		t3: retentionTable(cell.t3, cell.t3Blunders),
 		t4: retentionTable(cell.t4, cell.t4Blunders),
-		t5: { stub: true, reason: 'blocked on the brain exporting its phase function (README T5)' },
-		t6: t6Table(cell),
-		t7: {
-			stub: true,
-			reason:
-				'blocked on the brain exporting motif detectors + a sampling budget over eval best-lines (README T7)'
-		}
+		t5: { ...retentionTable(cell.t5, cell.t5Blunders), games: cell.t5Games },
+		t6: t6Table(cell)
+		// no t7 — struck (see meta.struck and README)
 	};
 }

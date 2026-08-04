@@ -50,6 +50,9 @@ export { CLASS, LABEL_ORDER } from './classifications';
 
 // ---- explanations ----
 export { explainMove, explainGoodMove, bestMovePoint, motifTags, MOTIF_TAGS_VERSION } from './engine/explain';
+// One phase rule for the peer pipeline's T5 and the app's endgame axis (#268)
+// — two notions of "endgame" would make the two sides incomparable.
+export { isEndgamePosition, endgameStartPly } from './engine/phase';
 
 // ---- opening book × engine (the unified move table) ----
 // The Book pane's rows: the engine's lines merged with the baked book's counts

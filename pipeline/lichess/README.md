@@ -58,16 +58,23 @@ the bot-weakening saga for what silent scale mixing costs).
 - **T4 while-losing composure** — the same restricted to ≤ 30. Named
   composure, not swindling: recovering is mostly the opponent blundering, and
   the table must not claim otherwise.
-- **T5 endgame** — T3/T4-style numbers past the phase boundary. Blocked on
-  the brain exporting its phase function; do not reimplement one here.
+- **T5 endgame** — T3/T4-style numbers past the phase boundary, which is
+  `brain.endgameStartPly` (lila's divider rule: majors+minors ≤ 6 across both
+  sides) — never a local reimplementation. Finding the boundary replays the
+  game, the one place this pipeline touches a board, so T5 runs on a
+  **sampling budget**: a per-band×class cap of analysed games, first-come in
+  dump order, cap recorded in `meta.caps.t5` and the sampled `n` in each
+  cell. No smoothing of unsampled cells.
 - **T6 opening** — ply of first out-of-book move (book = the vendored
   `chess-openings` ECO dataset, CC0), and `wcDrop` distribution over plies
   1–12 on the analysed subset.
-- **T7 tactics** — P(played the best move | best line carries a tactical
-  motif), motifs via the brain's detectors over the eval comments' best
-  lines. The detectors walk chess.js positions, so this table runs on a
-  **sampling budget** (cap positions per band×class; record the cap in meta).
-  Blocked with T5 on brain exports; skeleton stubs it.
+- **~~T7 tactics~~ — struck, by design, not deferred.** The dumps' `[%eval]`
+  comments carry evals ONLY — no best move, no variation — so "the best line
+  carries a tactical motif" is uncomputable from this source, and a table
+  built from anything less would be the invented-cohort mistake wearing a
+  different hat. The tactics axis's peer column comes from Maia-3's
+  per-position `P_R(bestUci)` at report time, which was the axis design all
+  along; the first README draft was wrong to promise it here.
 
 ## Output
 

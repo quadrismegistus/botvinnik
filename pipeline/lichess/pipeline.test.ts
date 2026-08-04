@@ -465,6 +465,92 @@ describe('aggregate.mjs', () => {
 		});
 	});
 
+	describe('T5 endgame: sampled replay through brain.endgameStartPly', () => {
+		// A legal 84-ply trade-down GENERATED with chess.js (greedy captures,
+		// repetition-guarded) rather than written by hand — three hand-built
+		// fixtures went illegal in one day. The lila divider (majors+minors
+		// ≤ 6) is first satisfied before ply 77, so plies 77..84 are the
+		// endgame; the first test pins that against the brain itself.
+		const SANS = [
+			'a3','a6','a4','b6','a5','c6','axb6','d6','b7','e6','bxa8=N','f6',
+			'b3','g6','b4','h6','b5','a5','b6','c5','b7','d5','bxc8=N','Qxc8',
+			'c3','e5','c4','f5','cxd5','g5','d6','h5','d7+','Nxd7','d3','Qxa8',
+			'd4','a4','d5','c4','d6','e4','e3','f4','exf4','g4','f5','h4','f6',
+			'a3','f7+','Kxf7','f3','c3','f4','e3','f5','g3','f6','h3','gxh3',
+			'Qxh1','h4','Qxg1','h5','Qxf1+','Kxf1','a2','h6','axb1=N','Rxb1',
+			'c2','h7','cxd1=N','hxg8=N','Rxg8','h3','e2+','Kxe2','g2','Kxd1',
+			'g1=N','h4','Bg7',
+		];
+		const gameText = ({ evals = true } = {}) => {
+			const movetext = SANS.map((san, i) => {
+				const num = i % 2 === 0 ? `${i / 2 + 1}. ` : '';
+				return `${num}${san}${evals ? ' {[%eval 0.0]}' : ''}`;
+			}).join(' ');
+			return [
+				'[Event "Rated Blitz game"]',
+				'[Site "https://lichess.org/t5fix"]',
+				'[White "w"]',
+				'[Black "b"]',
+				'[Result "*"]',
+				'[WhiteElo "1500"]',
+				'[BlackElo "1500"]',
+				'[TimeControl "300+0"]',
+				'[Termination "Unterminated"]',
+				'',
+				movetext + ' *',
+			].join('\n');
+		};
+		const parsed = (text: string) => {
+			const rec = extractGame(text);
+			if ('skip' in rec && rec.skip) throw new Error('fixture skipped: ' + rec.skip);
+			return rec;
+		};
+
+		it('the brain finds the pinned boundary for this line', () => {
+			expect(brain.endgameStartPly(SANS)).toBe(77);
+		});
+
+		it('records exactly the endgame plies, both movers, flat evals → zero drops', () => {
+			const agg = new Aggregator(brain, book);
+			agg.addGame(parsed(gameText()));
+			const cell = agg.cellFor(1500, 'blitz');
+			expect(cell.t5.n).toBe(8); // plies 77..84
+			expect(cell.t5Games).toBe(2);
+			expect(cell.t5Blunders).toBe(0);
+			expect(cell.t5.values.every((v: number) => v === 0)).toBe(true);
+		});
+
+		it('the cap gates per SIDE, stops new games, and lands in meta', () => {
+			// Both players band to the same cell here, so a cap of 1 admits
+			// White's side and refuses Black's — 4 endgame plies, not 8 — and
+			// the second game is not replayed at all.
+			const agg = new Aggregator(brain, book, { t5SampleCap: 1 });
+			agg.addGame(parsed(gameText()));
+			agg.addGame(parsed(gameText()));
+			const cell = agg.cellFor(1500, 'blitz');
+			expect(cell.t5Games).toBe(1);
+			expect(cell.t5.n).toBe(4);
+			const env = agg.toEnvelope({ source: 'x', brainVersion: 2, games: {} });
+			expect(env.meta.caps.t5).toBe(1);
+		});
+
+		it('a game without evals is never replayed — the budget is for data', () => {
+			let replays = 0;
+			// the bundle's exports are getter-only, so shadow via defineProperty
+			const counting = Object.create(brain);
+			Object.defineProperty(counting, 'endgameStartPly', {
+				value: (...args: unknown[]) => {
+					replays++;
+					return brain.endgameStartPly(...args);
+				},
+			});
+			const agg = new Aggregator(counting, book);
+			agg.addGame(parsed(gameText({ evals: false })));
+			expect(replays).toBe(0);
+			expect(agg.cellFor(1500, 'blitz').t5Games).toBe(0);
+		});
+	});
+
 	describe('T1 think-time: the running clock is seeded from TimeControl’s initial time', () => {
 		it('counts every move of a gap-free game, including each side’s first', () => {
 			// prevClk[color] starts at the game's own TimeControl initial
@@ -599,7 +685,8 @@ describe('end-to-end: fixtures/e2e.pgn.zst through the full pipeline', () => {
 		expect(envelope.source).toBe('e2e');
 		expect(envelope.brainVersion).toBe(brain.BRAIN_VERSION);
 		expect(envelope.meta.games).toEqual({ streamed: 5, parsed: 2, skipped });
-		expect(envelope.meta.stubs).toEqual(['t5', 't7']);
+		expect(envelope.meta.struck).toEqual(['t7']);
+		expect(envelope.meta.caps.t5).toBe(2000);
 
 		// both parsed games' players band to 1500/blitz
 		expect(Object.keys(envelope.bands)).toEqual(['1500']);
@@ -613,10 +700,9 @@ describe('end-to-end: fixtures/e2e.pgn.zst through the full pipeline', () => {
 		// contributes nothing to T4.
 		expect(cell.t3.n).toBe(3);
 		expect(cell.t4.n).toBe(1);
-		expect(cell.t5).toEqual({
-			stub: true,
-			reason: 'blocked on the brain exporting its phase function (README T5)'
-		});
+		// ten-ply miniatures never reach the endgame: a real, empty table
+		expect(cell.t5.n).toBe(0);
+		expect(cell.t5.games).toBe(0);
 		// both games' book-ply samples: clk-eval (5,5) + thresholds (2,2)
 		expect(cell.t6.plyOfFirstDeviation.n).toBe(4);
 

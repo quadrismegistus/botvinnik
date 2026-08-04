@@ -3917,6 +3917,7 @@ var brain = (() => {
     enPassantSetup: () => enPassantSetup,
     encodeBoard: () => encodeBoard,
     encodeBoardArray: () => encodeBoardArray,
+    endgameStartPly: () => endgameStartPly,
     engineCorrelation: () => engineCorrelation,
     epdKey: () => epdKey,
     epdKeys: () => epdKeys,
@@ -3934,6 +3935,7 @@ var brain = (() => {
     horizonMove: () => horizonMove,
     isBlackToMove: () => isBlackToMove,
     isCapture: () => isCapture,
+    isEndgamePosition: () => isEndgamePosition,
     itemDataFromStoredMove: () => itemDataFromStoredMove,
     judgeTacticalWin: () => judgeTacticalWin,
     judgeThreat: () => judgeThreat,
@@ -9206,6 +9208,34 @@ var brain = (() => {
     "miss",
     "blunder"
   ];
+
+  // brain/engine/phase.ts
+  var MAJORS_AND_MINORS = /* @__PURE__ */ new Set(["q", "r", "b", "n", "Q", "R", "B", "N"]);
+  function isEndgamePosition(fen) {
+    const placement = fen.split(" ")[0];
+    let n = 0;
+    for (const ch of placement) {
+      if (MAJORS_AND_MINORS.has(ch)) n++;
+    }
+    return n <= 6;
+  }
+  function endgameStartPly(sans, startFen) {
+    let board;
+    try {
+      board = startFen ? new Chess(startFen) : new Chess();
+    } catch {
+      return null;
+    }
+    for (let i = 0; i < sans.length; i++) {
+      if (isEndgamePosition(board.fen())) return i + 1;
+      try {
+        board.move(sans[i]);
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  }
 
   // brain/explorer.ts
   var mateScore = (mate) => Math.sign(mate) * (40 - Math.min(Math.abs(mate), 20));
