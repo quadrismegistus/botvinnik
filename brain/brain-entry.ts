@@ -53,6 +53,10 @@ export { explainMove, explainGoodMove, bestMovePoint, motifTags, MOTIF_TAGS_VERS
 // One phase rule for the peer pipeline's T5 and the app's endgame axis (#268)
 // — two notions of "endgame" would make the two sides incomparable.
 export { isEndgamePosition, endgameStartPly } from './engine/phase';
+// The skill report (#268): the user's axes by the pipeline's exact rules
+// (report-parity.test.ts pins it), and the peer cell reshaped to sit beside
+// them. Dart marshals games in, numbers come out; verdict prose is UI work.
+export { skillReportUser, skillReportPeer, timeClassOfPgn } from './report';
 
 // ---- opening book × engine (the unified move table) ----
 // The Book pane's rows: the engine's lines merged with the baked book's counts
