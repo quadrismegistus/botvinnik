@@ -1,6 +1,7 @@
 // Practice list: positions where a mistake was played, stored in localStorage,
 // scheduled with simple Leitner boxes.
 
+import { Chess } from 'chess.js';
 import { winChance, type MoveLabel } from './engine/insights';
 import { MOTIF_TAGS_VERSION, motifTags } from './engine/explain';
 import type { StoredMove } from './gameStore';
@@ -22,7 +23,7 @@ export interface AttemptResult {
 }
 
 export interface PracticeItem {
-	id: string; // the fen — doubles as the dedupe key
+	id: string; // epdKey(fen) — the POSITION is the dedupe key (#286)
 	fen: string; // position before the mistake; side to move must find a good move
 	playedSan: string;
 	playedUci: string;
@@ -43,6 +44,49 @@ export interface PracticeItem {
 	attempts: number;
 	correct: number;
 	lastResult?: 'pass' | 'fail';
+	/** How many times this mistake has been collected — real games that walked
+	 *  into this position and lost win chance here, NOT drill attempts (#286).
+	 *  Absent means 1: every item written before the counter existed. */
+	seenCount?: number;
+	/** When the mistake last recurred (a bump of seenCount), ISO. */
+	lastSeenAt?: string;
+	/** The seenKeys (game ids) whose bulk seeding already counted here. The
+	 *  background grader seeds BEFORE it saves — deliberately, so a crash
+	 *  re-grades rather than losing blunders — which makes re-seeding the same
+	 *  game routine, and without this list every redo would inflate the count.
+	 *  Live collection passes no key and always counts. */
+	seenIn?: string[];
+}
+
+/** The dedupe identity of a position: the first four FEN fields, with the
+ *  en-passant square kept only when a capture can actually use it. The full
+ *  fen splits the same mistake across games — the halfmove clock and the
+ *  FULLMOVE NUMBER are in it, so the trap you walk into on move 12 and again
+ *  on move 14 was two items (#286). The ep square needs the legality check
+ *  because the two fen writers disagree: chess.js records the target after
+ *  any double push, dartchess only when capturable — one position, two
+ *  spellings. When ep is genuinely live it stays in the key: the capture
+ *  changes the answer, so it is a different puzzle. */
+export function epdKey(fen: string): string {
+	const parts = fen.split(' ');
+	if (parts.length < 4) return fen; // not a fen; leave the key alone
+	const four = parts.slice(0, 4);
+	if (four[3] !== '-') {
+		try {
+			const board = new Chess(fen);
+			if (!board.moves({ verbose: true }).some((m) => m.flags.includes('e'))) {
+				four[3] = '-';
+			}
+		} catch {
+			// unparseable: keep the recorded square rather than invent a merge
+		}
+	}
+	return four.join(' ');
+}
+
+/** Bulk form for the bridge: one call, one marshal (see addItems). */
+export function epdKeys(fens: string[]): string[] {
+	return fens.map(epdKey);
 }
 
 const KEY = 'botvinnik-practice-v1';
@@ -156,15 +200,44 @@ export function enPassantSetup(fen: string): string | null {
 	return null;
 }
 
+/** One more occurrence of an already-collected mistake. Returns the new list,
+ *  or null when [seenKey] already counted here — the bulk paths' redo guard.
+ *  A bump touches the COUNT, never the schedule: recurring in a game does not
+ *  make the drill due sooner, the Leitner boxes own that. */
+function bumpRepeat(
+	items: PracticeItem[],
+	at: number,
+	seenKey?: string
+): PracticeItem[] | null {
+	const item = items[at];
+	if (seenKey && (item.seenIn ?? []).includes(seenKey)) return null;
+	const next = [...items];
+	next[at] = {
+		...item,
+		seenCount: (item.seenCount ?? 1) + 1,
+		lastSeenAt: new Date().toISOString(),
+		...(seenKey ? { seenIn: [...(item.seenIn ?? []), seenKey] } : {})
+	};
+	return next;
+}
+
 export function addItem(
 	items: PracticeItem[],
 	data: Omit<PracticeItem, 'id' | 'createdAt' | 'box' | 'dueAt' | 'attempts' | 'correct'>
 ): PracticeItem[] | null {
-	if (items.some((i) => i.fen === data.fen)) return null;
+	const key = epdKey(data.fen);
+	const at = items.findIndex((i) => i.id === key);
+	if (at >= 0) {
+		// Live collection carries no seenKey: each call is one real occurrence
+		// (one graded move, one refusal), so a repeat always counts (#286).
+		const next = bumpRepeat(items, at);
+		if (next) save(next);
+		return next;
+	}
 	const now = new Date();
 	const item: PracticeItem = {
 		...data,
-		id: data.fen,
+		id: key,
 		createdAt: now.toISOString(),
 		box: 0,
 		dueAt: now.toISOString(), // due immediately
@@ -186,35 +259,101 @@ export function addItem(
  * expression text and 493MB of writes, 9.3s on a desktop VM with no JS engine
  * running at all — a strict lower bound on what a phone would do.
  *
- * Same rules as addItem, applied in order: a fen already present is skipped,
- * and so is a duplicate WITHIN [dataList], so a file containing the same
- * position twice cannot produce two items.
+ * Same rules as addItem, applied in order: one item per POSITION, a repeat
+ * bumping its counter (#286). [seenKeys] is parallel to [dataList] and names
+ * the game each seed came from; a repeat is counted once per game, which is
+ * what lets the background grader's crash-redo (it seeds BEFORE it saves, on
+ * purpose) re-seed the same game without inflating the count. Seeds without a
+ * key count every time, like addItem.
  *
- * Returns the new list, or null if nothing was added — matching addItem, so a
- * caller can skip the persist entirely.
+ * Returns the new list, or null when NOTHING changed — no item added and no
+ * counter moved — so a caller can skip the persist entirely.
  */
 export function addItems(
 	items: PracticeItem[],
-	dataList: Omit<PracticeItem, 'id' | 'createdAt' | 'box' | 'dueAt' | 'attempts' | 'correct'>[]
+	dataList: Omit<PracticeItem, 'id' | 'createdAt' | 'box' | 'dueAt' | 'attempts' | 'correct'>[],
+	seenKeys?: (string | null)[]
 ): PracticeItem[] | null {
-	const seen = new Set(items.map((i) => i.fen));
 	const now = new Date().toISOString();
-	const added: PracticeItem[] = [];
-	for (const data of dataList) {
-		if (seen.has(data.fen)) continue;
-		seen.add(data.fen);
-		added.push({
+	let next = [...items];
+	const at = new Map(next.map((i, n) => [i.id, n]));
+	let changed = false;
+	for (let n = 0; n < dataList.length; n++) {
+		const data = dataList[n];
+		const seenKey = seenKeys?.[n] ?? undefined;
+		const key = epdKey(data.fen);
+		const existing = at.get(key);
+		if (existing !== undefined) {
+			const bumped = bumpRepeat(next, existing, seenKey);
+			if (bumped) {
+				next = bumped;
+				changed = true;
+			}
+			continue;
+		}
+		at.set(key, next.length);
+		next.push({
 			...data,
-			id: data.fen,
+			id: key,
 			createdAt: now,
 			box: 0,
 			dueAt: now, // due immediately
 			attempts: 0,
-			correct: 0
+			correct: 0,
+			...(seenKey ? { seenIn: [seenKey] } : {})
+		});
+		changed = true;
+	}
+	if (!changed) return null;
+	save(next);
+	return next;
+}
+
+/**
+ * One-time reshaping of a stored collection to the position key (#286): every
+ * id becomes epdKey(fen), and the twins the full-fen key split apart merge
+ * into one item. A merge keeps the least-learned schedule (lowest box,
+ * earliest due), sums the history, and counts each old item as one occurrence
+ * of the mistake — they were. The deeper grade's chess fields win; ties keep
+ * the first seen. Returns null when the collection is already in shape, so
+ * the caller can skip the persist — which is also what makes it safe to run
+ * on every load.
+ */
+export function migratePracticeItems(items: PracticeItem[]): PracticeItem[] | null {
+	let changed = false;
+	const byKey = new Map<string, PracticeItem>();
+	const order: string[] = [];
+	for (const raw of items) {
+		const key = epdKey(raw.fen);
+		if (raw.id !== key) changed = true;
+		const item = { ...raw, id: key };
+		const prev = byKey.get(key);
+		if (!prev) {
+			byKey.set(key, item);
+			order.push(key);
+			continue;
+		}
+		changed = true;
+		const base = item.depth > prev.depth ? item : prev;
+		const seenIn = [...new Set([...(prev.seenIn ?? []), ...(item.seenIn ?? [])])];
+		const lastSeen = [prev.lastSeenAt, item.lastSeenAt].filter(Boolean).sort().pop();
+		byKey.set(key, {
+			...base,
+			box: Math.min(prev.box, item.box),
+			dueAt: Date.parse(prev.dueAt) <= Date.parse(item.dueAt) ? prev.dueAt : item.dueAt,
+			createdAt:
+				Date.parse(prev.createdAt) <= Date.parse(item.createdAt)
+					? prev.createdAt
+					: item.createdAt,
+			attempts: prev.attempts + item.attempts,
+			correct: prev.correct + item.correct,
+			seenCount: (prev.seenCount ?? 1) + (item.seenCount ?? 1),
+			...(seenIn.length ? { seenIn } : {}),
+			...(lastSeen ? { lastSeenAt: lastSeen } : {})
 		});
 	}
-	if (added.length === 0) return null;
-	const next = [...items, ...added];
+	if (!changed) return null;
+	const next = order.map((k) => byKey.get(k)!);
 	save(next);
 	return next;
 }
