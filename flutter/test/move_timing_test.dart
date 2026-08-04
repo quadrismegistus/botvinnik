@@ -11,6 +11,7 @@ import 'package:botvinnik_mobile/stores/game_controller.dart';
 import 'package:botvinnik_mobile/stores/think_timer.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:botvinnik_mobile/stores/chess_clock.dart';
 import 'package:botvinnik_mobile/stores/pgn_import.dart';
 
 import 'support/game_harness.dart';
@@ -191,6 +192,37 @@ void main() {
       game.dispose();
       return db.games.values.single['pgn'] as String;
     }
+
+    test('a rated game stamps %clk — remaining time after each move (#268)',
+        () async {
+      // The lichess/chess.com convention: the clock AFTER the move, increment
+      // applied, floored to the second. Our own rated games were the one
+      // clocked population whose PGNs carried no clocks — imports keep theirs
+      // verbatim — so the time axis could never say anything about live play.
+      final settings = await loadSettings();
+      final db = MemoryDb();
+      final game = GameController(
+          FakeArbiter(), FakeBot(), SavingGrading(), settings, db);
+      var now = Duration.zero;
+      game.clockSource = () => now;
+      game.thinkTimer = ThinkTimer(source: () => now)..restart();
+      game.newGame(
+          rated: true,
+          timeControl: const TimeControl(Duration(minutes: 3), Duration.zero));
+      game.playUci('e2e4'); // instant: white keeps the full bank
+      now += const Duration(seconds: 9);
+      game.playUci('e7e5'); // black thought 9s
+      await game.debugForceSave();
+      final pgn = db.games.values.single['pgn'] as String;
+      expect(pgn, contains('[%clk 0:03:00]'));
+      expect(pgn, contains('[%clk 0:02:51]'));
+      game.dispose();
+    });
+
+    test('a casual game stamps no %clk — there is no clock to read', () async {
+      final pgn = await pgnOf([9, 11]);
+      expect(pgn, isNot(contains('%clk')));
+    });
 
     test('writes %emt in SECONDS, at a precision that round-trips', () async {
       // the units are the trap: `ms.toStringAsFixed(1)` writes 9000.0 for a
