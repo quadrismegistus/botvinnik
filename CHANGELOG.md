@@ -10,10 +10,6 @@ The full pre-2026-07-19 roadmap — with the complete calibration saga and every
 design note as it was written — is preserved in git history (it was this file's
 predecessor, `ROADMAP.md` before the 2026-07-19 trim).
 
-*(Entries for 2026-07-24 → 2026-08-03 — the Maia-3 chart, refuse-blunders
-mode, review-as-analysis-board, the retro engines, and the scouted-issue batch
-— are pending backfill; the git history of `main` has each release merge.)*
-
 ## 2026-08-04 — practice knows the mistakes you keep making
 
 - **#286** — **one practice item per position, counting repeats.** The dedupe
@@ -38,6 +34,464 @@ mode, review-as-analysis-board, the retro engines, and the scouted-issue batch
 - Hardening from the adversarial review: a malformed practice item can no
   longer brick boot, and review scrubbing stops paying a bridge call per
   frame for the practise-this-game count.
+
+## 2026-08-04 — a motif tap mid-session obeys the game session's own rules
+
+- **#289** — **filtering by motif mid-session no longer breaks the session's
+  own rules.** `setMotifFilter` had a second implementation of "what does this
+  session serve" that agreed with the real one on scope and nothing else — a
+  motif tap could serve a position the drop bar was specifically withholding,
+  re-serve an item the walk had already served (three serves in a two-mistake
+  game), or reopen a session that had already finished, wiping its "done"
+  note. Fixed by routing the filter through the same server every other path
+  uses, in both directions, and deleting the second implementation rather
+  than reconciling it. The motif picker is now hidden outright while a game
+  session runs — a filter the walk ignores could only lie or cost you a
+  mistake for nothing — and the session's completion note counts what the
+  walk actually served rather than the scope it started with, which mid-session
+  churn had been quietly inflating. A four-lens review caught two mutants that
+  survived the first fix and filed a smaller pre-existing bug — deleting your
+  only collected item mid-session strands you behind an empty screen — as
+  #291, fixed in the practice-mistakes release above.
+
+## 2026-08-03 — practice scoped to this game, and your side of it
+
+A bug report from actual play: practising "this game's mistakes" served
+puzzles from other games, and from the bot's own moves.
+
+- **#285** — **"practise this game's mistakes" now means your mistakes, in
+  this game.** A practice item's id is its FEN, deduped across the whole
+  collection — so the old scope ("every collected item whose position also
+  occurred in this game") pulled in the bot's positions, and through the
+  shared-FEN dedupe, items collected in entirely different games. The scope
+  now filters to positions where you were the one to move. A first attempt
+  also matched the exact move played, which sounded more exact but silently
+  dropped a real class of this game's own mistakes — a blunder caught by
+  refusal mode, or one you took back — since neither ever lands in the move
+  list; reverted in review before merge. Left open on purpose: two different
+  games where you had the same colour at the same position still share one
+  item, which the dedupe design makes defensible rather than wrong. A game
+  with no "you" in it at all — a pasted PGN, a spectator import, bot-vs-bot —
+  now shows no practice button rather than one that mixes both sides.
+
+## 2026-08-03 — bestUci means one thing everywhere, and a quiet mate stops hiding as a positional tip
+
+Two provenance bugs, both about a stored record carrying less than the code
+reading it assumed — the second found while building the first.
+
+- **#281** — **`bestUci` means the same thing everywhere now.** On the import
+  paths the field marked a MISS (present only when you didn't play the top
+  move); live play used the same field to name the engine's move outright —
+  the exact ambiguity that made #276's correlation read zero on every
+  imported game. It's now the engine's first choice on every analysed ply,
+  for chess.com imports and live play alike; a new `topRecorded` flag marks
+  which games' writers made that promise, so chess.com imports move from a
+  dash to a real number. lichess stays a dash — its API genuinely doesn't
+  expose the engine's move on unflagged plies, so a dash is more honest than
+  a guess. Caught in review before merge: the first pass of the fix reached
+  only one of three code paths that write a stored move, so the on-device
+  chess.com import and the background grader still lost the field; all three
+  now agree.
+- **#283** — **a quiet forced mate no longer files under "open file."**
+  Collected practice items carried a one-move stub instead of the engine's
+  real mate distance, so the motif tagger — which already held back
+  positional claims on a move that gives check — had no way to see that a
+  *quiet* move forces mate too. Fixed by threading the grade's own mate count
+  through instead of hardcoding it to null.
+
+## 2026-08-02 — per-move think time, and how often you agree with the engine
+
+- **#267** — **a move now remembers how long it took.** `MoveRecord` gets a
+  `thinkMs`, filled by a wall-clock timer on the position rather than the
+  in-game chess clock (which exists only in a minority of games with a time
+  control), so "do I blunder in time trouble" can be asked of any game. Time
+  spent in the background doesn't count, a takeback voids the measurement
+  instead of attributing it to the wrong decision, and older games simply
+  carry null rather than a fabricated zero. Pasted PGNs pick up times from
+  `%clk`/`%emt` comments too — but the chess.com and lichess import paths
+  don't carry that data over yet, so an in-app import from either service has
+  no times.
+- **#276** — **one number per game: how often you played the engine's first
+  choice.** `engineCorrelation` sits beside accuracy in the Review summary,
+  because the two disagree usefully — high correlation with low accuracy is a
+  game where you saw everything and then hung a rook. It excludes forced
+  moves (no real choice) and ungraded ones (a dash, never a 0%). Shipped
+  cautious on imports specifically: the pre-existing `bestUci` ambiguity
+  (fixed next release, #281) meant every imported game would otherwise have
+  scored a structurally wrong 0%, so this release gates on this app's own
+  grading marker and shows a dash for imports instead of a lie.
+
+## 2026-08-01 — positional facts for the quiet moves
+
+- **#269** — **four new detectors give quiet, non-tactical moves something to
+  say.** Passed pawn, outpost, blockade, and open/half-open file join the
+  twelve-value tactical vocabulary — mate, forks, pins and the rest — that
+  previously left every quiet move explained by eval alone. Each ranks below
+  every tactical motif, sacrifice, promotion and the material count, so a
+  fork that happens to land on an open file still explains as a fork;
+  positional prose speaks only when nothing sharper does. Deliberately
+  narrow — no space, initiative, or "bad bishop" judgment, because a
+  plausible-sounding positional sentence with nothing in the position to
+  check it against is worse than staying silent. Sparse by design: it fires
+  on a small minority of plies in real games, since most moves are still
+  explained by a tactical fact or by eval alone.
+
+## 2026-07-31 — the lichess bot catches up with the repo, and the database leaves your Documents folder
+
+Two weeks of undocumented VPS drift folded back in, plus a macOS
+storage-location fix and a README audit.
+
+- **#149** (#260, #261) — **the deployed lichess bot (SquareFish) had been
+  running two weeks of code nobody could see from this repo.** A branch on
+  the VPS's disk — never merged — had added in-game decision commentary as a
+  144-line duplicate of the bot's actual move-choice function, untested, with
+  nothing to notice if the two diverged. That feature is now one function
+  plus a callback, merged to `develop`, and measured behaviour-neutral
+  against the previous build (a straight move-by-move diff can't be used
+  here, since a single build differs from itself on ~28% of individual
+  decisions thanks to unseeded weighted picks — so it was checked by
+  distribution instead). Spectators now get their own greeting and
+  commentary, having previously heard nothing at all, and the bot's whole
+  configuration — the token aside — moved from a VPS-only file into the repo
+  as overrides merged onto lichess-bot's own defaults.
+- **deploy follow-ups** (#262) — landing the above on the actual VPS surfaced
+  four more bugs, found by the deploy visibly breaking: regenerating the
+  bot's config wiped hand-edits, including an option the engine doesn't
+  support, which crash-looped the service for about two minutes; a spectator
+  greeting silently never arrived because the length guard measured the
+  unsubstituted template rather than the real message and so passed the
+  exact string it existed to catch; a timeout setting reverted to its
+  default, aborting a rated game whenever a human paused to look at the
+  board; and the chat relay to lichess turned out to be an uncommitted patch
+  to lichess-bot's own third-party checkout, which any `git pull` there would
+  have silently deleted — it's now a vendored, checked-in patch the setup
+  script applies.
+- **#255** — **on macOS, the games database was being written into the
+  user's real `~/Documents` folder**, not a private container — a side
+  effect of dropping Apple's app sandbox to run player-supplied UCI engines
+  (#183). The database now lives in Application Support on macOS
+  (iOS/Android/web are untouched — Documents is correct for a sandboxed app
+  there), migrated by rename only when nothing already exists at the new
+  location. A pre-merge review caught the first version of this migration
+  renaming the database before its `-wal`/`-journal` sidecars — a failure
+  partway through could strand a database apart from the journal it needed,
+  which on macOS reads as full corruption, not just lost transactions —
+  fixed before it reached `main` by opening and cleanly closing the database
+  first, so SQLite settles its own sidecar and only a single-file rename
+  remains.
+- **#256** — the vendored web-database worker (`sqflite_sw.js`) now records
+  which package version produced it, checked in CI against `pubspec.lock`, so
+  a routine dependency upgrade can't silently move the client library out of
+  sync with a frozen worker.
+- **#150** — **the README was audited claim by claim against the code.**
+  Caught, among others: the privacy section said you "pick a Maia" to
+  download it, when the macOS and iOS apps actually prefetch all three Maia
+  bands (~10.5MB) unasked at first launch — web is genuinely opt-in — and a
+  claimed "three-fact" board-overlay rule that doesn't exist in this
+  codebase, a holdover from the retired Svelte app. Screenshots are now
+  produced by a Playwright capture script rather than taken by hand, driving
+  a fresh bot-vs-bot game and a seeded practice item so no real user data
+  ends up in a committed image.
+- **docs consistency** — three docs said the bundled Stockfish is version 16,
+  an old comment left behind by a package upgrade — it's 18. `ARCHITECTURE.md`
+  didn't mention the ChessGPT persona family at all, and `ROADMAP.md` still
+  claimed native and web offered the same 32 personas; both now state 38
+  defined, 35 playable, 32 on the web.
+
+## 2026-07-30 — the web database gets a single writer, and a broken one gets a way out
+
+- **#252** (#253) — **"database disk image is malformed" was one sqlite3
+  instance per browser tab, racing over the same file.** Two tabs — or the
+  installed PWA plus a tab — each ran their own sqlite3 with no locking
+  between them; fixed by routing every tab through one shared-worker sqlite3
+  instance instead. On Android Chrome before milestone 148 and Samsung
+  Internet, the shared-worker path falls back to one dedicated worker per
+  tab — still better than the old design, just not the same single-writer
+  guarantee.
+- **#254** — **a corrupt local database is no longer a dead end.** Boot used
+  to render an unselectable "boot failed" wall with no reset anywhere in the
+  app; now a failed check reaches a screen that explains what happened and
+  offers to move the database aside (renamed on native, so the original file
+  isn't destroyed; deleted on web, where there's nowhere to rename to). A
+  same-day follow-up found the original corruption probe caught only a small
+  fraction of realistic damage; a full-table scan now catches every case
+  found to actually break the app, at no real cost since the app already
+  reads the whole archive at boot. Deliberately a button the player presses,
+  not an automated policy: an earlier automatic-recovery design was pulled
+  from this same release before it reached `main`, because it would have
+  deleted data that was mostly salvageable — deferred rather than shipped
+  half-right.
+- **#259** — **the "Start fresh" reset button looked like it worked and did
+  nothing.** The corruption check left the corrupt file open when it threw,
+  so the reset then tried to delete a file it was still holding open — and
+  Flutter's own database-delete call silently swallows its own failure, so a
+  delete that did nothing returned normally and the app believed it. The
+  reset now verifies the file is actually gone and says so honestly when it
+  isn't, pointing at "clear site data" as the manual fallback on web.
+- **#247** — **the three retro artefacts (wasm, macOS binaries, iOS archive)
+  are now rebuilt from a morlock revision recorded in the repo**, instead of
+  a gitignored local checkout nothing could verify — a committed revision
+  pin, a sync script that checks it out and refuses on a dirty tree, and CI
+  that compares the pin against what the shipped artefacts actually contain.
+  Found while rebuilding: on Intel Macs the app is built universal but staged
+  arm64-only engine binaries, and the "is this engine available" check asked
+  only whether the file existed rather than whether it could run — so an
+  Intel Mac was offered all three retro bots and every game quietly played
+  Stockfish under a retro bot's name.
+- **#244** — **retro bots are now sent the whole game, not just the current
+  position.** A board rebuilt from a bare FEN has no move history, and
+  SARGON's development-scoring term and TUROCHAMP's quiescence search both
+  read that history — every SARGON game was scoring every knight and bishop
+  as permanently undeveloped. The calibration gym that produced the roster's
+  advertised ratings had always sent the full move list, so this brings the
+  app in line with what was actually measured. A same-day review caught a
+  regression this introduced: castling by dragging the king onto its own
+  rook (a legal alternate UCI spelling) now reached the wire and killed the
+  retro engine outright — closed with a spelling conversion before the move
+  is sent.
+- **#258** — **you can delete your synced data from the server.** There are
+  no accounts; the encrypted blob's ID is derived from your pairing phrase,
+  so the device holding that phrase is the only thing that could ever have
+  added this. Two separate buttons deliberately: turning off sync keeps your
+  uploaded blob, deleting the blob keeps your local games. Sync auto-recreates
+  a missing blob on its next run, so deleting also disables sync on that
+  device, or the delete would silently undo itself within a minute.
+
+## 2026-07-29 — refuse-blunders stops comparing two different searches
+
+Four deploys in one day, most of the work downstream of one root cause: two
+evals subtracted from two different searches.
+
+- **#242** (#243) — **refuse-blunders could refuse a move the engine's own
+  analysis called best.** The refusal drop was a subtraction of two evals
+  from two different searches — a deep pre-move analysis for the "best"
+  side, a shallow post-move check for the "played" side — so shallow-vs-deep
+  noise got charged to the player; a move that forced mate in 12 was refused
+  as a blunder because the shallow check couldn't see that far. Fixed by
+  scoring a move already in the pre-move lines off those lines alone, with an
+  explicit guard that the engine's own top move can never be refused. One
+  layer under that: a "streamed" engine-line snapshot could fire on the first
+  line of a new, deeper search while every other line in the same snapshot
+  still held the previous depth, so a subtraction across two lines of the
+  "same" snapshot could still mix searches — fixed by streaming a snapshot
+  only once every line agrees on depth. The same pass also stopped the
+  refusal check from running a redundant search whose answer nothing read,
+  made a rematch keep your blunder-protection setting instead of silently
+  dropping it, and logged to the console why a move was allowed rather than
+  looking identical to simply approving it.
+- **#245** — **a retro bot (TUROCHAMP, BERNSTEIN, SARGON) silently handed its
+  game to a Stockfish stand-in from the second game onward.** morlock's UCI
+  driver ends its session the moment it gets a `position` line identical to
+  the previous one, which starting a second game against the same bot does
+  exactly — and the death was silent inside a Web Worker, so the client
+  waited out its timeout and a Stockfish stand-in played the rest of the game
+  under the retro bot's name. Fixed by sending `ucinewgame` before every
+  position, on all three transports (web, macOS, iOS), plus a net for other
+  ways the driver can die: an unparseable Chess960 castling FEN is now
+  refused with a reason instead of killing the engine, and a race where a
+  superseded search's stale answer could land on a new position is closed.
+- **#246** — **a release no longer evicts the vendored engines from the
+  browser cache.** The cache name used to hash over the whole app bundle, so
+  every deploy threw away Stockfish, Maia's ONNX runtime and the retro wasm
+  even when none of them changed — the first retro or Maia move after a
+  release paid for a multi-megabyte re-download, racing that move's own
+  patience. Vendored assets now live in a separately-named cache keyed per
+  file by content hash, so only a changed file is re-fetched; the app's own
+  bundle deliberately stays on the cache that still rotates on every deploy,
+  since a stale build beside a new one refuses to boot.
+- **#249** — **practice no longer collects a puzzle whose answer is the move
+  you played.** Found by auditing a real production queue: one item asked
+  the player to correct a move with that same move stored as the answer — a
+  puzzle that passes automatically, since the drill treats "played move
+  equals stored best move" as a pass. Same underlying cause as the rest of
+  the week's work; the guard now sits where puzzles are built, so it covers
+  the refusal path and lichess import too.
+
+## 2026-07-28 — the practice bar moves, retro's phone bug, and a backlog sweep
+
+Two live defects, a process fix, and a cluster of small Practice/Review
+polish that had been queued up.
+
+- **#213** — **the practice win-chance filter and the refuse-blunders
+  threshold used to be the same setting**, changed from a Settings control
+  that never mentioned rated games — so lowering your practice bar also
+  silently loosened what counted as a refusable blunder mid-game. They're now
+  two persisted settings, and the practice-bar control itself moves out of
+  Settings into a popup on the Practice tab, showing the live count of
+  puzzles under the current bar.
+- **#241** — **a retro bot could stand in as a Stockfish substitute for an
+  entire game on the phone.** The wasm engine's preload was keyed on "the
+  persona to move", which is null on the player's own turn — so in the
+  ordinary seating (human White, bot Black) nothing preloaded until the
+  bot's first turn, dumping a multi-megabyte download into a single move's
+  patience budget, and one slow move that timed out latched the engine dead
+  for the rest of the game. Fixed by preloading from whichever seat holds
+  the persona and separating the per-move timeout from a longer overall boot
+  deadline.
+- **#214** — **Practice's advance button no longer throws an unattempted
+  puzzle away.** The primary button is now a ladder — hint, another hint,
+  show best, then next — so nothing advances until an answer is actually on
+  screen; a plain-text skip survives, deliberately demoted, for "not this
+  one, not now."
+- **#95** — **the Lines pane now shows analysis progress as "depth 14 / 22"
+  under a fill bar**, instead of a bare depth number nobody had a way to
+  judge. A search that stops early is marked "final" rather than left
+  looking like a stalled download frozen partway.
+- **#239** — **Review's move list is usable in phone landscape now** — a
+  wide-but-short viewport used to leave it unreadably thin. Landscape now
+  lays the board beside the list instead of stacking, using an actual
+  width-vs-height check rather than lowering the existing width-only
+  breakpoint, which would have broken the portrait phones that breakpoint is
+  tuned for.
+- **#234** — **the clock now pauses while a rated game isn't the active
+  window** — another app, a locked phone, a backgrounded tab all pause and
+  resume automatically. Decided deliberately in the "pause generously"
+  direction: there's no opponent to wrong, and time already spent still
+  counts, so backgrounding can't rescue a game that was already lost on the
+  clock.
+
+## 2026-07-27 — blind mode on the analysis board, and ChessGPT
+
+- **#148** — **"is this board hiding help" now has one answer instead of
+  three.** Blind mode used to be gated differently by the Book/Lines panes,
+  the Tree pane, and the board overlays, so turning blind on at the analysis
+  board blanked the board while the Lines pane beside it kept listing engine
+  evaluations. One predicate now covers all of them, and blind mode becomes
+  usable on the analysis board as a self-testing tool — guess the move
+  before the engine tells you — rather than only an opponent-facing secrecy
+  switch. A related bug fixed alongside: starting a rated game force-suppresses
+  arrows, threats and square control as part of the rated preset, and nothing
+  recorded what your settings were beforehand, so those switches could stay
+  stuck off app-wide after the game ended; the snapshot-and-restore is now
+  persisted, so killing the app mid-rated-game doesn't strand it either.
+- **#235** — **ChessGPT: a new bot family with no search at all** — a
+  language model (Adam Karvonen's nanoGPT, trained on Lichess PGN) run
+  through the same ORT runtime the app already ships for Maia, so its
+  mistakes are its own rather than a dialled-down Stockfish's. Three
+  variants ship, native-only, downloaded on demand with no prefetch —
+  trained on human games, on Stockfish self-play, and on both. They land
+  within about 80 Elo of each other on the project's own gym but diverge
+  sharply in error rate: the Stockfish-trained net is both the strongest and
+  the most error-prone of the three, and beats the human-trained net
+  head-to-head. Weights were previously blocked on licensing; Karvonen set
+  them to MIT on request and the nets are now published with pinned
+  checksums. Built on the custom-UCI-engine seam from #183, which otherwise
+  remains open as a general feature. Note: the project's first published
+  strength figures for these nets were retracted — a harness bug fed the
+  model a bare FEN it can't parse (it needs move history) and miscounted the
+  resulting null moves as draws; the table above ships from the corrected
+  harness.
+
+## 2026-07-27 — Review shows the best move as a board, and what a four-way review caught
+
+A fresh four-way adversarial review of the ChessGPT/blind-mode branch — after
+it had already shipped — found three real production bugs that had escaped
+review the first time.
+
+- **#233** — **Review's verdict strip now shows the best move as a
+  mini-board** (played move in red, engine's move in green, one blue arrow
+  when they match) instead of a plain "best: Nf3" sentence, the same
+  comparison widget Insights has used since #185.
+- **#231** — **refusing a blunder in a rated game used to be completely
+  silent.** There's no insight card on that screen, so a rejected move just
+  snapped back with nothing explaining why. A transient message strip now
+  says a move was refused and how many tries remain, without saying what was
+  wrong with it — blind mode there is deliberate, and the message doesn't
+  undercut it.
+- Three bugs the review found, already live in production from the prior
+  release: a capability check had collapsed two engines onto one flag,
+  silently dropping **both** Maia and ChessGPT from the entire web roster
+  (true on macOS, false on CI's Ubuntu box, so nothing caught it); ChessGPT
+  could hang the board solid past move ~93 from a context-length overflow
+  that escaped its own error handling; and refusal mode (#167) could eat a
+  human's move outright if the engine died mid-check, because the refusal
+  path was missing the `catch` its sibling method has carried since it was
+  written. Filed alongside but fixed the same day (#238, below): a flag
+  falling mid-move could archive a rated game one move short of the board.
+- **CI now runs the Dart test suite in a real browser**, not just on the
+  host VM plus compile-only web builds — exactly the gap that let the
+  roster-flag bug above ship undetected.
+- **#158** — the hand-rolled browser save/export path gets its first
+  behavioural test, via Playwright driving the app's accessibility semantics
+  tree rather than a widget harness — a technique the repo had twice
+  concluded was impossible for Flutter web. The board itself is still out of
+  that tool's reach (painted pixels, no semantics), so game-state testing
+  still goes through the pure-Dart harness.
+- **#238** — **a flag falling mid-move could archive a rated game one move
+  short of the board.** Pressing the clock — which can synchronously trigger
+  flag-fall and archive the game — happened *before* the move was applied,
+  so a game that ended on time showed one fewer move than was actually on
+  the board, and got rated on a position that never happened. Fixed by
+  playing the move first and pressing the clock after.
+
+## 2026-07-26 — rematch, insight arrows, and two CI/offline guards
+
+Four independent fixes, built in parallel and shipped together.
+
+- **#212** — **a Rematch button on the game-over screen** starts a fresh
+  game against the same opponent with colours swapped and the time control
+  carried forward. Only offered when there's an actual opponent — not on the
+  analysis board, where both sides are already human. The per-attempt
+  "refuse blunders" toggle deliberately doesn't carry over, since it's a
+  practice setting rather than a property of the match.
+- **#185** — **the Insights mini-board now draws even when you played the
+  best move**, with the played move in red and the engine's in green,
+  collapsing to a single blue arrow when they're the same move.
+- **#159** — CI now dry-runs a WebAssembly build, so the claim that a
+  particular file exists specifically to keep the app buildable to wasm is
+  actually checked instead of merely asserted in a comment. Nothing ships as
+  wasm yet; this keeps the option open without exercising it.
+- **#177** — the offline chess.com importer script no longer wedges an
+  entire month's archive on one shape-drifted game — a guard skips a record
+  missing expected fields instead of throwing, mirroring an in-app fix
+  already shipped for the same bug.
+
+## 2026-07-25 — refuse-blunders practice mode
+
+- **#167** — **a per-game "Refuse blunders" toggle rejects a move that loses
+  too much win-chance before it commits, and makes you try again on the
+  spot** instead of only grading it afterward. The board holds the piece
+  while grading runs (capped at 2.5s, failing open if the engine is slow),
+  then either commits the move or snaps it back with "try again (N left)";
+  three refusals at one position let the next attempt through regardless. A
+  refused move is still collected as a practice puzzle even though it was
+  never actually played, and refusals are excluded from the Elo fit the same
+  way a takeback is.
+
+## 2026-07-25 — Review becomes the analysis board
+
+- **#194** — **Review is no longer a static picture of a finished game —
+  it's the same board widget the live game uses**, so square tinting, engine
+  arrows, and the threat/win rings all come for free instead of being
+  reimplemented. The old stored "you should have played this instead" arrow
+  is gone; the live engine's own top-line arrow, drawn on the position after
+  the move, replaces it. Review is deliberately cut loose from live-game
+  settings — bot colour, blind mode — so a finished archived game can't leak
+  state from whatever game happens to be live.
+- **#196** — **playing a move in Review now branches into a variation
+  instead of being refused**, navigated by path rather than by ply number:
+  stepping back and then forward returns you to the line you were reading,
+  but once you've retreated past a branch point, forward follows what was
+  actually played. Variations print indented under the move they leave from;
+  a branch reads "not played" with a "Back to the game" button, since an
+  unplayed move was never graded.
+
+## 2026-07-24 — Maia-3 moves-by-rating chart
+
+A new "Humans" analysis panel, graduating the app from three fixed Maia-1
+strength bands to one ELO-conditioned model, and using it to answer a
+question Insights and the engine lines don't: is your move normal for your
+level?
+
+- **#221** — **a chart plots how often real players at every rating from 600
+  to 2600 would play each candidate move**, powered by Maia-3's policy head
+  in a single batched forward pass across the whole rating ladder. A
+  hover/drag scrubber pins to the nearest rung and highlights its top move;
+  a Now/Played toggle switches between curves for the live position and
+  curves for the position before the move you actually played, with that
+  move pinned on the chart. Reaches desktop browsers, iPad Safari, and
+  native iOS/macOS/Android — iPhone Safari/PWA is excluded by the same WASM
+  memory ceiling that already blocks Maia-1 there.
 
 ## 2026-07-23 — practice from your own games, deeper Insights
 
