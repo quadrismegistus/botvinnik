@@ -10,6 +10,11 @@
 import 'js_bridge.dart';
 
 class ReportApi {
+  /// The running brain's version, for the tables' envelope check: a report
+  /// must refuse tables built by a different win-chance implementation.
+  int brainVersion() =>
+      (_bridge.call('BRAIN_VERSION', isProperty: true) as num).toInt();
+
   final JsBridge _bridge;
   const ReportApi(this._bridge);
 

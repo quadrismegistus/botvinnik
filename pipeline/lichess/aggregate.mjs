@@ -228,8 +228,15 @@ export class Aggregator {
 		// color until it reappears, rather than silently computing a
 		// think-time against a stale remaining-clock value that predates an
 		// unknown amount of untracked play.
+		// A side's FIRST move contributes no think time: lichess grants no
+		// increment on it, so the seeded-with-initial walk booked exactly
+		// `increment` phantom seconds per side per game — and a berserked
+		// arena game (halved clock, same header) booked initial/2 as one
+		// giant "think" (#293 review, measured: the opening think bucket was
+		// up to 95% artifact at 2200/rapid). pgn_import.dart has always
+		// stated this rule: "the first move of each side gets nothing".
 		const prevClk = { w: initial, b: initial };
-		const haveClk = { w: true, b: true };
+		const haveClk = { w: false, b: false };
 
 		// ---- T3 / T4 / T2-blunder: eval-based wcDrop. `prevEval` is NOT
 		// per-color — it is "the eval attached to the previous ply, whoever

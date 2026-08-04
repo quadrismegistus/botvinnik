@@ -144,6 +144,8 @@ class FakeBridge implements JsBridge {
           throw StateError('brain.migratePracticeItems failed: poisoned item');
         }
         return migrateResult;
+      case 'BRAIN_VERSION':
+        return 2; // matches the shipped bundle; the report's envelope check reads it
       case 'skillReportUser':
         if (skillReportUserResult == null) {
           throw StateError('FakeBridge.skillReportUserResult not set — a '

@@ -216,6 +216,39 @@ void main() {
       final pgn = db.games.values.single['pgn'] as String;
       expect(pgn, contains('[%clk 0:03:00]'));
       expect(pgn, contains('[%clk 0:02:51]'));
+      // The header is what makes the stamps READABLE: the report classifies
+      // by TimeControl, and without it the game is excluded as noClass one
+      // gate before its clocks are ever parsed (#293 review — the stamps
+      // were dead on arrival).
+      expect(pgn, contains('[TimeControl "180+0"]'));
+      game.dispose();
+    });
+
+    test('the increment is already on the clock the stamp reads (#293)', () async {
+      // Mutation survivor: with a zero increment, remaining() reads the same
+      // either side of press, so the post-press ordering the stamp's comment
+      // insists on was untested. In 3+2 a pre-press read would export every
+      // %clk one increment low — the wrong convention, feeding the report's
+      // clock walk a clock that reads low on every ply.
+      final settings = await loadSettings();
+      final db = MemoryDb();
+      final game = GameController(
+          FakeArbiter(), FakeBot(), SavingGrading(), settings, db);
+      var now = Duration.zero;
+      game.clockSource = () => now;
+      game.thinkTimer = ThinkTimer(source: () => now)..restart();
+      game.newGame(
+          rated: true,
+          timeControl:
+              const TimeControl(Duration(minutes: 3), Duration(seconds: 2)));
+      game.playUci('e2e4'); // instant: 180 - 0 + 2
+      now += const Duration(seconds: 9);
+      game.playUci('e7e5'); // 180 - 9 + 2
+      await game.debugForceSave();
+      final pgn = db.games.values.single['pgn'] as String;
+      expect(pgn, contains('[%clk 0:03:02]'));
+      expect(pgn, contains('[%clk 0:02:53]'));
+      expect(pgn, contains('[TimeControl "180+2"]'));
       game.dispose();
     });
 

@@ -552,18 +552,20 @@ describe('aggregate.mjs', () => {
 	});
 
 	describe('T1 think-time: the running clock is seeded from TimeControl’s initial time', () => {
-		it('counts every move of a gap-free game, including each side’s first', () => {
-			// prevClk[color] starts at the game's own TimeControl initial
-			// seconds and haveClk[color] starts true — the "before" state for
-			// the very first move of each color is genuinely known (it's what
-			// TimeControl says they started with), so it is NOT excluded. All
-			// 7 plies of clk-eval.pgn carry a %clk with no gaps.
+		it('counts every move EXCEPT each side’s first — its think is unknowable', () => {
+			// The seeded-with-initial walk looked knowable and was not (#293
+			// review, measured on the real month): lichess grants no increment
+			// on a side's first move, so seeding booked exactly `increment`
+			// phantom seconds per side per game — and a berserked arena game
+			// (halved clock, unchanged header) booked initial/2 as one giant
+			// "think", up to 95% of the opening bucket at 2200/rapid. All 7
+			// plies of clk-eval.pgn carry a %clk; the two first-moves are out.
 			const agg = new Aggregator(brain, book);
 			const rec = extractGame(readFixture('clk-eval.pgn'));
 			if (rec.skip) throw new Error('unreachable');
 			agg.addGame(rec);
 			const cell = agg.cellFor(1500, 'blitz');
-			expect(cell.t1TotalN).toBe(7);
+			expect(cell.t1TotalN).toBe(5);
 		});
 
 		it('skips a move with no clk, and the next move of that color too (stale prevClk)', () => {
@@ -573,8 +575,10 @@ describe('aggregate.mjs', () => {
 			// move, Bc4, DOES carry a clk, but the gap means we don't actually
 			// know White's remaining time right before it — excluded too. Bc4
 			// resumes tracking for White from itself onward. Black never has a
-			// gap, so all 3 of Black's moves count. Expected: e4, e5, Nc6, Bc5
-			// = 4 samples (Nf3 and Bc4 excluded).
+			// gap, so Black's later moves count. First moves are excluded by
+			// rule (#293: their think is unknowable), and they only SEED each
+			// side's running clock. Expected: Nc6, Bc5 = 2 samples (e4 and e5
+			// seed; Nf3 gaps; Bc4 follows the gap).
 			const raw = [
 				'[Event "Rated Blitz game"]',
 				'[Site "https://lichess.org/x"]',
@@ -593,7 +597,7 @@ describe('aggregate.mjs', () => {
 			if (rec.skip) throw new Error('unreachable');
 			agg.addGame(rec);
 			const cell = agg.cellFor(1500, 'blitz');
-			expect(cell.t1TotalN).toBe(4);
+			expect(cell.t1TotalN).toBe(2);
 		});
 	});
 
@@ -619,7 +623,8 @@ describe('aggregate.mjs', () => {
 				'[TimeControl "20+15"]',
 				'[Termination "Normal"]',
 				'',
-				'1. a3 { [%eval -3.0] [%clk 0:00:15] } 0-1'
+				'1. a3 { [%eval 0.0] [%clk 0:00:15] } e5 { [%eval 0.0] [%clk 0:00:20] } ' +
+					'2. b4 { [%eval -3.0] [%clk 0:00:12] } 0-1'
 			].join('\n');
 			const rec = extractGame(raw);
 			if (rec.skip) throw new Error('unreachable');

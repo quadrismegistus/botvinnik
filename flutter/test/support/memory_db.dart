@@ -52,7 +52,11 @@ class MemoryDb implements AppDb {
   }
 
   @override
+  int wipeEpoch = 0;
+
+  @override
   Future<void> deleteAllGames() async {
+    wipeEpoch++;
     games.clear();
   }
 

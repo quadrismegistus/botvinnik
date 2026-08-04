@@ -12,10 +12,14 @@
 // opponent. The parity test feeds both encodings of one game and demands
 // identical output.
 //
-// Also deliberate: per-move `wcDrop` stored on the archive is NOT used. It
-// measures the drop against the engine's best move; the peer tables measure
-// the drop between consecutive position evals. Different quantities — the
-// report computes the second, fresh.
+// Also deliberate: per-move `wcDrop` stored on the archive is NOT used. On
+// live-graded games it measures the drop against the engine's BEST move —
+// a different quantity from the tables' consecutive-eval drop — and on
+// lichess imports it happens to be the consecutive-eval form already
+// (lichessImport.ts computes exactly that). One field, two provenances
+// ([[stored-move-provenance]]'s recurring class); recomputing here applies
+// ONE rule to every population instead of trusting a field that means
+// different things by writer.
 import { winChance } from './engine/insights';
 import { isEndgamePosition } from './engine/phase';
 import { clocksFromPgn } from './gameStore';
@@ -48,12 +52,25 @@ const PANIC_MAX_S = 30;
 const CALM_MIN_S = 60;
 const UNDER2S_S = 2;
 
-export function timeClassOfPgn(pgn: string | undefined): string | null {
+/** The TimeControl header as {initialS, incrementS}, or null. The increment
+ *  is OPTIONAL: lichess writes "180+2" but chess.com writes a bare "600" for
+ *  a zero-increment control (their fixture in chesscomCore.test.ts is the
+ *  witness, and pgn_import.dart has always read the bare form) — requiring
+ *  the "+" silently dropped every chess.com game into noClass (#293 review).
+ *  Daily/correspondence forms ("1/86400", "-") stay null. */
+export function timeControlOfPgn(
+	pgn: string | undefined
+): { initialS: number; incrementS: number } | null {
 	if (!pgn) return null;
-	const m = /^\[TimeControl "(\d+)\+(\d+)"\]/m.exec(pgn);
+	const m = /^\[TimeControl "(\d+)(?:\+(\d+))?"\]/m.exec(pgn);
 	if (!m) return null;
-	const initial = Number(m[1]);
-	const estimate = initial + 40 * Number(m[2]);
+	return { initialS: Number(m[1]), incrementS: Number(m[2] ?? 0) };
+}
+
+export function timeClassOfPgn(pgn: string | undefined): string | null {
+	const tc = timeControlOfPgn(pgn);
+	if (!tc) return null;
+	const estimate = tc.initialS + 40 * tc.incrementS;
 	// extract.mjs classifyTimeClass, verbatim
 	if (estimate < 30) return 'ultrabullet';
 	if (estimate < 180) return 'bullet';
@@ -123,10 +140,15 @@ export function skillReportUser(
 		considered += 1;
 
 		const clocks = g.pgn ? clocksFromPgn(g.pgn) : [];
-		const tcMatch = /^\[TimeControl "(\d+)\+(\d+)"\]/m.exec(g.pgn ?? '');
-		const initialS = tcMatch ? Number(tcMatch[1]) : null;
-		const incrementS = tcMatch ? Number(tcMatch[2]) : 0;
-		const prevClkS: Record<string, number | null> = { w: initialS, b: initialS };
+		const incrementS = timeControlOfPgn(g.pgn)?.incrementS ?? 0;
+		// Seeded NULL, not with the header's initial: a side's first move
+		// contributes nothing to the clock walk. Seeding from the header
+		// booked `increment` phantom seconds on every first move (lichess
+		// grants none there) and swallowed a berserked game's halved clock
+		// whole — the same #293 finding as the pipeline's haveClk rule, which
+		// this mirrors; pgn_import.dart states it as "the first move of each
+		// side gets nothing".
+		const prevClkS: Record<string, number | null> = { w: null, b: null };
 
 		// prevEvalMover: the PREVIOUS ply's eval in ITS OWN mover's
 		// perspective (or the white-POV start for ply 1, which is the same
@@ -134,10 +156,19 @@ export function skillReportUser(
 		let prevPawns: number | null = START_EVAL_PAWNS;
 		let prevMate: number | null = null;
 		let prevWasStart = true;
+		// STICKY, like the pipeline's `m.ply >= egPly`: a promotion can raise
+		// the majors+minors count back above six mid-endgame, and a per-ply
+		// test dropped exactly those plies while T5 kept them — same
+		// predicate, different application, silently incomparable (#293
+		// review, run-proven divergence).
+		let inEndgame = false;
 
 		for (let i = 0; i < g.moves.length; i++) {
 			const m = g.moves[i];
 			const mine = m.color === human;
+			if (!inEndgame && m.fenBefore && isEndgamePosition(m.fenBefore)) {
+				inEndgame = true;
+			}
 
 			// eval after this move, mover POV; checkmate closes without a
 			// number, exactly as the pipeline scores it
@@ -150,19 +181,21 @@ export function skillReportUser(
 			const hasBefore = prevPawns !== null || prevMate !== null;
 
 			if (mine && hasBefore && hasAfter) {
-				// previous eval belongs to the opponent's move (mover POV), so
-				// negate — unless it is the white-POV start eval and I am White.
-				const flip = prevWasStart ? (m.color === 'w' ? 1 : -1) : -1;
-				const before = winChance(
-					prevPawns === null ? null : flip * prevPawns,
-					prevMate === null ? null : flip * prevMate
-				);
+				// The previous eval belongs to the opponent's move (mover POV),
+				// so flip — at the WIN% level, exactly as the pipeline's
+				// moverWinChance does, never by negating the mate NUMBER:
+				// winChance is not antisymmetric at mate === 0, and the two
+				// flips diverge exactly there (#293 review). The white-POV
+				// start eval flips only for a Black mover.
+				const wcPrev = winChance(prevPawns, prevMate);
+				const flip = prevWasStart ? m.color === 'b' : true;
+				const before = flip ? 100 - wcPrev : wcPrev;
 				const after = winChance(afterPawns, afterMate);
 				const drop = Math.max(0, before - after);
 
 				if (before >= WINNING_THRESHOLD) push(winning, drop);
 				else if (before <= LOSING_THRESHOLD) push(losing, drop);
-				if (m.fenBefore && isEndgamePosition(m.fenBefore)) push(endgame, drop);
+				if (inEndgame) push(endgame, drop);
 
 				const beforeClkS = prevClkS[m.color];
 				if (beforeClkS !== null && clocks[i] !== null && clocks[i] !== undefined) {
@@ -236,7 +269,10 @@ export function skillReportPeer(tables: any, band: number, timeClass: string) {
 			const b = cell.t2?.blunderByClockBucket?.[l];
 			if (b) {
 				n += b.n;
-				blunders += b.blunders;
+				// an empty bucket is emitted as {n: 0} with NO blunders key —
+				// truthy, and `+= undefined` NaN-poisons the whole sum (#293
+				// review; latent until the tables are regenerated sparser)
+				blunders += b.blunders ?? 0;
 			}
 		}
 		return { n, pBlunder: n ? blunders / n : null };

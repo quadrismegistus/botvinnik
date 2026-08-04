@@ -81,6 +81,10 @@ class _SkillReportScreenState extends State<SkillReportScreen> {
   Map<String, dynamic>? _peer;
   bool _loading = true;
 
+  /// Why the report could not load, or null. The failure screen renders this
+  /// with a Retry — a permanent spinner is indistinguishable from a hang.
+  String? _error;
+
   @override
   void initState() {
     super.initState();
@@ -89,26 +93,64 @@ class _SkillReportScreenState extends State<SkillReportScreen> {
   }
 
   /// The same source pickBot reads for its "near your level" marker
-  /// (roster_picker.dart): read, not refit. This screen does not force a
-  /// rating fit just to seed a dropdown default — when there is no estimate
-  /// yet (fewer than the estimator's minimum rated games), 1500 is the stand-
-  /// in, not a guess dressed up as one.
+  /// (roster_picker.dart) — but REFRESHED first, in [_load]: the store's only
+  /// other refresh site is the game-over recap, so on the ordinary path
+  /// (launch app, open Games, tap the report) `rating` is still null and
+  /// every player would default to 1500 regardless of strength (#293
+  /// review). When even a refresh yields no estimate (fewer than the
+  /// estimator's minimum rated games), 1500 is the stand-in, not a guess
+  /// dressed up as one.
   int _defaultBand() {
     final elo = context.read<PlayerRatingStore>().rating?.elo;
     if (elo == null) return 1500;
-    final rounded = (elo / 100).round() * 100;
-    return rounded.clamp(kSkillReportBands.first, kSkillReportBands.last);
+    // FLOOR, not round: the pipeline's bandFor floors, so the 1500 cell
+    // holds players rated 1500–1599. Rounding defaulted half of all ratings
+    // into the neighbouring population (#293 review).
+    final floored = (elo ~/ 100) * 100;
+    return floored.clamp(kSkillReportBands.first, kSkillReportBands.last);
   }
 
   Future<void> _load() async {
-    final raw = await widget.loadTables();
+    // One catch covers the asset read, the JSON decode and the bridge walk:
+    // any of them failing used to strand the screen on a spinner forever —
+    // reachable on web with nothing corrupt, by opening the report offline
+    // before the 624KB table asset was ever fetched (#293 review).
+    // The rating refresh gets its own guard: no estimate (or a fit that
+    // throws) is a default-band situation, never a failed report.
+    try {
+      await context.read<PlayerRatingStore>().refresh();
+    } catch (_) {/* the 1500 stand-in covers it */}
     if (!mounted) return;
-    setState(() {
-      _tables = (jsonDecode(raw) as Map).cast<String, dynamic>();
-      _computeUser();
-      _computePeer();
-      _loading = false;
-    });
+    try {
+      final band = _defaultBand();
+      final raw = await widget.loadTables();
+      if (!mounted) return;
+      final tables = (jsonDecode(raw) as Map).cast<String, dynamic>();
+      // The envelope pins which brain computed it; a mismatch means the two
+      // sides of every comparison were produced by different win-chance code
+      // — refuse, never silently mix (#293 review: the field was written and
+      // nothing ever read it).
+      final built = (tables['brainVersion'] as num?)?.toInt();
+      final running = context.read<ReportApi>().brainVersion();
+      if (built != running) {
+        throw StateError(
+            'peer tables were built by brain v$built; this app runs v$running');
+      }
+      setState(() {
+        _band = band;
+        _tables = tables;
+        _computeUser();
+        _computePeer();
+        _loading = false;
+        _error = null;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = '$e';
+        _loading = false;
+      });
+    }
   }
 
   /// Projects the archive down to the report contract's fields once per call
@@ -155,7 +197,36 @@ class _SkillReportScreenState extends State<SkillReportScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Skill report')),
-      body: _loading ? const Center(child: CircularProgressIndicator()) : _body(),
+      body: _loading
+          ? const Center(child: CircularProgressIndicator())
+          : _error != null
+              ? Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.all(24),
+                        child: Text(
+                          'Could not load the report: $_error',
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                              color: Colors.white38, height: 1.4),
+                        ),
+                      ),
+                      TextButton(
+                        onPressed: () {
+                          setState(() {
+                            _loading = true;
+                            _error = null;
+                          });
+                          _load();
+                        },
+                        child: const Text('Retry'),
+                      ),
+                    ],
+                  ),
+                )
+              : _body(),
     );
   }
 
@@ -203,7 +274,15 @@ class _SkillReportScreenState extends State<SkillReportScreen> {
   Map<String, dynamic>? _peerAxis(Map<String, dynamic>? peer, String key) {
     if (peer == null) return null;
     final axis = peer[key];
-    return axis == null ? null : (axis as Map).cast<String, dynamic>();
+    if (axis == null) return null;
+    final cast = (axis as Map).cast<String, dynamic>();
+    // The SAME floor the user side answers to (#293 review: the README
+    // promised floors on every cell and the code gated only the user's n —
+    // 800/classical rendered a panic rate from 58 peer moves as "Typical").
+    // A too-thin peer axis renders as "no baseline", never as a confident
+    // number.
+    final n = (cast['n'] as num?)?.toInt() ?? 0;
+    return n < kEvalFloor ? null : cast;
   }
 
   Widget _header() => Row(
@@ -504,7 +583,13 @@ class _TimeAxisCard extends StatelessWidget {
                   Expanded(child: _pressureColumn('You', userPanic, userCalm)),
                   const SizedBox(width: 12),
                   Expanded(
-                    child: peer == null
+                    // The peer's panic bucket answers to the same floor the
+                    // user's does (#293 review): a sparse classical cell held
+                    // panic n=58, and a rate off 58 moves is noise wearing a
+                    // "Typical" label.
+                    child: peer == null ||
+                            ((peerPanic?['n'] as num?)?.toInt() ?? 0) <
+                                kPanicFloor
                         ? _line('Typical $band ($timeClass)',
                             'no baseline for this band/class')
                         : _pressureColumn(

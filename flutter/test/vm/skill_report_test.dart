@@ -112,7 +112,9 @@ Map<String, dynamic> _peerReport({
 /// falls back to 1500 here, which is why every expected verdict below reads
 /// "the typical 1500 (blitz)".
 Future<void> _pump(WidgetTester tester,
-    {required FakeBridge bridge, List<Map<String, dynamic>> games = const []}) async {
+    {required FakeBridge bridge,
+    List<Map<String, dynamic>> games = const [],
+    Future<String> Function()? loadTables}) async {
   final review = ReviewController(FakeDb())..games = games;
   final rating = PlayerRatingStore(FakeDb(), RatingApi(bridge));
   await tester.pumpWidget(MultiProvider(
@@ -122,11 +124,27 @@ Future<void> _pump(WidgetTester tester,
       ChangeNotifierProvider<PlayerRatingStore>.value(value: rating),
     ],
     child: MaterialApp(
-      home: SkillReportScreen(loadTables: () async => _fakeTables),
+      home: SkillReportScreen(
+          loadTables: loadTables ?? () async => _fakeTables),
     ),
   ));
   await tester.pumpAndSettle();
 }
+
+/// Every Text inside the card titled [title], in TREE ORDER. Which column a
+/// number sits in is the entire claim this screen makes — a joined blob of
+/// all on-screen text cannot see a user/peer swap, because both numbers stay
+/// on screen and both verdict phrasings still appear across the three cards
+/// (#293 mutation review: the swapped build passed the whole suite).
+List<String> _cardTexts(WidgetTester tester, String title) => tester
+    .widgetList<Text>(find.descendant(
+      of: find
+          .ancestor(of: find.text(title), matching: find.byType(Column))
+          .first,
+      matching: find.byType(Text),
+    ))
+    .map((t) => t.data ?? '')
+    .toList();
 
 /// A minimal `peer-tables.json` stand-in — only `source` (the provenance
 /// line reads it) matters here; the actual band/class numbers on screen come
@@ -137,7 +155,8 @@ Future<void> _pump(WidgetTester tester,
 /// completion (see about_test.dart's own rootBundle tests for the same
 /// caveat), and [SkillReportScreen.loadTables] exists so a test never has to
 /// find that out by timing out.
-const String _fakeTables = '{"source":"lichess_db_standard_rated_2026-07"}';
+const String _fakeTables =
+    '{"source":"lichess_db_standard_rated_2026-07","brainVersion":2}';
 
 /// Every Text on screen, joined — see player_rating_card_test.dart for the
 /// same helper and the same reason (cheaper than a finder per assertion).
@@ -339,6 +358,69 @@ void main() {
         footer,
         findsOneWidget,
       );
+    });
+
+    testWidgets('the You column holds YOUR numbers, in tree order',
+        (tester) async {
+      // #293 mutation review: a build with every user/peer value swapped
+      // (peer present) passed the entire suite — the blob-contains test sees
+      // both numbers regardless of column. Tree order is the pin.
+      final bridge = FakeBridge()
+        ..skillReportUserResult = _userReport()
+        ..skillReportPeerResult = _peerReport();
+      await _pump(tester, bridge: bridge);
+      final texts = _cardTexts(tester, 'Keeping a won game');
+      expect(
+          texts.take(7).toList(),
+          [
+            'Keeping a won game',
+            'You',
+            '4.2 pts/move',
+            '5.0% blunder rate',
+            'Typical 1500 (blitz)',
+            '6.5 pts/move',
+            '10.0% blunder rate',
+          ],
+          reason: 'user first, peer second — the columns ARE the claim');
+    });
+
+    testWidgets('a failed table load renders an error and Retry — never a '
+        'spinner forever', (tester) async {
+      // #293 review: a rejected loadTables (offline web before the asset was
+      // ever fetched, a corrupt file, a bridge throw) escaped _load and left
+      // _loading true for good — a hang indistinguishable from a bug.
+      final bridge = FakeBridge()
+        ..skillReportUserResult = _userReport()
+        ..skillReportPeerResult = _peerReport();
+      var fail = true;
+      await _pump(tester, bridge: bridge, loadTables: () async {
+        if (fail) throw Exception('offline');
+        return _fakeTables;
+      });
+
+      expect(find.byType(CircularProgressIndicator), findsNothing);
+      expect(find.textContaining('Could not load the report'), findsOneWidget);
+
+      fail = false;
+      await tester.tap(find.text('Retry'));
+      await tester.pumpAndSettle();
+      expect(find.text('Keeping a won game'), findsOneWidget,
+          reason: 'Retry reruns the whole load');
+    });
+
+    testWidgets('tables built by a different brain are refused, not mixed',
+        (tester) async {
+      // The envelope carries brainVersion for exactly this; #293's review
+      // found it written and never read. Mixing tables from one win-chance
+      // implementation with a user walk from another poisons every verdict.
+      final bridge = FakeBridge()
+        ..skillReportUserResult = _userReport()
+        ..skillReportPeerResult = _peerReport();
+      await _pump(tester, bridge: bridge, loadTables: () async =>
+          '{"source":"lichess_db_standard_rated_2026-07","brainVersion":1}');
+      expect(find.textContaining('built by brain v1'), findsOneWidget);
+      expect(find.text('Retry'), findsOneWidget);
+      expect(find.text('Keeping a won game'), findsNothing);
     });
 
     testWidgets('changing the band dropdown re-queries skillReportPeer',

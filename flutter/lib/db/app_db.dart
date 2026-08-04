@@ -172,9 +172,17 @@ class AppDb {
     await _db.delete('games', where: 'id = ?', whereArgs: [id]);
   }
 
+  /// Bumped by every bulk wipe. The background grader samples this when it
+  /// LISTS games and re-checks before each write: its sweep runs minutes and
+  /// deliberately seeds-then-saves, so a wipe mid-sweep would otherwise be
+  /// followed by the whole stale snapshot being graded and written straight
+  /// back — the archive resurrecting itself, run-proven in #293's review.
+  int wipeEpoch = 0;
+
   /// The bulk clear behind Settings' "Clear local games" (#292). Games only:
   /// the kv table (practice, misc) is someone else's data.
   Future<void> deleteAllGames() async {
+    wipeEpoch++;
     await _db.delete('games');
   }
 

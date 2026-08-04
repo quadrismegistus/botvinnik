@@ -246,23 +246,25 @@ class SettingsTab extends StatelessWidget {
           builder: (context) {
             final syncOn = context.watch<SyncController>().enabled;
             final n = context.watch<ReviewController>().games.length;
+            final inert = syncOn || n == 0;
             return ListTile(
               dense: true,
-              enabled: !syncOn,
+              enabled: !inert,
               leading: Icon(Icons.delete_forever_outlined,
                   size: 20,
-                  color:
-                      syncOn ? Colors.white24 : const Color(0xFFE07A5F)),
+                  color: inert ? Colors.white24 : const Color(0xFFE07A5F)),
               title: const Text('Clear local games'),
               subtitle: Text(
                 syncOn
                     ? 'Turn off sync first — the next sync would restore '
                         'them from the server copy.'
-                    : 'Deletes all $n game${n == 1 ? '' : 's'} from this '
-                        'device. Practice puzzles stay.',
+                    : n == 0
+                        ? 'Nothing here to delete.'
+                        : 'Deletes all $n game${n == 1 ? '' : 's'} from this '
+                            'device. Practice puzzles stay.',
                 style: const TextStyle(fontSize: 11.5, color: Colors.white38),
               ),
-              onTap: syncOn ? null : () => _confirmClearGames(context),
+              onTap: inert ? null : () => _confirmClearGames(context),
             );
           },
         ),
@@ -270,23 +272,25 @@ class SettingsTab extends StatelessWidget {
           builder: (context) {
             final syncOn = context.watch<SyncController>().enabled;
             final n = context.watch<PracticeController>().items.length;
+            final inert = syncOn || n == 0;
             return ListTile(
               dense: true,
-              enabled: !syncOn,
+              enabled: !inert,
               leading: Icon(Icons.delete_sweep_outlined,
                   size: 20,
-                  color:
-                      syncOn ? Colors.white24 : const Color(0xFFE07A5F)),
+                  color: inert ? Colors.white24 : const Color(0xFFE07A5F)),
               title: const Text('Clear practice puzzles'),
               subtitle: Text(
                 syncOn
                     ? 'Turn off sync first — the next sync would restore '
                         'them from the server copy.'
-                    : 'Deletes all $n puzzle${n == 1 ? '' : 's'} and their '
-                        'training history. Games stay.',
+                    : n == 0
+                        ? 'Nothing here to delete.'
+                        : 'Deletes all $n puzzle${n == 1 ? '' : 's'} and '
+                            'their training history. Games stay.',
                 style: const TextStyle(fontSize: 11.5, color: Colors.white38),
               ),
-              onTap: syncOn ? null : () => _confirmClearPractice(context),
+              onTap: inert ? null : () => _confirmClearPractice(context),
             );
           },
         ),
@@ -346,12 +350,6 @@ class SettingsTab extends StatelessWidget {
     }
   }
 
-  /// Merge a backup file back in, then make both controllers re-read.
-  ///
-  /// The reload is not cosmetic: the import writes underneath them, so without
-  /// it the Practice tab keeps serving the pre-import queue and the archive
-  /// keeps showing the pre-import list until the app is restarted — which
-  /// looks exactly like an import that did nothing.
   /// The #292 confirmation: states the count (a destructive tap must know
   /// its size), and the way back (a backup made FIRST — after, there is
   /// nothing left to back up).
@@ -414,6 +412,12 @@ class SettingsTab extends StatelessWidget {
         SnackBar(content: Text('Deleted $n puzzle${n == 1 ? '' : 's'}.')));
   }
 
+  /// Merge a backup file back in, then make both controllers re-read.
+  ///
+  /// The reload is not cosmetic: the import writes underneath them, so without
+  /// it the Practice tab keeps serving the pre-import queue and the archive
+  /// keeps showing the pre-import list until the app is restarted — which
+  /// looks exactly like an import that did nothing.
   Future<void> _import(BuildContext context) async {
     final messenger = ScaffoldMessenger.maybeOf(context);
     final review = context.read<ReviewController>();

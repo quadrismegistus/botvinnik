@@ -150,6 +150,13 @@ export function extractGame(rawBlock) {
 		return { skip: 'time-class' };
 	}
 
+	// Engines wear a BOT title, not a special rating — unfiltered, they OWN
+	// the top bands (#293 review, measured on the real month: 2600/rapid was
+	// 95.6% bot by clocked moves, rendered as "Typical 2600"). A peer table
+	// is a claim about players; a game with an engine in it is out.
+	if (headers.WhiteTitle === 'BOT' || headers.BlackTitle === 'BOT') {
+		return { skip: 'bot' };
+	}
 	const whiteElo = Number(headers.WhiteElo);
 	const blackElo = Number(headers.BlackElo);
 	if (!Number.isFinite(whiteElo) || !Number.isFinite(blackElo)) return { skip: 'no-elo' };

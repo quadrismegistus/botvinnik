@@ -9370,12 +9370,16 @@ var brain = (() => {
   var PANIC_MAX_S = 30;
   var CALM_MIN_S = 60;
   var UNDER2S_S = 2;
-  function timeClassOfPgn(pgn2) {
+  function timeControlOfPgn(pgn2) {
     if (!pgn2) return null;
-    const m = /^\[TimeControl "(\d+)\+(\d+)"\]/m.exec(pgn2);
+    const m = /^\[TimeControl "(\d+)(?:\+(\d+))?"\]/m.exec(pgn2);
     if (!m) return null;
-    const initial = Number(m[1]);
-    const estimate = initial + 40 * Number(m[2]);
+    return { initialS: Number(m[1]), incrementS: Number(m[2] ?? 0) };
+  }
+  function timeClassOfPgn(pgn2) {
+    const tc = timeControlOfPgn(pgn2);
+    if (!tc) return null;
+    const estimate = tc.initialS + 40 * tc.incrementS;
     if (estimate < 30) return "ultrabullet";
     if (estimate < 180) return "bullet";
     if (estimate < 480) return "blitz";
@@ -9425,16 +9429,18 @@ var brain = (() => {
       }
       considered += 1;
       const clocks = g.pgn ? clocksFromPgn(g.pgn) : [];
-      const tcMatch = /^\[TimeControl "(\d+)\+(\d+)"\]/m.exec(g.pgn ?? "");
-      const initialS = tcMatch ? Number(tcMatch[1]) : null;
-      const incrementS = tcMatch ? Number(tcMatch[2]) : 0;
-      const prevClkS = { w: initialS, b: initialS };
+      const incrementS = timeControlOfPgn(g.pgn)?.incrementS ?? 0;
+      const prevClkS = { w: null, b: null };
       let prevPawns = START_EVAL_PAWNS;
       let prevMate = null;
       let prevWasStart = true;
+      let inEndgame = false;
       for (let i = 0; i < g.moves.length; i++) {
         const m = g.moves[i];
         const mine = m.color === human;
+        if (!inEndgame && m.fenBefore && isEndgamePosition(m.fenBefore)) {
+          inEndgame = true;
+        }
         let afterPawns = m.evalPawns;
         let afterMate = m.mate;
         if (afterPawns === null && afterMate === null && m.san?.endsWith("#")) {
@@ -9443,16 +9449,14 @@ var brain = (() => {
         const hasAfter = afterPawns !== null || afterMate !== null;
         const hasBefore = prevPawns !== null || prevMate !== null;
         if (mine && hasBefore && hasAfter) {
-          const flip = prevWasStart ? m.color === "w" ? 1 : -1 : -1;
-          const before = winChance(
-            prevPawns === null ? null : flip * prevPawns,
-            prevMate === null ? null : flip * prevMate
-          );
+          const wcPrev = winChance(prevPawns, prevMate);
+          const flip = prevWasStart ? m.color === "b" : true;
+          const before = flip ? 100 - wcPrev : wcPrev;
           const after = winChance(afterPawns, afterMate);
           const drop = Math.max(0, before - after);
           if (before >= WINNING_THRESHOLD) push(winning, drop);
           else if (before <= LOSING_THRESHOLD) push(losing, drop);
-          if (m.fenBefore && isEndgamePosition(m.fenBefore)) push(endgame, drop);
+          if (inEndgame) push(endgame, drop);
           const beforeClkS = prevClkS[m.color];
           if (beforeClkS !== null && clocks[i] !== null && clocks[i] !== void 0) {
             if (beforeClkS < PANIC_MAX_S) {
@@ -9513,7 +9517,7 @@ var brain = (() => {
         const b = cell.t2?.blunderByClockBucket?.[l];
         if (b) {
           n += b.n;
-          blunders += b.blunders;
+          blunders += b.blunders ?? 0;
         }
       }
       return { n, pBlunder: n ? blunders / n : null };
