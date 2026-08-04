@@ -68,6 +68,10 @@ export interface PracticeItem {
  *  spellings. When ep is genuinely live it stays in the key: the capture
  *  changes the answer, so it is a different puzzle. */
 export function epdKey(fen: string): string {
+	// A hand-edited backup or a partial sync can hand this a non-string, and
+	// load() awaits the migration at BOOT — a throw here bricks every later
+	// launch until the kv row is hand-deleted.
+	if (typeof fen !== 'string') return String(fen);
 	const parts = fen.split(' ');
 	if (parts.length < 4) return fen; // not a fen; leave the key alone
 	const four = parts.slice(0, 4);
@@ -110,7 +114,12 @@ export function loadItems(): PracticeItem[] {
 	let changed = false;
 	for (const item of items) {
 		if (!item.motifs || (item.tagV ?? 1) < MOTIF_TAGS_VERSION) {
-			item.motifs = motifTags(item.fen, item.bestUci, item.bestPv ?? [item.bestUci], item.mateBest);
+			// the same pv-agreement guard itemDataFromStoredMove applies: a
+			// stored line that disagrees with bestUci (a tampered backup is the
+			// only writer that can produce one) must not tag a drill it never shows
+			const pv =
+				item.bestPv && item.bestPv[0] === item.bestUci ? item.bestPv : [item.bestUci];
+			item.motifs = motifTags(item.fen, item.bestUci, pv, item.mateBest);
 			item.tagV = MOTIF_TAGS_VERSION;
 			changed = true;
 		}
@@ -179,7 +188,10 @@ export function itemDataFromStoredMove(
 		mateBest: move.bestMate ?? null,
 		wcBest,
 		drop: move.wcDrop,
-		depth: 22
+		// the move's real grading depth, not a constant: the migration's
+		// "deeper grade's chess fields win" tiebreak is vacuous if every item
+		// claims 22 (review of #286). || not ??— an ungraded 0 means unknown.
+		depth: move.depth || 22
 	};
 }
 
@@ -323,7 +335,17 @@ export function migratePracticeItems(items: PracticeItem[]): PracticeItem[] | nu
 	let changed = false;
 	const byKey = new Map<string, PracticeItem>();
 	const order: string[] = [];
+	let unkeyed = 0;
 	for (const raw of items) {
+		// Garbage a hand-edited backup can carry (importJson validates no item
+		// shape): pass a fen-less item through untouched rather than minting a
+		// shared "null" key that would merge unrelated junk together.
+		if (typeof raw.fen !== 'string') {
+			const key = `__unkeyed-${unkeyed++}`;
+			byKey.set(key, raw);
+			order.push(key);
+			continue;
+		}
 		const key = epdKey(raw.fen);
 		if (raw.id !== key) changed = true;
 		const item = { ...raw, id: key };

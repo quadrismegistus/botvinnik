@@ -124,7 +124,23 @@ double _attempts(Map<String, dynamic> item) {
 /// Backup and restore over the store itself, both tables at once.
 class BackupService {
   final AppDb _db;
-  const BackupService(this._db);
+
+  /// Brain-backed reshaping of a practice list to the position key (#286),
+  /// injected because this layer has no bridge of its own. Applied to the
+  /// INCOMING side of a merge: a device still running the old app exports
+  /// full-fen ids forever, and without the re-key each sync pull re-adds the
+  /// same item as a stranger for load()'s migration to re-merge — summing its
+  /// history into the real item on every cycle, unboundedly. Null (manual
+  /// restores, tests) skips it; the one-time load() migration then owns the
+  /// reshaping, which is fine for a merge that happens once.
+  final List<Map<String, dynamic>>? Function(List<Map<String, dynamic>>)?
+      _migrateItems;
+
+  const BackupService(this._db,
+      {List<Map<String, dynamic>>? Function(List<Map<String, dynamic>>)?
+          migrateItems})
+      // ignore: prefer_initializing_formals — keep the public `migrateItems:` name
+      : _migrateItems = migrateItems;
 
   Future<List<Map<String, dynamic>>> _practice() async {
     final raw = await _db.kvGet(kPracticeKvKey);
@@ -171,10 +187,18 @@ class BackupService {
       throw const BackupFormatException('Not a botvinnik backup file.');
     }
 
-    final incomingPractice = (decoded['practice'] as List)
+    var incomingPractice = (decoded['practice'] as List)
         .whereType<Map>()
         .map((i) => i.cast<String, dynamic>())
         .toList();
+    if (_migrateItems != null) {
+      try {
+        incomingPractice = _migrateItems(incomingPractice) ?? incomingPractice;
+      } catch (_) {
+        // A poisoned incoming item must not kill the restore; the unmigrated
+        // list merges by raw id exactly as before the hook existed.
+      }
+    }
     final merged = mergePractice(await _practice(), incomingPractice);
     await _db.kvPut(kPracticeKvKey, jsonEncode(merged.items));
 

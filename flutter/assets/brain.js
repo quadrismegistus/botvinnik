@@ -9550,6 +9550,7 @@ var brain = (() => {
 
   // brain/practice.ts
   function epdKey(fen) {
+    if (typeof fen !== "string") return String(fen);
     const parts = fen.split(" ");
     if (parts.length < 4) return fen;
     const four = parts.slice(0, 4);
@@ -9600,7 +9601,10 @@ var brain = (() => {
       mateBest: move.bestMate ?? null,
       wcBest,
       drop: move.wcDrop,
-      depth: 22
+      // the move's real grading depth, not a constant: the migration's
+      // "deeper grade's chess fields win" tiebreak is vacuous if every item
+      // claims 22 (review of #286). || not ??— an ungraded 0 means unknown.
+      depth: move.depth || 22
     };
   }
   function puzzleSetupMove(item) {
@@ -9689,7 +9693,14 @@ var brain = (() => {
     let changed = false;
     const byKey = /* @__PURE__ */ new Map();
     const order = [];
+    let unkeyed = 0;
     for (const raw of items) {
+      if (typeof raw.fen !== "string") {
+        const key2 = `__unkeyed-${unkeyed++}`;
+        byKey.set(key2, raw);
+        order.push(key2);
+        continue;
+      }
       const key = epdKey(raw.fen);
       if (raw.id !== key) changed = true;
       const item = { ...raw, id: key };
@@ -9990,6 +10001,11 @@ var brain = (() => {
         label,
         bestSan,
         bestUci,
+        // the server's line behind bestUci, under the same collect-floor
+        // gate every other stored-move writer applies (StoredMove.bestPv,
+        // #287): only a practice candidate keeps it, and the pv[0]/bestUci
+        // agreement was enforced when the variation was parsed above.
+        bestPv: wcDrop >= 5 && bestPv.length ? bestPv : void 0,
         // chess.com's analysis is ours: we search every position and record
         // the engine's move on every ply, so an absent bestUci there means
         // the ply was not analysed. lichess's is the server's, and its

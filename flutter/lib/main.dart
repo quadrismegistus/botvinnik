@@ -247,8 +247,15 @@ class _BootGateState extends State<BootGate> {
             // comes up "on" instantly; a fresh one stays off until the user
             // enters a phrase in Settings → Sync.
             ChangeNotifierProvider(
-              create: (_) =>
-                  SyncController(db: booted.db, keyStore: SecureSyncKeyStore()),
+              create: (_) => SyncController(
+                  db: booted.db,
+                  keyStore: SecureSyncKeyStore(),
+                  // Re-keys an incoming practice list to the position key
+                  // (#286) before merging: a paired device still on the old
+                  // app exports full-fen ids forever, and without this every
+                  // pull re-adds the same items for load()'s migration to
+                  // re-merge — inflating their history each cycle.
+                  migratePractice: PracticeApi(booted.bridge).migrateItems),
             ),
             // Not refreshed at boot: the fit reads the whole archive over the
             // bridge, and the only screen that shows it (the game-over recap)

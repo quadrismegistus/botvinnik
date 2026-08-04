@@ -40,12 +40,17 @@ void main() {
     // would silently match nothing the moment a fen and its key diverge — a
     // move-counter difference is enough. Both scope builders must route
     // through the brain's own key.
-    final h = makePractice([practiceItem(_fenA)]);
-    expect(h.practice.countForGame({_fenA}), 1);
+    final h = makePractice([practiceItem(_fenA), practiceItem(_fenB)]);
+    expect(h.practice.countForGame({_fenB}), 1);
     h.practice.startGameSession({_fenA});
     expect(h.practice.current?['id'], _fenA);
     expect(h.bridge.calls.where((c) => c.fn == 'epdKeys'), hasLength(2),
         reason: 'countForGame and startGameSession each asked for keys');
+    // and the translation is memoised: the review screen asks countForGame on
+    // every scrub frame, so a repeat must cost no bridge call
+    expect(h.practice.countForGame({_fenB}), 1);
+    expect(h.bridge.calls.where((c) => c.fn == 'epdKeys'), hasLength(2),
+        reason: 'a fen already translated is answered from the cache');
   });
 
   test('a game session draws only the scoped positions', () {

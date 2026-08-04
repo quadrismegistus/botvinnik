@@ -588,6 +588,22 @@ void main() {
           reason: 'the reshaped collection is written back at once');
     });
 
+    test('a migration failure cannot brick boot (#286 review)', () async {
+      // load() is awaited in _start(); before this guard, one poisoned item
+      // in the kv row (importJson validates no item shape, and a restore
+      // persists BEFORE the reload throws) turned every later launch into a
+      // boot failure with no way out short of hand-deleting the row.
+      final bridge = FakeBridge()..migrateThrows = true;
+      final db = FakeDb();
+      await db.kvPut('botvinnik-practice-v1', jsonEncode([practiceItem(_fenA)]));
+      final practice = PracticeController(
+          db, PracticeApi(bridge), FakeGrading(), FakeArbiter());
+      await practice.load();
+      expect(practice.loaded, isTrue);
+      expect(practice.items.single['fen'], _fenA,
+          reason: 'unmigrated but alive beats migrated but bricked');
+    });
+
     test('a collection already in shape is left alone', () async {
       final bridge = FakeBridge();
       final db = FakeDb();

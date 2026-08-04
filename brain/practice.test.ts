@@ -379,6 +379,22 @@ describe('migratePracticeItems (#286)', () => {
 		expect(item.fen).toBe(fenAt(1));
 	});
 
+	it('survives an item with no usable fen instead of bricking boot', () => {
+		// importJson accepts any Map as a practice item — its own comment
+		// defends a hand-edited file with a missing id — and load() awaits the
+		// migration at BOOT. One fen-less item in the kv row must not turn
+		// every later launch into a boot failure (found by review of #286).
+		const good = {
+			...addItem([], itemDataFromStoredMove(move({ fenBefore: fenAt(1) }))!)![0],
+			id: fenAt(1) // old shape, so the migration has real work to do
+		};
+		const poisoned = [good, { ...good, id: 'x', fen: null as unknown as string }];
+		expect(() => migratePracticeItems(poisoned)).not.toThrow();
+		const out = migratePracticeItems(poisoned)!;
+		expect(out).toHaveLength(2);
+		expect(out[0].id).toBe('rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq -');
+	});
+
 	it('returns null once the collection is already in the new shape', () => {
 		const oldShape = {
 			...addItem([], itemDataFromStoredMove(move({ fenBefore: fenAt(1) }))!)![0],

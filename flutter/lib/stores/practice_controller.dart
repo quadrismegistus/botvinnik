@@ -336,8 +336,28 @@ class PracticeController extends ChangeNotifier {
     if (fens.isEmpty || items.isEmpty) return 0;
     // Item ids are position keys, not fens (#286) — translate before matching,
     // or a move-counter difference silently zeroes the count.
-    final keys = _api.epdKeys(fens.toList()).toSet();
+    final keys = _epdKeysOf(fens.toList()).toSet();
     return items.where((i) => keys.contains(i['id'] as String)).length;
+  }
+
+  /// fen → position key, memoised. The review screen asks [countForGame] on
+  /// every scrub frame, and each translation is a synchronous bridge call
+  /// plus a chess.js move generation per live-ep fen — cached, a repeat costs
+  /// nothing. A fen's key never changes, so the cache needs no invalidation;
+  /// the clear is only a size backstop (~40 distinct fens per game browsed).
+  final Map<String, String> _epdCache = {};
+
+  List<String> _epdKeysOf(List<String> fens) {
+    if (_epdCache.length > 20000) _epdCache.clear();
+    final missing =
+        [for (final f in fens) if (!_epdCache.containsKey(f)) f];
+    if (missing.isNotEmpty) {
+      final keys = _api.epdKeys(missing);
+      for (var i = 0; i < missing.length; i++) {
+        _epdCache[missing[i]] = keys[i];
+      }
+    }
+    return [for (final f in fens) _epdCache[f]!];
   }
 
   int get due => loaded ? _api.dueCount(servable) : 0;
@@ -422,10 +442,18 @@ class PracticeController extends ChangeNotifier {
     // should carry one shape, not whichever this session happened to write
     // last.
     if (items.isNotEmpty) {
-      final migrated = _api.migrateItems(items);
-      if (migrated != null) {
-        items = migrated;
-        await _persist();
+      try {
+        final migrated = _api.migrateItems(items);
+        if (migrated != null) {
+          items = migrated;
+          await _persist();
+        }
+      } catch (_) {
+        // load() is awaited at BOOT (_start), so a throw here is the app
+        // failing to open — forever, since Retry re-reads the same kv row. A
+        // poisoned item (importJson validates no item shape, and a restore
+        // persists BEFORE this reload runs) must degrade to "unmigrated but
+        // alive", never to a bricked launch.
       }
     }
     loaded = true;
@@ -529,7 +557,7 @@ class PracticeController extends ChangeNotifier {
     // The scope stores position KEYS (#286): the callers hand over the game's
     // raw move-before fens, and the items they must match are keyed by
     // epdKey. Translating here keeps every caller honest at once.
-    gameScope = _api.epdKeys(fens.toList()).toSet();
+    gameScope = _epdKeysOf(fens.toList()).toSet();
     // A game scope is its own filter; stacking a leftover motif on top of it
     // could empty the pool and land the tab on "nothing tagged X" over a game
     // that has plenty.

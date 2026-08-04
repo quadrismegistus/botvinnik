@@ -24,6 +24,10 @@ export interface StoredMove {
 	mate: number | null;
 	pctBest: number | null;
 	wcDrop: number; // win% lost vs the best move (0 when ungraded)
+	/** Search depth of the grade. Every grading writer records it and the
+	 *  collect gate filters on it; it was only ever missing from this TYPE,
+	 *  which is how itemDataFromStoredMove came to hardcode 22. */
+	depth?: number;
 	label?: MoveLabel;
 	bestSan?: string;
 	/** The engine's own first choice in the position before this move. */

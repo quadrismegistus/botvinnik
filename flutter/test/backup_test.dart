@@ -117,6 +117,39 @@ void main() {
       expect(merged.items[1]['attempts'], 7);
     });
 
+    test('an old-shape sync twin re-keys and merges instead of multiplying (#286)',
+        () async {
+      // A paired device on the old app exports this item under its full-fen
+      // id forever. Without the migrate hook each pull adds it as a stranger,
+      // and load()'s migration re-merges it — summing its history into the
+      // real item on every sync cycle.
+      const fullFen = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 9';
+      const epd = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq -';
+      final db = MemoryDb();
+      await db.kvPut(kPracticeKvKey,
+          jsonEncode([{...practiceItem(fullFen), 'id': epd, 'attempts': 7}]));
+
+      // The hook stands in for the brain's migratePracticeItems: re-key only.
+      final service = BackupService(db,
+          migrateItems: (items) => [
+                for (final i in items)
+                  {...i, 'id': (i['fen'] as String).split(' ').take(4).join(' ')}
+              ]);
+      final blob = jsonEncode({
+        'app': kBackupApp,
+        'version': kBackupVersion,
+        'practice': [{...practiceItem(fullFen), 'id': fullFen, 'attempts': 3}],
+        'games': const [],
+      });
+      final counts = await service.importJson(blob);
+
+      expect(counts.practice, 0, reason: 'the twin is the SAME item');
+      final stored = jsonDecode((await db.kvGet(kPracticeKvKey))!) as List;
+      expect(stored, hasLength(1));
+      expect((stored.single as Map)['attempts'], 7,
+          reason: 'keep-max, not sum — pulls must be idempotent');
+    });
+
     test('a missing or non-numeric attempts count reads as zero', () {
       final merged = mergePractice(
         [

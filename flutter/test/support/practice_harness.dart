@@ -32,6 +32,10 @@ class FakeBridge implements JsBridge {
   /// replacement list here.
   List<Map<String, dynamic>>? migrateResult;
 
+  /// Makes 'migratePracticeItems' throw the way a real bridge call does on a
+  /// JS error — the poisoned-item boot hazard load() must survive.
+  bool migrateThrows = false;
+
   /// Every `nextItem` argument list, in order.
   List<List<Object?>> get nextItemArgs =>
       calls.where((c) => c.fn == 'nextItem').map((c) => c.args).toList();
@@ -120,6 +124,9 @@ class FakeBridge implements JsBridge {
         // faithful for the routing questions the Dart tests ask.
         return (args[0] as List).cast<String>();
       case 'migratePracticeItems':
+        if (migrateThrows) {
+          throw StateError('brain.migratePracticeItems failed: poisoned item');
+        }
         return migrateResult;
       default:
         throw StateError('FakeBridge has no answer for brain.$fn');
@@ -133,17 +140,29 @@ class FakeBridge implements JsBridge {
   List<Map<String, dynamic>>? _addItems(List<Object?> args) {
     var items = _items(args[0]);
     final dataList = (args[1] as List).cast<Map>();
-    final seenKeys = args.length > 2 ? args[2] as List? : null;
+    // The omitted-seenKeys form puts the omit sentinel at args[2], not a
+    // list — treat anything that is not a list as "no keys", like the brain.
+    final seenKeysArg = args.length > 2 ? args[2] : null;
+    final seenKeys = seenKeysArg is List ? seenKeysArg : null;
     var changed = false;
     for (var n = 0; n < dataList.length; n++) {
       final data = dataList[n].cast<String, dynamic>();
       final seenKey = seenKeys == null ? null : seenKeys[n] as String?;
       final at = items.indexWhere((i) => i['id'] == data['fen']);
       if (at < 0) {
+        // The real addItems stamps the schedule fields on a fresh item; a
+        // fake item without them throws in _dueAt the first time a test
+        // serves or counts due, instead of diverging silently.
+        final now = DateTime.now().toUtc().toIso8601String();
         items = [
           ...items,
           {
             ...data,
+            'createdAt': now,
+            'box': 0,
+            'dueAt': now,
+            'attempts': 0,
+            'correct': 0,
             if (seenKey != null) 'seenIn': [seenKey],
           },
         ];

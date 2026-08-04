@@ -201,6 +201,11 @@ export function analysedGameToStored(
 			label,
 			bestSan,
 			bestUci,
+			// the server's line behind bestUci, under the same collect-floor
+			// gate every other stored-move writer applies (StoredMove.bestPv,
+			// #287): only a practice candidate keeps it, and the pv[0]/bestUci
+			// agreement was enforced when the variation was parsed above.
+			bestPv: wcDrop >= 5 && bestPv.length ? bestPv : undefined,
 			// chess.com's analysis is ours: we search every position and record
 			// the engine's move on every ply, so an absent bestUci there means
 			// the ply was not analysed. lichess's is the server's, and its
