@@ -4,6 +4,14 @@
 // multi-GB monthly dump must run at O(1) memory; only the current game's
 // lines and the next line off the pipe are ever held.
 //
+// The zstd CLI, NOT node:zlib's built-in zstd — measured, not preference: a
+// real lichess dump is a multi-frame file with skippable frames interleaved
+// (2013-01: 6 frames + 3 skips, per `zstd -l`), and `createZstdDecompress`
+// dies on the first skippable frame ("Unknown frame descriptor") after
+// emitting zero bytes. The fixture e2e-multiframe.pgn.zst pins exactly this
+// shape so the dependency never silently regresses to a decoder that cannot
+// read the production input.
+//
 // A lichess dump's games look like:
 //
 //   [Event "Rated Blitz game"]
@@ -45,8 +53,14 @@ export async function* splitGameBlocks(lines) {
 
 /**
  * Decompress `zstFile` with the zstd CLI and yield one raw game-text block
- * per game. Stops the child process cleanly if the consumer breaks out of
- * the loop early (e.g. `--max-games`).
+ * per game.
+ *
+ * Exit handling carries a scar: the first version killed the child in its
+ * `finally` even after the stream had ended NATURALLY, then judged the
+ * self-inflicted signal exit ("exited null") as a decompression failure —
+ * green locally, red on CI, purely a race on how fast zstd exits after
+ * closing stdout. The rule now: only kill when the CONSUMER abandoned the
+ * loop early, and only judge the exit code of a process we did not signal.
  *
  * @param {string} zstFile
  */
@@ -56,30 +70,34 @@ export async function* streamGames(zstFile) {
 	proc.stderr.on('data', (d) => {
 		stderrBuf += d.toString();
 	});
-	// spawn() failures (e.g. ENOENT: no zstd on PATH, or the file is missing)
-	// surface as an 'error' event, not a throw — capture it so the loop below
-	// can report it instead of hanging or failing silently.
+	// spawn() failures (ENOENT: no zstd on PATH, permissions) surface as an
+	// 'error' event, not a throw — capture it so the code below can report it
+	// instead of hanging or failing silently.
 	let spawnError = null;
 	proc.on('error', (err) => {
 		spawnError = err;
 	});
+	const closed = new Promise((resolve) => proc.once('close', (code) => resolve(code)));
 
 	const rl = createInterface({ input: proc.stdout, crlfDelay: Infinity });
-
+	let ranDry = false;
 	try {
 		yield* splitGameBlocks(rl);
+		ranDry = true; // the pipe ended on its own — zstd is done or dying, not abandoned
 	} finally {
 		rl.close();
-		if (proc.exitCode === null && !proc.killed) proc.kill();
+		if (!ranDry) proc.kill(); // early break (--max-games): the kill is ours
 	}
 
 	if (spawnError) throw new Error(`streamGames: failed to spawn zstd: ${spawnError.message}`);
-
-	const exitCode = await new Promise((resolve) => {
-		if (proc.exitCode !== null) resolve(proc.exitCode);
-		else proc.once('close', resolve);
-	});
-	if (exitCode !== 0) {
-		throw new Error(`streamGames: zstd -dc ${zstFile} exited ${exitCode}: ${stderrBuf.trim()}`);
+	if (ranDry) {
+		const code = await closed;
+		// A corrupt or truncated file ends the pipe early with a nonzero exit —
+		// that must FAIL LOUDLY here, never write plausible tables from a
+		// partial read. (The node:zlib experiment failed worse: zero bytes, no
+		// error surfaced, "done: 0 streamed" — silent truncation in person.)
+		if (code !== 0) {
+			throw new Error(`streamGames: zstd -dc ${zstFile} exited ${code}: ${stderrBuf.trim()}`);
+		}
 	}
 }

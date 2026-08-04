@@ -87,6 +87,21 @@ describe('streamGames (spawns the real zstd binary)', () => {
 		expect(blocks[4]).toContain('fixtureThresholds');
 	});
 
+	it('reads a multi-frame file with skippable frames — the shape a real dump has', async () => {
+		// A real monthly dump interleaves skippable frames between zstd frames
+		// (2013-01: 6 frames + 3 skips, per `zstd -l`). node:zlib's built-in
+		// zstd emits ZERO bytes and dies on the first skippable frame, which
+		// is why streamGames shells out to the reference binary — this fixture
+		// keeps that decision from silently regressing.
+		const blocks: string[] = [];
+		for await (const block of streamGames(join(FIXTURES, 'e2e-multiframe.pgn.zst'))) {
+			blocks.push(block);
+		}
+		expect(blocks.length).toBe(2);
+		expect(blocks[0]).toContain('[Event ');
+		expect(blocks[1]).toContain('[Event ');
+	});
+
 	it('stops the child process cleanly on early break (--max-games path)', async () => {
 		let count = 0;
 		for await (const _block of streamGames(zst)) {
