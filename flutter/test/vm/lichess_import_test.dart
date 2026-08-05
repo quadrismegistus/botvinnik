@@ -89,6 +89,10 @@ void main() {
     // keeps ungraded games (which would import as bare as a pasted PGN) out
     expect(url.queryParameters['evals'], 'true');
     expect(url.queryParameters['analysed'], 'true');
+    // clocks=true embeds %clk in the pgn we store verbatim — the time axis
+    // (#268) reads clocks from PGN, so an import without them is a game the
+    // axis can never see
+    expect(url.queryParameters['clocks'], 'true');
     expect(url.queryParameters['max'], '10');
     // No token, and none needed — verified against the live endpoint on
     // 2026-07-21. If lichess ever changes that, this is the line to revisit.

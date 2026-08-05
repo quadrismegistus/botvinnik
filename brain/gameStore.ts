@@ -110,6 +110,54 @@ export interface StoredGame {
 	source?: 'lichess' | 'chesscom';
 }
 
+/**
+ * Remaining clock after each move, in ms and ply order — null where the PGN
+ * says nothing. Reads the `[%clk H:MM:SS(.f)]` comments lichess and chess.com
+ * stamp (and our own rated games, since #268): the time axis reads clocks
+ * from PGN because it is the one storage every game shape already shares —
+ * imports keep their movetext verbatim, so no stored-move field and no
+ * archive migration. Textual, no board replay: a comment is attributed to
+ * the move token it follows, and variations are stripped first so a sideline
+ * can neither add plies nor swallow the next mainline comment.
+ */
+export function clocksFromPgn(pgn: string): (number | null)[] {
+	const blank = pgn.indexOf('\n\n');
+	let movetext = blank >= 0 ? pgn.slice(blank + 2) : pgn;
+	// strip ( ... ) variations, nested — a lichess/chess.com export has none,
+	// but a pasted PGN can carry anything
+	let depth = 0;
+	let flat = '';
+	for (const ch of movetext) {
+		if (ch === '(') depth++;
+		else if (ch === ')') depth = Math.max(0, depth - 1);
+		else if (depth === 0) flat += ch;
+	}
+	movetext = flat;
+
+	const out: (number | null)[] = [];
+	const RESULTS = new Set(['1-0', '0-1', '1/2-1/2', '*']);
+	const token = /\{([^}]*)\}|(\S+)/g;
+	let m: RegExpExecArray | null;
+	while ((m = token.exec(movetext))) {
+		if (m[1] !== undefined) {
+			if (out.length === 0) continue; // a comment before any move
+			const clk = /\[%clk\s+(\d+):(\d{1,2}):(\d{1,2}(?:\.\d+)?)\]/.exec(m[1]);
+			if (clk) {
+				out[out.length - 1] = Math.round(
+					(Number(clk[1]) * 3600 + Number(clk[2]) * 60 + Number(clk[3])) * 1000
+				);
+			}
+			continue;
+		}
+		const word = m[2];
+		if (/^\d+\.+$/.test(word)) continue; // a move number ("12." or "12...")
+		if (RESULTS.has(word)) continue;
+		if (word.startsWith('$')) continue; // NAG
+		out.push(null); // a move; the comment that follows may fill it in
+	}
+	return out;
+}
+
 // lichess's move-accuracy curve over win% loss, incl. lila's +1 "uncertainty
 // bonus" (AccuracyPercent.fromWinPercents)
 export function moveAccuracy(wcDrop: number): number {

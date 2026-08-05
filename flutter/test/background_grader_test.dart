@@ -12,6 +12,8 @@
 //
 //   cd flutter && flutter test test/background_grader_test.dart
 
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 
 import 'package:botvinnik_mobile/stores/game_controller.dart';
@@ -135,6 +137,38 @@ class RecordingPractice implements PracticeController {
   dynamic noSuchMethod(Invocation invocation) => null;
 }
 
+/// A FakeArbiter whose searches wait on a test-held gate — the only way to
+/// hold the sweep mid-game while something else mutates the store.
+class GatedArbiter extends FakeArbiter {
+  final gate = Completer<void>();
+  var searches = 0;
+  GatedArbiter() : super(searchLines: kFakeLines);
+
+  @override
+  Future<List<EngineMove>?> search({
+    required String fen,
+    String? ownerFen,
+    required int depth,
+    required int multiPv,
+    int? movetimeMs,
+    List<List<String>> extraOptions = const [],
+    required SearchPriority priority,
+    void Function(List<EngineMove>)? onUpdate,
+  }) async {
+    searches++;
+    await gate.future;
+    return super.search(
+        fen: fen,
+        ownerFen: ownerFen,
+        depth: depth,
+        multiPv: multiPv,
+        movetimeMs: movetimeMs,
+        extraOptions: extraOptions,
+        priority: priority,
+        onUpdate: onUpdate);
+  }
+}
+
 BackgroundGrader _grader(
   MemoryDb db,
   RecordingPractice practice,
@@ -244,6 +278,31 @@ void main() {
     expect((await gradedWith(drop3)).containsKey('bestPv'), isFalse,
         reason: 'below the collect floor the line is dead weight');
     expect((await playedWith(drop3)).containsKey('bestPv'), isFalse);
+  });
+
+  test('a bulk wipe mid-sweep cannot resurrect the archive (#293 review)',
+      () async {
+    // The sweep lists games once, grades for many seconds, then
+    // seeds-and-saves. "Clear local games" (#292) during that window used to
+    // be followed by the WHOLE stale snapshot being written back — every
+    // game restored, practice re-seeded from an archive the user erased.
+    // Run-proven by review; the wipe epoch is the guard.
+    final db = MemoryDb([_ungraded('g1'), _ungraded('g2')]);
+    final practice = RecordingPractice();
+    final live = ValueNotifier(false);
+    final arbiter = GatedArbiter();
+    final grader = BackgroundGrader(
+        arbiter, db, SavingGrading(), practice, live, () => live.value);
+    grader.start();
+    while (arbiter.searches == 0) {
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+    }
+    await db.deleteAllGames(); // the user taps Clear local games
+    arbiter.gate.complete();
+    await grader.pass;
+    expect(db.games, isEmpty,
+        reason: 'the stale snapshot must not be written back');
+    expect(practice.calls, isEmpty, reason: 'nor practice re-seeded from it');
   });
 
   test('grades every ungraded game and leaves graded ones alone', () async {

@@ -166,13 +166,20 @@ class BackgroundGrader {
   /// sweep — the same whole-archive read Review already does — not per game.
   Future<bool> _runPass() async {
     final games = await _db.listGames();
+    // Sampled AFTER listing: every entry in [games] is stale the moment a
+    // bulk wipe (#292) bumps the epoch, and grading a stale entry ends in
+    // saveGame writing it straight back — the archive resurrecting itself
+    // mid-sweep, with collectAll re-seeding practice from it for good
+    // measure (run-proven in #293's review).
+    final epoch = _db.wipeEpoch;
     for (final game in games) {
       if (_paused || _disposed) return false;
+      if (_db.wipeEpoch != epoch) return true; // wiped: the list is fiction now
       final id = game['id'] as String?;
       if (id == null || _ungradeable.contains(id) || !_needsGrading(game)) {
         continue;
       }
-      final done = await _gradeGame(game);
+      final done = await _gradeGame(game, epoch);
       if (!done) return false; // interrupted before this game finished
     }
     return true;
@@ -200,7 +207,7 @@ class BackgroundGrader {
   /// — the game stays ungraded and the next sweep starts it over. This per-GAME
   /// atomicity IS the checkpoint (#170): a finished game is written back and
   /// skipped forever after; an interrupted one is never left half-written.
-  Future<bool> _gradeGame(Map<String, dynamic> game) async {
+  Future<bool> _gradeGame(Map<String, dynamic> game, int epoch) async {
     final id = game['id'] as String;
     final rawMoves = (game['moves'] as List)
         .map((m) => (m as Map).cast<String, dynamic>())
@@ -300,6 +307,11 @@ class BackgroundGrader {
     // blunders lost). collectAll dedupes on fen, so the redo double-collects
     // nothing. One bridge round trip for the whole game, not one per seed —
     // the per-seed loop was a measured 986MB-of-expression bug.
+    // Checked at the WRITE, not just the loop top: this game's searches ran
+    // for many seconds, and "Clear local games" (#292) exists precisely for
+    // mid-sweep moments. A stale save here resurrects the game; a stale
+    // collectAll re-seeds practice from an archive the user just erased.
+    if (_db.wipeEpoch != epoch) return true;
     if (seeds.isNotEmpty) await _practice.collectAll(seeds);
     await _db.saveGame(updated);
     return true;

@@ -3909,6 +3909,7 @@ var brain = (() => {
     botRecipe: () => botRecipe,
     botSpec: () => botSpec,
     ccGameToStored: () => ccGameToStored,
+    clocksFromPgn: () => clocksFromPgn,
     computeMoveCurves: () => computeMoveCurves,
     confidences: () => confidences,
     controlSquares: () => controlSquares,
@@ -3916,6 +3917,7 @@ var brain = (() => {
     enPassantSetup: () => enPassantSetup,
     encodeBoard: () => encodeBoard,
     encodeBoardArray: () => encodeBoardArray,
+    endgameStartPly: () => endgameStartPly,
     engineCorrelation: () => engineCorrelation,
     epdKey: () => epdKey,
     epdKeys: () => epdKeys,
@@ -3933,6 +3935,7 @@ var brain = (() => {
     horizonMove: () => horizonMove,
     isBlackToMove: () => isBlackToMove,
     isCapture: () => isCapture,
+    isEndgamePosition: () => isEndgamePosition,
     itemDataFromStoredMove: () => itemDataFromStoredMove,
     judgeTacticalWin: () => judgeTacticalWin,
     judgeThreat: () => judgeThreat,
@@ -3959,10 +3962,13 @@ var brain = (() => {
     shapedParams: () => shapedParams,
     shapedSearchDepth: () => shapedSearchDepth,
     shapedStrengthRange: () => shapedStrengthRange,
+    skillReportPeer: () => skillReportPeer,
+    skillReportUser: () => skillReportUser,
     softmaxWdl: () => softmaxWdl,
     specToRecipe: () => specToRecipe,
     threatProbeFen: () => threatProbeFen,
     threatProse: () => threatProse,
+    timeClassOfPgn: () => timeClassOfPgn,
     unifyMoves: () => unifyMoves,
     whitePovWinChance: () => whitePovWinChance,
     winChance: () => winChance
@@ -7982,7 +7988,7 @@ var brain = (() => {
   }
   function passedPawns(c, color) {
     const up = color === "w" ? 1 : -1;
-    const out = [];
+    const out2 = [];
     for (const row of c.board()) {
       for (const cell of row) {
         if (!cell || cell.color !== color || cell.type !== "p") continue;
@@ -8000,10 +8006,10 @@ var brain = (() => {
             if (stopped) break;
           }
         }
-        if (!stopped) out.push(cell.square);
+        if (!stopped) out2.push(cell.square);
       }
     }
-    return out;
+    return out2;
   }
   function passedPawnPoint(fenBefore, uci) {
     const before = new Chess(fenBefore);
@@ -8113,43 +8119,43 @@ var brain = (() => {
   function explainMove(input) {
     const { fenBefore, playedUci, refutationPv, bestUci, bestPv, playedMate, bestMate, isBest } = input;
     if (isBest) return {};
-    const out = {};
+    const out2 = {};
     const playedLine = [playedUci, ...refutationPv];
     if (playedMate !== null && playedMate < 0) {
       const n = Math.abs(playedMate);
       const refSans = getSanLine(fenBefore, playedLine.slice(0, 2)).map((s) => s.san);
       const garnish = mateGarnish(mateBoard(fenBefore, playedLine), n === 1 ? ", a " : " \u2014 a ");
-      out.playedIssue = n === 1 && refSans[1] ? `This allows immediate mate \u2014 ${refSans[1]}${garnish}.` : `This allows a forced mate in ${n}${refSans[1] ? `, starting with ${refSans[1]}` : ""}${garnish}.`;
+      out2.playedIssue = n === 1 && refSans[1] ? `This allows immediate mate \u2014 ${refSans[1]}${garnish}.` : `This allows a forced mate in ${n}${refSans[1] ? `, starting with ${refSans[1]}` : ""}${garnish}.`;
     } else {
-      out.playedIssue = hangingIssue(fenBefore, playedUci, refutationPv[0]);
-      if (!out.playedIssue && refutationPv.length > 0) {
+      out2.playedIssue = hangingIssue(fenBefore, playedUci, refutationPv[0]);
+      if (!out2.playedIssue && refutationPv.length > 0) {
         const { net, plies, pawnsOnly } = quietMaterialOverLine(fenBefore, playedLine.slice(0, 9));
         if (net <= -1) {
           const fenAfter = getFenAfter(fenBefore, playedUci);
           const continuation = fenAfter ? getNumberedSanLine(fenAfter, playedLine.slice(1, plies)) : "";
           if (continuation) {
-            out.playedIssue = net <= -2 ? `This loses material \u2014 after ${continuation}, you're down ${-net} points.` : pawnsOnly ? `This loses a pawn \u2014 after ${continuation}, you're a pawn down.` : `This loses material \u2014 after ${continuation}, you come out a point down.`;
+            out2.playedIssue = net <= -2 ? `This loses material \u2014 after ${continuation}, you're down ${-net} points.` : pawnsOnly ? `This loses a pawn \u2014 after ${continuation}, you're a pawn down.` : `This loses material \u2014 after ${continuation}, you come out a point down.`;
           }
         }
       }
-      if (!out.playedIssue && refutationPv.length > 0) {
+      if (!out2.playedIssue && refutationPv.length > 0) {
         const story = summarizeLine(fenBefore, playedLine.slice(0, 9));
-        if (story) out.lineStory = `In this line, ${story}.`;
+        if (story) out2.lineStory = `In this line, ${story}.`;
       }
     }
     if (refutationPv.length > 0) {
-      out.evidence = { fen: fenBefore, ucis: playedLine.slice(0, 9) };
+      out2.evidence = { fen: fenBefore, ucis: playedLine.slice(0, 9) };
     }
     if (bestMate !== null && bestMate > 0 && !(playedMate !== null && playedMate > 0)) {
       const bestSan = getSanLine(fenBefore, [bestUci])[0]?.san ?? bestUci;
       const garnish = mateGarnish(mateBoard(fenBefore, bestPv));
       const sac = bestMate > 1 ? sacrificeStory(fenBefore, bestPv) : void 0;
       const sacTxt = sac ? `sacrifices ${sac.piece ? `the ${sac.piece}` : "material"} and ` : "";
-      out.bestPoint = bestMate === 1 ? `${bestSan} was immediate checkmate${garnish}.` : `${bestSan} ${sacTxt}forces mate in ${bestMate}${garnish}.`;
+      out2.bestPoint = bestMate === 1 ? `${bestSan} was immediate checkmate${garnish}.` : `${bestSan} ${sacTxt}forces mate in ${bestMate}${garnish}.`;
     } else {
-      out.bestPoint = bestMovePoint(fenBefore, bestUci, bestPv);
+      out2.bestPoint = bestMovePoint(fenBefore, bestUci, bestPv);
     }
-    return out;
+    return out2;
   }
   function tacticalMotifPoint(fenBefore, uci) {
     return forkPoint(fenBefore, uci) ?? freeCapturePoint(fenBefore, uci) ?? pinOrSkewerPoint(fenBefore, uci) ?? discoveredPoint(fenBefore, uci) ?? trappedPoint(fenBefore, uci);
@@ -9206,6 +9212,329 @@ var brain = (() => {
     "blunder"
   ];
 
+  // brain/engine/phase.ts
+  var MAJORS_AND_MINORS = /* @__PURE__ */ new Set(["q", "r", "b", "n", "Q", "R", "B", "N"]);
+  function isEndgamePosition(fen) {
+    const placement = fen.split(" ")[0];
+    let n = 0;
+    for (const ch of placement) {
+      if (MAJORS_AND_MINORS.has(ch)) n++;
+    }
+    return n <= 6;
+  }
+  function endgameStartPly(sans, startFen) {
+    let board;
+    try {
+      board = startFen ? new Chess(startFen) : new Chess();
+    } catch {
+      return null;
+    }
+    for (let i = 0; i < sans.length; i++) {
+      if (isEndgamePosition(board.fen())) return i + 1;
+      try {
+        board.move(sans[i]);
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  }
+
+  // brain/gameStore.ts
+  var LABEL_VERSION = 1;
+  function clocksFromPgn(pgn2) {
+    const blank = pgn2.indexOf("\n\n");
+    let movetext = blank >= 0 ? pgn2.slice(blank + 2) : pgn2;
+    let depth = 0;
+    let flat = "";
+    for (const ch of movetext) {
+      if (ch === "(") depth++;
+      else if (ch === ")") depth = Math.max(0, depth - 1);
+      else if (depth === 0) flat += ch;
+    }
+    movetext = flat;
+    const out2 = [];
+    const RESULTS = /* @__PURE__ */ new Set(["1-0", "0-1", "1/2-1/2", "*"]);
+    const token = /\{([^}]*)\}|(\S+)/g;
+    let m;
+    while (m = token.exec(movetext)) {
+      if (m[1] !== void 0) {
+        if (out2.length === 0) continue;
+        const clk = /\[%clk\s+(\d+):(\d{1,2}):(\d{1,2}(?:\.\d+)?)\]/.exec(m[1]);
+        if (clk) {
+          out2[out2.length - 1] = Math.round(
+            (Number(clk[1]) * 3600 + Number(clk[2]) * 60 + Number(clk[3])) * 1e3
+          );
+        }
+        continue;
+      }
+      const word = m[2];
+      if (/^\d+\.+$/.test(word)) continue;
+      if (RESULTS.has(word)) continue;
+      if (word.startsWith("$")) continue;
+      out2.push(null);
+    }
+    return out2;
+  }
+  function moveAccuracy(wcDrop) {
+    const a = 103.1668 * Math.exp(-0.04354 * Math.max(0, wcDrop)) - 3.1669 + 1;
+    return Math.max(0, Math.min(100, a));
+  }
+  function stdDev(xs) {
+    if (xs.length === 0) return 0;
+    const mean = xs.reduce((a, b) => a + b, 0) / xs.length;
+    return Math.sqrt(xs.reduce((a, b) => a + (b - mean) * (b - mean), 0) / xs.length);
+  }
+  function gameAccuracy(moves, color) {
+    if (!moves.some((m) => m.color === color && m.label !== void 0)) return null;
+    const wps = [50];
+    let last = 50;
+    for (const m of moves) {
+      if (m.evalPawns !== null || m.mate !== null) {
+        const wc = winChance(m.evalPawns, m.mate);
+        last = m.color === "w" ? wc : 100 - wc;
+      }
+      wps.push(last);
+    }
+    const windowSize = Math.max(2, Math.min(8, Math.floor(wps.length / 10)));
+    const windows = [];
+    for (let k = 0; k < windowSize - 2; k++) windows.push(wps.slice(0, windowSize));
+    for (let s = 0; s + windowSize <= wps.length; s++) windows.push(wps.slice(s, s + windowSize));
+    let weightSum = 0;
+    let weightedSum = 0;
+    let invSum = 0;
+    let n = 0;
+    moves.forEach((m, i) => {
+      if (m.color !== color || m.label === void 0) return;
+      const acc2 = moveAccuracy(m.wcDrop);
+      const weight = Math.max(0.5, Math.min(12, stdDev(windows[Math.min(i, windows.length - 1)] ?? wps)));
+      weightedSum += acc2 * weight;
+      weightSum += weight;
+      invSum += 1 / acc2;
+      n++;
+    });
+    const weighted = weightedSum / weightSum;
+    const harmonic = n / invSum;
+    return Math.max(0, Math.min(100, (weighted + harmonic) / 2));
+  }
+  function engineCorrelation(moves, color) {
+    let played = 0;
+    let total = 0;
+    for (const m of moves) {
+      if (m.color !== color) continue;
+      if (!(m.topRecorded || m.pctBest != null) || !m.bestUci) continue;
+      try {
+        const chess = new Chess(m.fenBefore);
+        const choices = new Set(chess.moves({ verbose: true }).map((v) => v.from + v.to));
+        if (choices.size < 2) continue;
+        const mine = sanOf(m.fenBefore, m.uci);
+        const best = sanOf(m.fenBefore, m.bestUci);
+        if (mine === null || best === null) continue;
+        total++;
+        if (mine === best) played++;
+      } catch {
+        continue;
+      }
+    }
+    return total === 0 ? null : { played, total };
+  }
+  function sanOf(fen, uci) {
+    try {
+      const c = new Chess(fen);
+      const from = uci.slice(0, 2);
+      let to = uci.slice(2, 4);
+      const moved = c.get(from);
+      const landed = c.get(to);
+      if (moved?.type === "k" && landed?.type === "r" && landed.color === moved.color && (to[0] === "a" || to[0] === "h")) {
+        to = (to[0] === "h" ? "g" : "c") + to[1];
+      }
+      return c.move({ from, to, promotion: uci.length > 4 ? uci[4] : void 0 }).san;
+    } catch {
+      return null;
+    }
+  }
+  function labelCounts(moves, color) {
+    const out2 = {};
+    for (const m of moves) {
+      if (m.color !== color || !m.label) continue;
+      out2[m.label] = (out2[m.label] ?? 0) + 1;
+    }
+    return out2;
+  }
+
+  // brain/report.ts
+  var START_EVAL_PAWNS = 0.15;
+  var WINNING_THRESHOLD = 70;
+  var LOSING_THRESHOLD = 30;
+  var BLUNDER_WC_DROP = 20;
+  var PANIC_MAX_S = 30;
+  var CALM_MIN_S = 60;
+  var UNDER2S_S = 2;
+  function timeControlOfPgn(pgn2) {
+    if (!pgn2) return null;
+    const m = /^\[TimeControl "(\d+)(?:\+(\d+))?"\]/m.exec(pgn2);
+    if (!m) return null;
+    return { initialS: Number(m[1]), incrementS: Number(m[2] ?? 0) };
+  }
+  function timeClassOfPgn(pgn2) {
+    const tc = timeControlOfPgn(pgn2);
+    if (!tc) return null;
+    const estimate = tc.initialS + 40 * tc.incrementS;
+    if (estimate < 30) return "ultrabullet";
+    if (estimate < 180) return "bullet";
+    if (estimate < 480) return "blitz";
+    if (estimate < 1500) return "rapid";
+    return "classical";
+  }
+  var acc = () => ({ n: 0, sum: 0, blunders: 0 });
+  function push(a, drop) {
+    a.n += 1;
+    a.sum += drop;
+    if (drop >= BLUNDER_WC_DROP) a.blunders += 1;
+  }
+  function out(a) {
+    return {
+      n: a.n,
+      mean: a.n ? a.sum / a.n : null,
+      blunderRate: a.n ? a.blunders / a.n : null
+    };
+  }
+  function skillReportUser(games, timeClass) {
+    const winning = acc();
+    const losing = acc();
+    const endgame = acc();
+    const time = {
+      panic: { n: 0, blunders: 0 },
+      calm: { n: 0, blunders: 0 },
+      clockedMoves: 0,
+      under2s: 0,
+      thinkSum: 0
+    };
+    const excluded = { humanless: 0, otherClass: 0, noClass: 0 };
+    let considered = 0;
+    for (const g of games) {
+      const human = g.botBothSides ? null : g.botColor === "w" ? "b" : g.botColor === "b" ? "w" : null;
+      if (!human) {
+        excluded.humanless += 1;
+        continue;
+      }
+      const cls = timeClassOfPgn(g.pgn);
+      if (cls === null) {
+        excluded.noClass += 1;
+        continue;
+      }
+      if (cls !== timeClass) {
+        excluded.otherClass += 1;
+        continue;
+      }
+      considered += 1;
+      const clocks = g.pgn ? clocksFromPgn(g.pgn) : [];
+      const incrementS = timeControlOfPgn(g.pgn)?.incrementS ?? 0;
+      const prevClkS = { w: null, b: null };
+      let prevPawns = START_EVAL_PAWNS;
+      let prevMate = null;
+      let prevWasStart = true;
+      let inEndgame = false;
+      for (let i = 0; i < g.moves.length; i++) {
+        const m = g.moves[i];
+        const mine = m.color === human;
+        if (!inEndgame && m.fenBefore && isEndgamePosition(m.fenBefore)) {
+          inEndgame = true;
+        }
+        let afterPawns = m.evalPawns;
+        let afterMate = m.mate;
+        if (afterPawns === null && afterMate === null && m.san?.endsWith("#")) {
+          afterMate = 1;
+        }
+        const hasAfter = afterPawns !== null || afterMate !== null;
+        const hasBefore = prevPawns !== null || prevMate !== null;
+        if (mine && hasBefore && hasAfter) {
+          const wcPrev = winChance(prevPawns, prevMate);
+          const flip = prevWasStart ? m.color === "b" : true;
+          const before = flip ? 100 - wcPrev : wcPrev;
+          const after = winChance(afterPawns, afterMate);
+          const drop = Math.max(0, before - after);
+          if (before >= WINNING_THRESHOLD) push(winning, drop);
+          else if (before <= LOSING_THRESHOLD) push(losing, drop);
+          if (inEndgame) push(endgame, drop);
+          const beforeClkS = prevClkS[m.color];
+          if (beforeClkS !== null && clocks[i] !== null && clocks[i] !== void 0) {
+            if (beforeClkS < PANIC_MAX_S) {
+              time.panic.n += 1;
+              if (drop >= BLUNDER_WC_DROP) time.panic.blunders += 1;
+            } else if (beforeClkS >= CALM_MIN_S) {
+              time.calm.n += 1;
+              if (drop >= BLUNDER_WC_DROP) time.calm.blunders += 1;
+            }
+          }
+        }
+        const clkMs = clocks[i];
+        if (clkMs !== null && clkMs !== void 0) {
+          const beforeS = prevClkS[m.color];
+          if (mine && beforeS !== null) {
+            const thinkS = Math.max(0, beforeS - clkMs / 1e3 + incrementS);
+            time.clockedMoves += 1;
+            time.thinkSum += thinkS;
+            if (thinkS < UNDER2S_S) time.under2s += 1;
+          }
+          prevClkS[m.color] = clkMs / 1e3;
+        } else {
+          prevClkS[m.color] = null;
+        }
+        prevPawns = hasAfter ? afterPawns : null;
+        prevMate = hasAfter ? afterMate : null;
+        prevWasStart = false;
+      }
+    }
+    return {
+      timeClass,
+      games: { considered, ...excluded },
+      winning: out(winning),
+      losing: out(losing),
+      endgame: out(endgame),
+      time: {
+        clockedMoves: time.clockedMoves,
+        under2sShare: time.clockedMoves ? time.under2s / time.clockedMoves : null,
+        meanThinkS: time.clockedMoves ? time.thinkSum / time.clockedMoves : null,
+        panic: {
+          n: time.panic.n,
+          pBlunder: time.panic.n ? time.panic.blunders / time.panic.n : null
+        },
+        calm: {
+          n: time.calm.n,
+          pBlunder: time.calm.n ? time.calm.blunders / time.calm.n : null
+        }
+      }
+    };
+  }
+  function skillReportPeer(tables, band, timeClass) {
+    const cell = tables?.bands?.[String(band)]?.[timeClass];
+    if (!cell) return null;
+    const sumBuckets = (labels) => {
+      let n = 0;
+      let blunders = 0;
+      for (const l of labels) {
+        const b = cell.t2?.blunderByClockBucket?.[l];
+        if (b) {
+          n += b.n;
+          blunders += b.blunders ?? 0;
+        }
+      }
+      return { n, pBlunder: n ? blunders / n : null };
+    };
+    return {
+      winning: cell.t3 ?? null,
+      losing: cell.t4 ?? null,
+      endgame: cell.t5 ?? null,
+      time: {
+        under2sShare: cell.t1?.under2s?.fraction ?? null,
+        panic: sumBuckets(["0-5s", "5-10s", "10-30s"]),
+        calm: sumBuckets(["60-120s", "120-300s", "300s+"])
+      },
+      bookPlyDeciles: cell.t6?.plyOfFirstDeviation?.deciles ?? null
+    };
+  }
+
   // brain/explorer.ts
   var mateScore = (mate) => Math.sign(mate) * (40 - Math.min(Math.abs(mate), 20));
   function confidences(engine) {
@@ -9438,13 +9767,13 @@ var brain = (() => {
     } catch {
       return [];
     }
-    const out = [];
+    const out2 = [];
     for (const { sq, ply } of candidates) {
       if (ply === 0 || afterThreat.attackers(sq, mover).length > 0) {
-        if (!out.includes(sq)) out.push(sq);
+        if (!out2.includes(sq)) out2.push(sq);
       }
     }
-    return out;
+    return out2;
   }
   function staticFirstCapture(fen, uci) {
     const c = new Chess(fen);
@@ -9477,7 +9806,7 @@ var brain = (() => {
   function bestNets(c) {
     const side = c.turn();
     const opp = side === "w" ? "b" : "w";
-    const out = /* @__PURE__ */ new Map();
+    const out2 = /* @__PURE__ */ new Map();
     for (const m of c.moves({ verbose: true })) {
       const gain = m.captured ? PIECE_VAL[m.captured] : 0;
       try {
@@ -9488,10 +9817,10 @@ var brain = (() => {
       const occ = pieceVal(m.promotion ?? m.piece);
       const net = occ === KING_V ? gain : gain - see(occ, attackerVals(c, m.to, opp), attackerVals(c, m.to, side));
       c.undo();
-      const prev = out.get(m.to);
-      if (prev === void 0 || net > prev) out.set(m.to, net);
+      const prev = out2.get(m.to);
+      if (prev === void 0 || net > prev) out2.set(m.to, net);
     }
-    return out;
+    return out2;
   }
   function computeControl(fen, opts = {}) {
     const map = /* @__PURE__ */ new Map();
@@ -9814,94 +10143,6 @@ var brain = (() => {
     return next;
   }
 
-  // brain/gameStore.ts
-  var LABEL_VERSION = 1;
-  function moveAccuracy(wcDrop) {
-    const a = 103.1668 * Math.exp(-0.04354 * Math.max(0, wcDrop)) - 3.1669 + 1;
-    return Math.max(0, Math.min(100, a));
-  }
-  function stdDev(xs) {
-    if (xs.length === 0) return 0;
-    const mean = xs.reduce((a, b) => a + b, 0) / xs.length;
-    return Math.sqrt(xs.reduce((a, b) => a + (b - mean) * (b - mean), 0) / xs.length);
-  }
-  function gameAccuracy(moves, color) {
-    if (!moves.some((m) => m.color === color && m.label !== void 0)) return null;
-    const wps = [50];
-    let last = 50;
-    for (const m of moves) {
-      if (m.evalPawns !== null || m.mate !== null) {
-        const wc = winChance(m.evalPawns, m.mate);
-        last = m.color === "w" ? wc : 100 - wc;
-      }
-      wps.push(last);
-    }
-    const windowSize = Math.max(2, Math.min(8, Math.floor(wps.length / 10)));
-    const windows = [];
-    for (let k = 0; k < windowSize - 2; k++) windows.push(wps.slice(0, windowSize));
-    for (let s = 0; s + windowSize <= wps.length; s++) windows.push(wps.slice(s, s + windowSize));
-    let weightSum = 0;
-    let weightedSum = 0;
-    let invSum = 0;
-    let n = 0;
-    moves.forEach((m, i) => {
-      if (m.color !== color || m.label === void 0) return;
-      const acc = moveAccuracy(m.wcDrop);
-      const weight = Math.max(0.5, Math.min(12, stdDev(windows[Math.min(i, windows.length - 1)] ?? wps)));
-      weightedSum += acc * weight;
-      weightSum += weight;
-      invSum += 1 / acc;
-      n++;
-    });
-    const weighted = weightedSum / weightSum;
-    const harmonic = n / invSum;
-    return Math.max(0, Math.min(100, (weighted + harmonic) / 2));
-  }
-  function engineCorrelation(moves, color) {
-    let played = 0;
-    let total = 0;
-    for (const m of moves) {
-      if (m.color !== color) continue;
-      if (!(m.topRecorded || m.pctBest != null) || !m.bestUci) continue;
-      try {
-        const chess = new Chess(m.fenBefore);
-        const choices = new Set(chess.moves({ verbose: true }).map((v) => v.from + v.to));
-        if (choices.size < 2) continue;
-        const mine = sanOf(m.fenBefore, m.uci);
-        const best = sanOf(m.fenBefore, m.bestUci);
-        if (mine === null || best === null) continue;
-        total++;
-        if (mine === best) played++;
-      } catch {
-        continue;
-      }
-    }
-    return total === 0 ? null : { played, total };
-  }
-  function sanOf(fen, uci) {
-    try {
-      const c = new Chess(fen);
-      const from = uci.slice(0, 2);
-      let to = uci.slice(2, 4);
-      const moved = c.get(from);
-      const landed = c.get(to);
-      if (moved?.type === "k" && landed?.type === "r" && landed.color === moved.color && (to[0] === "a" || to[0] === "h")) {
-        to = (to[0] === "h" ? "g" : "c") + to[1];
-      }
-      return c.move({ from, to, promotion: uci.length > 4 ? uci[4] : void 0 }).san;
-    } catch {
-      return null;
-    }
-  }
-  function labelCounts(moves, color) {
-    const out = {};
-    for (const m of moves) {
-      if (m.color !== color || !m.label) continue;
-      out[m.label] = (out[m.label] ?? 0) + 1;
-    }
-    return out;
-  }
-
   // brain/lichessImport.ts
   var START_EVAL = { eval: 15 };
   function wcWhite(e, fallback) {
@@ -9916,17 +10157,17 @@ var brain = (() => {
     return drop <= 2 ? "excellent" : "good";
   }
   function variationToUcis(fenBefore, variation, max = 12) {
-    const out = [];
+    const out2 = [];
     try {
       const c = new Chess(fenBefore);
       for (const san of variation.split(/\s+/).slice(0, max)) {
         const m = c.move(san);
         if (!m) break;
-        out.push(m.from + m.to + (m.promotion ?? ""));
+        out2.push(m.from + m.to + (m.promotion ?? ""));
       }
     } catch {
     }
-    return out;
+    return out2;
   }
   function analysedGameToStored(game2, username, source = "lichess") {
     if (game2.variant !== "standard" || !game2.analysis?.length || !game2.moves) return null;

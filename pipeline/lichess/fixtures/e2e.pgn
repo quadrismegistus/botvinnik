@@ -1,0 +1,70 @@
+[Event "Rated Blitz game"]
+[Site "https://lichess.org/fixtureClkEval"]
+[White "Alice"]
+[Black "Bob"]
+[Result "1-0"]
+[UTCDate "2020.01.01"]
+[UTCTime "12:00:00"]
+[WhiteElo "1500"]
+[BlackElo "1500"]
+[TimeControl "300+0"]
+[Termination "Normal"]
+
+1. e4 { [%eval 0.2] [%clk 0:05:00] } 1... e5 { [%eval 0.1] [%clk 0:04:58] } 2. Bc4 { [%eval 0.3] [%clk 0:04:55] } 2... Nc6 { [%eval 0.2] [%clk 0:04:50] } 3. Qh5 { [%eval 0.1] [%clk 0:04:50] } 3... Nf6?? { [%eval #4] [%clk 0:04:30] } 4. Qxf7# { [%clk 0:04:28] } 1-0
+
+[Event "Casual Blitz game"]
+[Site "https://lichess.org/fixtureUnrated"]
+[White "Casey"]
+[Black "Dana"]
+[Result "1/2-1/2"]
+[UTCDate "2020.01.01"]
+[UTCTime "12:05:00"]
+[WhiteElo "1500"]
+[BlackElo "1500"]
+[TimeControl "300+0"]
+[Termination "Normal"]
+
+1. d4 d5 2. c4 e6 1/2-1/2
+
+[Event "Rated Chess960 game"]
+[Site "https://lichess.org/fixtureVariant"]
+[White "Erin"]
+[Black "Frank"]
+[Result "1-0"]
+[UTCDate "2020.01.01"]
+[UTCTime "12:10:00"]
+[WhiteElo "1500"]
+[BlackElo "1500"]
+[TimeControl "300+0"]
+[Variant "Chess960"]
+[Termination "Normal"]
+
+1. Nf3 Nf6 2. c4 g6 1-0
+
+[Event "Rated Bullet game"]
+[Site "https://lichess.org/fixtureBullet"]
+[White "Gina"]
+[Black "Hank"]
+[Result "1-0"]
+[UTCDate "2020.01.01"]
+[UTCTime "12:15:00"]
+[WhiteElo "1500"]
+[BlackElo "1500"]
+[TimeControl "60+0"]
+[Termination "Time forfeit"]
+
+1. e4 e5 2. Nf3 Nc6 1-0
+
+[Event "Rated Blitz game"]
+[Site "https://lichess.org/fixtureThresholds"]
+[White "Ivan"]
+[Black "Julia"]
+[Result "*"]
+[UTCDate "2020.01.01"]
+[UTCTime "12:20:00"]
+[WhiteElo "1550"]
+[BlackElo "1520"]
+[TimeControl "300+0"]
+[Termination "Normal"]
+
+1. a3 { [%eval 0.1] } 1... Nc6 { [%eval 0.1] } 2. a4 { [%eval 3.0] } 2... Rb8 { [%eval 4.0] } 3. a5 { [%eval 2.0] } 3... Ra8 { [%eval 2.2] } 4. a6 { [%eval 2.2] } 4... Rb8 { [%eval -0.3] } 5. axb7 { [%eval -8.0] } 5... Rxb7 { [%eval -6.0] } *

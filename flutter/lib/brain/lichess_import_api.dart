@@ -149,6 +149,9 @@ class LichessImportApi {
       'max': '${max.clamp(1, kMaxGames)}',
       'analysed': 'true',
       'evals': 'true',
+      // %clk comments land in the pgn we store verbatim; the #268 time axis
+      // reads clocks from PGN, the one storage every game shape shares
+      'clocks': 'true',
       'pgnInJson': 'true',
       'moves': 'true',
       'sort': 'dateDesc',

@@ -52,6 +52,15 @@ class MemoryDb implements AppDb {
   }
 
   @override
+  int wipeEpoch = 0;
+
+  @override
+  Future<void> deleteAllGames() async {
+    wipeEpoch++;
+    games.clear();
+  }
+
+  @override
   Future<String?> kvGet(String key) async => kv[key];
 
   @override

@@ -1,0 +1,13 @@
+[Event "Rated Blitz game"]
+[Site "https://lichess.org/fixtureThresholds"]
+[White "Ivan"]
+[Black "Julia"]
+[Result "*"]
+[UTCDate "2020.01.01"]
+[UTCTime "12:20:00"]
+[WhiteElo "1550"]
+[BlackElo "1520"]
+[TimeControl "300+0"]
+[Termination "Normal"]
+
+1. a3 { [%eval 0.1] } 1... Nc6 { [%eval 0.1] } 2. a4 { [%eval 3.0] } 2... Rb8 { [%eval 4.0] } 3. a5 { [%eval 2.0] } 3... Ra8 { [%eval 2.2] } 4. a6 { [%eval 2.2] } 4... Rb8 { [%eval -0.3] } 5. axb7 { [%eval -8.0] } 5... Rxb7 { [%eval -6.0] } *

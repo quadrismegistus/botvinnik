@@ -239,6 +239,61 @@ class SettingsTab extends StatelessWidget {
           ),
           onTap: () => _import(context),
         ),
+        // The bulk local clear (#292), sync-aware for the reason #258's
+        // server wipe disables sync: a local delete under live sync is undone
+        // by the next pull — the button must refuse, not pretend.
+        Builder(
+          builder: (context) {
+            final syncOn = context.watch<SyncController>().enabled;
+            final n = context.watch<ReviewController>().games.length;
+            final inert = syncOn || n == 0;
+            return ListTile(
+              dense: true,
+              enabled: !inert,
+              leading: Icon(Icons.delete_forever_outlined,
+                  size: 20,
+                  color: inert ? Colors.white24 : const Color(0xFFE07A5F)),
+              title: const Text('Clear local games'),
+              subtitle: Text(
+                syncOn
+                    ? 'Turn off sync first — the next sync would restore '
+                        'them from the server copy.'
+                    : n == 0
+                        ? 'Nothing here to delete.'
+                        : 'Deletes all $n game${n == 1 ? '' : 's'} from this '
+                            'device. Practice puzzles stay.',
+                style: const TextStyle(fontSize: 11.5, color: Colors.white38),
+              ),
+              onTap: inert ? null : () => _confirmClearGames(context),
+            );
+          },
+        ),
+        Builder(
+          builder: (context) {
+            final syncOn = context.watch<SyncController>().enabled;
+            final n = context.watch<PracticeController>().items.length;
+            final inert = syncOn || n == 0;
+            return ListTile(
+              dense: true,
+              enabled: !inert,
+              leading: Icon(Icons.delete_sweep_outlined,
+                  size: 20,
+                  color: inert ? Colors.white24 : const Color(0xFFE07A5F)),
+              title: const Text('Clear practice puzzles'),
+              subtitle: Text(
+                syncOn
+                    ? 'Turn off sync first — the next sync would restore '
+                        'them from the server copy.'
+                    : n == 0
+                        ? 'Nothing here to delete.'
+                        : 'Deletes all $n puzzle${n == 1 ? '' : 's'} and '
+                            'their training history. Games stay.',
+                style: const TextStyle(fontSize: 11.5, color: Colors.white38),
+              ),
+              onTap: inert ? null : () => _confirmClearPractice(context),
+            );
+          },
+        ),
         Builder(
           builder: (context) {
             final on = context.watch<SyncController>().enabled;
@@ -293,6 +348,68 @@ class SettingsTab extends StatelessWidget {
     } catch (e) {
       messenger?.showSnackBar(SnackBar(content: Text('Could not back up: $e')));
     }
+  }
+
+  /// The #292 confirmation: states the count (a destructive tap must know
+  /// its size), and the way back (a backup made FIRST — after, there is
+  /// nothing left to back up).
+  Future<void> _confirmClearGames(BuildContext context) async {
+    final review = context.read<ReviewController>();
+    final n = review.games.length;
+    if (n == 0) return; // an empty archive has nothing to confirm
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Clear local games?'),
+        content: Text(
+            'Deletes all $n game${n == 1 ? '' : 's'} from this device, for '
+            'good. Practice puzzles stay. A backup made first is the only '
+            'way back.'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel')),
+          TextButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('Delete')),
+        ],
+      ),
+    );
+    if (confirmed != true || !context.mounted) return;
+    await review.clearGames();
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Deleted $n game${n == 1 ? '' : 's'}.')));
+  }
+
+  Future<void> _confirmClearPractice(BuildContext context) async {
+    final practice = context.read<PracticeController>();
+    final n = practice.items.length;
+    if (n == 0) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Clear practice puzzles?'),
+        content: Text(
+            'Deletes all $n puzzle${n == 1 ? '' : 's'} and their training '
+            'history from this device, for good. Games stay — and their '
+            'mistakes can be collected again from Review. A backup made '
+            'first is the only way back.'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel')),
+          TextButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('Delete')),
+        ],
+      ),
+    );
+    if (confirmed != true || !context.mounted) return;
+    await practice.clearItems();
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Deleted $n puzzle${n == 1 ? '' : 's'}.')));
   }
 
   /// Merge a backup file back in, then make both controllers re-read.

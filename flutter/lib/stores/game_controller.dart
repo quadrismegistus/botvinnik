@@ -66,6 +66,14 @@ class MoveRecord {
   /// has no such number and must keep loading.
   int? thinkMs;
 
+  /// The mover's remaining clock AFTER this move, increment applied — the
+  /// `%clk` convention lichess and chess.com stamp into their PGNs. Only a
+  /// rated game has a clock, so this is null everywhere else; it exists to be
+  /// written into the exported PGN (#268's time axis reads clocks from PGN,
+  /// the one storage every game shape already shares), not to be persisted as
+  /// its own stored-move field.
+  int? clkMs;
+
   MoveRecord({
     required this.ply,
     required this.san,
@@ -413,6 +421,10 @@ class GameController extends ChangeNotifier {
   /// Owned here rather than by the screen because it has to survive a rebuild
   /// and because flag-fall is a RESULT, which only the controller can archive.
   ChessClock? _clock;
+
+  /// Test seam, like [thinkTimer]: the elapsed source the next [newGame]'s
+  /// clock is built with. Null (production) is the monotonic stopwatch.
+  ElapsedSource? clockSource;
 
   /// Wall time in front of each position, for every game — unlike [_clock],
   /// which only exists in a rated game with a time control (#267).
@@ -985,7 +997,7 @@ class GameController extends ChangeNotifier {
     _think.restart();
     _flagged = null;
     _clock = rated && timeControl != null
-        ? (ChessClock(timeControl)
+        ? (ChessClock(timeControl, source: clockSource)
           ..onFlag = (side) {
             // A flag on an already-decided game is a no-op. The clock is
             // stopped at every ending so its ticker cannot get here — but a
@@ -1722,6 +1734,9 @@ class GameController extends ChangeNotifier {
     if (c != null && mover != null) {
       if (firstMove) c.start(mover);
       c.press(mover);
+      // %clk is the clock AFTER the move, increment applied — read post-press
+      // so the stamp matches what lichess/chess.com would have written.
+      record.clkMs = c.remaining(mover).inMilliseconds;
     }
     _syncTree(); // extend the played path (and prune the old anchor's churn)
     notifyListeners();
@@ -1881,6 +1896,13 @@ class GameController extends ChangeNotifier {
     // does not offer it — but `wasBotGame` is asserted here anyway, because
     // this record is what the rating trusts.
     final rated = wasBotGame && _rated;
+    // Snapshotted with `rated` and BEFORE the grade wait, for the same
+    // reason: a new game started during the wait replaces _clock, and _pgn
+    // runs after. Without the header in the PGN the skill report classifies
+    // the game as "no time control" and the %clk stamps are unreadable one
+    // gate earlier — the exact fate #293's review caught for every locally
+    // played rated game.
+    final timeControl = _clock?.control;
 
     // let in-flight grading land so the archive gets labels (bounded — the
     // terminal move's backfill may never come: a mate position has no lines)
@@ -1896,7 +1918,7 @@ class GameController extends ChangeNotifier {
       'id': 'g-${DateTime.now().millisecondsSinceEpoch}-${played.length}',
       'endedAt': DateTime.now().toIso8601String(),
       'result': result,
-      'pgn': _pgn(played, result, botName, youAreWhite),
+      'pgn': _pgn(played, result, botName, youAreWhite, timeControl),
       'botElo': p == null ? null : p.elo + 240, // internal scale (SCALE_OFFSET)
       if (p != null) 'botPersona': p.id,
       // omitted rather than false when clean: the schema field is optional and
@@ -1945,8 +1967,17 @@ class GameController extends ChangeNotifier {
   double? _bridgeAccuracy(List<Map<String, dynamic>> stored, String color) =>
       _grading.gameAccuracy(stored, color);
 
+  /// H:MM:SS, floored to the second — a clock reads DOWN, so flooring is the
+  /// honest direction, and it is what lichess emits.
+  static String _clkTag(int ms) {
+    final s = ms ~/ 1000;
+    final mm = ((s % 3600) ~/ 60).toString().padLeft(2, '0');
+    final ss = (s % 60).toString().padLeft(2, '0');
+    return '${s ~/ 3600}:$mm:$ss';
+  }
+
   String _pgn(List<MoveRecord> played, String result, String botName,
-      bool youAreWhite) {
+      bool youAreWhite, TimeControl? timeControl) {
     final white = youAreWhite ? 'You' : botName;
     final black = youAreWhite ? botName : 'You';
     final date =
@@ -1955,15 +1986,30 @@ class GameController extends ChangeNotifier {
       ..writeln('[White "$white"]')
       ..writeln('[Black "$black"]')
       ..writeln('[Date "$date"]')
-      ..writeln('[Result "$result"]')
-      ..writeln();
+      ..writeln('[Result "$result"]');
+    // SECONDS, never TimeControl.notation: "3+2" would classify as bullet
+    // (3 + 40×2 < 180). Without this header the report drops the game as
+    // "no time control" and never reads the %clk stamps below (#293 review).
+    if (timeControl != null) {
+      sb.writeln('[TimeControl '
+          '"${timeControl.initial.inSeconds}+${timeControl.increment.inSeconds}"]');
+    }
+    sb.writeln();
     for (var i = 0; i < played.length; i++) {
       if (i.isEven) sb.write('${i ~/ 2 + 1}. ');
       sb.write('${played[i].san} ');
       // %emt is "elapsed move time", the standard PGN annotation for exactly
-      // this, and what our own importer reads back
+      // this, and what our own importer reads back. %clk (a rated game's
+      // remaining clock, floored to the second like lichess writes it) shares
+      // the same comment block — the time axis (#268) reads clocks from PGN,
+      // the one storage every game shape already has.
       final ms = played[i].thinkMs;
-      if (ms != null) sb.write('{[%emt ${(ms / 1000).toStringAsFixed(3)}]} ');
+      final clk = played[i].clkMs;
+      final tags = [
+        if (ms != null) '[%emt ${(ms / 1000).toStringAsFixed(3)}]',
+        if (clk != null) '[%clk ${_clkTag(clk)}]',
+      ];
+      if (tags.isNotEmpty) sb.write('{${tags.join()}} ');
     }
     sb.write(result);
     return sb.toString();
