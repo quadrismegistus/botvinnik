@@ -732,3 +732,30 @@ describe('loadBrain', () => {
 		expect(() => loadBrain('/definitely/not/a/real/path/brain.js')).toThrow();
 	});
 });
+
+describe('BOT filter (#293 review)', () => {
+	it('a game with a BOT title on either side is skipped — engines are not peers', () => {
+		// Measured on the real month: unfiltered, 2600/rapid was 95.6% bot by
+		// clocked moves, rendered as "Typical 2600". A peer table is a claim
+		// about players.
+		const base = (title: string) =>
+			[
+				'[Event "Rated Blitz game"]',
+				'[Site "https://lichess.org/bot1"]',
+				'[White "maia9"]',
+				'[Black "human"]',
+				title,
+				'[Result "1-0"]',
+				'[WhiteElo "2600"]',
+				'[BlackElo "2500"]',
+				'[TimeControl "180+0"]',
+				'[Termination "Normal"]',
+				'',
+				'1. e4 e5 1-0'
+			].join('\n');
+		expect(extractGame(base('[WhiteTitle "BOT"]'))).toEqual({ skip: 'bot' });
+		expect(extractGame(base('[BlackTitle "BOT"]'))).toEqual({ skip: 'bot' });
+		const gm = extractGame(base('[WhiteTitle "GM"]'));
+		expect(gm.skip).toBeNull(); // a human title is not an engine
+	});
+});

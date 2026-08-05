@@ -20,6 +20,7 @@ import 'package:botvinnik_mobile/stores/player_rating_store.dart';
 import 'package:botvinnik_mobile/stores/review_controller.dart';
 import 'package:botvinnik_mobile/ui/skill_report_screen.dart';
 
+import '../support/memory_db.dart';
 import '../support/practice_harness.dart';
 
 // ---- canned brain answers ------------------------------------------------
@@ -106,17 +107,19 @@ Map<String, dynamic> _peerReport({
 
 /// Pumps [SkillReportScreen] with [bridge] behind ReportApi/RatingApi, and
 /// [games] behind ReviewController — the same three providers main.dart
-/// wires, minus everything the screen does not read. PlayerRatingStore's fit
-/// is never refreshed (the screen only reads a warm `.rating`, same as
-/// pickBot in roster_picker.dart), so the default-band derivation always
-/// falls back to 1500 here, which is why every expected verdict below reads
-/// "the typical 1500 (blitz)".
+/// wires, minus everything the screen does not read. The screen's _load
+/// refreshes the rating store; with no canned [FakeBridge.playerEloResult]
+/// the estimate stays null and the band defaults to 1500, which is why the
+/// expected verdicts below read "the typical 1500 (blitz)".
 Future<void> _pump(WidgetTester tester,
     {required FakeBridge bridge,
     List<Map<String, dynamic>> games = const [],
     Future<String> Function()? loadTables}) async {
   final review = ReviewController(FakeDb())..games = games;
-  final rating = PlayerRatingStore(FakeDb(), RatingApi(bridge));
+  // MemoryDb, not FakeDb: the screen's _load refreshes the rating store, and
+  // refresh reads db.listGames — a FakeDb answers null and the refresh throws
+  // (harmlessly, caught) before any canned playerEloResult can land.
+  final rating = PlayerRatingStore(MemoryDb(), RatingApi(bridge));
   await tester.pumpWidget(MultiProvider(
     providers: [
       Provider<ReportApi>.value(value: ReportApi(bridge)),
@@ -406,6 +409,20 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Keeping a won game'), findsOneWidget,
           reason: 'Retry reruns the whole load');
+    });
+
+    testWidgets('the default band FLOORS the rating, like the pipeline does',
+        (tester) async {
+      // #293 review: the screen rounded while bandFor floors — a 1550 player
+      // defaulted into the 1600 cell, whose population is 1600-1699. Half of
+      // all ratings landed in the neighbouring band's company.
+      final bridge = FakeBridge()
+        ..skillReportUserResult = _userReport()
+        ..skillReportPeerResult = _peerReport()
+        ..playerEloResult = {'elo': 1550, 'se': 40, 'games': 12};
+      await _pump(tester, bridge: bridge);
+      expect(_text(tester), contains('Typical 1500 (blitz)'));
+      expect(_text(tester), isNot(contains('Typical 1600')));
     });
 
     testWidgets('tables built by a different brain are refused, not mixed',

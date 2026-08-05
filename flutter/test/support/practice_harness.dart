@@ -36,6 +36,11 @@ class FakeBridge implements JsBridge {
   /// JS error — the poisoned-item boot hazard load() must survive.
   bool migrateThrows = false;
 
+  /// Canned 'estimatePlayerElo' answer ({elo, se, games}), for tests that
+  /// need PlayerRatingStore.refresh to land a real rating — the skill
+  /// report's band default derives from it.
+  Map<String, dynamic>? playerEloResult;
+
   /// Canned 'skillReportUser' answer (#268), shape-faithful to
   /// brain/report.ts's return — a screen test sets this before pumping.
   /// Unset (null) throws rather than handing ReportApi a bad cast: unlike
@@ -146,6 +151,8 @@ class FakeBridge implements JsBridge {
         return migrateResult;
       case 'BRAIN_VERSION':
         return 2; // matches the shipped bundle; the report's envelope check reads it
+      case 'estimatePlayerElo':
+        return playerEloResult; // null (default) = no rating on the ruler yet
       case 'skillReportUser':
         if (skillReportUserResult == null) {
           throw StateError('FakeBridge.skillReportUserResult not set — a '

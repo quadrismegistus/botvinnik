@@ -270,6 +270,33 @@ describe('skillReportPeer', () => {
 		expect(p.bookPlyDeciles?.[4]).toBe(5);
 	});
 
+	it('an empty bucket ({n: 0}, NO blunders key) cannot NaN-poison the sums', () => {
+		// aggregate.mjs's t2Table emits exactly this shape for an empty bucket;
+		// {n: 0} is truthy and `+= undefined` is NaN (#293 review — latent
+		// until the tables are regenerated sparser).
+		const sparse = {
+			bands: {
+				'800': {
+					classical: {
+						t2: {
+							blunderByClockBucket: {
+								'0-5s': { n: 0 },
+								'5-10s': { n: 15, blunders: 2 },
+								'10-30s': { n: 0 },
+								'60-120s': { n: 7, blunders: 1 },
+								'120-300s': { n: 0 },
+								'300s+': { n: 0 }
+							}
+						}
+					}
+				}
+			}
+		};
+		const p = skillReportPeer(sparse, 800, 'classical')!;
+		expect(p.time.panic).toEqual({ n: 15, pBlunder: 2 / 15 });
+		expect(p.time.calm).toEqual({ n: 7, pBlunder: 1 / 7 });
+	});
+
 	it('a missing cell is null — no baseline is ever invented', () => {
 		expect(skillReportPeer(tables, 800, 'blitz')).toBeNull();
 		expect(skillReportPeer(tables, 1500, 'rapid')).toBeNull();
