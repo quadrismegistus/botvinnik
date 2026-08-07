@@ -1,8 +1,10 @@
-// The skill report (#268): the player's own axes — keeping a won game,
-// defending a worse one, the endgame, and the clock — beside the same axes
-// pooled from 56M lichess games at the player's own band. brain/report.ts
-// computes every number; this file only asks for them, gates on sample size,
-// and says what it is looking at.
+// The skill report (#268): the player's own axes — tactics, keeping a won
+// game, defending a worse one, the endgame, and the clock — beside the same
+// axes pooled from 56M lichess games at the player's own band (tactics
+// instead compares against Maia-3's per-position estimate: the dumps carry
+// no best lines, so that axis has no table to read). brain/report.ts and
+// reportTactics.ts compute every number; this file only asks for them, gates
+// on sample size, and says what it is looking at.
 //
 // HONESTY RULES, load-bearing and non-negotiable (see report.ts's own header
 // for why): the peer tables pool MOVES, not players, so nothing here ever
@@ -11,6 +13,7 @@
 // below it the card says how few moves it has rather than guessing past them.
 // A band/class with no peer cell says so instead of inventing one.
 
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -18,6 +21,7 @@ import 'package:flutter/services.dart' show rootBundle;
 import 'package:provider/provider.dart';
 
 import '../brain/report_api.dart';
+import '../stores/maia_tactics_sweep.dart';
 import '../stores/player_rating_store.dart';
 import '../stores/review_controller.dart';
 
@@ -55,6 +59,12 @@ const int kEvalFloor = 50;
 const int kClockedFloor = 100;
 const int kPanicFloor = 20;
 
+/// The tactics card's floor is on POSITIONS, not moves — tactical positions
+/// are maybe one move in twenty, so demanding [kEvalFloor] of them would keep
+/// the card dark for months. 30 found/missed shots is where a rate stops
+/// being three coin flips in a trenchcoat.
+const int kTacticsFloor = 30;
+
 class SkillReportScreen extends StatefulWidget {
   /// How the peer tables are read. Defaults to the real bundled asset; a test
   /// swaps this for a Future that resolves with no real file I/O — the same
@@ -79,6 +89,7 @@ class _SkillReportScreenState extends State<SkillReportScreen> {
   Map<String, dynamic>? _tables;
   Map<String, dynamic>? _user;
   Map<String, dynamic>? _peer;
+  Map<String, dynamic>? _tactics;
   bool _loading = true;
 
   /// Why the report could not load, or null. The failure screen renders this
@@ -144,6 +155,10 @@ class _SkillReportScreenState extends State<SkillReportScreen> {
         _loading = false;
         _error = null;
       });
+      // The tactics card's peer half: start (or resume) the Maia sweep over
+      // the archive's tactical positions. Fire-and-forget — the card renders
+      // its progress from the store as answers land.
+      unawaited(context.read<MaiaTacticsSweep>().ensureStarted());
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -161,7 +176,13 @@ class _SkillReportScreenState extends State<SkillReportScreen> {
   void _computeUser() {
     final games = context.read<ReviewController>().games;
     final projected = [for (final g in games) reportGameProjection(g)];
-    _user = context.read<ReportApi>().skillReportUser(projected, _timeClass);
+    final api = context.read<ReportApi>();
+    _user = api.skillReportUser(projected, _timeClass);
+    // The tactics selection covers all three classes at once (the card
+    // slices by [_timeClass] itself), so unlike _user it does not need
+    // recomputing on a class change — but the projection is already in
+    // hand here and the call is cheap next to the walk above.
+    _tactics = api.skillReportTactics(projected);
   }
 
   /// The peer cell for the current band × class, or null when the table has
@@ -233,11 +254,19 @@ class _SkillReportScreenState extends State<SkillReportScreen> {
   Widget _body() {
     final user = _user!;
     final peer = _peer;
+    // watch, not read: the card redraws as the sweep's answers land.
+    final sweep = context.watch<MaiaTacticsSweep>();
     return ListView(
       padding: const EdgeInsets.fromLTRB(14, 10, 14, 24),
       children: [
         _header(),
         const SizedBox(height: 14),
+        _TacticsCard(
+          tactics: _tactics!,
+          sweep: sweep,
+          band: _band,
+          timeClass: _timeClass,
+        ),
         _EvalAxisCard(
           title: 'Keeping a won game',
           user: (user['winning'] as Map).cast<String, dynamic>(),
@@ -404,6 +433,144 @@ Widget _notEnoughText(String unit, int n) => Text(
       'Not enough $unit in this slice yet — $n so far.',
       style: const TextStyle(fontSize: 12, color: Colors.white38),
     );
+
+/// "Tactics": of the positions where the engine's move carried a tactical
+/// motif, how often the player PLAYED that move — beside Maia-3's estimate of
+/// how often a typical player at the selected band finds the same shots, on
+/// these SAME positions (reportTactics.ts selects; MaiaTacticsSweep answers).
+///
+/// The peer column here is MODEL-DERIVED, unlike every other card's, and is
+/// badged as such — "Maia's typical N", never "typical N (class)", never a
+/// percentile. Where Maia cannot run (iPhone Safari's WASM ceiling) the card
+/// says so and stands absolute-only; while the sweep is still working it
+/// shows progress, not a mean over whatever happened to be swept first.
+class _TacticsCard extends StatelessWidget {
+  final Map<String, dynamic> tactics;
+  final MaiaTacticsSweep sweep;
+  final int band;
+  final String timeClass;
+
+  const _TacticsCard({
+    required this.tactics,
+    required this.sweep,
+    required this.band,
+    required this.timeClass,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final by = ((tactics['byClass'] as Map)[timeClass] as Map)
+        .cast<String, dynamic>();
+    final n = (by['n'] as num?)?.toInt() ?? 0;
+    return _AxisShell(
+      title: 'Tactics',
+      child: n < kTacticsFloor
+          ? _notEnoughText('tactical positions', n)
+          : _comparison(n, (by['found'] as num?)?.toInt() ?? 0),
+    );
+  }
+
+  /// The slice's cache keys, occurrences included: the user side counts a
+  /// repeated position every time it was faced, so the peer mean must weight
+  /// it the same way.
+  List<String> _sliceKeys() => [
+        for (final p in (tactics['positions'] as List))
+          if ((p as Map)['cls'] == timeClass) p['key'] as String,
+      ];
+
+  Widget _comparison(int n, int found) {
+    final userRate = found / n;
+    final keys = _sliceKeys();
+    final covered = sweep.coveredOf(keys);
+    // The refusal of a partial mean lives in ONE place — peerFoundRate
+    // answers null until every key is covered; the card only narrates the
+    // progress that explains the null.
+    final peerRate = sweep.peerFoundRate(keys, band);
+    final games = (tactics['games'] as Map).cast<String, dynamic>();
+    final ungraded = (games['noTopMoves'] as num?)?.toInt() ?? 0;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(child: _rateColumn('You', userRate, '$found of $n found')),
+            const SizedBox(width: 12),
+            Expanded(child: _peerColumn(keys.length, covered, peerRate)),
+          ],
+        ),
+        if (peerRate != null) ...[
+          const SizedBox(height: 6),
+          Text(_verdict(userRate, peerRate),
+              style: const TextStyle(fontSize: 12, color: Colors.white54)),
+        ],
+        if (ungraded > 0) ...[
+          const SizedBox(height: 6),
+          Text(
+            "Excludes $ungraded games not yet graded against the engine's top line.",
+            style: const TextStyle(fontSize: 11, color: Colors.white30),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _rateColumn(String label, double rate, String sub) => Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label,
+              style: const TextStyle(fontSize: 11, color: Colors.white38)),
+          const SizedBox(height: 2),
+          Text('${(rate * 100).toStringAsFixed(0)}%',
+              style:
+                  const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+          Text(sub, style: const TextStyle(fontSize: 12, color: Colors.white54)),
+        ],
+      );
+
+  Widget _peerColumn(int total, int covered, double? peerRate) {
+    final label = "Maia's typical $band";
+    if (!sweep.maiaUsable) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label,
+              style: const TextStyle(fontSize: 11, color: Colors.white38)),
+          const SizedBox(height: 2),
+          const Text('not available on this device',
+              style: TextStyle(fontSize: 12, color: Colors.white38)),
+        ],
+      );
+    }
+    if (peerRate == null) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label,
+              style: const TextStyle(fontSize: 11, color: Colors.white38)),
+          const SizedBox(height: 2),
+          Text('analysing your positions… $covered of $total',
+              style: const TextStyle(fontSize: 12, color: Colors.white38)),
+        ],
+      );
+    }
+    return _rateColumn(label, peerRate, 'model estimate, these positions');
+  }
+
+  /// Model-attributed wording, never a percentile: this is Maia's expected
+  /// find-rate on the very positions the player faced, and the sentence says
+  /// whose estimate it is every time.
+  String _verdict(double userRate, double peerRate) {
+    final diff = userRate - peerRate;
+    if (diff.abs() < 0.02) {
+      return "you find these about as often as Maia's typical $band";
+    }
+    return diff > 0
+        ? "you find these shots more often than Maia's typical $band"
+        : "you find these shots less often than Maia's typical $band";
+  }
+}
 
 /// "Keeping a won game" / "Defence when worse" / "Endgame": the brain's
 /// `{n, mean, blunderRate}` shape, user beside peer, with a one-line verdict

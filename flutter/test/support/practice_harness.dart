@@ -57,6 +57,15 @@ class FakeBridge implements JsBridge {
   /// on a table of per-band answers.
   Map<String, dynamic>? skillReportPeerResult;
 
+  /// Canned 'skillReportTactics' answer (#268), shape-faithful to
+  /// brain/reportTactics.ts's return. Same throw-when-unset rule as
+  /// [skillReportUserResult]: the real call never answers null.
+  Map<String, dynamic>? skillReportTacticsResult;
+
+  /// Canned 'MAIA_ELO_LADDER' property (#221/#268) — the real brain owns the
+  /// rung list; a sweep test cans a short one.
+  List<int>? eloLadderResult;
+
   /// Every `nextItem` argument list, in order.
   List<List<Object?>> get nextItemArgs =>
       calls.where((c) => c.fn == 'nextItem').map((c) => c.args).toList();
@@ -161,6 +170,18 @@ class FakeBridge implements JsBridge {
         return skillReportUserResult;
       case 'skillReportPeer':
         return skillReportPeerResult;
+      case 'skillReportTactics':
+        if (skillReportTacticsResult == null) {
+          throw StateError('FakeBridge.skillReportTacticsResult not set — a '
+              'skill report test must supply one');
+        }
+        return skillReportTacticsResult;
+      case 'MAIA_ELO_LADDER':
+        if (eloLadderResult == null) {
+          throw StateError('FakeBridge.eloLadderResult not set — a sweep '
+              'test asking for the ladder must can one');
+        }
+        return eloLadderResult;
       default:
         throw StateError('FakeBridge has no answer for brain.$fn');
     }

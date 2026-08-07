@@ -16,6 +16,7 @@ import 'package:provider/provider.dart';
 
 import 'package:botvinnik_mobile/brain/rating_api.dart';
 import 'package:botvinnik_mobile/brain/report_api.dart';
+import 'package:botvinnik_mobile/stores/maia_tactics_sweep.dart';
 import 'package:botvinnik_mobile/stores/player_rating_store.dart';
 import 'package:botvinnik_mobile/stores/review_controller.dart';
 import 'package:botvinnik_mobile/ui/skill_report_screen.dart';
@@ -105,26 +106,61 @@ Map<String, dynamic> _peerReport({
 
 // ---- pumping ---------------------------------------------------------------
 
-/// Pumps [SkillReportScreen] with [bridge] behind ReportApi/RatingApi, and
-/// [games] behind ReviewController — the same three providers main.dart
-/// wires, minus everything the screen does not read. The screen's _load
-/// refreshes the rating store; with no canned [FakeBridge.playerEloResult]
-/// the estimate stays null and the band defaults to 1500, which is why the
-/// expected verdicts below read "the typical 1500 (blitz)".
+/// A tactics answer whose blitz slice is below [kTacticsFloor] — the default
+/// for tests about the OTHER cards, so the tactics card renders its
+/// not-enough line and stays out of their assertions.
+Map<String, dynamic> _tacticsReport({
+  int n = 0,
+  int found = 0,
+  List<Map<String, dynamic>> positions = const [],
+  int noTopMoves = 0,
+}) =>
+    {
+      'positions': positions,
+      'byClass': {
+        'blitz': {'n': n, 'found': found},
+        'rapid': {'n': 0, 'found': 0},
+        'classical': {'n': 0, 'found': 0},
+      },
+      'games': {
+        'considered': 5,
+        'humanless': 0,
+        'offClass': 0,
+        'noTopMoves': noTopMoves,
+      },
+    };
+
+/// Pumps [SkillReportScreen] with [bridge] behind ReportApi/RatingApi,
+/// [games] behind ReviewController, and [sweep] (or an inert default) behind
+/// MaiaTacticsSweep — the same providers main.dart wires, minus everything
+/// the screen does not read. The screen's _load refreshes the rating store;
+/// with no canned [FakeBridge.playerEloResult] the estimate stays null and
+/// the band defaults to 1500, which is why the expected verdicts below read
+/// "the typical 1500 (blitz)".
 Future<void> _pump(WidgetTester tester,
     {required FakeBridge bridge,
     List<Map<String, dynamic>> games = const [],
+    MaiaTacticsSweep? sweep,
     Future<String> Function()? loadTables}) async {
   final review = ReviewController(FakeDb())..games = games;
   // MemoryDb, not FakeDb: the screen's _load refreshes the rating store, and
   // refresh reads db.listGames — a FakeDb answers null and the refresh throws
   // (harmlessly, caught) before any canned playerEloResult can land.
   final rating = PlayerRatingStore(MemoryDb(), RatingApi(bridge));
+  // Unset by a test that doesn't care → the card's not-enough line.
+  bridge.skillReportTacticsResult ??= _tacticsReport();
+  // The default sweep is inert: an empty selector answer means ensureStarted
+  // (which _load fires) returns before touching any transport. Seams, not
+  // the real gate, so the suite is not silently a macOS-only suite.
+  final tacticsSweep = sweep ??
+      (MaiaTacticsSweep.test(MemoryDb())
+        ..debugTactics = ((_) => _tacticsReport()));
   await tester.pumpWidget(MultiProvider(
     providers: [
       Provider<ReportApi>.value(value: ReportApi(bridge)),
       ChangeNotifierProvider<ReviewController>.value(value: review),
       ChangeNotifierProvider<PlayerRatingStore>.value(value: rating),
+      ChangeNotifierProvider<MaiaTacticsSweep>.value(value: tacticsSweep),
     ],
     child: MaterialApp(
       home: SkillReportScreen(
@@ -208,14 +244,39 @@ void main() {
           reason: 'a game-level field outside the contract must not cross the bridge');
 
       final move = (projected['moves'] as List).single as Map;
-      expect(move.keys.toSet(), {'color', 'evalPawns', 'mate', 'fenBefore', 'san'},
+      expect(
+          move.keys.toSet(),
+          {'color', 'evalPawns', 'mate', 'fenBefore', 'san', 'uci', 'bestUci'},
           reason: 'label/bestPv/explanation/wcDrop/etc. are exactly the bytes '
-              'the projection exists to drop');
+              'the projection exists to drop; uci/bestUci joined the contract '
+              'with the tactics axis (#268), and bestMate (null here) and '
+              'topRecorded (absent here) stay off like any unset optional');
       expect(move['color'], 'w');
       expect(move['evalPawns'], 0.3);
       expect(move['mate'], isNull);
       expect(move['fenBefore'], 'startpos-fen');
       expect(move['san'], 'e4');
+      expect(move['uci'], 'e2e4');
+      expect(move['bestUci'], 'e2e4');
+    });
+
+    test('carries bestMate and topRecorded only when the writer set them', () {
+      final projected = reportGameProjection({
+        'botColor': 'b',
+        'moves': [
+          {
+            'color': 'w',
+            'evalPawns': 0.3,
+            'mate': null,
+            'bestMate': 2,
+            'topRecorded': true,
+          },
+        ],
+      });
+      final move = (projected['moves'] as List).single as Map;
+      expect(move['bestMate'], 2);
+      expect(move['topRecorded'], true,
+          reason: 'the selector\'s population gate reads exactly this flag');
     });
 
     test('declares evalPawns/mate as explicit null, never omits the key', () {
@@ -262,17 +323,17 @@ void main() {
   // ---- the screen ----------------------------------------------------------
 
   group('SkillReportScreen', () {
-    testWidgets('renders all four cards, peer numbers beside user numbers',
+    testWidgets('renders all five cards, peer numbers beside user numbers',
         (tester) async {
       final bridge = FakeBridge()
         ..skillReportUserResult = _userReport()
         ..skillReportPeerResult = _peerReport();
       await _pump(tester, bridge: bridge);
 
+      expect(find.text('Tactics'), findsOneWidget);
       expect(find.text('Keeping a won game'), findsOneWidget);
       expect(find.text('Defence when worse'), findsOneWidget);
       expect(find.text('Endgame'), findsOneWidget);
-      expect(find.text('Clock discipline'), findsOneWidget);
 
       final text = _text(tester);
       // winning: user 4.2 < peer 6.5 → "less"
@@ -289,15 +350,21 @@ void main() {
       // above; the mean figures pin it to THIS card)
       expect(text, contains('3.0 pts/move'));
       expect(text, contains('5.5 pts/move'));
-      // time: under-2s share and panic/calm, both columns
-      expect(text, contains('20.0%'));
-      expect(text, contains('30.0%'));
-      expect(text, contains('panic 8.0%'));
-      expect(text, contains('calm 1.0%'));
-      expect(text, contains('panic 9.0%'));
-      expect(text, contains('calm 2.0%'));
 
-      expect(text, isNot(contains('percentile')),
+      // The fifth card pushed the clock card below the test viewport, and a
+      // lazy ListView has not even BUILT what is off screen — scroll first,
+      // assert after (same caveat as the footer test below).
+      await tester.scrollUntilVisible(find.text('Clock discipline'), 300);
+      final scrolled = _text(tester);
+      // time: under-2s share and panic/calm, both columns
+      expect(scrolled, contains('20.0%'));
+      expect(scrolled, contains('30.0%'));
+      expect(scrolled, contains('panic 8.0%'));
+      expect(scrolled, contains('calm 1.0%'));
+      expect(scrolled, contains('panic 9.0%'));
+      expect(scrolled, contains('calm 2.0%'));
+
+      expect(scrolled, isNot(contains('percentile')),
           reason: 'the peer tables pool moves, not players — see the honesty rules');
     });
 
@@ -465,6 +532,156 @@ void main() {
           reason: 'the new band must be in the request, not just on screen');
       expect(peerCalls.last.args[2], 'blitz',
           reason: 'the time class did not change — the request should say so too');
+    });
+  });
+
+  // ---- the tactics card ------------------------------------------------------
+
+  group('tactics card', () {
+    /// 40 blitz positions, 18 found, over two distinct cache keys — k1 faced
+    /// 30 times, k2 ten (duplicates weight the peer mean like the user side).
+    List<Map<String, dynamic>> positions() => [
+          for (var i = 0; i < 30; i++)
+            {'key': 'k1', 'fen': 'f1', 'bestUci': 'b5c7', 'bestSan': 'Nc7+', 'cls': 'blitz', 'found': i < 15},
+          for (var i = 0; i < 10; i++)
+            {'key': 'k2', 'fen': 'f2', 'bestUci': 'h5d5', 'bestSan': 'Rd5', 'cls': 'blitz', 'found': i < 3},
+        ];
+
+    // The sweep's own selector answer must carry the SAME positions the
+    // bridge hands the screen: the sweep prunes cached curves whose keys its
+    // selector no longer lists (correctly — they are stale), so a mismatch
+    // here would delete the seeds. Analyze answers null: uncovered positions
+    // stay uncovered, which is exactly what the progress tests want.
+    MaiaTacticsSweep seededSweep({Map<String, List<double>>? curves}) =>
+        MaiaTacticsSweep.test(MemoryDb())
+          ..debugUsableOverride = true
+          ..debugLadder = [1500, 1600]
+          ..debugTactics =
+              ((_) => _tacticsReport(n: 40, found: 18, positions: positions()))
+          ..debugAnalyze = ((fen, elos) async => null)
+          ..debugSeed(curves ??
+              {
+                // band 1500 → rung index 0. Peer mean = (30·0.6 + 10·0.2)/40
+                // = 0.5 → "50%".
+                'k1': [0.6, 0.9],
+                'k2': [0.2, 0.9],
+              });
+
+    testWidgets('user rate and Maia rate, in tree order, badged as a model',
+        (tester) async {
+      final bridge = FakeBridge()
+        ..skillReportUserResult = _userReport()
+        ..skillReportPeerResult = _peerReport()
+        ..skillReportTacticsResult =
+            _tacticsReport(n: 40, found: 18, positions: positions());
+      await _pump(tester, bridge: bridge, sweep: seededSweep());
+
+      expect(
+          _cardTexts(tester, 'Tactics').take(8).toList(),
+          [
+            'Tactics',
+            'You',
+            '45%',
+            '18 of 40 found',
+            "Maia's typical 1500",
+            '50%',
+            'model estimate, these positions',
+            "you find these shots less often than Maia's typical 1500",
+          ],
+          reason: 'user first, Maia second, and the peer column says whose '
+              'estimate it is — never a percentile');
+      expect(_text(tester), isNot(contains('percentile')));
+    });
+
+    testWidgets('below the floor: not-enough wording, no comparison',
+        (tester) async {
+      final bridge = FakeBridge()
+        ..skillReportUserResult = _userReport()
+        ..skillReportPeerResult = _peerReport()
+        ..skillReportTacticsResult = _tacticsReport(
+            n: 10,
+            found: 4,
+            positions: [
+              for (var i = 0; i < 10; i++)
+                {'key': 'k1', 'fen': 'f1', 'bestUci': 'b5c7', 'bestSan': 'Nc7+', 'cls': 'blitz', 'found': i < 4},
+            ]);
+      await _pump(tester, bridge: bridge, sweep: seededSweep());
+
+      expect(
+          find.text('Not enough tactical positions in this slice yet — 10 so far.'),
+          findsOneWidget);
+      expect(find.textContaining('of 10 found'), findsNothing);
+      expect(find.textContaining("Maia's typical"), findsNothing);
+    });
+
+    testWidgets('an unfinished sweep shows progress, never a partial mean',
+        (tester) async {
+      final bridge = FakeBridge()
+        ..skillReportUserResult = _userReport()
+        ..skillReportPeerResult = _peerReport()
+        ..skillReportTacticsResult =
+            _tacticsReport(n: 40, found: 18, positions: positions());
+      // Only k1 answered: 30 of the 40 occurrences are covered.
+      await _pump(tester,
+          bridge: bridge,
+          sweep: seededSweep(curves: {
+            'k1': [0.6, 0.9]
+          }));
+
+      expect(find.text('analysing your positions… 30 of 40'), findsOneWidget);
+      expect(find.textContaining('model estimate'), findsNothing);
+      expect(find.textContaining('find these shots'), findsNothing,
+          reason: 'no verdict without a full peer mean');
+      expect(find.text('45%'), findsOneWidget,
+          reason: 'the user half stands on its own while Maia works');
+    });
+
+    testWidgets('where Maia cannot run, the card says so and stays absolute',
+        (tester) async {
+      final bridge = FakeBridge()
+        ..skillReportUserResult = _userReport()
+        ..skillReportPeerResult = _peerReport()
+        ..skillReportTacticsResult =
+            _tacticsReport(n: 40, found: 18, positions: positions());
+      final sweep = MaiaTacticsSweep.test(MemoryDb())
+        ..debugUsableOverride = false
+        ..debugTactics = ((_) => _tacticsReport());
+      await _pump(tester, bridge: bridge, sweep: sweep);
+
+      expect(find.text('not available on this device'), findsOneWidget);
+      expect(find.text('45%'), findsOneWidget);
+      expect(find.textContaining('analysing'), findsNothing,
+          reason: 'no progress theatre for work that will never run');
+    });
+
+    testWidgets('counts games the axis had to exclude as not yet graded',
+        (tester) async {
+      final bridge = FakeBridge()
+        ..skillReportUserResult = _userReport()
+        ..skillReportPeerResult = _peerReport()
+        ..skillReportTacticsResult = _tacticsReport(
+            n: 40, found: 18, positions: positions(), noTopMoves: 4);
+      await _pump(tester, bridge: bridge, sweep: seededSweep());
+
+      expect(
+          find.text("Excludes 4 games not yet graded against the engine's top line."),
+          findsOneWidget);
+    });
+
+    testWidgets('opening the report starts the sweep', (tester) async {
+      final bridge = FakeBridge()
+        ..skillReportUserResult = _userReport()
+        ..skillReportPeerResult = _peerReport();
+      var asked = 0;
+      final sweep = MaiaTacticsSweep.test(MemoryDb())
+        ..debugTactics = ((_) {
+          asked++;
+          return _tacticsReport();
+        });
+      await _pump(tester, bridge: bridge, sweep: sweep);
+      expect(asked, 1,
+          reason: '_load must kick ensureStarted — a sweep nobody starts is '
+              'a peer column that never arrives');
     });
   });
 }

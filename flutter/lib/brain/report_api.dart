@@ -35,6 +35,17 @@ class ReportApi {
         _bridge.call('skillReportPeer', args: [tables, band, timeClass]);
     return r == null ? null : (r as Map).cast<String, dynamic>();
   }
+
+  /// The tactics axis (#268): the brain's ONE selector (reportTactics.ts)
+  /// hands back the tactical positions, the found-rate per class, and the
+  /// population counts. Both consumers — the card and the Maia sweep — read
+  /// this same call, so they can never disagree about which positions the
+  /// axis is made of (the [[brain-flutter-wire-gaps]] class). [games] must
+  /// already be projected ([reportGameProjection]).
+  Map<String, dynamic> skillReportTactics(List<Map<String, dynamic>> games) {
+    final r = _bridge.call('skillReportTactics', args: [games]);
+    return (r as Map).cast<String, dynamic>();
+  }
 }
 
 /// Slims a stored game down to exactly the fields brain/report.ts's
@@ -79,4 +90,13 @@ Map<String, dynamic> _projectMove(Map<String, dynamic> m) => {
       'mate': m['mate'],
       if (m['fenBefore'] != null) 'fenBefore': m['fenBefore'],
       if (m['san'] != null) 'san': m['san'],
+      // The tactics selector's four (#268). All genuinely optional in the
+      // ReportMove contract — absent means "the writer recorded nothing",
+      // which is exactly what the selector's topRecorded gate wants to see,
+      // so these keys are left off rather than declared null (the same
+      // choice as fenBefore/san above, the opposite of evalPawns/mate).
+      if (m['uci'] != null) 'uci': m['uci'],
+      if (m['bestUci'] != null) 'bestUci': m['bestUci'],
+      if (m['bestMate'] != null) 'bestMate': m['bestMate'],
+      if (m['topRecorded'] == true) 'topRecorded': true,
     };

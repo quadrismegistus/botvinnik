@@ -153,6 +153,35 @@ if (cc.humanColor !== 'w' || cc.stored.botColor !== 'b') fail('ccGameToStored hu
 if (brain.moveAccuracy(0) < 99) fail('moveAccuracy(0)');
 if (brain.gameAccuracy([], 'w') !== null) fail('gameAccuracy empty');
 
+// the skill report's tactics selector (#268): the sweep and the card both
+// live off this export — drop it and the report screen throws on open
+const tac = brain.skillReportTactics([
+	{
+		botColor: 'b',
+		botBothSides: false,
+		pgn: '[TimeControl "180+2"]\n\n1. e4 *',
+		moves: [
+			...Array.from({ length: 12 }, (_, i) => ({
+				color: i % 2 ? 'b' : 'w',
+				evalPawns: null,
+				mate: null
+			})),
+			{
+				color: 'w',
+				evalPawns: 0.5,
+				mate: null,
+				fenBefore: 'q3k3/8/8/1N6/8/8/8/4K3 w - - 0 1', // Nc7+ royal fork
+				uci: 'b5c7',
+				bestUci: 'b5c7',
+				bestMate: null,
+				topRecorded: true
+			}
+		]
+	}
+]);
+if (tac?.byClass?.blitz?.n !== 1 || tac.positions[0]?.bestSan !== 'Nc7+')
+	fail(`skillReportTactics ${JSON.stringify(tac?.byClass)}`);
+
 console.log(
 	`brain smoke OK — v${brain.BRAIN_VERSION}, ${personas.length} web personas, sample move ${move}`
 );
