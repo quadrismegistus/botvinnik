@@ -31,6 +31,13 @@ export interface ReportMove {
 	mate: number | null;
 	fenBefore?: string;
 	san?: string;
+	// The tactics axis (reportTactics.ts) reads four more optional fields; the
+	// walk below never does. All genuinely optional: absent means the writer
+	// recorded nothing, and the selector treats that as "nobody looked".
+	uci?: string;
+	bestUci?: string;
+	bestMate?: number | null;
+	topRecorded?: boolean;
 }
 
 export interface ReportGame {

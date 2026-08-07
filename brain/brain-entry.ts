@@ -57,6 +57,9 @@ export { isEndgamePosition, endgameStartPly } from './engine/phase';
 // (report-parity.test.ts pins it), and the peer cell reshaped to sit beside
 // them. Dart marshals games in, numbers come out; verdict prose is UI work.
 export { skillReportUser, skillReportPeer, timeClassOfPgn } from './report';
+// The tactics axis (#268): selection is brain work so the sweep scheduler and
+// the card read ONE position set (the wire-gap class: two selectors drift).
+export { skillReportTactics } from './reportTactics';
 
 // ---- opening book × engine (the unified move table) ----
 // The Book pane's rows: the engine's lines merged with the baked book's counts
