@@ -791,8 +791,17 @@ void main() {
         ..skillReportPeerResult = _peerReport();
       final sweep = MaiaTacticsSweep.test(MemoryDb())
         ..debugUsableOverride = false
+        ..debugLadder = [1500, 1600]
         ..debugTactics = ((_) =>
-            _tacticsReport(n: 40, found: 18, positions: positions()));
+            _tacticsReport(n: 40, found: 18, positions: positions()))
+        // Curves SEEDED on purpose: peerFoundRate can answer, so only the
+        // maiaUsable gates keep the column and the verdict silent — the
+        // coded-but-contradictory state the review rendered (#294, probe
+        // S2: "not available on this device" over a Maia-quoting verdict).
+        ..debugSeed({
+          'k1': [0.6, 0.9],
+          'k2': [0.2, 0.9],
+        });
       await _pump(tester, bridge: bridge, sweep: sweep);
 
       expect(find.text('not available on this device'), findsOneWidget);

@@ -28,9 +28,9 @@ Map<String, dynamic> _tactics(List<String> keys) => {
           {'key': k, 'fen': 'fen-$k', 'bestUci': 'a1a2', 'bestSan': 'Ra2', 'cls': 'blitz', 'found': true},
       ],
       'byClass': {
-        'blitz': {'n': keys.length, 'found': keys.length, 'noTopGames': 0},
-        'rapid': {'n': 0, 'found': 0, 'noTopGames': 0},
-        'classical': {'n': 0, 'found': 0, 'noTopGames': 0},
+        'blitz': {'n': keys.length, 'found': keys.length, 'noTopGames': 0, 'assistedGames': 0},
+        'rapid': {'n': 0, 'found': 0, 'noTopGames': 0, 'assistedGames': 0},
+        'classical': {'n': 0, 'found': 0, 'noTopGames': 0, 'assistedGames': 0},
       },
       'games': {
         'considered': 1,
@@ -204,6 +204,38 @@ void main() {
     expect((doc['curves'] as Map).keys.toSet(), {'k1'});
   });
 
+  test('a failed cache read aborts the pass and never clobbers the document',
+      () async {
+    // _loaded latching before a throwing kvGet meant: cache discarded for
+    // the process, whole archive re-inferred, and the first checkpoint then
+    // OVERWROTE the still-valid document (#294 review, run-proven).
+    final db = _FlakyKvDb();
+    await db.kvPut(
+        _kvKey,
+        jsonEncode({
+          'v': MaiaTacticsSweep.kDocVersion,
+          'ladder': _ladder,
+          'curves': {
+            'k1': [0.9, 0.9]
+          },
+        }));
+    db.failNextGet = true;
+    final asked = <String>[];
+    final sweep = _sweep(db, keys: ['k1'], analyze: (fen, elos) async {
+      asked.add(fen);
+      return _raw;
+    });
+    await sweep.ensureStarted();
+    expect(asked, isEmpty, reason: 'the pass aborts on the failed read');
+    final doc = jsonDecode((await db.kvGet(_kvKey))!) as Map;
+    expect((doc['curves'] as Map)['k1'], [0.9, 0.9],
+        reason: 'the document survives untouched');
+
+    await sweep.ensureStarted(); // the next pass rereads and answers from it
+    expect(asked, isEmpty);
+    expect(sweep.curveFor('k1'), [0.9, 0.9]);
+  });
+
   test('a wipe mid-sweep stops the pass and writes NOTHING', () async {
     final db = MemoryDb();
     final asked = <String>[];
@@ -370,6 +402,46 @@ void main() {
     expect(sweep.peerFoundRate(['k1'], 1500), 0.9);
   });
 
+  test('a wipe during the SELECTION walk publishes nothing', () async {
+    // Selection is chunked across yields, so a wipe can land between games.
+    // A half-merged archive published as "your found-rate" is a number about
+    // nothing — the pass must abort unpublished and let the resume re-list.
+    final db = MemoryDb();
+    await db.saveGame({'id': 'g1', 'endedAt': '2026-08-07T00:00:01Z'});
+    await db.saveGame({'id': 'g2', 'endedAt': '2026-08-07T00:00:02Z'});
+    final bridge = _WipingBridge(db)
+      ..skillReportTacticsResult = _tactics(['k1'])
+      ..eloLadderResult = _ladder;
+    final sweep = MaiaTacticsSweep(db, bridge, ValueNotifier(0), () => false)
+      ..debugAnalyze = ((fen, elos) async => _raw);
+    await sweep.ensureStarted();
+
+    expect(sweep.tactics, isNull,
+        reason: 'one game of two is not the archive');
+    expect(sweep.coveredOf(['k1']), 0, reason: 'no inference on fiction');
+  });
+
+  test('a game starting during the SELECTION walk also publishes nothing',
+      () async {
+    // The pause branch is the wipe branch's sibling and needs its own test:
+    // returning the half-merged report there survived every other one (#294
+    // mutation re-run).
+    final db = MemoryDb();
+    await db.saveGame({'id': 'g1', 'endedAt': '2026-08-07T00:00:01Z'});
+    await db.saveGame({'id': 'g2', 'endedAt': '2026-08-07T00:00:02Z'});
+    var live = false;
+    final bridge = _LiveFlippingBridge(() => live = true)
+      ..skillReportTacticsResult = _tactics(['k1'])
+      ..eloLadderResult = _ladder;
+    final sweep =
+        MaiaTacticsSweep(db, bridge, ValueNotifier(0), () => live)
+          ..debugAnalyze = ((fen, elos) async => _raw);
+    await sweep.ensureStarted();
+
+    expect(sweep.tactics, isNull,
+        reason: 'one game of two is not the archive, paused or wiped alike');
+  });
+
   test('selection walks the archive one game per bridge call and merges',
       () async {
     // The whole-archive selector call was ~19s of synchronous UI freeze at
@@ -435,4 +507,57 @@ void main() {
       expect(sweep.peerFoundRate(['k1'], 3000), 0.7);
     });
   });
+}
+
+/// Wipes the archive when the FIRST selector call lands — mid-selection,
+/// exactly between two of the sweep's per-game chunks.
+class _WipingBridge extends FakeBridge {
+  final MemoryDb db;
+  bool _wiped = false;
+  _WipingBridge(this.db);
+
+  @override
+  dynamic call(String fn,
+      {List<Object?> args = const [], bool isProperty = false}) {
+    final r = super.call(fn, args: args, isProperty: isProperty);
+    if (fn == 'skillReportTactics' && !_wiped) {
+      _wiped = true;
+      db.wipeEpoch++; // deleteAllGames' synchronous half — the bump
+      db.games.clear();
+    }
+    return r;
+  }
+}
+
+/// kvGet throws once — sqflite's "database is locked", the web worker's bad
+/// day — then recovers.
+class _FlakyKvDb extends MemoryDb {
+  bool failNextGet = false;
+
+  @override
+  Future<String?> kvGet(String key) async {
+    if (failNextGet) {
+      failNextGet = false;
+      throw StateError('database is locked');
+    }
+    return super.kvGet(key);
+  }
+}
+
+/// Flips the live-game flag when the FIRST selector call lands.
+class _LiveFlippingBridge extends FakeBridge {
+  final void Function() onFirstTactics;
+  bool _flipped = false;
+  _LiveFlippingBridge(this.onFirstTactics);
+
+  @override
+  dynamic call(String fn,
+      {List<Object?> args = const [], bool isProperty = false}) {
+    final r = super.call(fn, args: args, isProperty: isProperty);
+    if (fn == 'skillReportTactics' && !_flipped) {
+      _flipped = true;
+      onFirstTactics();
+    }
+    return r;
+  }
 }
