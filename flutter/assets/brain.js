@@ -3963,6 +3963,7 @@ var brain = (() => {
     shapedSearchDepth: () => shapedSearchDepth,
     shapedStrengthRange: () => shapedStrengthRange,
     skillReportPeer: () => skillReportPeer,
+    skillReportTactics: () => skillReportTactics,
     skillReportUser: () => skillReportUser,
     softmaxWdl: () => softmaxWdl,
     specToRecipe: () => specToRecipe,
@@ -9535,6 +9536,365 @@ var brain = (() => {
     };
   }
 
+  // brain/practice.ts
+  function epdKey(fen) {
+    if (typeof fen !== "string") return String(fen);
+    const parts = fen.split(" ");
+    if (parts.length < 4) return fen;
+    const four = parts.slice(0, 4);
+    if (four[3] !== "-") {
+      try {
+        const board = new Chess(fen);
+        if (!board.moves({ verbose: true }).some((m) => m.flags.includes("e"))) {
+          four[3] = "-";
+        }
+      } catch {
+      }
+    }
+    return four.join(" ");
+  }
+  function epdKeys(fens) {
+    return fens.map(epdKey);
+  }
+  var KEY = "botvinnik-practice-v1";
+  var INTERVAL_DAYS = [7e-3, 1, 3, 7, 21];
+  function hasStorage() {
+    return typeof localStorage !== "undefined";
+  }
+  function save(items) {
+    if (hasStorage()) localStorage.setItem(KEY, JSON.stringify(items));
+  }
+  function itemDataFromStoredMove(move, setupUci) {
+    if (!move.bestSan || !move.bestUci || !move.fenBefore || move.wcDrop <= 0) return null;
+    if (move.bestUci === move.uci) return null;
+    const bestPv = move.bestPv && move.bestPv[0] === move.bestUci ? move.bestPv : [move.bestUci];
+    const wcBest = Math.max(0, Math.min(100, winChance(move.evalPawns, move.mate) + move.wcDrop));
+    const w = Math.max(0.01, Math.min(0.99, wcBest / 100));
+    const evalBestPawns = Math.max(-15, Math.min(15, Math.log(w / (1 - w)) / 368208e-8 / 100));
+    return {
+      fen: move.fenBefore,
+      playedSan: move.san,
+      playedUci: move.uci,
+      bestSan: move.bestSan,
+      bestUci: move.bestUci,
+      bestPv,
+      setupUci: setupUci ?? enPassantSetup(move.fenBefore) ?? void 0,
+      // the REAL mate distance, not null (#283). The grade has always carried
+      // it and _storedMoveOf used to drop it, so a quiet move that forces mate
+      // reached the tagger indistinguishable from an ordinary quiet move — and
+      // got filed under whatever positional fact happened to be true of it,
+      // which the tier-1 hint then said out loud on a mating puzzle.
+      motifs: motifTags(move.fenBefore, move.bestUci, bestPv, move.bestMate ?? null),
+      evalBestPawns,
+      mateBest: move.bestMate ?? null,
+      wcBest,
+      drop: move.wcDrop,
+      // the move's real grading depth, not a constant: the migration's
+      // "deeper grade's chess fields win" tiebreak is vacuous if every item
+      // claims 22 (review of #286). || not ??— an ungraded 0 means unknown.
+      depth: move.depth || 22
+    };
+  }
+  function puzzleSetupMove(item) {
+    return item.setupUci ?? enPassantSetup(item.fen);
+  }
+  function enPassantSetup(fen) {
+    const ep = fen.split(" ")[3];
+    if (!ep || ep === "-" || ep.length < 2) return null;
+    const file2 = ep[0];
+    if (ep[1] === "6") return `${file2}7${file2}5`;
+    if (ep[1] === "3") return `${file2}2${file2}4`;
+    return null;
+  }
+  function bumpRepeat(items, at, seenKey) {
+    const item = items[at];
+    if (seenKey && (item.seenIn ?? []).includes(seenKey)) return null;
+    const next = [...items];
+    next[at] = {
+      ...item,
+      seenCount: (item.seenCount ?? 1) + 1,
+      lastSeenAt: (/* @__PURE__ */ new Date()).toISOString(),
+      ...seenKey ? { seenIn: [...item.seenIn ?? [], seenKey] } : {}
+    };
+    return next;
+  }
+  function addItem(items, data) {
+    const key = epdKey(data.fen);
+    const at = items.findIndex((i) => i.id === key);
+    if (at >= 0) {
+      const next2 = bumpRepeat(items, at);
+      if (next2) save(next2);
+      return next2;
+    }
+    const now = /* @__PURE__ */ new Date();
+    const item = {
+      ...data,
+      id: key,
+      createdAt: now.toISOString(),
+      box: 0,
+      dueAt: now.toISOString(),
+      // due immediately
+      attempts: 0,
+      correct: 0
+    };
+    const next = [...items, item];
+    save(next);
+    return next;
+  }
+  function addItems(items, dataList, seenKeys) {
+    const now = (/* @__PURE__ */ new Date()).toISOString();
+    let next = [...items];
+    const at = new Map(next.map((i, n) => [i.id, n]));
+    let changed = false;
+    for (let n = 0; n < dataList.length; n++) {
+      const data = dataList[n];
+      const seenKey = seenKeys?.[n] ?? void 0;
+      const key = epdKey(data.fen);
+      const existing = at.get(key);
+      if (existing !== void 0) {
+        const bumped = bumpRepeat(next, existing, seenKey);
+        if (bumped) {
+          next = bumped;
+          changed = true;
+        }
+        continue;
+      }
+      at.set(key, next.length);
+      next.push({
+        ...data,
+        id: key,
+        createdAt: now,
+        box: 0,
+        dueAt: now,
+        // due immediately
+        attempts: 0,
+        correct: 0,
+        ...seenKey ? { seenIn: [seenKey] } : {}
+      });
+      changed = true;
+    }
+    if (!changed) return null;
+    save(next);
+    return next;
+  }
+  function migratePracticeItems(items) {
+    let changed = false;
+    const byKey = /* @__PURE__ */ new Map();
+    const order = [];
+    let unkeyed = 0;
+    for (const raw of items) {
+      if (typeof raw.fen !== "string") {
+        const key2 = `__unkeyed-${unkeyed++}`;
+        byKey.set(key2, raw);
+        order.push(key2);
+        continue;
+      }
+      const key = epdKey(raw.fen);
+      if (raw.id !== key) changed = true;
+      const item = { ...raw, id: key };
+      const prev = byKey.get(key);
+      if (!prev) {
+        byKey.set(key, item);
+        order.push(key);
+        continue;
+      }
+      changed = true;
+      const base = item.depth > prev.depth ? item : prev;
+      const seenIn = [.../* @__PURE__ */ new Set([...prev.seenIn ?? [], ...item.seenIn ?? []])];
+      const lastSeen = [prev.lastSeenAt, item.lastSeenAt].filter(Boolean).sort().pop();
+      byKey.set(key, {
+        ...base,
+        box: Math.min(prev.box, item.box),
+        dueAt: Date.parse(prev.dueAt) <= Date.parse(item.dueAt) ? prev.dueAt : item.dueAt,
+        createdAt: Date.parse(prev.createdAt) <= Date.parse(item.createdAt) ? prev.createdAt : item.createdAt,
+        attempts: prev.attempts + item.attempts,
+        correct: prev.correct + item.correct,
+        seenCount: (prev.seenCount ?? 1) + (item.seenCount ?? 1),
+        ...seenIn.length ? { seenIn } : {},
+        ...lastSeen ? { lastSeenAt: lastSeen } : {}
+      });
+    }
+    if (!changed) return null;
+    const next = order.map((k) => byKey.get(k));
+    save(next);
+    return next;
+  }
+  function removeItem(items, id) {
+    const next = items.filter((i) => i.id !== id);
+    save(next);
+    return next;
+  }
+  function dueCount(items, now = Date.now()) {
+    return items.filter((i) => Date.parse(i.dueAt) <= now).length;
+  }
+  var TACTICAL_MOTIFS = [
+    "mate",
+    "back-rank mate",
+    "smothered mate",
+    "free capture",
+    "material",
+    "fork",
+    "pin",
+    "skewer",
+    "promotion"
+  ];
+  function puzzleDifficulty(item) {
+    if (item.attempts >= 2) {
+      const rate = item.correct / item.attempts;
+      if (item.lastResult === "fail" && rate < 0.5) return "hard";
+      if (rate >= 0.75 || item.box >= 3) return "easy";
+      return "medium";
+    }
+    if (item.box >= 3) return "easy";
+    const tactical = item.motifs?.some((m) => TACTICAL_MOTIFS.includes(m)) ?? false;
+    if (item.drop >= 25 || tactical && item.drop >= 12) return "easy";
+    if (item.drop < 10 && !tactical) return "hard";
+    return "medium";
+  }
+  function masteryStats(items) {
+    let mastered = 0, learning = 0, fresh = 0;
+    for (const i of items) {
+      if (i.attempts === 0) fresh++;
+      else if (i.box >= 3) mastered++;
+      else learning++;
+    }
+    return { mastered, learning, fresh, total: items.length };
+  }
+  function nextItem(items, excludeId, now = Date.now(), motif, rand2 = Math.random, easyFirst = false) {
+    let pool = items.filter((i) => i.id !== excludeId);
+    if (motif) pool = pool.filter((i) => i.motifs?.includes(motif));
+    if (pool.length === 0) return null;
+    const due = pool.filter((i) => Date.parse(i.dueAt) <= now);
+    if (due.length === 0) {
+      return pool.reduce((a, b) => Date.parse(a.dueAt) <= Date.parse(b.dueAt) ? a : b);
+    }
+    const weights = due.map((i) => {
+      let w = Math.max(1, (now - Date.parse(i.dueAt)) / 6e4 + 1);
+      if (easyFirst) {
+        const d = puzzleDifficulty(i);
+        w *= d === "easy" ? 3 : d === "hard" ? 0.5 : 1;
+      }
+      return w;
+    });
+    const total = weights.reduce((a, b) => a + b, 0);
+    let r = rand2() * total;
+    for (let k = 0; k < due.length; k++) {
+      r -= weights[k];
+      if (r <= 0) return due[k];
+    }
+    return due[due.length - 1];
+  }
+  function recordResult(items, id, pass, hinted = false) {
+    const next = items.map((i) => {
+      if (i.id !== id) return i;
+      const box = pass ? hinted ? i.box : Math.min(i.box + 1, INTERVAL_DAYS.length - 1) : 0;
+      const dueAt = new Date(Date.now() + INTERVAL_DAYS[box] * 864e5).toISOString();
+      return {
+        ...i,
+        box,
+        dueAt,
+        attempts: i.attempts + 1,
+        correct: i.correct + (pass ? 1 : 0),
+        lastResult: pass ? "pass" : "fail"
+      };
+    });
+    save(next);
+    return next;
+  }
+
+  // brain/reportTactics.ts
+  var REPORT_TACTICAL_MOTIFS = [
+    "mate",
+    "back-rank mate",
+    "smothered mate",
+    "fork",
+    "free capture",
+    "pin",
+    "skewer",
+    "discovered attack",
+    "trapped piece",
+    "promotion"
+  ];
+  var TACTICS_OPENING_MAX_PLY = 10;
+  var START_BOARD = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq -";
+  var startsFromSetup = (g) => {
+    const first = g.moves[0]?.fenBefore;
+    if (!first) return false;
+    return first.split(" ").slice(0, 4).join(" ") !== START_BOARD;
+  };
+  var REPORT_CLASSES = ["blitz", "rapid", "classical"];
+  var stripSanSuffix = (san) => san.replace(/[+#]+$/, "");
+  function applyUci(board, uci) {
+    return board.move({
+      from: uci.slice(0, 2),
+      to: uci.slice(2, 4),
+      promotion: uci.length > 4 ? uci.slice(4) : void 0
+    });
+  }
+  function skillReportTactics(games) {
+    const positions = [];
+    const byClass = {
+      blitz: { n: 0, found: 0, noTopGames: 0, assistedGames: 0 },
+      rapid: { n: 0, found: 0, noTopGames: 0, assistedGames: 0 },
+      classical: { n: 0, found: 0, noTopGames: 0, assistedGames: 0 }
+    };
+    const counts = { considered: 0, humanless: 0, offClass: 0, assisted: 0, noTopMoves: 0 };
+    for (const g of games) {
+      const human = g.botBothSides ? null : g.botColor === "w" ? "b" : g.botColor === "b" ? "w" : null;
+      if (!human) {
+        counts.humanless += 1;
+        continue;
+      }
+      const cls = timeClassOfPgn(g.pgn);
+      if (!cls || !REPORT_CLASSES.includes(cls)) {
+        counts.offClass += 1;
+        continue;
+      }
+      if (g.botHintsUsed === true || (g.botUndos ?? 0) > 0 || (g.refusedMoves ?? 0) > 0) {
+        counts.assisted += 1;
+        byClass[cls].assistedGames += 1;
+        continue;
+      }
+      const skipOpeningGate = startsFromSetup(g);
+      let sawTop = false;
+      for (let i = 0; i < g.moves.length; i++) {
+        const m = g.moves[i];
+        if (m.color !== human) continue;
+        if (!m.topRecorded || !m.bestUci || !m.fenBefore) continue;
+        sawTop = true;
+        if (!skipOpeningGate && i + 1 <= TACTICS_OPENING_MAX_PLY) continue;
+        let bestSan;
+        try {
+          bestSan = applyUci(new Chess(m.fenBefore), m.bestUci).san;
+        } catch {
+          continue;
+        }
+        const tags = motifTags(m.fenBefore, m.bestUci, [m.bestUci], m.bestMate ?? null);
+        const motifs = tags.filter((t) => REPORT_TACTICAL_MOTIFS.includes(t));
+        if (motifs.length === 0) continue;
+        const found = m.uci === m.bestUci || m.san != null && stripSanSuffix(m.san) === stripSanSuffix(bestSan);
+        positions.push({
+          key: `${epdKey(m.fenBefore)}|${m.bestUci}`,
+          fen: m.fenBefore,
+          bestUci: m.bestUci,
+          bestSan,
+          found,
+          cls,
+          motifs
+        });
+        byClass[cls].n += 1;
+        if (found) byClass[cls].found += 1;
+      }
+      if (sawTop) {
+        counts.considered += 1;
+      } else {
+        counts.noTopMoves += 1;
+        byClass[cls].noTopGames += 1;
+      }
+    }
+    return { positions, byClass, games: counts };
+  }
+
   // brain/explorer.ts
   var mateScore = (mate) => Math.sign(mate) * (40 - Math.min(Math.abs(mate), 20));
   function confidences(engine) {
@@ -9875,272 +10235,6 @@ var brain = (() => {
       }
     }
     return map;
-  }
-
-  // brain/practice.ts
-  function epdKey(fen) {
-    if (typeof fen !== "string") return String(fen);
-    const parts = fen.split(" ");
-    if (parts.length < 4) return fen;
-    const four = parts.slice(0, 4);
-    if (four[3] !== "-") {
-      try {
-        const board = new Chess(fen);
-        if (!board.moves({ verbose: true }).some((m) => m.flags.includes("e"))) {
-          four[3] = "-";
-        }
-      } catch {
-      }
-    }
-    return four.join(" ");
-  }
-  function epdKeys(fens) {
-    return fens.map(epdKey);
-  }
-  var KEY = "botvinnik-practice-v1";
-  var INTERVAL_DAYS = [7e-3, 1, 3, 7, 21];
-  function hasStorage() {
-    return typeof localStorage !== "undefined";
-  }
-  function save(items) {
-    if (hasStorage()) localStorage.setItem(KEY, JSON.stringify(items));
-  }
-  function itemDataFromStoredMove(move, setupUci) {
-    if (!move.bestSan || !move.bestUci || !move.fenBefore || move.wcDrop <= 0) return null;
-    if (move.bestUci === move.uci) return null;
-    const bestPv = move.bestPv && move.bestPv[0] === move.bestUci ? move.bestPv : [move.bestUci];
-    const wcBest = Math.max(0, Math.min(100, winChance(move.evalPawns, move.mate) + move.wcDrop));
-    const w = Math.max(0.01, Math.min(0.99, wcBest / 100));
-    const evalBestPawns = Math.max(-15, Math.min(15, Math.log(w / (1 - w)) / 368208e-8 / 100));
-    return {
-      fen: move.fenBefore,
-      playedSan: move.san,
-      playedUci: move.uci,
-      bestSan: move.bestSan,
-      bestUci: move.bestUci,
-      bestPv,
-      setupUci: setupUci ?? enPassantSetup(move.fenBefore) ?? void 0,
-      // the REAL mate distance, not null (#283). The grade has always carried
-      // it and _storedMoveOf used to drop it, so a quiet move that forces mate
-      // reached the tagger indistinguishable from an ordinary quiet move — and
-      // got filed under whatever positional fact happened to be true of it,
-      // which the tier-1 hint then said out loud on a mating puzzle.
-      motifs: motifTags(move.fenBefore, move.bestUci, bestPv, move.bestMate ?? null),
-      evalBestPawns,
-      mateBest: move.bestMate ?? null,
-      wcBest,
-      drop: move.wcDrop,
-      // the move's real grading depth, not a constant: the migration's
-      // "deeper grade's chess fields win" tiebreak is vacuous if every item
-      // claims 22 (review of #286). || not ??— an ungraded 0 means unknown.
-      depth: move.depth || 22
-    };
-  }
-  function puzzleSetupMove(item) {
-    return item.setupUci ?? enPassantSetup(item.fen);
-  }
-  function enPassantSetup(fen) {
-    const ep = fen.split(" ")[3];
-    if (!ep || ep === "-" || ep.length < 2) return null;
-    const file2 = ep[0];
-    if (ep[1] === "6") return `${file2}7${file2}5`;
-    if (ep[1] === "3") return `${file2}2${file2}4`;
-    return null;
-  }
-  function bumpRepeat(items, at, seenKey) {
-    const item = items[at];
-    if (seenKey && (item.seenIn ?? []).includes(seenKey)) return null;
-    const next = [...items];
-    next[at] = {
-      ...item,
-      seenCount: (item.seenCount ?? 1) + 1,
-      lastSeenAt: (/* @__PURE__ */ new Date()).toISOString(),
-      ...seenKey ? { seenIn: [...item.seenIn ?? [], seenKey] } : {}
-    };
-    return next;
-  }
-  function addItem(items, data) {
-    const key = epdKey(data.fen);
-    const at = items.findIndex((i) => i.id === key);
-    if (at >= 0) {
-      const next2 = bumpRepeat(items, at);
-      if (next2) save(next2);
-      return next2;
-    }
-    const now = /* @__PURE__ */ new Date();
-    const item = {
-      ...data,
-      id: key,
-      createdAt: now.toISOString(),
-      box: 0,
-      dueAt: now.toISOString(),
-      // due immediately
-      attempts: 0,
-      correct: 0
-    };
-    const next = [...items, item];
-    save(next);
-    return next;
-  }
-  function addItems(items, dataList, seenKeys) {
-    const now = (/* @__PURE__ */ new Date()).toISOString();
-    let next = [...items];
-    const at = new Map(next.map((i, n) => [i.id, n]));
-    let changed = false;
-    for (let n = 0; n < dataList.length; n++) {
-      const data = dataList[n];
-      const seenKey = seenKeys?.[n] ?? void 0;
-      const key = epdKey(data.fen);
-      const existing = at.get(key);
-      if (existing !== void 0) {
-        const bumped = bumpRepeat(next, existing, seenKey);
-        if (bumped) {
-          next = bumped;
-          changed = true;
-        }
-        continue;
-      }
-      at.set(key, next.length);
-      next.push({
-        ...data,
-        id: key,
-        createdAt: now,
-        box: 0,
-        dueAt: now,
-        // due immediately
-        attempts: 0,
-        correct: 0,
-        ...seenKey ? { seenIn: [seenKey] } : {}
-      });
-      changed = true;
-    }
-    if (!changed) return null;
-    save(next);
-    return next;
-  }
-  function migratePracticeItems(items) {
-    let changed = false;
-    const byKey = /* @__PURE__ */ new Map();
-    const order = [];
-    let unkeyed = 0;
-    for (const raw of items) {
-      if (typeof raw.fen !== "string") {
-        const key2 = `__unkeyed-${unkeyed++}`;
-        byKey.set(key2, raw);
-        order.push(key2);
-        continue;
-      }
-      const key = epdKey(raw.fen);
-      if (raw.id !== key) changed = true;
-      const item = { ...raw, id: key };
-      const prev = byKey.get(key);
-      if (!prev) {
-        byKey.set(key, item);
-        order.push(key);
-        continue;
-      }
-      changed = true;
-      const base = item.depth > prev.depth ? item : prev;
-      const seenIn = [.../* @__PURE__ */ new Set([...prev.seenIn ?? [], ...item.seenIn ?? []])];
-      const lastSeen = [prev.lastSeenAt, item.lastSeenAt].filter(Boolean).sort().pop();
-      byKey.set(key, {
-        ...base,
-        box: Math.min(prev.box, item.box),
-        dueAt: Date.parse(prev.dueAt) <= Date.parse(item.dueAt) ? prev.dueAt : item.dueAt,
-        createdAt: Date.parse(prev.createdAt) <= Date.parse(item.createdAt) ? prev.createdAt : item.createdAt,
-        attempts: prev.attempts + item.attempts,
-        correct: prev.correct + item.correct,
-        seenCount: (prev.seenCount ?? 1) + (item.seenCount ?? 1),
-        ...seenIn.length ? { seenIn } : {},
-        ...lastSeen ? { lastSeenAt: lastSeen } : {}
-      });
-    }
-    if (!changed) return null;
-    const next = order.map((k) => byKey.get(k));
-    save(next);
-    return next;
-  }
-  function removeItem(items, id) {
-    const next = items.filter((i) => i.id !== id);
-    save(next);
-    return next;
-  }
-  function dueCount(items, now = Date.now()) {
-    return items.filter((i) => Date.parse(i.dueAt) <= now).length;
-  }
-  var TACTICAL_MOTIFS = [
-    "mate",
-    "back-rank mate",
-    "smothered mate",
-    "free capture",
-    "material",
-    "fork",
-    "pin",
-    "skewer",
-    "promotion"
-  ];
-  function puzzleDifficulty(item) {
-    if (item.attempts >= 2) {
-      const rate = item.correct / item.attempts;
-      if (item.lastResult === "fail" && rate < 0.5) return "hard";
-      if (rate >= 0.75 || item.box >= 3) return "easy";
-      return "medium";
-    }
-    if (item.box >= 3) return "easy";
-    const tactical = item.motifs?.some((m) => TACTICAL_MOTIFS.includes(m)) ?? false;
-    if (item.drop >= 25 || tactical && item.drop >= 12) return "easy";
-    if (item.drop < 10 && !tactical) return "hard";
-    return "medium";
-  }
-  function masteryStats(items) {
-    let mastered = 0, learning = 0, fresh = 0;
-    for (const i of items) {
-      if (i.attempts === 0) fresh++;
-      else if (i.box >= 3) mastered++;
-      else learning++;
-    }
-    return { mastered, learning, fresh, total: items.length };
-  }
-  function nextItem(items, excludeId, now = Date.now(), motif, rand2 = Math.random, easyFirst = false) {
-    let pool = items.filter((i) => i.id !== excludeId);
-    if (motif) pool = pool.filter((i) => i.motifs?.includes(motif));
-    if (pool.length === 0) return null;
-    const due = pool.filter((i) => Date.parse(i.dueAt) <= now);
-    if (due.length === 0) {
-      return pool.reduce((a, b) => Date.parse(a.dueAt) <= Date.parse(b.dueAt) ? a : b);
-    }
-    const weights = due.map((i) => {
-      let w = Math.max(1, (now - Date.parse(i.dueAt)) / 6e4 + 1);
-      if (easyFirst) {
-        const d = puzzleDifficulty(i);
-        w *= d === "easy" ? 3 : d === "hard" ? 0.5 : 1;
-      }
-      return w;
-    });
-    const total = weights.reduce((a, b) => a + b, 0);
-    let r = rand2() * total;
-    for (let k = 0; k < due.length; k++) {
-      r -= weights[k];
-      if (r <= 0) return due[k];
-    }
-    return due[due.length - 1];
-  }
-  function recordResult(items, id, pass, hinted = false) {
-    const next = items.map((i) => {
-      if (i.id !== id) return i;
-      const box = pass ? hinted ? i.box : Math.min(i.box + 1, INTERVAL_DAYS.length - 1) : 0;
-      const dueAt = new Date(Date.now() + INTERVAL_DAYS[box] * 864e5).toISOString();
-      return {
-        ...i,
-        box,
-        dueAt,
-        attempts: i.attempts + 1,
-        correct: i.correct + (pass ? 1 : 0),
-        lastResult: pass ? "pass" : "fail"
-      };
-    });
-    save(next);
-    return next;
   }
 
   // brain/lichessImport.ts

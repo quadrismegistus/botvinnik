@@ -305,6 +305,28 @@ void main() {
     expect(practice.calls, isEmpty, reason: 'nor practice re-seeded from it');
   });
 
+  test('a wipe landing while listGames is IN FLIGHT cannot resurrect either '
+      '(#294 review)', () async {
+    // deleteAllGames bumps the epoch synchronously before its delete awaits,
+    // so a wipe during the list query resolves the query with PRE-wipe rows
+    // under a POST-wipe epoch. The epoch must be sampled before the list, or
+    // it vouches for a snapshot that predates it — the front edge of the
+    // window the #293 test (above) does not cover.
+    final db = _SlowListDb([_ungraded('g1')]);
+    final practice = RecordingPractice();
+    final live = ValueNotifier(false);
+    final grader = BackgroundGrader(
+        FakeArbiter(), db, SavingGrading(), practice, live, () => live.value);
+    grader.start();
+    await db.listStarted.future;
+    await db.deleteAllGames(); // epoch bumps NOW; the list is still pending
+    db.listGate.complete(); // …and resolves with the pre-wipe rows
+    await grader.pass;
+    expect(db.games, isEmpty,
+        reason: 'rows fetched before the wipe must not be graded and saved back');
+    expect(practice.calls, isEmpty);
+  });
+
   test('grades every ungraded game and leaves graded ones alone', () async {
     final db = MemoryDb([_ungraded('g1'), _graded('done'), _ungraded('g2')]);
     final practice = RecordingPractice();
@@ -563,5 +585,26 @@ class _InterruptingDb extends MemoryDb {
       _fired = true;
       onFirstWrite();
     }
+  }
+}
+
+/// A db whose FIRST listGames blocks until [listGate] completes — the window
+/// in which a real sqflite query is in flight and a wipe can land (#294
+/// review). Rows are captured at call time, like a real query result set.
+class _SlowListDb extends MemoryDb {
+  final listStarted = Completer<void>();
+  final listGate = Completer<void>();
+  bool _first = true;
+  _SlowListDb(super.initial);
+
+  @override
+  Future<List<Map<String, dynamic>>> listGames() async {
+    final rows = await super.listGames();
+    if (_first) {
+      _first = false;
+      listStarted.complete();
+      await listGate.future;
+    }
+    return rows;
   }
 }

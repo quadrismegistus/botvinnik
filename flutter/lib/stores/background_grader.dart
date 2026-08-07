@@ -165,13 +165,17 @@ class BackgroundGrader {
   /// (paused, disposed, or a search went stale). The archive is read ONCE per
   /// sweep — the same whole-archive read Review already does — not per game.
   Future<bool> _runPass() async {
-    final games = await _db.listGames();
-    // Sampled AFTER listing: every entry in [games] is stale the moment a
-    // bulk wipe (#292) bumps the epoch, and grading a stale entry ends in
-    // saveGame writing it straight back — the archive resurrecting itself
-    // mid-sweep, with collectAll re-seeding practice from it for good
-    // measure (run-proven in #293's review).
+    // Sampled BEFORE listing — the epoch must vouch for the snapshot, and
+    // deleteAllGames bumps it SYNCHRONOUSLY before its delete awaits, so a
+    // wipe landing while this query is in flight leaves the query resolving
+    // with pre-wipe rows under a post-wipe epoch. Sampling afterwards read
+    // that bumped value and every later check passed: the stale snapshot
+    // was graded and written straight back — the archive resurrecting
+    // itself, with collectAll re-seeding practice from it for good measure.
+    // #293's review caught the back edge of this window (wipe after the
+    // list resolved); #294's caught the front (run-proven with a slow db).
     final epoch = _db.wipeEpoch;
+    final games = await _db.listGames();
     for (final game in games) {
       if (_paused || _disposed) return false;
       if (_db.wipeEpoch != epoch) return true; // wiped: the list is fiction now

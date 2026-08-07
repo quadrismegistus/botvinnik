@@ -38,6 +38,7 @@ import 'stores/custom_engine.dart';
 import 'stores/clock_lifecycle.dart';
 import 'stores/game_controller.dart';
 import 'stores/maia3_store.dart';
+import 'stores/maia_tactics_sweep.dart';
 import 'stores/pgn_import.dart';
 import 'stores/player_rating_store.dart';
 import 'stores/practice_controller.dart';
@@ -314,6 +315,26 @@ class _BootGateState extends State<BootGate> {
                 )..start();
               },
               dispose: (_, g) => g.dispose(),
+            ),
+            // The tactics card's Maia sweep (#268). Lazy on purpose, unlike
+            // the grader: nothing runs (and no 6MB model downloads) until the
+            // skill report screen first reads it and calls ensureStarted.
+            // Same live-game gate as the grader above — inference and a
+            // live search are both CPU-bound.
+            ChangeNotifierProvider<MaiaTacticsSweep>(
+              create: (ctx) {
+                final game = ctx.read<GameController>();
+                return MaiaTacticsSweep(
+                  booted.db,
+                  booted.bridge,
+                  game,
+                  () =>
+                      game.botThinking ||
+                      (game.botEnabled &&
+                          !game.gameOver &&
+                          game.moves.isNotEmpty),
+                );
+              },
             ),
           ],
           child: MaterialApp(

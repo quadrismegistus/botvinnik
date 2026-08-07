@@ -31,6 +31,13 @@ export interface ReportMove {
 	mate: number | null;
 	fenBefore?: string;
 	san?: string;
+	// The tactics axis (reportTactics.ts) reads four more optional fields; the
+	// walk below never does. All genuinely optional: absent means the writer
+	// recorded nothing, and the selector treats that as "nobody looked".
+	uci?: string;
+	bestUci?: string;
+	bestMate?: number | null;
+	topRecorded?: boolean;
 }
 
 export interface ReportGame {
@@ -38,6 +45,13 @@ export interface ReportGame {
 	botBothSides?: boolean;
 	pgn?: string;
 	moves: ReportMove[];
+	// Assistance provenance, read by the tactics axis (reportTactics.ts): a
+	// game where engine arrows were on screen, a takeback replayed the scored
+	// move, or refuse-blunders retried it does not measure FINDING anything.
+	// Optional — absent (imports) means no assistance was possible.
+	botHintsUsed?: boolean;
+	botUndos?: number;
+	refusedMoves?: number;
 }
 
 // ---- mirrors of the pipeline's constants (aggregate.mjs / extract.mjs) ----

@@ -35,6 +35,17 @@ class ReportApi {
         _bridge.call('skillReportPeer', args: [tables, band, timeClass]);
     return r == null ? null : (r as Map).cast<String, dynamic>();
   }
+
+  /// The tactics axis (#268): the brain's ONE selector (reportTactics.ts)
+  /// hands back the tactical positions, the found-rate per class, and the
+  /// population counts. Both consumers — the card and the Maia sweep — read
+  /// this same call, so they can never disagree about which positions the
+  /// axis is made of (the [[brain-flutter-wire-gaps]] class). [games] must
+  /// already be projected ([reportGameProjection]).
+  Map<String, dynamic> skillReportTactics(List<Map<String, dynamic>> games) {
+    final r = _bridge.call('skillReportTactics', args: [games]);
+    return (r as Map).cast<String, dynamic>();
+  }
 }
 
 /// Slims a stored game down to exactly the fields brain/report.ts's
@@ -61,14 +72,29 @@ class ReportApi {
 /// already treats an absent optional field.
 Map<String, dynamic> reportGameProjection(Map<String, dynamic> storedGame) {
   final rawMoves = storedGame['moves'];
+  // ALL moves or NONE: the walk's clock array and the tactics selector's
+  // opening gate both index moves POSITIONALLY, so silently dropping one
+  // malformed entry (the old `whereType<Map>`) attached every later clock to
+  // the wrong move and shifted the ply gate — run-proven (#294 review). A
+  // record that malformed projects as moveless: it contributes nothing,
+  // which is at least a true nothing.
+  final moves = rawMoves is List ? rawMoves : const [];
+  final intact = moves.every((m) => m is Map);
   return {
     'botColor': storedGame['botColor'],
     'botBothSides': storedGame['botBothSides'],
     'pgn': storedGame['pgn'],
+    // Assistance provenance for the tactics axis (#294 review): with hint
+    // arrows on screen, after a takeback, or behind a refusal retry, "found
+    // the shot" measures the app, not the player.
+    if (storedGame['botHintsUsed'] != null)
+      'botHintsUsed': storedGame['botHintsUsed'],
+    if (storedGame['botUndos'] != null) 'botUndos': storedGame['botUndos'],
+    if (storedGame['refusedMoves'] != null)
+      'refusedMoves': storedGame['refusedMoves'],
     'moves': [
-      if (rawMoves is List)
-        for (final m in rawMoves.whereType<Map>())
-          _projectMove(m.cast<String, dynamic>()),
+      if (intact)
+        for (final m in moves) _projectMove((m as Map).cast<String, dynamic>()),
     ],
   };
 }
@@ -79,4 +105,13 @@ Map<String, dynamic> _projectMove(Map<String, dynamic> m) => {
       'mate': m['mate'],
       if (m['fenBefore'] != null) 'fenBefore': m['fenBefore'],
       if (m['san'] != null) 'san': m['san'],
+      // The tactics selector's four (#268). All genuinely optional in the
+      // ReportMove contract — absent means "the writer recorded nothing",
+      // which is exactly what the selector's topRecorded gate wants to see,
+      // so these keys are left off rather than declared null (the same
+      // choice as fenBefore/san above, the opposite of evalPawns/mate).
+      if (m['uci'] != null) 'uci': m['uci'],
+      if (m['bestUci'] != null) 'bestUci': m['bestUci'],
+      if (m['bestMate'] != null) 'bestMate': m['bestMate'],
+      if (m['topRecorded'] == true) 'topRecorded': true,
     };
