@@ -99,7 +99,7 @@ describe('skillReportTactics selection', () => {
 		expect(p.found).toBe(true);
 		expect(p.cls).toBe('blitz');
 		expect(p.key).toBe(`${epdKey(FORK_FEN)}|${FORK_UCI}`);
-		expect(r.byClass.blitz).toEqual({ n: 1, found: 1, noTopGames: 0 });
+		expect(r.byClass.blitz).toEqual({ n: 1, found: 1, noTopGames: 0, assistedGames: 0 });
 		expect(r.games).toEqual({
 			considered: 1,
 			humanless: 0,
@@ -174,6 +174,7 @@ describe('skillReportTactics selection', () => {
 		// "found" is not a measurement of finding (#294 review).
 		expect(r.positions).toHaveLength(1);
 		expect(r.games.assisted).toBe(3);
+		expect(r.byClass.blitz.assistedGames).toBe(3);
 		expect(r.games.considered).toBe(1);
 	});
 
@@ -268,10 +269,10 @@ describe('skillReportTactics selection', () => {
 			gameWith({ fen: FORK_FEN, bestUci: FORK_UCI, playedUci: 'e1f2' }, { tc: '600' }),
 			gameWith({ fen: FORK_FEN, bestUci: FORK_UCI }, { tc: '60' })
 		]);
-		expect(r.byClass.blitz).toEqual({ n: 1, found: 1, noTopGames: 0 });
+		expect(r.byClass.blitz).toEqual({ n: 1, found: 1, noTopGames: 0, assistedGames: 0 });
 		// chess.com's bare "600" form
-		expect(r.byClass.rapid).toEqual({ n: 1, found: 0, noTopGames: 0 });
-		expect(r.byClass.classical).toEqual({ n: 0, found: 0, noTopGames: 0 });
+		expect(r.byClass.rapid).toEqual({ n: 1, found: 0, noTopGames: 0, assistedGames: 0 });
+		expect(r.byClass.classical).toEqual({ n: 0, found: 0, noTopGames: 0, assistedGames: 0 });
 		expect(r.games.offClass).toBe(1);
 		expect(r.positions).toHaveLength(2);
 	});
@@ -300,7 +301,7 @@ describe('skillReportTactics selection', () => {
 		const r = skillReportTactics([{ ...g, moves: [...g.moves, ...again.moves.slice(13)] }]);
 		expect(r.positions).toHaveLength(2);
 		expect(r.positions[0].key).toBe(r.positions[1].key); // one inference serves both
-		expect(r.byClass.blitz).toEqual({ n: 2, found: 1, noTopGames: 0 });
+		expect(r.byClass.blitz).toEqual({ n: 2, found: 1, noTopGames: 0, assistedGames: 0 });
 	});
 
 	it('pins the tactical motif set exactly', () => {

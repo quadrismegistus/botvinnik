@@ -89,7 +89,6 @@ class _SkillReportScreenState extends State<SkillReportScreen> {
   Map<String, dynamic>? _tables;
   Map<String, dynamic>? _user;
   Map<String, dynamic>? _peer;
-  Map<String, dynamic>? _tactics;
   bool _loading = true;
 
   /// Why the report could not load, or null. The failure screen renders this
@@ -176,13 +175,12 @@ class _SkillReportScreenState extends State<SkillReportScreen> {
   void _computeUser() {
     final games = context.read<ReviewController>().games;
     final projected = [for (final g in games) reportGameProjection(g)];
-    final api = context.read<ReportApi>();
-    _user = api.skillReportUser(projected, _timeClass);
-    // The tactics selection covers all three classes at once (the card
-    // slices by [_timeClass] itself), so unlike _user it does not need
-    // recomputing on a class change — but the projection is already in
-    // hand here and the call is cheap next to the walk above.
-    _tactics = api.skillReportTactics(projected);
+    _user = context.read<ReportApi>().skillReportUser(projected, _timeClass);
+    // The tactics selection is NOT computed here: the selector costs ~0.5ms
+    // of synchronous bridge time per stored ply, which on a real archive is
+    // SECONDS of platform-thread freeze (#294 review, measured 19s at 500
+    // games). MaiaTacticsSweep walks it one game per call in the background
+    // and publishes the merged result; the card reads that.
   }
 
   /// The peer cell for the current band × class, or null when the table has
@@ -262,7 +260,6 @@ class _SkillReportScreenState extends State<SkillReportScreen> {
         _header(),
         const SizedBox(height: 14),
         _TacticsCard(
-          tactics: _tactics!,
           sweep: sweep,
           band: _band,
           timeClass: _timeClass,
@@ -445,13 +442,11 @@ Widget _notEnoughText(String unit, int n) => Text(
 /// says so and stands absolute-only; while the sweep is still working it
 /// shows progress, not a mean over whatever happened to be swept first.
 class _TacticsCard extends StatelessWidget {
-  final Map<String, dynamic> tactics;
   final MaiaTacticsSweep sweep;
   final int band;
   final String timeClass;
 
   const _TacticsCard({
-    required this.tactics,
     required this.sweep,
     required this.band,
     required this.timeClass,
@@ -459,35 +454,77 @@ class _TacticsCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Everything on this card comes from the sweep — selection, user numbers,
+    // peer curves alike (#294 review: two sources for "which positions is
+    // this axis made of" is how a stuck state becomes permanent).
+    final tactics = sweep.tactics;
+    if (tactics == null) {
+      return _AxisShell(
+        title: 'Tactics',
+        child: Text(
+          sweep.maiaUsable
+              ? 'Reading your games…'
+              : 'Reading your games… (no Maia baseline on this device)',
+          style: const TextStyle(fontSize: 12, color: Colors.white38),
+        ),
+      );
+    }
     final by = ((tactics['byClass'] as Map)[timeClass] as Map)
         .cast<String, dynamic>();
     final n = (by['n'] as num?)?.toInt() ?? 0;
+    // The exclusion counts render in EVERY state — below the floor they ARE
+    // the explanation for why the slice is thin (#294 review: "not enough
+    // positions" while 200 games sat excluded said nothing).
+    final ungraded = (by['noTopGames'] as num?)?.toInt() ?? 0;
+    final assisted = (by['assistedGames'] as num?)?.toInt() ?? 0;
     return _AxisShell(
       title: 'Tactics',
-      child: n < kTacticsFloor
-          ? _notEnoughText('tactical positions', n)
-          : _comparison(n, (by['found'] as num?)?.toInt() ?? 0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (n < kTacticsFloor)
+            _notEnoughText('tactical positions', n)
+          else
+            _comparison(tactics, n, (by['found'] as num?)?.toInt() ?? 0),
+          if (ungraded > 0) ...[
+            const SizedBox(height: 6),
+            Text(
+              // "without top-move records", not "not yet graded": lichess-
+              // analysed imports are labelled and will never be regraded
+              // under current rules (#297) — "yet" would be a promise.
+              'Excludes $ungraded $timeClass games without top-move records.',
+              style: const TextStyle(fontSize: 11, color: Colors.white30),
+            ),
+          ],
+          if (assisted > 0) ...[
+            const SizedBox(height: 4),
+            Text(
+              'Excludes $assisted $timeClass games with assistance '
+              '(hints, takebacks, or refusals).',
+              style: const TextStyle(fontSize: 11, color: Colors.white30),
+            ),
+          ],
+        ],
+      ),
     );
   }
 
   /// The slice's cache keys, occurrences included: the user side counts a
   /// repeated position every time it was faced, so the peer mean must weight
   /// it the same way.
-  List<String> _sliceKeys() => [
+  List<String> _sliceKeys(Map<String, dynamic> tactics) => [
         for (final p in (tactics['positions'] as List))
           if ((p as Map)['cls'] == timeClass) p['key'] as String,
       ];
 
-  Widget _comparison(int n, int found) {
+  Widget _comparison(Map<String, dynamic> tactics, int n, int found) {
     final userRate = found / n;
-    final keys = _sliceKeys();
+    final keys = _sliceKeys(tactics);
     final covered = sweep.coveredOf(keys);
     // The refusal of a partial mean lives in ONE place — peerFoundRate
     // answers null until every key is covered; the card only narrates the
     // progress that explains the null.
     final peerRate = sweep.peerFoundRate(keys, band);
-    final games = (tactics['games'] as Map).cast<String, dynamic>();
-    final ungraded = (games['noTopMoves'] as num?)?.toInt() ?? 0;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -495,25 +532,34 @@ class _TacticsCard extends StatelessWidget {
         Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Expanded(child: _rateColumn('You', userRate, '$found of $n found')),
+            Expanded(
+                child: _rateColumn('You', userRate, '$found of $n found')),
             const SizedBox(width: 12),
             Expanded(child: _peerColumn(keys.length, covered, peerRate)),
           ],
         ),
-        if (peerRate != null) ...[
+        // maiaUsable gates the verdict too: a seeded-but-unusable state must
+        // not say "not available on this device" in one column and quote
+        // Maia in the sentence below it (#294 review).
+        if (peerRate != null && sweep.maiaUsable) ...[
           const SizedBox(height: 6),
           Text(_verdict(userRate, peerRate),
               style: const TextStyle(fontSize: 12, color: Colors.white54)),
         ],
-        if (ungraded > 0) ...[
-          const SizedBox(height: 6),
-          Text(
-            "Excludes $ungraded games not yet graded against the engine's top line.",
-            style: const TextStyle(fontSize: 11, color: Colors.white30),
-          ),
-        ],
       ],
     );
+  }
+
+  /// Whole percents, honest at the edges: 199 of 200 is "99%", never the
+  /// false absolute "100%" that toStringAsFixed(0) prints (#294 review) —
+  /// 0% and 100% are reserved for exactly none and exactly all.
+  static String _pct(double rate) {
+    if (rate <= 0) return '0%';
+    if (rate >= 1) return '100%';
+    final rounded = (rate * 100).round();
+    if (rounded <= 0) return '<1%';
+    if (rounded >= 100) return '>99%';
+    return '$rounded%';
   }
 
   Widget _rateColumn(String label, double rate, String sub) => Column(
@@ -522,7 +568,7 @@ class _TacticsCard extends StatelessWidget {
           Text(label,
               style: const TextStyle(fontSize: 11, color: Colors.white38)),
           const SizedBox(height: 2),
-          Text('${(rate * 100).toStringAsFixed(0)}%',
+          Text(_pct(rate),
               style:
                   const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
           Text(sub, style: const TextStyle(fontSize: 12, color: Colors.white54)),
@@ -555,7 +601,10 @@ class _TacticsCard extends StatelessWidget {
         ],
       );
     }
-    return _rateColumn(label, peerRate, 'model estimate, these positions');
+    // The estimate IS class-sliced (these are the slice's own positions)
+    // even though Maia's rung is not — say which positions, so switching
+    // classes changing the number reads as the feature it is.
+    return _rateColumn(label, peerRate, 'model estimate, these $timeClass positions');
   }
 
   /// Model-attributed wording, never a percentile: this is Maia's expected

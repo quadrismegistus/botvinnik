@@ -72,14 +72,29 @@ class ReportApi {
 /// already treats an absent optional field.
 Map<String, dynamic> reportGameProjection(Map<String, dynamic> storedGame) {
   final rawMoves = storedGame['moves'];
+  // ALL moves or NONE: the walk's clock array and the tactics selector's
+  // opening gate both index moves POSITIONALLY, so silently dropping one
+  // malformed entry (the old `whereType<Map>`) attached every later clock to
+  // the wrong move and shifted the ply gate — run-proven (#294 review). A
+  // record that malformed projects as moveless: it contributes nothing,
+  // which is at least a true nothing.
+  final moves = rawMoves is List ? rawMoves : const [];
+  final intact = moves.every((m) => m is Map);
   return {
     'botColor': storedGame['botColor'],
     'botBothSides': storedGame['botBothSides'],
     'pgn': storedGame['pgn'],
+    // Assistance provenance for the tactics axis (#294 review): with hint
+    // arrows on screen, after a takeback, or behind a refusal retry, "found
+    // the shot" measures the app, not the player.
+    if (storedGame['botHintsUsed'] != null)
+      'botHintsUsed': storedGame['botHintsUsed'],
+    if (storedGame['botUndos'] != null) 'botUndos': storedGame['botUndos'],
+    if (storedGame['refusedMoves'] != null)
+      'refusedMoves': storedGame['refusedMoves'],
     'moves': [
-      if (rawMoves is List)
-        for (final m in rawMoves.whereType<Map>())
-          _projectMove(m.cast<String, dynamic>()),
+      if (intact)
+        for (final m in moves) _projectMove((m as Map).cast<String, dynamic>()),
     ],
   };
 }

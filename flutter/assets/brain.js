@@ -9834,9 +9834,9 @@ var brain = (() => {
   function skillReportTactics(games) {
     const positions = [];
     const byClass = {
-      blitz: { n: 0, found: 0, noTopGames: 0 },
-      rapid: { n: 0, found: 0, noTopGames: 0 },
-      classical: { n: 0, found: 0, noTopGames: 0 }
+      blitz: { n: 0, found: 0, noTopGames: 0, assistedGames: 0 },
+      rapid: { n: 0, found: 0, noTopGames: 0, assistedGames: 0 },
+      classical: { n: 0, found: 0, noTopGames: 0, assistedGames: 0 }
     };
     const counts = { considered: 0, humanless: 0, offClass: 0, assisted: 0, noTopMoves: 0 };
     for (const g of games) {
@@ -9852,6 +9852,7 @@ var brain = (() => {
       }
       if (g.botHintsUsed === true || (g.botUndos ?? 0) > 0 || (g.refusedMoves ?? 0) > 0) {
         counts.assisted += 1;
+        byClass[cls].assistedGames += 1;
         continue;
       }
       const skipOpeningGate = startsFromSetup(g);

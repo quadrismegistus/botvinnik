@@ -5,6 +5,7 @@
 //
 //   cd flutter && flutter test test/vm/maia_tactics_sweep_test.dart
 
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
@@ -19,20 +20,25 @@ import '../support/practice_harness.dart';
 const _kvKey = 'botvinnik-maia-tactics-v1';
 const _ladder = [1500, 1600];
 
-/// A selector answer with [keys] as blitz positions, one occurrence each.
-/// The fen doubles as the SAN seed so [_decoderFor] can hand each position
-/// its own probabilities.
+/// A selector answer with [keys] as blitz positions, one occurrence each —
+/// shape-faithful to brain/reportTactics.ts's return.
 Map<String, dynamic> _tactics(List<String> keys) => {
       'positions': [
         for (final k in keys)
           {'key': k, 'fen': 'fen-$k', 'bestUci': 'a1a2', 'bestSan': 'Ra2', 'cls': 'blitz', 'found': true},
       ],
       'byClass': {
-        'blitz': {'n': keys.length, 'found': keys.length},
-        'rapid': {'n': 0, 'found': 0},
-        'classical': {'n': 0, 'found': 0},
+        'blitz': {'n': keys.length, 'found': keys.length, 'noTopGames': 0},
+        'rapid': {'n': 0, 'found': 0, 'noTopGames': 0},
+        'classical': {'n': 0, 'found': 0, 'noTopGames': 0},
       },
-      'games': {'considered': 1, 'humanless': 0, 'offClass': 0, 'noTopMoves': 0},
+      'games': {
+        'considered': 1,
+        'humanless': 0,
+        'offClass': 0,
+        'assisted': 0,
+        'noTopMoves': 0
+      },
     };
 
 /// The raw is a token — the fake decode never reads it.
@@ -90,6 +96,7 @@ void main() {
         _kvKey,
         jsonEncode({
           'v': MaiaTacticsSweep.kDocVersion,
+          'ladder': _ladder,
           'curves': {
             'k1': [0.9, 0.9]
           },
@@ -112,6 +119,7 @@ void main() {
         _kvKey,
         jsonEncode({
           'v': MaiaTacticsSweep.kDocVersion + 1,
+          'ladder': _ladder,
           'curves': {
             'k1': [0.9, 0.9]
           },
@@ -127,6 +135,54 @@ void main() {
     expect(sweep.curveFor('k1'), [0.4, 0.4]);
   });
 
+  test('a document from another LADDER is discarded whole', () async {
+    // The cached arrays are positional per rung; under a changed ladder the
+    // same bytes answer a different question — "analysing N of N forever"
+    // was the visible symptom, a wrong rung's number under the right label
+    // the invisible one (#294 review, both proven).
+    final db = MemoryDb();
+    await db.kvPut(
+        _kvKey,
+        jsonEncode({
+          'v': MaiaTacticsSweep.kDocVersion,
+          'ladder': [1400, 1500, 1600],
+          'curves': {
+            'k1': [0.1, 0.5, 0.9]
+          },
+        }));
+    final asked = <String>[];
+    final sweep = _sweep(db, keys: ['k1'], analyze: (fen, elos) async {
+      asked.add(fen);
+      return _raw;
+    });
+    await sweep.ensureStarted();
+    expect(asked, ['fen-k1'], reason: 'the old rungs cannot answer the new ones');
+    expect(sweep.curveFor('k1'), [0.4, 0.4]);
+    final doc = jsonDecode((await db.kvGet(_kvKey))!) as Map;
+    expect(doc['ladder'], _ladder, reason: 'the rewritten doc names its rungs');
+  });
+
+  test('the reply is looked up by rung, never by position', () async {
+    // A transport reply in reversed rung order must not invert the curve
+    // (#294 review: bare positional arrays cached 2600's number as 600's).
+    final db = MemoryDb();
+    final sweep = MaiaTacticsSweep.test(db)
+      ..debugLadder = _ladder
+      ..debugTactics = ((_) => _tactics(['k1']))
+      ..debugAnalyze = ((fen, elos) async => _raw)
+      ..debugDecode = ((fen, raw) => Maia3MoveCurves(
+            perElo: [
+              // reversed: 1600 first
+              Maia3RungCurve(1600, const {'Ra2': 0.9}),
+              Maia3RungCurve(1500, const {'Ra2': 0.1}),
+            ],
+            wdlByElo: const [],
+          ));
+    await sweep.ensureStarted();
+    expect(sweep.curveFor('k1'), [0.1, 0.9],
+        reason: 'ladder order, whatever order the reply came in');
+  });
+
   test('keys whose games left the archive are pruned from the document',
       () async {
     final db = MemoryDb();
@@ -134,6 +190,7 @@ void main() {
         _kvKey,
         jsonEncode({
           'v': MaiaTacticsSweep.kDocVersion,
+          'ladder': _ladder,
           'curves': {
             'gone': [0.9, 0.9],
             'k1': [0.8, 0.8]
@@ -184,6 +241,48 @@ void main() {
     expect(asked, ['fen-k1']);
     expect(await db.kvGet(_kvKey), isNull,
         reason: 'the loop is over; only _persist\'s epoch check can refuse this write');
+  });
+
+  test('the pause checkpoints what it has before yielding the machine',
+      () async {
+    // The pause is for a game that may outlive this process (backgrounded,
+    // OS kill) — an unwritten answer is a re-inferred answer (#294 review).
+    final db = MemoryDb();
+    var live = false;
+    final sweep = _sweep(db, keys: ['k1', 'k2'],
+        isLiveGameActive: () => live, analyze: (fen, elos) async {
+      live = true; // a game starts while k1 runs
+      return _raw;
+    });
+    await sweep.ensureStarted();
+    final doc = jsonDecode((await db.kvGet(_kvKey))!) as Map;
+    expect((doc['curves'] as Map).keys.toSet(), {'k1'},
+        reason: 'k1 was answered and must survive a restart');
+  });
+
+  test('a kick during a running pass latches a rerun instead of vanishing',
+      () async {
+    // The running pass froze its work list at start; a game graded mid-pass
+    // (an import, the background grader) must be swept by a follow-up, not
+    // wait for the user to reopen the screen (#294 review).
+    final db = MemoryDb();
+    var keys = ['k1'];
+    final started = Completer<void>();
+    final gate = Completer<void>();
+    final sweep = _sweep(db, keys: [], analyze: (fen, elos) async {
+      if (!started.isCompleted) started.complete();
+      await gate.future;
+      return _raw;
+    });
+    sweep.debugTactics = (_) => _tactics(keys); // reads the LIVE key list
+    final first = sweep.ensureStarted();
+    await started.future; // pass 1 is mid-inference on k1
+    keys = ['k1', 'k2'];
+    unawaited(sweep.ensureStarted()); // the kick that used to be dropped
+    gate.complete();
+    await first;
+    expect(sweep.coveredOf(['k1', 'k2']), 2,
+        reason: 'the latched rerun swept the position that arrived mid-pass');
   });
 
   test('a live game pauses the sweep; its end resumes it', () async {
@@ -256,6 +355,7 @@ void main() {
         _kvKey,
         jsonEncode({
           'v': MaiaTacticsSweep.kDocVersion,
+          'ladder': _ladder,
           'curves': {
             'k1': [0.9, 0.8]
           },
@@ -268,6 +368,35 @@ void main() {
     await sweep.ensureStarted();
     expect(sweep.coveredOf(['k1']), 1);
     expect(sweep.peerFoundRate(['k1'], 1500), 0.9);
+  });
+
+  test('selection walks the archive one game per bridge call and merges',
+      () async {
+    // The whole-archive selector call was ~19s of synchronous UI freeze at
+    // 500 games (#294 review, measured) — the sweep now pays it one game at
+    // a time. FakeBridge answers per call, so two saved games must produce
+    // two selector calls and a summed report.
+    final db = MemoryDb();
+    await db.saveGame({'id': 'g1', 'endedAt': '2026-08-07T00:00:01Z'});
+    await db.saveGame({'id': 'g2', 'endedAt': '2026-08-07T00:00:02Z'});
+    final bridge = FakeBridge()
+      ..skillReportTacticsResult = _tactics(['k1'])
+      ..eloLadderResult = _ladder;
+    final sweep = MaiaTacticsSweep(db, bridge, ValueNotifier(0), () => false)
+      ..debugAnalyze = ((fen, elos) async => _raw)
+      ..debugDecode = ((fen, raw) => _curves(const {'1500': 0.4, '1600': 0.4}));
+    await sweep.ensureStarted();
+
+    final calls =
+        bridge.calls.where((c) => c.fn == 'skillReportTactics').toList();
+    expect(calls, hasLength(2), reason: 'one selector call per game');
+    expect((calls.first.args[0] as List), hasLength(1),
+        reason: 'each call carries ONE projected game');
+    final tactics = sweep.tactics!;
+    expect(tactics['byClass']['blitz']['n'], 2, reason: 'counters sum');
+    expect(tactics['games']['considered'], 2);
+    expect((tactics['positions'] as List), hasLength(2));
+    expect(sweep.coveredOf(['k1']), 1, reason: 'same key: one inference');
   });
 
   group('peerFoundRate', () {

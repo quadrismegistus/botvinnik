@@ -100,10 +100,13 @@ export interface TacticalPosition {
 
 export interface TacticsReport {
 	positions: TacticalPosition[];
-	/** noTopGames is PER CLASS because the card is per class: a blitz card
-	 *  telling the user about excluded rapid games is a sentence about a
-	 *  different number (#294 review). */
-	byClass: Record<ReportClass, { n: number; found: number; noTopGames: number }>;
+	/** noTopGames/assistedGames are PER CLASS because the card is per class:
+	 *  a blitz card telling the user about excluded rapid games is a sentence
+	 *  about a different number (#294 review). */
+	byClass: Record<
+		ReportClass,
+		{ n: number; found: number; noTopGames: number; assistedGames: number }
+	>;
 	games: {
 		/** in-class human games contributing at least one top-recorded move */
 		considered: number;
@@ -136,9 +139,9 @@ function applyUci(board: Chess, uci: string) {
 export function skillReportTactics(games: ReportGame[]): TacticsReport {
 	const positions: TacticalPosition[] = [];
 	const byClass: TacticsReport['byClass'] = {
-		blitz: { n: 0, found: 0, noTopGames: 0 },
-		rapid: { n: 0, found: 0, noTopGames: 0 },
-		classical: { n: 0, found: 0, noTopGames: 0 }
+		blitz: { n: 0, found: 0, noTopGames: 0, assistedGames: 0 },
+		rapid: { n: 0, found: 0, noTopGames: 0, assistedGames: 0 },
+		classical: { n: 0, found: 0, noTopGames: 0, assistedGames: 0 }
 	};
 	const counts = { considered: 0, humanless: 0, offClass: 0, assisted: 0, noTopMoves: 0 };
 
@@ -161,6 +164,7 @@ export function skillReportTactics(games: ReportGame[]): TacticsReport {
 		}
 		if (g.botHintsUsed === true || (g.botUndos ?? 0) > 0 || (g.refusedMoves ?? 0) > 0) {
 			counts.assisted += 1;
+			byClass[cls].assistedGames += 1;
 			continue;
 		}
 
