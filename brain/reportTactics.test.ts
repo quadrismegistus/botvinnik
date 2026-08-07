@@ -152,6 +152,30 @@ describe('skillReportTactics selection', () => {
 		expect(TACTICS_OPENING_MAX_PLY).toBe(10);
 	});
 
+	it('applies the opening gate when moves[0] really is the standard start', () => {
+		// Every other fixture's move 0 is a filler with NO fenBefore, so only
+		// this test exercises the comparison itself (#294 fresh-verify: a
+		// garbage START_BOARD constant survived the whole file). A real game
+		// carries the full start FEN — and one whose counters drifted (a
+		// re-serialising writer) is still the standard start: the rule is
+		// FOUR fields, not six.
+		const early = (fen: string) =>
+			skillReportTactics([
+				{
+					...gameWith({ fen: FORK_FEN, bestUci: FORK_UCI, at: 8 }),
+					moves: [
+						{ ...filler(1)[0], fenBefore: fen },
+						...filler(8).slice(1),
+						gameWith({ fen: FORK_FEN, bestUci: FORK_UCI, at: 8 }).moves[8]
+					]
+				}
+			]).positions.length;
+		expect(early(START_FEN)).toBe(0);
+		expect(early('rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 3 7')).toBe(0);
+		// …and a genuinely different board at move 0 skips the gate:
+		expect(early('4k3/pp3ppp/8/8/2P5/2N5/8/4K3 w - - 0 1')).toBe(1);
+	});
+
 	it('skips the opening gate for a game from a custom start position', () => {
 		// A fromFen game's move index is not a ply from the standard start:
 		// "ply ≤ 10" there drops midgame moves, not theory (#294 review). The

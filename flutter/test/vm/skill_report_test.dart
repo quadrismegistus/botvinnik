@@ -135,8 +135,12 @@ Map<String, dynamic> _tacticsReport({
         'considered': 5,
         'humanless': 0,
         'offClass': 0,
-        'assisted': assistedGames,
-        'noTopMoves': noTopGames,
+        // DELIBERATELY not equal to the blitz slice's counts: the card must
+        // read byClass, and a fixture where class total == archive total
+        // cannot see it reading the wrong one (#294 fresh-verify — the
+        // swapped-source mutant stayed green on exactly that coincidence).
+        'assisted': assistedGames + 5,
+        'noTopMoves': noTopGames + 7,
       },
     };
 
@@ -271,6 +275,41 @@ void main() {
       expect(move['san'], 'e4');
       expect(move['uci'], 'e2e4');
       expect(move['bestUci'], 'e2e4');
+    });
+
+    test('carries the assistance flags only when the writer set them', () {
+      // The selector's assisted gate reads these three; a projection that
+      // drops them turns that gate into dead code with every suite green
+      // (#294 fresh-verify — the brain half was pinned, the bridge half not).
+      final assisted = reportGameProjection({
+        'botColor': 'b',
+        'botHintsUsed': true,
+        'botUndos': 2,
+        'refusedMoves': 1,
+        'moves': const [],
+      });
+      expect(assisted['botHintsUsed'], true);
+      expect(assisted['botUndos'], 2);
+      expect(assisted['refusedMoves'], 1);
+      final clean = reportGameProjection({'botColor': 'b', 'moves': const []});
+      expect(clean.containsKey('botHintsUsed'), isFalse);
+      expect(clean.containsKey('botUndos'), isFalse);
+      expect(clean.containsKey('refusedMoves'), isFalse);
+    });
+
+    test('a malformed move projects the GAME as moveless, never re-indexed', () {
+      // whereType<Map>() silently dropped the bad entry and every clock after
+      // it attached to the wrong move (#294 review, run-proven).
+      final projected = reportGameProjection({
+        'botColor': 'b',
+        'moves': [
+          {'color': 'w', 'evalPawns': 0.1, 'mate': null},
+          'not-a-move',
+          {'color': 'b', 'evalPawns': 0.2, 'mate': null},
+        ],
+      });
+      expect(projected['moves'], isEmpty,
+          reason: 'a true nothing beats positionally-shifted clocks');
     });
 
     test('carries bestMate and topRecorded only when the writer set them', () {
@@ -767,6 +806,28 @@ void main() {
       expect(find.text('100%'), findsNothing);
     });
 
+    testWidgets('nor to a false zero', (tester) async {
+      // Its own test, not a second _pump above: replacing the tree keeps the
+      // old SkillReportScreen STATE (same type, no key), so initState never
+      // reruns and the new sweep is never kicked — the second pump renders
+      // "Reading your games…" forever.
+      final low = _tacticsReport(n: 400, found: 1, positions: [
+        for (var i = 0; i < 400; i++)
+          {'key': 'k1', 'fen': 'f1', 'bestUci': 'b5c7', 'bestSan': 'Nc7+', 'cls': 'blitz', 'found': i < 1},
+      ]);
+      final bridge = FakeBridge()
+        ..skillReportUserResult = _userReport()
+        ..skillReportPeerResult = _peerReport();
+      await _pump(tester,
+          bridge: bridge,
+          sweep: seededSweep(report: low, curves: {
+            'k1': [0.0021, 0.9]
+          }));
+      expect(find.text('<1%'), findsNWidgets(2),
+          reason: '1 of 400 and 0.0021 are <1%, never a false "0%"');
+      expect(find.text('0%'), findsNothing);
+    });
+
     testWidgets('a near-tie reads "about as often", not a fake edge',
         (tester) async {
       final bridge = FakeBridge()
@@ -812,6 +873,21 @@ void main() {
           reason: 'no progress theatre for work that will never run');
       expect(find.textContaining('find these shots'), findsNothing,
           reason: 'no verdict quoting a Maia the device does not have');
+    });
+
+    testWidgets('before the first selection lands the card says so',
+        (tester) async {
+      // A fabricated zero-state here would claim "0 tactical positions"
+      // mid-first-pass (#294 fresh-verify) — null means "still reading",
+      // and the card must say that, not a number.
+      final sweep = MaiaTacticsSweep.test(MemoryDb())
+        ..debugUsableOverride = true; // no selector seam: publishes nothing
+      final bridge = FakeBridge()
+        ..skillReportUserResult = _userReport()
+        ..skillReportPeerResult = _peerReport();
+      await _pump(tester, bridge: bridge, sweep: sweep);
+      expect(find.text('Reading your games…'), findsOneWidget);
+      expect(find.textContaining('tactical positions'), findsNothing);
     });
 
     testWidgets('the floor is 30 positions', (tester) async {

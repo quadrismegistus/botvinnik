@@ -402,6 +402,33 @@ void main() {
     expect(sweep.peerFoundRate(['k1'], 1500), 0.9);
   });
 
+  test('a wipe landing while listGames is IN FLIGHT publishes nothing',
+      () async {
+    // Same front-edge race as the grader's (#294): the epoch bumps
+    // synchronously before the delete awaits, so an epoch sampled after the
+    // list vouches for rows that predate it. The sweep's consequence is
+    // milder (curves for ghosts, pruned next pass) but the published
+    // TACTICS would be a report about a wiped archive.
+    final db = _SlowListSweepDb();
+    await db.saveGame({'id': 'g1', 'endedAt': '2026-08-07T00:00:01Z'});
+    // Real ctor: the whole-phase debugTactics seam bypasses the per-game
+    // epoch checks under test here.
+    final bridge = FakeBridge()
+      ..skillReportTacticsResult = _tactics(['k1'])
+      ..eloLadderResult = _ladder;
+    final sweep = MaiaTacticsSweep(db, bridge, ValueNotifier(0), () => false)
+      ..debugAnalyze = ((fen, elos) async => _raw)
+      ..debugDecode = ((fen, raw) => _curves(const {'1500': 0.4, '1600': 0.4}));
+    final pass = sweep.ensureStarted();
+    await db.listStarted.future;
+    db.wipeEpoch++; // deleteAllGames' synchronous half
+    db.games.clear();
+    db.listGate.complete();
+    await pass;
+    expect(sweep.tactics, isNull,
+        reason: 'rows fetched before the wipe are not the archive');
+  });
+
   test('a wipe during the SELECTION walk publishes nothing', () async {
     // Selection is chunked across yields, so a wipe can land between games.
     // A half-merged archive published as "your found-rate" is a number about
@@ -559,5 +586,23 @@ class _LiveFlippingBridge extends FakeBridge {
       onFirstTactics();
     }
     return r;
+  }
+}
+
+/// First listGames blocks until released — the in-flight window.
+class _SlowListSweepDb extends MemoryDb {
+  final listStarted = Completer<void>();
+  final listGate = Completer<void>();
+  bool _first = true;
+
+  @override
+  Future<List<Map<String, dynamic>>> listGames() async {
+    final rows = await super.listGames();
+    if (_first) {
+      _first = false;
+      listStarted.complete();
+      await listGate.future;
+    }
+    return rows;
   }
 }
