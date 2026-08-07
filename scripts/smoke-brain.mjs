@@ -153,6 +153,18 @@ if (cc.humanColor !== 'w' || cc.stored.botColor !== 'b') fail('ccGameToStored hu
 if (brain.moveAccuracy(0) < 99) fail('moveAccuracy(0)');
 if (brain.gameAccuracy([], 'w') !== null) fail('gameAccuracy empty');
 
+// the skill report's walk and peer reader (#268): both are string-called from
+// Dart (report_api.dart), so tsc and vitest stay green when the export drops
+// out of the bundle — only this catches it (#294 review: deleting the export
+// left every suite green while the report screen errored on open)
+const srUser = brain.skillReportUser(
+	[{ botColor: 'b', botBothSides: false, pgn: '[TimeControl "180+2"]\n\n1. e4 *', moves: [] }],
+	'blitz'
+);
+if (srUser?.games?.considered !== 1) fail(`skillReportUser ${JSON.stringify(srUser?.games)}`);
+const srPeer = brain.skillReportPeer({ bands: {} }, 1500, 'blitz');
+if (srPeer !== null) fail('skillReportPeer must answer null for a missing cell');
+
 // the skill report's tactics selector (#268): the sweep and the card both
 // live off this export — drop it and the report screen throws on open
 const tac = brain.skillReportTactics([

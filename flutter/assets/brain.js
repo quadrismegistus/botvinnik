@@ -9816,6 +9816,12 @@ var brain = (() => {
     "promotion"
   ];
   var TACTICS_OPENING_MAX_PLY = 10;
+  var START_BOARD = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq -";
+  var startsFromSetup = (g) => {
+    const first = g.moves[0]?.fenBefore;
+    if (!first) return false;
+    return first.split(" ").slice(0, 4).join(" ") !== START_BOARD;
+  };
   var REPORT_CLASSES = ["blitz", "rapid", "classical"];
   var stripSanSuffix = (san) => san.replace(/[+#]+$/, "");
   function applyUci(board, uci) {
@@ -9828,11 +9834,11 @@ var brain = (() => {
   function skillReportTactics(games) {
     const positions = [];
     const byClass = {
-      blitz: { n: 0, found: 0 },
-      rapid: { n: 0, found: 0 },
-      classical: { n: 0, found: 0 }
+      blitz: { n: 0, found: 0, noTopGames: 0 },
+      rapid: { n: 0, found: 0, noTopGames: 0 },
+      classical: { n: 0, found: 0, noTopGames: 0 }
     };
-    const counts = { considered: 0, humanless: 0, offClass: 0, noTopMoves: 0 };
+    const counts = { considered: 0, humanless: 0, offClass: 0, assisted: 0, noTopMoves: 0 };
     for (const g of games) {
       const human = g.botBothSides ? null : g.botColor === "w" ? "b" : g.botColor === "b" ? "w" : null;
       if (!human) {
@@ -9844,13 +9850,18 @@ var brain = (() => {
         counts.offClass += 1;
         continue;
       }
+      if (g.botHintsUsed === true || (g.botUndos ?? 0) > 0 || (g.refusedMoves ?? 0) > 0) {
+        counts.assisted += 1;
+        continue;
+      }
+      const skipOpeningGate = startsFromSetup(g);
       let sawTop = false;
       for (let i = 0; i < g.moves.length; i++) {
         const m = g.moves[i];
         if (m.color !== human) continue;
         if (!m.topRecorded || !m.bestUci || !m.fenBefore) continue;
         sawTop = true;
-        if (i + 1 <= TACTICS_OPENING_MAX_PLY) continue;
+        if (!skipOpeningGate && i + 1 <= TACTICS_OPENING_MAX_PLY) continue;
         let bestSan;
         try {
           bestSan = applyUci(new Chess(m.fenBefore), m.bestUci).san;
@@ -9873,8 +9884,12 @@ var brain = (() => {
         byClass[cls].n += 1;
         if (found) byClass[cls].found += 1;
       }
-      if (sawTop) counts.considered += 1;
-      else counts.noTopMoves += 1;
+      if (sawTop) {
+        counts.considered += 1;
+      } else {
+        counts.noTopMoves += 1;
+        byClass[cls].noTopGames += 1;
+      }
     }
     return { positions, byClass, games: counts };
   }

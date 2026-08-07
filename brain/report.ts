@@ -45,6 +45,13 @@ export interface ReportGame {
 	botBothSides?: boolean;
 	pgn?: string;
 	moves: ReportMove[];
+	// Assistance provenance, read by the tactics axis (reportTactics.ts): a
+	// game where engine arrows were on screen, a takeback replayed the scored
+	// move, or refuse-blunders retried it does not measure FINDING anything.
+	// Optional — absent (imports) means no assistance was possible.
+	botHintsUsed?: boolean;
+	botUndos?: number;
+	refusedMoves?: number;
 }
 
 // ---- mirrors of the pipeline's constants (aggregate.mjs / extract.mjs) ----

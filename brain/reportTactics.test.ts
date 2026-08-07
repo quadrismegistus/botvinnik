@@ -99,8 +99,14 @@ describe('skillReportTactics selection', () => {
 		expect(p.found).toBe(true);
 		expect(p.cls).toBe('blitz');
 		expect(p.key).toBe(`${epdKey(FORK_FEN)}|${FORK_UCI}`);
-		expect(r.byClass.blitz).toEqual({ n: 1, found: 1 });
-		expect(r.games).toEqual({ considered: 1, humanless: 0, offClass: 0, noTopMoves: 0 });
+		expect(r.byClass.blitz).toEqual({ n: 1, found: 1, noTopGames: 0 });
+		expect(r.games).toEqual({
+			considered: 1,
+			humanless: 0,
+			offClass: 0,
+			assisted: 0,
+			noTopMoves: 0
+		});
 	});
 
 	it('admits the same position whether the user found it or not — the bias invariant', () => {
@@ -116,13 +122,69 @@ describe('skillReportTactics selection', () => {
 		expect(missed.positions[0].found).toBe(false);
 	});
 
-	it('excludes opening plies up to the peer tables" opening bucket', () => {
+	it("excludes opening plies up to the peer tables' opening bucket, boundary exact", () => {
 		// index 8 = ply 9 ≤ 10: theory territory, excluded; ply 13 selected
 		const early = skillReportTactics([gameWith({ fen: FORK_FEN, bestUci: FORK_UCI, at: 8 })]);
 		expect(early.positions).toHaveLength(0);
+		// The excluded game is CONSIDERED, not "not yet graded": sawTop must be
+		// set before the opening gate, or the card tells the user a graded game
+		// is pending a grade (#294 review, MUT-B5).
+		expect(early.games).toEqual({
+			considered: 1,
+			humanless: 0,
+			offClass: 0,
+			assisted: 0,
+			noTopMoves: 0
+		});
+		// Both edges of the boundary, so neither the operator nor the 0-based
+		// index arithmetic can drift (#294 review, MUT-B1/B2): index 9 = ply 10
+		// is the LAST excluded ply, index 10 = ply 11 the first selectable.
+		const plyTen = skillReportTactics([
+			gameWith({ fen: BACKRANK_FEN, bestUci: BACKRANK_UCI, at: 9 }, { human: 'b' })
+		]);
+		expect(plyTen.positions).toHaveLength(0);
+		const plyEleven = skillReportTactics([
+			gameWith({ fen: FORK_FEN, bestUci: FORK_UCI, at: 10 })
+		]);
+		expect(plyEleven.positions).toHaveLength(1);
 		const late = skillReportTactics([gameWith({ fen: FORK_FEN, bestUci: FORK_UCI, at: 12 })]);
 		expect(late.positions).toHaveLength(1);
 		expect(TACTICS_OPENING_MAX_PLY).toBe(10);
+	});
+
+	it('skips the opening gate for a game from a custom start position', () => {
+		// A fromFen game's move index is not a ply from the standard start:
+		// "ply ≤ 10" there drops midgame moves, not theory (#294 review). The
+		// fork fixture AT INDEX 0 is selectable because its first fenBefore is
+		// not the standard board.
+		const r = skillReportTactics([gameWith({ fen: FORK_FEN, bestUci: FORK_UCI, at: 0 })]);
+		expect(r.positions).toHaveLength(1);
+		expect(r.positions[0].motifs).toContain('fork');
+	});
+
+	it('excludes assisted games and counts them', () => {
+		const base = gameWith({ fen: FORK_FEN, bestUci: FORK_UCI });
+		const r = skillReportTactics([
+			{ ...base, botHintsUsed: true },
+			{ ...base, botUndos: 2 },
+			{ ...base, refusedMoves: 1 },
+			base
+		]);
+		// With arrows on screen, after a takeback, or behind a refusal retry,
+		// "found" is not a measurement of finding (#294 review).
+		expect(r.positions).toHaveLength(1);
+		expect(r.games.assisted).toBe(3);
+		expect(r.games.considered).toBe(1);
+	});
+
+	it('counts ungraded games per class, so a card never cites another class', () => {
+		const blitz = gameWith({ fen: FORK_FEN, bestUci: FORK_UCI }, { tc: '180+2' });
+		const rapidUngraded =
+			gameWith({ fen: FORK_FEN, bestUci: FORK_UCI, topRecorded: false }, { tc: '600' });
+		const r = skillReportTactics([blitz, rapidUngraded, rapidUngraded]);
+		expect(r.byClass.blitz.noTopGames).toBe(0);
+		expect(r.byClass.rapid.noTopGames).toBe(2);
+		expect(r.games.noTopMoves).toBe(2);
 	});
 
 	it('gates the population on topRecorded and counts the excluded game', () => {
@@ -131,6 +193,7 @@ describe('skillReportTactics selection', () => {
 		]);
 		expect(r.positions).toHaveLength(0);
 		expect(r.games.noTopMoves).toBe(1);
+		expect(r.byClass.blitz.noTopGames).toBe(1);
 		expect(r.games.considered).toBe(0);
 	});
 
@@ -205,9 +268,10 @@ describe('skillReportTactics selection', () => {
 			gameWith({ fen: FORK_FEN, bestUci: FORK_UCI, playedUci: 'e1f2' }, { tc: '600' }),
 			gameWith({ fen: FORK_FEN, bestUci: FORK_UCI }, { tc: '60' })
 		]);
-		expect(r.byClass.blitz).toEqual({ n: 1, found: 1 });
-		expect(r.byClass.rapid).toEqual({ n: 1, found: 0 }); // chess.com's bare "600" form
-		expect(r.byClass.classical).toEqual({ n: 0, found: 0 });
+		expect(r.byClass.blitz).toEqual({ n: 1, found: 1, noTopGames: 0 });
+		// chess.com's bare "600" form
+		expect(r.byClass.rapid).toEqual({ n: 1, found: 0, noTopGames: 0 });
+		expect(r.byClass.classical).toEqual({ n: 0, found: 0, noTopGames: 0 });
 		expect(r.games.offClass).toBe(1);
 		expect(r.positions).toHaveLength(2);
 	});
@@ -236,13 +300,53 @@ describe('skillReportTactics selection', () => {
 		const r = skillReportTactics([{ ...g, moves: [...g.moves, ...again.moves.slice(13)] }]);
 		expect(r.positions).toHaveLength(2);
 		expect(r.positions[0].key).toBe(r.positions[1].key); // one inference serves both
-		expect(r.byClass.blitz).toEqual({ n: 2, found: 1 });
+		expect(r.byClass.blitz).toEqual({ n: 2, found: 1, noTopGames: 0 });
 	});
 
-	it('keeps line-dependent motifs out of the tactical set', () => {
-		// sacrifice/material can only fire from a multi-move line, which only
-		// MISSED moves carry (#287) — letting them in reintroduces the bias.
-		expect(REPORT_TACTICAL_MOTIFS).not.toContain('sacrifice');
-		expect(REPORT_TACTICAL_MOTIFS).not.toContain('material');
+	it('pins the tactical motif set exactly', () => {
+		// The exact list, not membership spot-checks: deleting seven of ten
+		// entries survived every other test (#294 review, MUT-B3b), and adding
+		// the positional four would quietly turn outposts into "tactics"
+		// (MUT-B4b). sacrifice/material stay out because they can only fire
+		// from a multi-move line, which only MISSED moves carry (#287) —
+		// letting them in reintroduces the bias.
+		expect([...REPORT_TACTICAL_MOTIFS]).toEqual([
+			'mate',
+			'back-rank mate',
+			'smothered mate',
+			'fork',
+			'free capture',
+			'pin',
+			'skewer',
+			'discovered attack',
+			'trapped piece',
+			'promotion'
+		]);
+	});
+
+	it('selects a pin and a free capture — geometric motifs beyond the fork', () => {
+		// Bg5 pins the f6 knight (explain.test.ts's own fixture).
+		const PIN_FEN = 'rnbqkb1r/ppp2ppp/4pn2/3p4/2PP4/2N5/PP2PPPP/R1BQKBNR w KQkq - 0 4';
+		const pin = skillReportTactics([gameWith({ fen: PIN_FEN, bestUci: 'c1g5' })]);
+		expect(pin.positions).toHaveLength(1);
+		expect(pin.positions[0].motifs).toContain('pin');
+		// Rxd7 wins the queen for free while mate is on (bestMate known).
+		const FREE_FEN = 'k7/3q4/8/8/8/8/3R4/K7 w - - 0 1';
+		const free = skillReportTactics([
+			gameWith({ fen: FREE_FEN, bestUci: 'd2d7', bestMate: 5 })
+		]);
+		expect(free.positions).toHaveLength(1);
+		expect(free.positions[0].motifs).toContain('free capture');
+		expect(free.positions[0].motifs).toContain('mate');
+	});
+
+	it('does not select a positional-only move — an outpost is not a shot', () => {
+		// Nd5 takes an outpost; motifTags says ['outpost'] and nothing else
+		// (explain.test.ts). The pool must refuse it or "tactics" quietly
+		// becomes "good moves".
+		const OUTPOST_FEN = '4k3/pp3ppp/8/8/2P5/2N5/8/4K3 w - - 0 1';
+		const r = skillReportTactics([gameWith({ fen: OUTPOST_FEN, bestUci: 'c3d5' })]);
+		expect(r.positions).toHaveLength(0);
+		expect(r.games.considered).toBe(1);
 	});
 });
