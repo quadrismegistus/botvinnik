@@ -674,6 +674,11 @@ void main() {
         ..skillReportPeerResult = _peerReport();
       var asked = 0;
       final sweep = MaiaTacticsSweep.test(MemoryDb())
+        // Without the override this test is a macOS-only test: on the Linux
+        // CI runner Maia3Engine.supported is false, ensureStarted declines
+        // before reaching the selector, and asked stays 0 — run-proven, the
+        // [[ci-host-platform-gates]] class caught by CI itself this time.
+        ..debugUsableOverride = true
         ..debugTactics = ((_) {
           asked++;
           return _tacticsReport();
